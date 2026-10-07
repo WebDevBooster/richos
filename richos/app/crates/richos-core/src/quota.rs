@@ -72,12 +72,23 @@ pub struct Reading {
     /// §4): it replaces 99 as the weekly point at normal speed. `None` everywhere but the one
     /// account the variable names.
     pub weekly_cutoff: Option<f64>,
+    /// **This account's last measured handoff** (`Service::track_tokens`, from the gate's
+    /// markers): the longest time from the order to a helper's handoff commit, and the weekly
+    /// points the account spent in it. `None` until one is measured: then
+    /// [`HANDOFF_DEFAULT_MS`] and no points.
+    pub handoff: Option<(u64, f64)>,
 }
 
-/// **H: the time a teammate needs to commit and write its handoff** (weekly-switch plan §1).
-/// 10 minutes is the plan's starting figure and is unverified; the plan's §4 rounds measure
-/// real handoffs and set it from them.
-pub const HANDOFF_MS: u64 = 10 * 60_000;
+/// **H until a handoff is measured: 5 minutes** (the CEO, 2026-10-07: *"I would hope that when
+/// the teammates get their handoff message, they'd get to a full finish within a few minutes.
+/// Hopefully no more than 3-5 minutes or so."*). The 10-minute guess it replaces was never
+/// measured. Once an account has a measured handoff, that is its H (`Reading::handoff`).
+pub const HANDOFF_DEFAULT_MS: u64 = 5 * 60_000;
+
+/// The orders of one handoff reach each helper at its next tool call, so within minutes of
+/// each other; an account's next leaving is days later. The markers ordered within this span
+/// of an account's newest one are its last handoff.
+pub const HANDOFF_BATCH_MS: u64 = 3_600_000;
 
 /// `RICHOS_TEST_WEEKLY_CUTOFF=<account id>:<percent>` (weekly-switch plan §4): the weekly
 /// point of that one account is `<percent>` instead of 99. No UI; read once at launch. Only
@@ -137,21 +148,23 @@ impl Reading {
     /// percentage for the switch needs to be adjusted dynamically so that this doesn't happen.
     /// My "1-2% sooner" was just guesswork."*, "this" being 100% before the switch):
     ///
-    /// `point = 99 - max(0, ceil(s x (I + H)) - 1)`
+    /// `point = 99 - max(0, ceil(s x I + max(s x H, P)) - 1)`
     ///
-    /// with `s` the window's measured speed, `I` the time to the next check (`interval`) and
-    /// `H` the time a teammate needs to hand off (`HANDOFF_MS`). If the wait for the next check
-    /// and the handoff would use 1 point or less, it is 99; up to 2 points, 98; up to 5, 95;
-    /// and so on, as early as the speed requires, with no floor but 0. So the point plus
-    /// `s x (I + H)` is at or under 100 at any speed: the next check and the handoff end by
-    /// 100%. Every weekly decision uses it, so the account switch and the order to every
-    /// teammate on the account fire at the same moment. 99 is the test cut-off instead, on the
-    /// one account it names (`weekly_cutoff`).
+    /// with `s` the window's measured speed (the larger of the percentage speed and the token
+    /// speed), `I` the time to the next check (`interval`), `H` the time a handoff takes and `P`
+    /// the points the last handoff on this account spent (`handoff`: measured from the order to
+    /// the handoff commit, 5 minutes and no points until one is measured). If the wait for the
+    /// next check and the handoff would use 1 point or less, it is 99; up to 2 points, 98; up to
+    /// 5, 95; and so on, as early as the speed requires, with no floor but 0. So the point plus
+    /// what the wait and the handoff spend is at or under 100 at any speed. Every weekly
+    /// decision uses it, so the account switch and the order to every teammate on the account
+    /// fire at the same moment. 99 is the test cut-off instead, on the one account it names
+    /// (`weekly_cutoff`).
     pub fn weekly_point(&self, window: &Window) -> f64 {
         let base = self.weekly_cutoff.unwrap_or(resets::WEEKLY_THRESHOLD);
         let speed = self.speeds.get(&window.id).copied().unwrap_or(0.);
-        let points = speed * (self.interval() + HANDOFF_MS) as f64;
-        let earlier = (points.ceil() - 1.).max(0.);
+        let (handoff_ms, handoff_points) = self.handoff.unwrap_or((HANDOFF_DEFAULT_MS, 0.));
+        let points = speed * self.interval() as f64 + (speed * handoff_ms as f64).max(handoff_points);        let earlier = (points.ceil() - 1.).max(0.);
         (base - earlier).clamp(0., 100.)
     }
     /// Has this weekly window reached its handoff point?
@@ -511,6 +524,8 @@ struct Snapshot {
     /// set at every token scan. Used only while the reading is older than the normal check
     /// (`reading_with`).
     since_reading: f64,
+    /// This account's last measured handoff (`Reading::handoff`), set at every token scan.
+    handoff: Option<(u64, f64)>,
 }
 
 /// One window's reading as a speed base: used percent, its reset time, and when it was read.
@@ -578,7 +593,7 @@ impl Snapshot {
             }
         }
         Reading { windows, speeds,
-            expected: self.rise_until.is_some_and(|t| t > now), rises: self.rises.clone(), weekly_cutoff }
+            expected: self.rise_until.is_some_and(|t| t > now), rises: self.rises.clone(), weekly_cutoff, handoff: self.handoff }
     }
     fn accept(&mut self, mut windows: Vec<Window>, observed: u64) {
         self.measure(&windows, observed);
@@ -591,9 +606,9 @@ impl Snapshot {
         let speeds = std::mem::take(&mut self.speeds);
         let bases = std::mem::take(&mut self.bases);
         let rises = std::mem::take(&mut self.rises);
-        let (rise_until, token_speed) = (self.rise_until, self.token_speed);
+        let (rise_until, token_speed, handoff) = (self.rise_until, self.token_speed, self.handoff);
         *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rises, rise_until, empty_at: None, token_speed,
-            since_reading: 0. };
+            since_reading: 0., handoff };
     }
     /// **A check that came back with no figures.** Every kind records when, so the pause stops
     /// waiting on it (`Admission::NoReading`). A null answer (`ReadError::NoReading`) is not a
@@ -1047,26 +1062,55 @@ impl Service {
         let now = crate::util::now_millis();
         self.scanned_at.store(now, std::sync::atomic::Ordering::SeqCst);
         let streamed = self.sink.take();
+        // The gate's handoff markers: when each helper was ordered and when it committed.
+        let markers = gate::handoffs(&self.cwd.join("engine-state"));
         let (mut learned, mut moved) = (false, false);
         for account in self.accounts.list() {
+            let mine: Vec<&(PathBuf, gate::Handoff)> = markers.iter().filter(|(_, m)| m.account == account.id).collect();
             let one = account.id == crate::claude_accounts::ACCOUNT_ONE;
             let folder = if one { self.transcripts_one.clone() } else { account.folder.clone() };
             let week = |s: &Snapshot| s.windows.iter().find(|w| w.id == "seven_day").cloned().zip(s.checked_at);
             let reading = if one { week(&self.snapshot.lock().unwrap()) }
                 else { self.extra.lock().unwrap().get(&account.id).and_then(|(_, s)| week(s)) };
-            let (speed, since) = {
+            let (speed, since, counted) = {
                 let mut tracks = self.tokens.lock().unwrap();
                 let track = tracks.entry(account.id.clone()).or_default();
                 if let Some(folder) = &folder { track.scan(folder, now); }
                 for (_, found) in streamed.iter().filter(|(id, _)| *id == account.id) { track.add_use(found); }
                 let since = reading.as_ref().map_or(0., |(_, at)| track.points_since(*at, now));
+                // A handoff under way keeps its tokens until its commit; a committed one has its
+                // points counted once, from the order to the commit.
+                track.hold_from = mine.iter().filter(|(_, m)| m.committed_at.is_none() && m.at + HANDOFF_BATCH_MS > now)
+                    .map(|(_, m)| m.at).min();
+                let counted: Vec<(PathBuf, f64)> = mine.iter()
+                    .filter_map(|(path, m)| match (m.committed_at, m.points) {
+                        (Some(committed), None) => Some((path.clone(), track.points_since(m.at, committed))),
+                        _ => None,
+                    }).collect();
                 if let Some((window, at)) = reading { learned |= track.reading(&window, at, now); }
-                (track.speed(now), since)
+                (track.speed(now), since, counted)
             };
+            for (path, points) in &counted {
+                if let Err(error) = gate::record_points(path, *points) {
+                    eprintln!("[richos] quota: a handoff's points could not be kept ({error})");
+                }
+            }
+            // **What a handoff really takes on this account** (the CEO, 2026-10-07): its last
+            // handoff's longest order-to-commit time and the points it spent.
+            let measured: Vec<(u64, u64, f64)> = mine.iter().filter_map(|(path, m)| {
+                let committed = m.committed_at?;
+                let points = m.points.or_else(|| counted.iter().find(|(p, _)| p == path).map(|(_, p)| *p)).unwrap_or(0.);
+                Some((m.at, committed.saturating_sub(m.at), points))
+            }).collect();
+            let handoff = measured.iter().map(|m| m.0).max().map(|newest| {
+                let last = measured.iter().filter(|m| m.0 + HANDOFF_BATCH_MS >= newest);
+                (last.clone().map(|m| m.1).max().unwrap_or(HANDOFF_DEFAULT_MS), last.map(|m| m.2).fold(0., f64::max))
+            });
             let mut set = |s: &mut Snapshot| {
-                moved |= s.token_speed != Some(speed) || s.since_reading != since;
+                moved |= s.token_speed != Some(speed) || s.since_reading != since || s.handoff != handoff;
                 s.token_speed = Some(speed);
                 s.since_reading = since;
+                s.handoff = handoff;
             };
             if one { set(&mut self.snapshot.lock().unwrap()); }
             else if let Some((_, snapshot)) = self.extra.lock().unwrap().get_mut(&account.id) { set(snapshot); }
@@ -1982,9 +2026,9 @@ pub(crate) mod tests {
     /// **Plan §15 answer 10, point 3: a measured jump moves BOTH check points at once**, and the
     /// published view (the panel's) carries them. Five-hour gaining 8 a minute: 100 - 8 = 92
     /// (from 93). Weekly gaining 2 a minute, checked every minute: the next check and a
-    /// 10-minute handoff use 2 x (1 + 10) = 22 points, so the weekly handoff point is
-    /// 99 - (22 - 1) = 78, and 78 + 22 = 100 (weekly-switch plan §1; it was 100 - 2 = 98
-    /// before the handoff existed, and 97 while the handoff point was capped two points early).
+    /// 5-minute handoff (the default until one is measured) use 2 x (1 + 5) = 12 points, so the
+    /// weekly handoff point is 99 - (12 - 1) = 88, and 88 + 12 = 100 (weekly-switch plan §1;
+    /// 78 while the guessed handoff was 10 minutes).
     #[test]
     fn a_measured_jump_moves_both_check_points_and_the_view_shows_them() {
         let mut s = Snapshot::default();
@@ -1992,21 +2036,21 @@ pub(crate) mod tests {
         assert_eq!(s.view(policy(), NOW).act_at, [("five_hour".to_string(), 93.), ("seven_day".to_string(), 99.)].into());
         s.accept(both_at(48., 62.), NOW + 60_000);
         let act = s.view(policy(), NOW + 60_000).act_at;
-        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 78.).abs() < 1e-9, "{act:?}");
+        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 88.).abs() < 1e-9, "{act:?}");
     }
 
     // ---- the weekly switch handoff (richos-hq docs/plans/2026-10-07-weekly-switch-handoff.md) --
 
     /// **Plan §1, the weekly handoff point moves as early as the measured speed requires**
     /// (his words, 2026-10-07: *"the percentage for the switch needs to be adjusted dynamically
-    /// so that this doesn't happen"*, "this" being 100% before the switch). With a 10-minute
-    /// handoff, `s x (I + H)` is the speed times 15 minutes when checked every 5, and times 11
-    /// when the speed is fast enough to check every minute:
-    /// - 0.05 a minute: 0.05 x 15 = 0.75 points, 1 or less, so 99;
-    /// - 0.1 a minute: 0.1 x 15 = 1.5 points, so 98;
-    /// - 0.3 a minute: 0.3 x 15 = 4.5 points, so 95;
-    /// - 1 point in 3 minutes: (1 / 3) x 15 = 5 points, so 95;
-    /// - 4 a minute (fast, checked every minute): 4 x 11 = 44 points, so 56.
+    /// so that this doesn't happen"*, "this" being 100% before the switch). With the 5-minute
+    /// handoff used until one is measured, `s x (I + H)` is the speed times 10 minutes when
+    /// checked every 5, and times 6 when the speed is fast enough to check every minute:
+    /// - 0.05 a minute: 0.05 x 10 = 0.5 points, 1 or less, so 99;
+    /// - 0.15 a minute: 0.15 x 10 = 1.5 points, so 98;
+    /// - 0.25 a minute: 0.25 x 10 = 2.5 points, so 97;
+    /// - 1 point in 3 minutes: (1 / 3) x 10 = 3.3 points, so 96;
+    /// - 4 a minute (fast, checked every minute): 4 x 6 = 24 points, so 76.
     ///
     /// At every speed the point plus `s x (I + H)` is at or under 100: the next check and the
     /// handoff end by 100%. The published point and the weekly hold agree: at the point the
@@ -2015,10 +2059,10 @@ pub(crate) mod tests {
     fn the_weekly_handoff_point_moves_as_early_as_the_measured_speed_requires() {
         for (gain, minutes, interval, point) in [
             (0.05, 1, REFRESH_INTERVAL_MS, 99.),
-            (0.1, 1, REFRESH_INTERVAL_MS, 98.),
-            (0.3, 1, REFRESH_INTERVAL_MS, 95.),
-            (1., 3, REFRESH_INTERVAL_MS, 95.),
-            (4., 1, FAST_REFRESH_INTERVAL_MS, 56.),
+            (0.15, 1, REFRESH_INTERVAL_MS, 98.),
+            (0.25, 1, REFRESH_INTERVAL_MS, 97.),
+            (1., 3, REFRESH_INTERVAL_MS, 96.),
+            (4., 1, FAST_REFRESH_INTERVAL_MS, 76.),
         ] {
             let mut s = Snapshot::default();
             s.accept(both_at(40., 60.), NOW);
@@ -2029,7 +2073,7 @@ pub(crate) mod tests {
             assert!((view.act_at["seven_day"] - point).abs() < 1e-9, "{gain} in {minutes} min: {:?}", view.act_at);
             assert_eq!(view.act_at["five_hour"], 93., "the five-hour point is untouched");
             let reading = s.reading();
-            let wait_and_handoff = reading.speeds["seven_day"] * (reading.interval() + HANDOFF_MS) as f64;
+            let wait_and_handoff = reading.speeds["seven_day"] * (reading.interval() + HANDOFF_DEFAULT_MS) as f64;
             assert!(point + wait_and_handoff <= 100. + 1e-9, "{gain} in {minutes} min: {point} + {wait_and_handoff} passes 100");
             for (used, held) in [(point - 0.1, false), (point, true)] {
                 s.windows[1].used_percent = used;

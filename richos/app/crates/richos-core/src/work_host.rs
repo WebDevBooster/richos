@@ -6858,7 +6858,7 @@ mod tests {
         let folder = h.state.join(crate::quota::gate::HANDOFFS_DIR);
         std::fs::create_dir_all(&folder).unwrap();
         let marker = crate::quota::gate::Handoff { agent: agent.into(), session: "work-session-one".into(),
-            account: account.into(), at: crate::util::now_millis(), continued_at: None };
+            account: account.into(), at: crate::util::now_millis(), continued_at: None, committed_at: None, points: None };
         std::fs::write(folder.join(format!("{agent}.json")), serde_json::to_vec(&marker).unwrap()).unwrap();
     }
     fn continued(h: &Harness, agent: &str) -> Option<u64> {

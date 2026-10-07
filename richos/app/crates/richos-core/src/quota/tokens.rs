@@ -62,6 +62,9 @@ pub struct Track {
     current: Option<(f64, Option<u64>, Option<u64>)>,
     last_reading: Option<u64>,
     pub episodes: Vec<Episode>,
+    /// Keep every message since this moment too: an order whose handoff commit has not come
+    /// yet (`Service::track_tokens` counts its points when it does).
+    pub hold_from: Option<u64>,
 }
 
 fn stamp(text: &str) -> Option<u64> {
@@ -174,9 +177,9 @@ impl Track {
                 _ => Some((used, None, window.resets_at)),
             };
         }
-        // Keep only what an episode still open, the live window, or the tokens since the last
-        // good reading (`points_since`) can use.
-        let keep = [self.current.and_then(|c| c.1), Some(now.saturating_sub(LIVE_MS)), self.last_reading]
+        // Keep only what an episode still open, the live window, the tokens since the last good
+        // reading (`points_since`) or a handoff still under way (`hold_from`) can use.
+        let keep = [self.current.and_then(|c| c.1), Some(now.saturating_sub(LIVE_MS)), self.last_reading, self.hold_from]
             .into_iter().flatten().min().unwrap_or(0);
         self.events.retain(|_, e| e.0 > keep);
         closed

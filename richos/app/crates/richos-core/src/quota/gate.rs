@@ -97,6 +97,41 @@ pub struct Handoff {
     /// sees it and never orders the same helper twice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continued_at: Option<u64>,
+    /// **When the helper made its handoff commit** (the CEO, 2026-10-07: *"I would hope that
+    /// when the teammates get their handoff message, they'd get to a full finish within a few
+    /// minutes"*): the first call of this ordered helper whose command carries `RichOS
+    /// handoff:` ([`is_handoff_commit`]). `committed_at - at` is what a handoff really took.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_at: Option<u64>,
+    /// The weekly points the account spent from the order to that commit, counted by the quota
+    /// service from the tokens it saw (`Service::track_tokens`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub points: Option<f64>,
+}
+
+/// The call that makes the handoff commit [`HANDOFF_ORDER`] asks for: a shell command whose
+/// text carries `RichOS handoff:`.
+pub fn is_handoff_commit(payload: &Value) -> bool {
+    payload["tool_input"]["command"].as_str().is_some_and(|c| c.contains("RichOS handoff:"))
+}
+
+/// Record, once, when the helper of the marker at `path` made its handoff commit. Read again
+/// first, so nothing the host or the quota service wrote meanwhile is lost. Best effort: a
+/// commit that cannot be recorded leaves the handoff time at its default.
+fn record_commit(path: &Path, at: u64) {
+    if let Ok(marker) = read_json::<Handoff>(path) {
+        if marker.committed_at.is_none() {
+            drop(super::atomic_write(path, &Handoff { committed_at: Some(at), ..marker }));
+        }
+    }
+}
+
+/// Record, once, the points the account spent during this marker's handoff (the quota
+/// service's count), read again first like [`record_commit`].
+pub fn record_points(path: &Path, points: f64) -> io::Result<()> {
+    let marker = read_json::<Handoff>(path)?;
+    if marker.points.is_some() { return Ok(()); }
+    super::atomic_write(path, &Handoff { points: Some(points), ..marker })
 }
 
 /// Every handoff marker on disk, with its file. One that cannot be read is left out.
@@ -112,7 +147,9 @@ pub fn handoffs(state: &Path) -> Vec<(std::path::PathBuf, Handoff)> {
 
 /// Record that the host chose the continuation for this marker's helper (plan §2, 1a).
 pub fn mark_continued(path: &Path, marker: &Handoff, at: u64) -> io::Result<()> {
-    super::atomic_write(path, &Handoff { continued_at: Some(at), ..marker.clone() })
+    // The file as it is now: the gate and the quota service write to it too.
+    let current = read_json::<Handoff>(path).unwrap_or_else(|_| marker.clone());
+    super::atomic_write(path, &Handoff { continued_at: Some(at), ..current })
 }
 
 /// The marker's file for `agent`, or `None` for an id that is not a plain name (a path must
@@ -147,6 +184,8 @@ fn handoff(payload: &Value, state: &Path, scope: &Path, account: &str) -> Option
                 account: account.to_string(),
                 at: crate::util::now_millis(),
                 continued_at: None,
+                committed_at: None,
+                points: None,
             };
             let written = serde_json::to_vec(&marker).map_err(io::Error::other)
                 .and_then(|bytes| file.write_all(&bytes)).and_then(|()| file.sync_all());
@@ -157,7 +196,10 @@ fn handoff(payload: &Value, state: &Path, scope: &Path, account: &str) -> Option
             }
             Some(Err(io::Error::other(HANDOFF_ORDER)))
         }
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Some(Ok(())),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            if is_handoff_commit(payload) { record_commit(&path, crate::util::now_millis()); }
+            Some(Ok(()))
+        }
         Err(_) => None,
     }
 }
@@ -521,6 +563,62 @@ mod tests {
             Duration::ZERO, Duration::ZERO).unwrap_err());
         assert!(dispatch.starts_with("RichOS desktop quota: Still waiting"), "{dispatch}");
         assert_eq!(fs::read_dir(state.join(HANDOFFS_DIR)).unwrap().count(), 1, "only the helper on the leaving account was ordered");
+    }
+
+    /// **What a handoff really takes replaces the 10-minute guess** (the CEO, 2026-10-07: *"I
+    /// would hope that when the teammates get their handoff message, they'd get to a full
+    /// finish within a few minutes. Hopefully no more than 3-5 minutes or so."*).
+    ///
+    /// The gate: an ordered helper's ordinary call records nothing; its handoff commit (a
+    /// command carrying `RichOS handoff:`) records when, once, on its marker.
+    ///
+    /// The service: that account's last handoff took 2 minutes from the order to the commit and
+    /// spent 3,000,000 Opus tokens at 1,000,000 a point, 3 points. The weekly window gains 0.5
+    /// a minute, checked every 5. The room the switch leaves is the wait for the next check
+    /// plus the handoff, whichever of its time at this speed and its measured points is more:
+    /// 0.5 x 5 + max(0.5 x 2, 3) = 5.5 points, so the point is 99 - (6 - 1) = 94. The 10-minute
+    /// guess gave 0.5 x 15 = 7.5, so 92; the 5-minute default before any measurement gives
+    /// 0.5 x 10 = 5, so 95.
+    #[test]
+    fn a_handoff_is_measured_from_the_order_to_its_commit_and_its_cost_sets_the_switch_point() {
+        let (_root, service, state, scope) = setup();
+        let now = crate::util::now_millis();
+        let (minute, hour) = (60_000, 3_600_000);
+        let both = |weekly: f64| vec![
+            Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: 10.,
+                resets_at: Some(now + hour), duration_ms: 18_000_000 },
+            Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: weekly,
+                resets_at: Some(now + 48 * hour), duration_ms: 604_800_000 },
+        ];
+        *service.snapshot.lock().unwrap() = Snapshot { checked_at: Some(now), windows: both(99.), ..Default::default() };
+        service.publish().unwrap();
+        let call = |command: &str| json!({"agent_id":"helper-a","session_id":"s","tool_name":"Bash","tool_input":{"command":command}});
+        wait(&call("cargo test"), &state, &scope, "1", Duration::ZERO, Duration::ZERO).unwrap_err();
+        let path = state.join(HANDOFFS_DIR).join("helper-a.json");
+        wait(&call("git add -A && git commit -m 'parser'"), &state, &scope, "1", Duration::ZERO, Duration::ZERO).unwrap();
+        assert!(read_json::<Value>(&path).unwrap()["committed_at"].is_null(), "an ordinary commit is not the handoff");
+        wait(&call("git commit --allow-empty -m 'RichOS handoff: parser done; next: its tests'"), &state, &scope, "1",
+            Duration::ZERO, Duration::ZERO).unwrap();
+        let marker: Value = read_json(&path).unwrap();
+        assert!(marker["committed_at"].as_u64().is_some_and(|c| c >= marker["at"].as_u64().unwrap()), "{marker}");
+
+        // The account's last handoff: ordered 12 minutes ago, committed 10 minutes ago.
+        atomic_write(&path, &json!({"agent":"helper-a","session":"s","account":"1","at":now - 12 * minute,
+            "committed_at":now - 10 * minute})).unwrap();
+        let mut track = crate::quota::tokens::Track::with_episodes(vec![crate::quota::tokens::Episode {
+            points: 1., tokens: [("claude-opus-5-5".to_string(), 1_000_000)].into() }]);
+        track.add("msg_handoff", now - 11 * minute, "claude-opus-5-5", 3_000_000, 1_000);
+        service.tokens.lock().unwrap().insert("1".into(), track);
+        let mut reading = Snapshot::default();
+        reading.accept(both(60.), now - minute);
+        reading.accept(both(60.5), now);
+        *service.snapshot.lock().unwrap() = reading;
+        service.track_tokens();
+        let view = service.view();
+        assert_eq!(view.refresh_interval_ms, crate::quota::REFRESH_INTERVAL_MS);
+        assert!((view.act_at["seven_day"] - 94.).abs() < 1e-9, "{:?}", view.act_at);
+        assert!(read_json::<Value>(&path).unwrap()["points"].as_f64().is_some_and(|p| (p - 3.).abs() < 1e-9),
+            "the handoff's points are kept on its marker");
     }
 
     #[test]
