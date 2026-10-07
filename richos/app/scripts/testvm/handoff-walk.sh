@@ -252,12 +252,14 @@ else
 fi
 # Never said failed: a work record (engine-state/assignments/<partition>/<id>.json, compact JSON,
 # assignment.rs AssignmentState kebab-case) whose state is failed, at the order or now.
+# Only the work records' blocks are read: claude-quota.json has "state" fields of its own.
+work_states() { awk '/^== / {w = ($0 ~ /\/engine-state\/assignments\//)} w' "$@" | grep -o '"state":"[a-z-]*"'; }
 if ! grep -q '^== .*/engine-state/assignments/' "$S/records.txt"; then
   fail "no work record was written (the job never reached the register)"
-elif grep -q '"state":"failed"' "$S/records-after-order.txt" "$S/records.txt"; then
+elif work_states "$S/records-after-order.txt" "$S/records.txt" | grep -q '"state":"failed"'; then
   fail "a work record says failed"
 else
-  note "ok: no work record says failed ($(grep -o '"state":"[a-z-]*"' "$S/records.txt" | sort | uniq -c | tr -s ' ' | tr '\n' ';'))"
+  note "ok: no work record says failed (at the order: $(work_states "$S/records-after-order.txt" | tr '\n' ' '); now: $(work_states "$S/records.txt" | tr '\n' ' '))"
 fi
 if [ "$MODE" = two ] && ! grep -q 'claude-accounts/2 ' "$S/calls.log"; then
   fail "Account 2's folder never ran a claude call"
