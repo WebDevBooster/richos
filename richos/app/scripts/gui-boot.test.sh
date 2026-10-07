@@ -85,6 +85,8 @@
 #   B6a missing Claude fails first-run setup specifically, even with deferred connection
 #   B7  the saved company removed       -> RED
 #   B8  the company registry corrupted  -> RED
+#   B9  the speech model removed        -> RED (the video tools, a setup essential since 2026-10-07)
+#   B9a ...and it is first-run setup that says so, naming the video tools
 #   Y1  gui_kill ends an ordinary process, verified by pid and not by signal
 #   Y2  ...and escalates to KILL for one that ignores TERM
 #   Z   this run left nothing running, and the count is printed
@@ -181,7 +183,7 @@
 # so a suite that never adopts `host_gap_exit` cannot hide behind a declaration either.
 
 # run-tests: inputs richos/app/scripts/gui-boot.test.sh richos/app/scripts/lib/gui-launch.sh richos/app/scripts/package-app.sh richos/app/scripts/make-engine-asset.sh richos/app/src-tauri richos/app/crates richos/app/ui richos/engine
-# run-tests: covers richos/app/scripts/lib/gui-launch.sh richos/app/src-tauri/src/main.rs richos/app/src-tauri/src/engine.rs
+# run-tests: covers richos/app/scripts/lib/gui-launch.sh richos/app/src-tauri/src/main.rs richos/app/src-tauri/src/engine.rs richos/app/crates/richos-core/examples/gui_boot_machine.rs
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1170,6 +1172,12 @@ if [ ! -f "$GUI_ENGINE_DIR/runtime/delivery.json" ] && [ -z "${RICHOS_RUNTIME_DI
   echo "gui-boot.test.sh: provide an extracted engine with runtimes via RICHOS_GUI_ENGINE_SOURCE, or a verified RICHOS_RUNTIME_DIR." >&2
   host_gap_exit
 fi
+# The video tools are a setup essential (2026-10-07), present only with both pinned speech
+# models, so the healthy machine needs real ones (gui-launch.sh `gui_machine`).
+if [ -z "${RICHOS_GUI_SPEECH_MODELS:-}" ]; then
+  echo "gui-boot.test.sh: provide both pinned speech models via RICHOS_GUI_SPEECH_MODELS, joined by ':' (the nightly hands it ~/Models/Whisper/ggml-small.en.bin and ggml-large-v3-turbo-q5_0.bin, lib/runtime_cache.py)." >&2
+  host_gap_exit
+fi
 
 gui_prebuilt_mode || echo "  ... building richos-tauri (the artifact under test is built here, never assumed)"
 # The artifact is built INSIDE this checkout, so it names its commit the way a packaged bundle
@@ -1352,7 +1360,13 @@ break_and_boot() {   # break_and_boot <name> <case-id> <what-to-remove-cmd...>
   local name="$1" id="$2"; shift 2
   local broken="$TMP/broken-$id.noindex"
   rm -rf "$broken"
-  cp -a "$MACHINE" "$broken" || { bad "$id $name" "could not copy the machine"; return; }
+  # Cloned (APFS clonefile, `cp -c`): the machine carries a 322 MB runtime and, since the video
+  # tools became a setup essential, a 487 MB speech model, and a byte copy of both per case is
+  # gigabytes for nothing. A plain copy where cloning is not possible.
+  if ! cp -ac "$MACHINE" "$broken" 2>/dev/null; then
+    rm -rf "$broken"
+    cp -a "$MACHINE" "$broken" || { bad "$id $name" "could not copy the machine"; return; }
+  fi
   ( cd "$broken" && "$@" ) || { bad "$id $name" "could not break the machine"; return; }
   gui_boot "$broken" "$TMP/broken-$id.log" 60
   if gui_account "$TMP/broken-$id.log" >"$TMP/broken-$id.report" 2>&1; then
@@ -1377,6 +1391,17 @@ else
       "the executable-readiness proof did not detect the missing Claude stand-in"
 fi
 break_and_boot "the saved company is removed -> caught"       B7 rm -f  "Library/Application Support/com.richos.app/config.json"
+
+# B9 — the video tools, a setup essential since 2026-10-07 (media-tools plan, slice 3). With the
+# speech model gone, setup is incomplete, and it must be first-run setup that says so.
+break_and_boot "the speech model is removed -> caught"        B9 rm -rf .config/richos/models
+if grep -Fq 'NOT RESOLVED  first-run setup' "$TMP/broken-B9.report" \
+  && grep -Fq '[richos] first-run setup: my video tools is NOT installed' "$TMP/broken-B9.log"; then
+  ok "B9a a missing speech model is rejected specifically by first-run setup, as the video tools"
+else
+  bad "B9a a missing speech model is rejected specifically by first-run setup, as the video tools" \
+      "the video-tools proof did not detect the missing speech model"
+fi
 
 # B8 — the seam the entity registry added, and the break is a CORRUPTION rather than a
 # removal. Deleting `entities.json` is HEALED by the no-orphan migration (main.rs:895): the
