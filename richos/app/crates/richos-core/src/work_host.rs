@@ -512,6 +512,26 @@ const WORKER_ENDED_CONTINUATION: &str =
      then closing the assignment. Do not prepare another worker for work that is already \
      done. Nothing about the assignment has changed and your seat is the same one.";
 
+/// **What the back end is told when helpers it started were handed off at the weekly switch**
+/// (richos-hq `docs/plans/2026-10-07-weekly-switch-handoff.md` §2). The quota gate ordered
+/// each of them, on the account being left, to commit, write a `RichOS handoff:` commit and
+/// end (`quota::gate::HANDOFF_ORDER`); its marker says so, and the host names every one whose
+/// run has ended between this head and [`HANDOFF_CONTINUATION_TAIL`]. Chosen first, before the
+/// consult and review-passed sentences, and sent only once this back end is off the account
+/// being left (`wait_for_the_switch`).
+const HANDOFF_CONTINUATION_HEAD: &str =
+    "Helpers you started were stopped because the Claude account they ran on is being left \
+     before its weekly limit. Each was told to commit what it had, then make one more commit \
+     starting `RichOS handoff:` that says what is done, what is left and the next step, and \
+     end. That is this app telling you, from its own record of the run, not a guess. Continue \
+     each of them now, on the account this seat is on:";
+const HANDOFF_CONTINUATION_TAIL: &str =
+    "A worker: `prepare` with `continue_of` set to its receipt (the same teammate, repositories \
+     and brief), then launch it; it starts at the saved commit with the handoff in its brief. \
+     A reviewer: prepare it again for the same commit. A consult: ask it again. Do not review \
+     or land work that was handed off part-way. Nothing about the assignment has changed and \
+     your seat is the same one.";
+
 /// **What the back end is told when the helper that ended was the REVIEWER, and it passed.**
 ///
 /// The sentence above names the next step for a WORKER that has ended, and it is the wrong
@@ -1539,8 +1559,11 @@ impl WorkHost {
                 )
             }
             // **Picked back up after RichOS closed on it** (C6, option B): it is registered again
-            // and it had reached a back end before, so some of it may already be done.
-            None if record.state == AssignmentState::Registered && record.work_session.is_some() && !resumed => {
+            // and it had reached a back end before, so some of it may already be done. **And
+            // started again after a usage limit cut it** (weekly-switch plan §3): the new back
+            // end reads its receipts, handed-off workers included, before redoing anything.
+            None if !resumed && ((record.state == AssignmentState::Registered && record.work_session.is_some())
+                || (record.state == AssignmentState::Blocked && record.detail == LIMIT_SWITCH_DETAIL)) => {
                 format!("{PICKED_UP_NOTE}\n\n{}", brief_for(record, resumed, &instruction))
             }
             None => brief_for(record, resumed, &instruction),
@@ -1884,7 +1907,7 @@ impl WorkHost {
                 // ended and a reviewer that has passed are two different places to be, and the
                 // one sentence that used to serve both sent the back end to prepare a reviewer
                 // for work a reviewer had already passed.
-                self.continuation_after_a_helper_ended(record)
+                self.continuation_after_a_helper_ended(record, &session)
             } else {
                 let mine: Vec<crate::cognition::BackgroundCommand> = self
                     .background_commands(backend)
@@ -1936,7 +1959,7 @@ impl WorkHost {
                         break;
                     }
                     helper_turn = true;
-                    self.continuation_after_a_helper_ended(record)
+                    self.continuation_after_a_helper_ended(record, &session)
                 } else {
                     waits += 1;
                     let running: Vec<String> =
@@ -1995,6 +2018,20 @@ impl WorkHost {
                 {
                     chars.set(continuation.len());
                     measured.set(None);
+                }
+                // A handoff continuation never goes out on the account being left (plan §2.3).
+                if continuation.starts_with(HANDOFF_CONTINUATION_HEAD) {
+                    match self.wait_for_the_switch(backend, binding, record, &work, context) {
+                        Some(true) => {
+                            chars.set(continuation.len());
+                            measured.set(None);
+                        }
+                        Some(false) => {}
+                        None => {
+                            outcome = Err(CognitionError::Protocol("The waiting assignment was stopped.".into()));
+                            break;
+                        }
+                    }
                 }
                 let mut items = 0usize;
                 let mut said = String::new();
@@ -2577,7 +2614,13 @@ impl WorkHost {
     /// next step. An unreadable trail falls back to the worker sentence, which is the one
     /// that is right at the start of the flow and wrong only later — the safe direction for
     /// a reading that failed.
-    fn continuation_after_a_helper_ended(&self, record: &Assignment) -> String {
+    ///
+    /// **Before either: a helper handed off at the weekly switch** (weekly-switch plan §2,
+    /// steps 1 and 1a). Both callers come here, so both paths get the same answer.
+    fn continuation_after_a_helper_ended(&self, record: &Assignment, session: &str) -> String {
+        if let Some(handed) = self.handoff_continuation(record, session) {
+            return handed;
+        }
         match crate::work_status::trail(
             &self.state,
             &record.entity_id,
@@ -2601,6 +2644,79 @@ impl WorkHost {
                 WORKER_ENDED_CONTINUATION.to_string()
             }
         }
+    }
+
+    /// **The handoff continuation, when this session has helpers the weekly switch handed off
+    /// whose runs have ended** (weekly-switch plan §2). The markers are the gate's
+    /// (`quota::gate::handoffs`): this session's, not yet used, and whose helper is no longer
+    /// open in the journal. On the path where one run's end is the signal
+    /// (`wait_for_a_helper_run_to_end`), a handed-off helper still committing is named at its
+    /// own end, not before. Each marker named is used here, at the choice (1a): the chosen
+    /// sentence is what goes out, through the quota wait and a turn asked again, and a marker
+    /// counts once. `None` when there is none, or the journal cannot say which are open.
+    fn handoff_continuation(&self, record: &Assignment, session: &str) -> Option<String> {
+        let view = crate::app_workers::status(&self.state, Some(session));
+        if !view.is_attributed() {
+            return None;
+        }
+        let open: Vec<&str> = view.items.iter().filter_map(|item| item.agent_id.as_deref()).collect();
+        let handed: Vec<_> = crate::quota::gate::handoffs(&self.state).into_iter()
+            .filter(|(_, m)| m.session == session && m.continued_at.is_none() && !open.contains(&m.agent.as_str()))
+            .collect();
+        if handed.is_empty() {
+            return None;
+        }
+        let now = crate::util::now_millis();
+        for (path, marker) in &handed {
+            if let Err(error) = crate::quota::gate::mark_continued(path, marker, now) {
+                eprintln!("[richos] work: the handoff of {} could not be marked continued: {error}", marker.agent);
+            }
+        }
+        let receipts = crate::work_status::trail(&self.state, &record.entity_id, &record.thread_id, &record.obligation_id)
+            .map(|trail| trail.helpers).unwrap_or_default();
+        let named: Vec<String> = handed.iter().map(|(_, m)| match receipts.iter().find(|(agent, _, _)| *agent == m.agent) {
+            Some((_, id, role)) => format!("- the {role} on receipt `{id}`"),
+            None => format!("- the helper whose run was `{}` (find its receipt with `inspect`)", m.agent),
+        }).collect();
+        Some(format!("{HANDOFF_CONTINUATION_HEAD}\n{}\n\n{HANDOFF_CONTINUATION_TAIL}", named.join("\n")))
+    }
+
+    /// **The handoff continuation goes out only once this back end is off the account being
+    /// left** (weekly-switch plan §2, step 3). The switch is tried first, as before every
+    /// continuation; when a command this back end started defers it (`account_switch_due`),
+    /// the host waits here and tries again, rather than send the continuation on the account
+    /// being left, where the successor would be ordered at once. With no next account nothing
+    /// is pending, and the continuation waits in the quota hold instead (§2, step 5).
+    /// `Some(true)` when the run moved to a new lease here, `None` when his Stop or a quit
+    /// ended the wait.
+    fn wait_for_the_switch(
+        self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment,
+        work: &WorkAssignment, context: impl Fn() -> String + Copy,
+    ) -> Option<bool> {
+        let mut switched = false;
+        loop {
+            if !self.switch_pending(backend) {
+                return Some(switched);
+            }
+            if self.switch_account_between_turns(backend, binding, record, work, context) {
+                switched = true;
+                continue;
+            }
+            let inner = backend.inner.lock().unwrap();
+            if inner.closing || inner.stopped.contains(&record.id) {
+                return None;
+            }
+            drop(backend.wake.wait_timeout(inner, WORKER_WAIT_POLL).unwrap());
+        }
+    }
+
+    /// This back end's lease is on an account being left for its week, and another account is
+    /// in use: the switch is due and has not happened yet.
+    fn switch_pending(&self, backend: &Arc<Backend>) -> bool {
+        let Some(quota) = self.quota.lock().unwrap().clone() else { return false };
+        let account = backend.lease.lock().unwrap().as_ref().and_then(|lease| lease.account().map(str::to_string));
+        let Some(account) = account else { return false };
+        quota.view().leaving.contains(&account) && quota.lease_account().id != account
     }
 
     /// **Wait for every run this lease has open to be WITNESSED ending.** `true` when they
@@ -4609,6 +4725,9 @@ mod tests {
         streamed: std::collections::BTreeMap<String, crate::quota::StreamedReading>,
         /// The account each work turn was sent under, in order.
         turns: Vec<Option<String>>,
+        /// How many times a lease's running commands were read: each switch check reads them
+        /// (`account_switch_due`), so a test can wait for the host to have checked again.
+        command_reads: usize,
     }
 
     impl Drop for WorkLease {
@@ -4625,6 +4744,7 @@ mod tests {
             &self.session
         }
         fn running_commands(&self) -> Option<crate::lease_commands::CommandReading> {
+            self.fill.lock().unwrap().command_reads += 1;
             *self.commands.lock().unwrap()
         }
         fn background_commands(&self) -> Option<Vec<crate::cognition::BackgroundCommand>> {
@@ -5542,6 +5662,11 @@ mod tests {
             "the second lease was spawned under the next account");
         assert_eq!(quota.lease_account().id, "2");
         assert!(h.work_prompts.lock().unwrap().len() >= 2, "the work was sent again");
+        // **Weekly-switch plan §3**: the run started again reads its receipts, handed-off
+        // workers included, before redoing anything; the first run was told nothing of it.
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert!(!prompts[0].starts_with(PICKED_UP_NOTE), "{}", prompts[0]);
+        assert!(prompts[1].starts_with(PICKED_UP_NOTE), "the run started again was not told to check first: {}", prompts[1]);
         // The row's last word is the SECOND run's, on the successor; the cut run said nothing
         // to him at all. (How the second run settles is this harness's own business: with no
         // worker receipts it reports that nothing was landed, as every harness run does.)
@@ -6677,6 +6802,221 @@ mod tests {
         }
     }
 
+    // ---- the weekly switch handoff (richos-hq docs/plans/2026-10-07-weekly-switch-handoff.md) --
+
+    const DECLARED_WAIT: &str = "I've asked the helper to go on.\n\nstop-declared: waiting-on-teammate — \
+        The helper is working, and the land depends on it.";
+
+    /// The back end's own journal rows for a helper run: started in the background, or ended.
+    fn helper_started(agent: &str) -> String {
+        let row = |body: serde_json::Value| serde_json::json!({"schema": 1, "callback": body}).to_string() + "\n";
+        row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"SubagentStart","agent_id":agent}))
+            + &row(serde_json::json!({"session_id":"work-session-one","hook_event_name":"PostToolUse",
+                "tool_name":"Agent","tool_response":{"isAsync":true,"status":"async_launched","agentId":agent}}))
+    }
+    fn helper_stopped(agent: &str) -> String {
+        serde_json::json!({"schema": 1, "callback": {"session_id":"work-session-one",
+            "hook_event_name":"SubagentStop","agent_id":agent}}).to_string() + "\n"
+    }
+    /// Append rows to the journal in one write, as the hook appends one callback.
+    fn journal(h: &Harness, rows: &str) {
+        let path = h.state.join("evidence").join("work-session-one").join("callbacks.jsonl");
+        let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+        std::io::Write::write_all(&mut file, rows.as_bytes()).unwrap();
+    }
+    /// The marker the quota gate writes when it orders `agent` on `account` (`quota::gate`).
+    fn ordered(h: &Harness, agent: &str, account: &str) {
+        let folder = h.state.join(crate::quota::gate::HANDOFFS_DIR);
+        std::fs::create_dir_all(&folder).unwrap();
+        let marker = crate::quota::gate::Handoff { agent: agent.into(), session: "work-session-one".into(),
+            account: account.into(), at: crate::util::now_millis(), continued_at: None };
+        std::fs::write(folder.join(format!("{agent}.json")), serde_json::to_vec(&marker).unwrap()).unwrap();
+    }
+    fn continued(h: &Harness, agent: &str) -> Option<u64> {
+        let path = h.state.join(crate::quota::gate::HANDOFFS_DIR).join(format!("{agent}.json"));
+        serde_json::from_slice::<crate::quota::gate::Handoff>(&std::fs::read(path).unwrap()).unwrap().continued_at
+    }
+    /// A worker's receipt whose run was `agent` (the engine joins the agent id to it).
+    fn worker_run(h: &Harness, id: &str, agent: &str) {
+        engine_receipt(h, id, "obligation-7", "worker", None, None);
+        use sha2::{Digest, Sha256};
+        let path = h.state.join("work-receipts").join(format!("{:x}", Sha256::digest(b"[\"depot\",\"thread-one\"]")))
+            .join(format!("{id}.json"));
+        let mut row: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        row["agent_id"] = agent.into();
+        std::fs::write(path, serde_json::to_vec(&row).unwrap()).unwrap();
+    }
+    /// A weekly reading of `account`, as its lease streams one (`rate_limit_event`), taken now
+    /// and merged before the next turn (`quota::Service::before_turn`), which decides the
+    /// switch on it. The probe's own refresh would not read again inside its five-second
+    /// double-click cooldown.
+    fn weekly_streamed(quota: &crate::quota::Service, account: &str, used: f64, resets_in_hours: u64) {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let now = crate::util::now_millis();
+        quota.before_turn(account, Some((vec![crate::quota::Window { id: "seven_day".into(), label: "Weekly".into(),
+            used_percent: used, resets_at: Some(now + resets_in_hours * 3_600_000), duration_ms: 168 * 3_600_000 }], now)));
+    }
+    fn until(what: &str, done: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !done() {
+            assert!(std::time::Instant::now() < deadline, "{what}");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    /// **Weekly-switch plan §2 and §7, slice 3: the handoff continuation, on both paths, sent
+    /// only after the switch.** Two accounts. The back end runs on Account 1 and a helper of
+    /// its (`helper-1`, the worker on receipt `worker-1`) is out. Then Account 1 reaches its
+    /// weekly point: Work is put in use, Account 1 is leaving, the gate orders `helper-1` (its
+    /// marker), and a command the back end started defers the switch. `helper-1` ends:
+    /// - path 1: it was open, and `wait_for_owned_workers` sees it end;
+    /// - path 2: nothing was open and the back end said it is waiting on a helper, and
+    ///   `wait_for_a_helper_run_to_end` sees its run end.
+    ///
+    /// Either way the continuation is the handoff one, naming the worker's receipt, its marker
+    /// is used when it is chosen, and it is NOT sent while the switch waits on the command.
+    /// Once the command ends, the run moves to Work and the handoff is sent there.
+    #[test]
+    #[cfg(unix)]
+    fn a_handoff_continuation_is_chosen_on_both_paths_and_sent_only_after_the_switch() {
+        use crate::lease_commands::CommandReading;
+        for declared in [false, true] {
+            let h = harness(5);
+            *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+            witnessed(&h.state, "work-session-one");
+            worker_run(&h, "worker-1", "helper-1");
+            let quota = Arc::new(crate::quota::Service::open(&h.root).unwrap());
+            let work = quota.accounts.add("Work").unwrap();
+            let bin = crate::quota::tests::fake_claude(&h.root);
+            crate::quota::tests::usage(&h.root.join("usage-1.json"), 10., 50., "2099-01-05T00:00:00Z");
+            crate::quota::tests::usage(&work.folder.clone().unwrap().join("usage.json"), 5., 10., "2099-01-06T00:00:00Z");
+            quota.refresh(&bin, true);
+            h.fill.lock().unwrap().quota = Some(quota.clone());
+            h.host.set_quota(quota.clone());
+            if declared {
+                // A helper run that has already ended, and a back end that says it waits.
+                journal(&h, &(helper_started("helper-0") + &helper_stopped("helper-0")));
+                h.replies.lock().unwrap().push_back(DECLARED_WAIT.into());
+            } else {
+                journal(&h, &helper_started("helper-1"));
+            }
+            h.host.start();
+            let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+            let read = || assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+            until("the host never waited for a helper", || read().detail == "A helper is doing the work.");
+
+            weekly_streamed(&quota, "1", 99., 48);
+            assert_eq!(quota.lease_account().id, "2");
+            assert_eq!(quota.view().leaving, vec!["1".to_string()]);
+            ordered(&h, "helper-1", "1");
+            *h.commands.lock().unwrap() = Some(CommandReading::Running(1));
+            journal(&h, &if declared { helper_started("helper-1") + &helper_stopped("helper-1") } else { helper_stopped("helper-1") });
+
+            until("the handoff was never chosen", || continued(&h, "helper-1").is_some());
+            // The host has checked the deferred switch twice since the choice: once before the
+            // turn, as before every continuation, and again while it waits for the switch.
+            let reads = h.fill.lock().unwrap().command_reads;
+            until("the host never checked the switch again", || h.fill.lock().unwrap().command_reads >= reads + 2);
+            assert_eq!(h.work_prompts.lock().unwrap().len(), 1, "declared={declared}: sent on the account being left");
+            *h.commands.lock().unwrap() = Some(CommandReading::Clear);
+            assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(60)), "declared={declared}");
+            let prompts = h.work_prompts.lock().unwrap().clone();
+            assert_eq!(prompts.len(), 2, "declared={declared}: {prompts:?}");
+            assert!(prompts[1].starts_with(HANDOFF_CONTINUATION_HEAD), "declared={declared}: {}", prompts[1]);
+            assert!(prompts[1].contains("- the worker on receipt `worker-1`"), "{}", prompts[1]);
+            assert!(prompts[1].ends_with(HANDOFF_CONTINUATION_TAIL), "{}", prompts[1]);
+            assert_eq!(h.fill.lock().unwrap().turns, vec![Some("1".to_string()), Some("2".to_string())],
+                "declared={declared}: the handoff went out only on Work");
+            h.host.shutdown();
+            std::fs::remove_dir_all(&h.root).unwrap();
+        }
+    }
+
+    /// **Plan §2, step 1: on the path where one run's end is the signal, a handed-off helper
+    /// still open is not named.** The back end said it waits on a helper; then the ordered
+    /// `helper-1` starts again (still committing) while another run ends. The continuation is
+    /// the worker one and `helper-1`'s marker stays unused. When `helper-1`'s own run ends,
+    /// the next continuation is the handoff one, naming it.
+    #[test]
+    fn a_handed_off_helper_still_open_is_named_only_at_its_own_end() {
+        let h = harness(5);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        witnessed(&h.state, "work-session-one");
+        worker_run(&h, "worker-1", "helper-1");
+        journal(&h, &(helper_started("helper-0") + &helper_stopped("helper-0")));
+        h.replies.lock().unwrap().extend([DECLARED_WAIT.to_string(), DECLARED_WAIT.to_string()]);
+        h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let read = || assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        until("the host never waited for a helper", || read().detail == "A helper is doing the work.");
+
+        ordered(&h, "helper-1", "1");
+        journal(&h, &(helper_started("helper-1") + &helper_stopped("helper-0")));
+        until("no continuation after the run that ended", || h.work_prompts.lock().unwrap().len() == 2);
+        assert_eq!(h.work_prompts.lock().unwrap()[1], WORKER_ENDED_CONTINUATION);
+        assert_eq!(continued(&h, "helper-1"), None, "a helper still open was named before its end");
+
+        journal(&h, &helper_stopped("helper-1"));
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(60)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 3, "{prompts:?}");
+        assert!(prompts[2].starts_with(HANDOFF_CONTINUATION_HEAD) && prompts[2].contains("`worker-1`"), "{}", prompts[2]);
+        assert!(continued(&h, "helper-1").is_some());
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
+    /// **Plan §2, step 5 and Frank's M2: with one account, the handoff waits for the reset and
+    /// is announced once.** The one account reaches its weekly point while `helper-1` works:
+    /// it is ordered and ends, and the run waits in the quota hold, nothing sent. At the reset
+    /// the handoff continuation goes out, and the back end starts a successor (`helper-2`) in
+    /// that turn. When the successor ends, the next continuation is the worker one (a reviewer
+    /// next), not the handoff again: the marker was used when the handoff was chosen.
+    #[test]
+    #[cfg(unix)]
+    fn with_one_account_the_handoff_waits_for_the_reset_and_the_successor_s_end_is_a_worker_end() {
+        let h = harness(5);
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Open);
+        witnessed(&h.state, "work-session-one");
+        worker_run(&h, "worker-1", "helper-1");
+        let quota = Arc::new(crate::quota::Service::open(&h.root).unwrap());
+        let bin = crate::quota::tests::fake_claude(&h.root);
+        crate::quota::tests::usage(&h.root.join("usage-1.json"), 10., 50., "2099-01-05T00:00:00Z");
+        quota.refresh(&bin, true);
+        h.fill.lock().unwrap().quota = Some(quota.clone());
+        h.host.set_quota(quota.clone());
+        journal(&h, &helper_started("helper-1"));
+        h.replies.lock().unwrap().extend(["A worker is on it.".to_string(), DECLARED_WAIT.to_string()]);
+        h.host.start();
+        let receipt = h.host.register(&h.binding, &registration(&h)).unwrap();
+        let read = || assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        until("the host never waited for a helper", || read().detail == "A helper is doing the work.");
+
+        weekly_streamed(&quota, "1", 99., 48);
+        assert_eq!(quota.view().leaving, vec!["1".to_string()]);
+        assert!(matches!(quota.view().admission, crate::quota::Admission::Held { .. }));
+        ordered(&h, "helper-1", "1");
+        journal(&h, &helper_stopped("helper-1"));
+        until("the run never waited for the allowance", || read().state == AssignmentState::WaitingForQuota);
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1, "nothing is sent while the week is held");
+
+        h.first_item_gate.shut();
+        // The reset: a new week, read at 5%.
+        weekly_streamed(&quota, "1", 5., 7 * 24);
+        until("the handoff never went out after the reset", || h.work_prompts.lock().unwrap().len() == 2);
+        assert!(h.work_prompts.lock().unwrap()[1].starts_with(HANDOFF_CONTINUATION_HEAD));
+        journal(&h, &helper_started("helper-2"));
+        h.first_item_gate.release();
+        journal(&h, &helper_stopped("helper-2"));
+
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(60)));
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 3, "{prompts:?}");
+        assert_eq!(prompts[2], WORKER_ENDED_CONTINUATION, "the handoff was announced again");
+        h.host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+    }
+
     #[test]
     fn the_declaration_is_read_where_the_engine_reads_it() {
         assert!(declares_waiting_on_a_helper("Done for now.\nstop-declared: waiting-on-teammate — reason here"));
@@ -6709,10 +7049,10 @@ mod tests {
             std::fs::write(&path, serde_json::to_vec(&row).unwrap()).unwrap();
         };
         ended("consult-1", "consult", 100.0);
-        assert_eq!(h.host.continuation_after_a_helper_ended(&record), CONSULT_ENDED_CONTINUATION);
+        assert_eq!(h.host.continuation_after_a_helper_ended(&record, "work-session-one"), CONSULT_ENDED_CONTINUATION);
         assert!(h.host.no_helper_ever_ran(&record), "a consult was counted as a helper that worked on it");
         ended("worker-1", "worker", 200.0);
-        assert_eq!(h.host.continuation_after_a_helper_ended(&record), WORKER_ENDED_CONTINUATION);
+        assert_eq!(h.host.continuation_after_a_helper_ended(&record, "work-session-one"), WORKER_ENDED_CONTINUATION);
         assert!(!h.host.no_helper_ever_ran(&record));
         std::fs::remove_dir_all(h.root).unwrap();
     }
