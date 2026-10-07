@@ -97,6 +97,34 @@ fn child_configuration_is_explicit_and_disables_auto_memory_only_for_that_child(
     assert!(args.contains(&"--settings".to_string()));
 }
 
+/// **Weekly-switch plan §1: the provider is told which Claude account it spends**, beside its
+/// folder, so the quota gate can order the helpers of an account being left. With no account
+/// bound nothing is set (the gate reads that as Account 1), and a value inherited from the
+/// app's own environment never survives.
+#[test]
+fn the_provider_is_told_which_claude_account_it_spends() {
+    use richos_core::claude_accounts::Account;
+    let f = Scratch::new();
+    let mut profile = EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    let environment = |profile: &EngineProfile| {
+        let mut command = std::process::Command::new("/fictional/provider");
+        command.env("RICHOS_CLAUDE_ACCOUNT", "9");
+        profile.configure(&mut command, "fictional-session", &f.0.join("scope.json"));
+        command.get_envs().map(|(k, v)| (k.to_string_lossy().to_string(), v.map(|v| v.to_string_lossy().to_string())))
+            .collect::<BTreeMap<_, _>>()
+    };
+    assert_eq!(environment(&profile)["RICHOS_CLAUDE_ACCOUNT"], None, "an inherited account is removed");
+    profile.claude_account = Some(Account { id: "1".into(), label: "Home".into(), folder: None });
+    let one = environment(&profile);
+    assert_eq!(one["RICHOS_CLAUDE_ACCOUNT"].as_deref(), Some("1"));
+    assert!(!one.contains_key("CLAUDE_CONFIG_DIR"), "Account 1 keeps the app's own folder");
+    let folder = f.0.join("claude-accounts/2");
+    profile.claude_account = Some(Account { id: "2".into(), label: "Work".into(), folder: Some(folder.clone()) });
+    let two = environment(&profile);
+    assert_eq!(two["RICHOS_CLAUDE_ACCOUNT"].as_deref(), Some("2"));
+    assert_eq!(two["CLAUDE_CONFIG_DIR"].as_deref(), folder.to_str());
+}
+
 #[test]
 fn interrupted_initialization_recovers_without_a_second_initial_commit() {
     let f = Scratch::new();
