@@ -1231,6 +1231,33 @@ fn ready_a_spare_front_desk(app: &AppHandle, entity: richos_core::EntityId) {
 /// `native::child_args` are. The caller measures; this decides what, if anything, is true
 /// enough to say. **Silent by ARITHMETIC and not by a chosen threshold**: an uncontended
 /// `Mutex::lock` returns in well under a millisecond and rounds to 0.
+/// **Keeps yt-dlp at the newest nightly** (media-tools plan §3, `richos_core::media_tools`): one
+/// check three seconds after launch, then every six hours, or every five minutes while no copy is
+/// installed (review m3). A plain thread, because each check is a blocking `curl`. A failed check
+/// changes nothing on disk; it is one operator line and the next tick tries again.
+fn spawn_media_tools_refresh() {
+    use richos_core::media_tools;
+    let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from) else {
+        eprintln!("[richos] yt-dlp: no HOME, so no tools folder; not checking");
+        return;
+    };
+    let tools = media_tools::tools_dir(&home);
+    let spawned = std::thread::Builder::new().name("yt-dlp-refresh".into()).spawn(move || {
+        std::thread::sleep(media_tools::FIRST_CHECK_AFTER);
+        loop {
+            match media_tools::refresh_with_curl(&tools) {
+                Ok(media_tools::Refreshed::Unchanged { tag }) => eprintln!("[richos] yt-dlp: nightly {tag} is the newest"),
+                Ok(media_tools::Refreshed::Installed { tag, previous, .. }) => eprintln!(
+                    "[richos] yt-dlp: installed nightly {tag}{}",
+                    previous.map(|p| format!(" (replaces {p})")).unwrap_or_default()),
+                Err(e) => eprintln!("[richos] yt-dlp: check failed ({}): {e}", e.kind()),
+            }
+            std::thread::sleep(media_tools::next_check(&tools));
+        }
+    });
+    if let Err(e) = spawned { eprintln!("[richos] yt-dlp: could not start its check: {e}"); }
+}
+
 fn spine_wait_notice(site: &str, waited: std::time::Duration) -> Option<String> {
     let millis = waited.as_millis();
     (millis > 0).then(|| format!(
@@ -3546,6 +3573,12 @@ fn main() {
             // refusal.
             if updates::selftest_mode().is_none() {
                 updates::spawn_work_watcher(app.handle().clone());
+                // THE NEWEST yt-dlp (CEO, 2026-10-07: "the most up-to-date version of that tool
+                // is always available on the user's machine"; media-tools plan §3). Same three-
+                // second delay as the update check, then every six hours, or every five
+                // minutes while no copy is installed. Not under the selftest, for the same
+                // reason as the watcher above.
+                spawn_media_tools_refresh();
             }
 
             // ================================================================

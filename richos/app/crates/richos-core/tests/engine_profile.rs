@@ -79,7 +79,8 @@ fn an_unrelated_or_redirected_directory_is_never_adopted() {
 fn child_configuration_is_explicit_and_disables_auto_memory_only_for_that_child() {
     let f = Scratch::new(); let profile = EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
     let mut command = std::process::Command::new("/fictional/provider");
-    command.env("RICHOS_PROJECTS_DIR", "/fictional/terminal-context").env("LORO_CORPUS", "/fictional/private-corpus").env("NODE_OPTIONS", "--require /fictional/private.js");
+    command.env("RICHOS_PROJECTS_DIR", "/fictional/terminal-context").env("LORO_CORPUS", "/fictional/private-corpus").env("NODE_OPTIONS", "--require /fictional/private.js")
+        .env("RICHOS_APP_READ_ROOTS", "[\"/fictional/other-company\"]");
     profile.configure(&mut command, "fictional-session", &f.0.join("scope.json"));
     let environment: BTreeMap<_, _> = command.get_envs().map(|(k,v)| (k.to_string_lossy().to_string(),v.map(|v|v.to_string_lossy().to_string()))).collect();
     assert_eq!(environment["CLAUDE_CODE_DISABLE_AUTO_MEMORY"].as_deref(), Some("1"));
@@ -92,6 +93,7 @@ fn child_configuration_is_explicit_and_disables_auto_memory_only_for_that_child(
     assert_eq!(environment["NODE_OPTIONS"], None);
     assert_eq!(environment["RICHOS_PROJECTS_DIR"].as_deref(), profile.state.join("platform-projects").to_str());
     assert_eq!(environment["RICHOS_SESSION_ID"].as_deref(), Some("fictional-session"));
+    assert_eq!(environment["RICHOS_APP_READ_ROOTS"].as_deref(), Some("[]"));
     let args: Vec<_> = command.get_args().map(|a|a.to_string_lossy().to_string()).collect();
     assert!(args.contains(&"--plugin-dir".to_string()));
     assert!(args.contains(&"--settings".to_string()));
@@ -321,6 +323,10 @@ fn classified_permissions_keep_defaults_and_only_add_the_current_company_and_thr
     let files=richos_core::attachments::conversation_folder(&f.0,thread.as_str());
     assert_eq!(profile.attachments_folder().as_deref(),Some(files.as_path()));
     assert_eq!(directories,vec![a.to_str().unwrap(),profile.target_state().to_str().unwrap(),files.to_str().unwrap()]);
+    let environment: BTreeMap<_, _> = command.get_envs().map(|(k,v)| (k.to_string_lossy().to_string(),v.map(|v|v.to_string_lossy().to_string()))).collect();
+    let inspector_roots: Vec<String> = serde_json::from_str(environment["RICHOS_APP_READ_ROOTS"].as_deref().unwrap()).unwrap();
+    assert_eq!(inspector_roots, directories);
+    assert!(!inspector_roots.iter().any(|root|root==b.to_str().unwrap()));
     // It exists before the session starts, and it is private.
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&files).unwrap().permissions().mode()&0o777,0o700);

@@ -88,6 +88,9 @@ pub mod ledger;
 pub mod loro;
 pub mod live;
 pub mod machinery;
+/// yt-dlp on the user's Mac, installed into the app's tools folder and kept at the newest
+/// `nightly` release (media-tools plan slice 2).
+pub mod media_tools;
 pub mod native;
 /// The output record: every file a thread produced, written by witnesses (Output side panel
 /// PRD §3-§4, richos-hq `docs/prds/2026-10-05-output-side-panel.md`).
