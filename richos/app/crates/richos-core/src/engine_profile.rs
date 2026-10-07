@@ -464,6 +464,13 @@ impl EngineProfile {
         if let Some(folder) = self.claude_account.as_ref().and_then(|a| a.folder.as_ref()) {
             command.env("CLAUDE_CONFIG_DIR", folder);
         }
+        // **Which Claude account this provider and every helper inside it spend** (weekly-switch
+        // plan §1): hooks run in the provider's environment, so the quota gate reads it on every
+        // helper's tool call and orders the helpers of an account being left. Missing means
+        // Account 1 (`quota::gate::account_of_this_process`).
+        if let Some(account) = &self.claude_account {
+            command.env(crate::quota::gate::ACCOUNT_ENV, &account.id);
+        }
         if let Some((entity, thread)) = &self.work_scope {
             command.env("RICHOS_APP_ENTITY", entity).env("RICHOS_APP_THREAD", thread);
         }
