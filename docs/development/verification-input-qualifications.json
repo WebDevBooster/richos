@@ -173,7 +173,7 @@
         "richos/engine/scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "richos/engine/scripts/hooks/conceal.mutation.sh": "e9c89cc9df59ca229ef47ed34d71198ccfb2bac48d0701e91d8ba22755a68f5d",
         "richos/engine/scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
-        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "0f648bfb40b4a4b2a29320f87d8e809986381d13b2062111cea9b33e9fc8ce28"
+        "richos/engine/scripts/hooks/verify-agent-prompt.test.sh": "4929bcb151775ca14334344e69e1169f2bfeb4bcb2afbae212b557df2973b14e"
       },
       "requires": {
         "paths": [],

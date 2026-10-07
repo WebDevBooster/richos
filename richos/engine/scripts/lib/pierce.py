@@ -70,14 +70,19 @@ def human_context(payload):
                 row = json.loads(line)
             except ValueError:
                 continue
-            if (row.get("type") != "user" or row.get("isSidechain") or row.get("isMeta")
+            attachment = row.get("attachment") if row.get("type") == "attachment" else None
+            queued = (isinstance(attachment, dict) and attachment.get("type") == "queued_command"
+                      and isinstance(attachment.get("origin"), dict)
+                      and attachment["origin"].get("kind") == "human")
+            # A message sent while a turn runs is stored as a queued_command attachment.
+            if (not (row.get("type") == "user" or queued) or row.get("isSidechain") or row.get("isMeta")
                     or row.get("isCompactSummary") or row.get("isVisibleInTranscriptOnly")
                     or row.get("turnOrigin") == "task_notification"):
                 continue
             # Desktop priming and quoted context do not attest a human instruction.
             if os.environ.get("RICHOS_APP_STATE") and row.get("evidenceSource") != "richos-ledger-attested-hook-v1":
                 continue
-            content = row.get("message", {}).get("content")
+            content = attachment.get("prompt") if queued else row.get("message", {}).get("content")
             if isinstance(content, list):
                 if any(part.get("type") == "tool_result" for part in content if isinstance(part, dict)):
                     continue

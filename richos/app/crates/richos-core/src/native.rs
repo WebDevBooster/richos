@@ -259,6 +259,20 @@ pub fn tool_residency_env(role: LeaseRole) -> Option<(&'static str, &'static str
     }
 }
 
+/// The base delay Claude Code waits before retrying a request the API refused as overloaded
+/// (status 529). Read from the 2.1.292 binary: delay = min(32000, base * 2^(attempt-1)) ms plus
+/// up to 25% jitter, 10 retries by default, base 500 ms. At 500 the ten retries wait at least
+/// 500+1000+2000+4000+8000+16000 + 4*32000 = 159500 ms; at 2000 they wait at least
+/// 2000+4000+8000+16000 + 6*32000 = 222000 ms (3.7 min). Both lease roles set it.
+pub const OVERLOADED_RETRY_DELAY_ENV: &str = "CLAUDE_CODE_OVERLOADED_RETRY_BASE_DELAY_MS";
+pub const OVERLOADED_RETRY_DELAY_MS: &str = "2000";
+
+/// The environment every lease child (conversation and work) is spawned with, whatever its role.
+/// A pure function of nothing, so the pin is a unit test, as [`tool_residency_env`] is.
+pub fn lease_retry_env() -> (&'static str, &'static str) {
+    (OVERLOADED_RETRY_DELAY_ENV, OVERLOADED_RETRY_DELAY_MS)
+}
+
 /// **What the app says on stderr when it withheld prose the model added after the receipt.**
 ///
 /// The withheld run is, every time it has been measured, a second copy of the sentence the app has
@@ -1986,6 +2000,8 @@ impl NativeClient {
         if let Some((name, value)) = tool_residency_env(role) {
             command.env(name, value);
         }
+        let (retry_name, retry_value) = lease_retry_env();
+        command.env(retry_name, retry_value);
         if let Some(profile) = profile {
             let scope = continuity.ok_or_else(|| NativeError::Protocol("desktop engine needs a scoped continuity bridge".into()))?.1;
             profile.configure(&mut command, &session_id, scope);
@@ -5827,6 +5843,14 @@ printf '%s\n' '{"type":"system","subtype":"task_notification","task_id":"remaini
             None,
             "nothing has been measured on the work lease, so nothing is changed there"
         );
+    }
+
+    #[test]
+    fn every_lease_waits_longer_before_retrying_an_overloaded_request() {
+        assert_eq!(lease_retry_env(), ("CLAUDE_CODE_OVERLOADED_RETRY_BASE_DELAY_MS", "2000"));
+        // 10 retries, delay = min(32000, base * 2^(n-1)): the minimum total, in ms.
+        let total: u64 = (1..=10u32).map(|n| (2000u64 << (n - 1)).min(32000)).sum();
+        assert_eq!(total, 222_000);
     }
 
     #[test]

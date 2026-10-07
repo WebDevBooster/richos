@@ -590,6 +590,8 @@ def build_payload(args, brief, workspaces):
         ti["description"] = args["description"]
     if args.get("model"):
         ti["model"] = args["model"]
+    if args.get("effort"):
+        ti["effort"] = args["effort"]
     # The acknowledgement contract is prepare-agent-spawn.py's, and it stays
     # prepare-agent-spawn.py's: one answer, one place. This calls it.
     return PREPARE.prepare(ti)
@@ -661,7 +663,7 @@ def errors_from(results):
 
 USAGE = """usage: spawn.sh <teammate-name> --repo <repo> [--repo <repo> ...]
                 --type <subagent-type> --brief <file>
-                [--model <alias>] [--description <text>]
+                [--model <alias>] [--effort <level>] [--description <text>]
                 [--base [<repo>=]<ref>] [--dir [<repo>=]<path>]
                 [--integration [<repo>=]<branch>]
                 [--integration-why <text>] [--payload-out <file>] [--json] [--dry-run]
@@ -676,6 +678,9 @@ USAGE = """usage: spawn.sh <teammate-name> --repo <repo> [--repo <repo> ...]
                        together at the land (point 10).
   --type <t>           the subagent_type the definition is registered under
   --brief <file>       the brief, as a file; `-` reads stdin
+  --effort <level>     the teammate's effort: low, medium, high, xhigh or max
+                       (the levels Claude Code 2.1.292 accepts). Omitted, the
+                       payload has no effort key.
   --integration <b>    the branch this body of work integrates on; needed only
                        where the answer is a human's to give, and the refusal
                        says so when it is. With several --repo, scope it:
@@ -697,11 +702,14 @@ Exit 0 ready; 1 refused (nothing created); 2 usage; 4 created but rolled back.
 """
 
 
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
 def parse_args(argv):
-    args = {"name": "", "repos": [], "type": "", "brief": "", "model": "", "description": "",
+    args = {"name": "", "repos": [], "type": "", "brief": "", "model": "", "effort": "", "description": "",
             "bases": [], "dirs": [], "integrations": [], "integration_why": "", "payload_out": "",
             "json": False, "dry_run": False, "project_dir": "", "audience": OPERATOR}
-    flags = {"--type": "type", "--brief": "brief", "--model": "model",
+    flags = {"--type": "type", "--brief": "brief", "--model": "model", "--effort": "effort",
              "--description": "description",
              "--integration-why": "integration_why",
              "--payload-out": "payload_out", "--project-dir": "project_dir",
@@ -743,6 +751,8 @@ def parse_args(argv):
                 raise Refusal("unexpected argument %r" % a)
             args["name"] = a
             i += 1
+    if args["effort"] and args["effort"] not in EFFORT_LEVELS:
+        raise Refusal("--effort must be one of %s" % ", ".join(EFFORT_LEVELS))
     if args["audience"] not in (APP, OPERATOR):
         raise Refusal("--audience must be %s or %s" % (APP, OPERATOR))
     return args
