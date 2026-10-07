@@ -140,7 +140,15 @@ class Walk(adopt.Walk):
     def ready(self):
         # The control appears only once the work gate is clear: the app's own first turn has
         # ended and the launch check has found the release.
-        self.wait_for('is available', seconds=self.a.within)
+        try:
+            self.wait_for('is available', seconds=self.a.within)
+        except StepFailed as exc:
+            # Keep what the screen and the app said: the nightly 41 walk's first run ended here with
+            # no frame and no log, so nobody could tell a cue that never came from one not found.
+            self.shot('1-not-offered.png')
+            lines = [x for x in self.log().splitlines() if 'updat' in x.lower()]
+            (self.out / '1-update-log.txt').write_text('\n'.join(lines[-60:]) + '\n')
+            raise StepFailed(f'{exc}; frame 1-not-offered.png, the app log\'s update lines in 1-update-log.txt')
         self.shot('1-available.png')
         return {'offered': True}
 
