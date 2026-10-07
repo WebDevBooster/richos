@@ -197,10 +197,36 @@ class HandoffWalk(command_walk.CommandWalk):
         written = json.loads(guest(self.vm, 'cat ' + shlex.quote(path)))
         if not any(a.get('folder') == folder for a in written.get('accounts', [])):
             raise StepFailed('the app does not keep Work at ' + folder + ': ' + json.dumps(written))
-        # Every added account is read on Account 1's schedule (quota.rs refresh_accounts): one
-        # five-minute interval plus slack.
-        end, quota, home, work = time.monotonic() + 420, {}, None, None
         opened = self.panel()
+        quota, home, work = self.read_both(120, opened)
+        if work is None:
+            # THE GUEST'S WORK FOLDER HAS NEVER MADE A MODEL CALL; HIS ON THIS MAC HAS. run.sh copies
+            # the access token alone, and Claude Code answered get_usage under the fresh folder
+            # with `rate_limits: null` every time (walk-13a326a3b697, work-diagnosis.txt) while
+            # Home, whose folder the app had already used, answered with figures. One short model
+            # call under Work makes the guest's folder match his, and the probe before and after
+            # it says whether that was the difference.
+            self.diagnose(folder, 'before')
+            self.facts['work_primed'] = self.prime(folder)
+            self.save()
+            self.diagnose(folder, 'after')
+            # Every added account is read on Account 1's schedule (quota.rs refresh_accounts): one
+            # five-minute interval plus slack.
+            quota, home, work = self.read_both(420, opened)
+        self.shot('1-quota-panel.png')
+        (self.out / 'quota-at-start.json').write_text(json.dumps(quota, indent=2) + '\n')
+        self.close_panel()
+        if home is None or work is None:
+            self.diagnose(folder, 'failed')
+            raise StepFailed(f'the app has no weekly reading for both accounts (Home {home}, Work {work}): '
+                             + json.dumps([{k: a.get(k) for k in ('id', 'label', 'message')} for a in quota.get('accounts') or []]))
+        self.facts.update(home_weekly_at_start=home, work_weekly_at_start=work)
+        self.save()
+        return {'home_weekly': home, 'work_weekly': work, 'work_folder': folder}
+
+    def read_both(self, seconds, opened):
+        """Both accounts' weekly readings from the app's own view, waited for at most `seconds`."""
+        end, quota, home, work = time.monotonic() + seconds, {}, None, None
         while time.monotonic() < end:
             quota = self.quota()
             home, work = self.weekly(quota, '1'), self.weekly(quota, '2')
@@ -212,18 +238,21 @@ class HandoffWalk(command_walk.CommandWalk):
                     self.ax('click', '--id', 'quota-refresh')
                 except StepFailed:
                     pass
-        self.shot('1-quota-panel.png')
-        (self.out / 'quota-at-start.json').write_text(json.dumps(quota, indent=2) + '\n')
-        self.close_panel()
-        if home is None or work is None:
-            self.diagnose(folder)
-            raise StepFailed(f'the app has no weekly reading for both accounts (Home {home}, Work {work}): '
-                             + json.dumps([{k: a.get(k) for k in ('id', 'label', 'message')} for a in quota.get('accounts') or []]))
-        self.facts.update(home_weekly_at_start=home, work_weekly_at_start=work)
-        self.save()
-        return {'home_weekly': home, 'work_weekly': work, 'work_folder': folder}
+        return quota, home, work
 
-    def diagnose(self, folder):
+    def prime(self, folder):
+        """One short model call under the guest's Work folder (Haiku, no tools, no settings, no
+        session kept), so the folder has made a call, as his own Work folder on this Mac has."""
+        cmd = ('cd /var/empty && env CLAUDE_CONFIG_DIR={f} HOME={h} DISABLE_AUTOUPDATER=1 /Users/admin/.local/bin/claude '
+               '-p "Reply with the single word OK." --model haiku --setting-sources "" --tools "" --strict-mcp-config '
+               '--mcp-config \'{{"mcpServers":{{}}}}\' --no-session-persistence 2>&1 | tail -c 400; echo "exit $?"').format(
+                   f=shlex.quote(folder), h=shlex.quote(self.home))
+        try:
+            return {'at_guest_ms': round(self.clock()), 'said': guest(self.vm, cmd, 180)}
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            return {'failed': str(exc)[:1000]}
+
+    def diagnose(self, folder, name='failed'):
         """Why an account has no reading, asked in the guest before it is deleted: the app's claude
         children and any keychain dialog, then the same control-only get_usage the app asks, under
         each account's folder (usage figures only; no credential is read or printed)."""
@@ -244,9 +273,9 @@ class HandoffWalk(command_walk.CommandWalk):
                 text.append('== ' + title + '\n' + guest(self.vm, cmd, 90))
             except (RuntimeError, subprocess.TimeoutExpired) as exc:
                 text.append('== ' + title + '\nnot answered: ' + str(exc)[:1000])
-        (self.out / 'work-diagnosis.txt').write_text('\n'.join(text) + '\n')
+        (self.out / ('work-diagnosis-' + name + '.txt')).write_text('\n'.join(text) + '\n')
         try:
-            self.shot('1b-diagnosis.png')
+            self.shot('1b-diagnosis-' + name + '.png')
         except StepFailed:
             pass
 
