@@ -572,6 +572,7 @@ impl LeaseFactory for EngineLeaseFactory {
         // Fill-first: the work lease runs under the Claude account in use now.
         profile.claude_account = Some(self.quota.lease_account());
         profile.token_sink = Some(self.quota.token_sink()); // what the lease spends, counted on that account
+        profile.speech_model = speech_model_for_rich();
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
@@ -645,6 +646,7 @@ impl EngineLeaseFactory {
         // Fill-first: the conversation lease runs under the Claude account in use now.
         profile.claude_account = Some(self.quota.lease_account());
         profile.token_sink = Some(self.quota.token_sink()); // what the lease spends, counted on that account
+        profile.speech_model = speech_model_for_rich();
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
@@ -4285,6 +4287,17 @@ fn ensure_model_fetch_state(app: &AppHandle) -> std::sync::Arc<voice_provision::
 /// only the model gap is offered for download here.
 fn speech_preflight() -> Result<(), String> {
     richos_voice::stt::Recognizer::resolve().map(|_| ()).map_err(|e| e.ceo_message())
+}
+
+/// **The speech model Rich's video skill transcribes with** (media-tools plan section 3): the
+/// file voice mode's own resolution picks, so voice and video use one model. Read at every lease
+/// spawn, so a model setup installs later reaches the next lease. `None` when voice could not
+/// hear on this machine either; the skill then says it watched the pictures only.
+fn speech_model_for_rich() -> Option<PathBuf> {
+    match richos_voice::stt::readiness() {
+        richos_voice::stt::SpeechReadiness::Ready(recognizer) => Some(recognizer.model_path().to_path_buf()),
+        _ => None,
+    }
 }
 
 /// **WHETHER TO OFFER VOICE AT ALL.** Read by the window at launch, once.

@@ -114,6 +114,11 @@ pub const SKILLS: &[(&str, &str)] = &[
     // shipping instructions to do things that silently do nothing, which §4.3 of the doctrine
     // design already rules out for exactly this reason: it lies.
     ("bootstrap-interview", include_str!("../skills/bootstrap-interview/SKILL.md")),
+    // Downloading, watching and hearing a video with the tools setup installs (yt-dlp, ffmpeg,
+    // ffprobe, whisper-cli, and the speech model `engine_profile.rs` names in
+    // `RICHOS_SPEECH_MODEL`). HERE and not in the engine's `skills/`, which reaches only the
+    // operator's orchestrator (media-tools plan section 3, Frank's review M1).
+    ("video", include_str!("../skills/video/SKILL.md")),
 ];
 
 /// The plugin root for a configuration directory.
@@ -302,6 +307,7 @@ mod tests {
             vec![
                 "rich-skills:american-english".to_string(),
                 "rich-skills:bootstrap-interview".to_string(),
+                "rich-skills:video".to_string(),
             ]
         );
     }

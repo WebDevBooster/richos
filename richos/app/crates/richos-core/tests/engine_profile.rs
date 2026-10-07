@@ -127,6 +127,27 @@ fn the_provider_is_told_which_claude_account_it_spends() {
     assert_eq!(two["CLAUDE_CONFIG_DIR"].as_deref(), folder.to_str());
 }
 
+/// **Media-tools plan section 3: the video skill finds the speech model in
+/// `RICHOS_SPEECH_MODEL`**, set to the path the shell resolved for voice mode. With no model
+/// resolved nothing is set, and a value inherited from the app's own environment never survives.
+#[test]
+fn the_provider_is_told_where_the_speech_model_is() {
+    let f = Scratch::new();
+    let mut profile = EngineProfile::prepare(&engine(), &f.0, f.runtime()).unwrap();
+    let environment = |profile: &EngineProfile| {
+        let mut command = std::process::Command::new("/fictional/provider");
+        command.env("RICHOS_SPEECH_MODEL", "/fictional/inherited.bin");
+        profile.configure(&mut command, "fictional-session", &f.0.join("scope.json"));
+        command.get_envs().map(|(k, v)| (k.to_string_lossy().to_string(), v.map(|v| v.to_string_lossy().to_string())))
+            .collect::<BTreeMap<_, _>>()
+    };
+    assert_eq!(profile.speech_model, None, "prepare resolves no model; the shell does");
+    assert_eq!(environment(&profile)["RICHOS_SPEECH_MODEL"], None, "an inherited model path is removed");
+    let model = f.0.join("models/ggml-large-v3-turbo-q5_0.bin");
+    profile.speech_model = Some(model.clone());
+    assert_eq!(environment(&profile)["RICHOS_SPEECH_MODEL"].as_deref(), model.to_str());
+}
+
 #[test]
 fn interrupted_initialization_recovers_without_a_second_initial_commit() {
     let f = Scratch::new();
