@@ -92,6 +92,27 @@ pub struct Handoff {
     pub session: String,
     pub account: String,
     pub at: u64,
+    /// When the host chose the continuation that carries this helper's work on (weekly-switch
+    /// plan §2, 1a). A marker counts once: it is updated, never removed, so the gate still
+    /// sees it and never orders the same helper twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continued_at: Option<u64>,
+}
+
+/// Every handoff marker on disk, with its file. One that cannot be read is left out.
+pub fn handoffs(state: &Path) -> Vec<(std::path::PathBuf, Handoff)> {
+    let Ok(entries) = fs::read_dir(state.join(HANDOFFS_DIR)) else { return Vec::new() };
+    let mut found: Vec<_> = entries.flatten().map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e == "json"))
+        .filter_map(|path| read_json::<Handoff>(&path).ok().map(|marker| (path, marker)))
+        .collect();
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    found
+}
+
+/// Record that the host chose the continuation for this marker's helper (plan §2, 1a).
+pub fn mark_continued(path: &Path, marker: &Handoff, at: u64) -> io::Result<()> {
+    super::atomic_write(path, &Handoff { continued_at: Some(at), ..marker.clone() })
 }
 
 /// The marker's file for `agent`, or `None` for an id that is not a plain name (a path must
@@ -125,6 +146,7 @@ fn handoff(payload: &Value, state: &Path, scope: &Path, account: &str) -> Option
                 session: payload.get("session_id").and_then(Value::as_str).unwrap_or_default().to_string(),
                 account: account.to_string(),
                 at: crate::util::now_millis(),
+                continued_at: None,
             };
             let written = serde_json::to_vec(&marker).map_err(io::Error::other)
                 .and_then(|bytes| file.write_all(&bytes)).and_then(|()| file.sync_all());

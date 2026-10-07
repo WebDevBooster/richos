@@ -185,6 +185,10 @@ pub struct WorkTrail {
     /// receipt carries (`end_observation.at`). What the back end is told next depends on it: a
     /// consult's answer is to be read, not reviewed.
     pub last_ended_was_consult: bool,
+    /// Every receipt of this assignment that names the platform's agent id of its run:
+    /// `(agent id, receipt id, role)`. The weekly-switch handoff names a handed-off helper's
+    /// receipt from it (`work_host`'s handoff continuation).
+    pub helpers: Vec<(String, String, String)>,
 }
 
 /// Read one assignment's trail. `obligation` is the assignment's obligation id, which the
@@ -268,6 +272,8 @@ pub fn trail(state: &Path, entity: &str, thread: &str, obligation: &str) -> Resu
     let mut trail = WorkTrail {
         changes_requested: verdicts.iter().filter(|(_, v)| v == "changes-requested").count(),
         reviews_passed: verdicts.iter().filter(|(_, v)| v == "passed").count(),
+        helpers: rows.iter().filter_map(|row| Some((row["agent_id"].as_str()?.to_string(),
+            row["id"].as_str()?.to_string(), row["request"]["role"].as_str()?.to_string()))).collect(),
         ..Default::default()
     };
     let mut last_end = f64::NEG_INFINITY;
