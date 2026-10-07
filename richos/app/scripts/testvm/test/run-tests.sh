@@ -975,6 +975,26 @@ t "claude login: the item is written under BOTH names the guest could look up"
   hasnt "$payload" '-a "alex"'
 t_done
 
+t "claude login: a second sign-in (--account) crosses as its own item, access token only, Home's name untouched"
+  WORK_GUEST="/Users/admin/testvm/richos-test-a/home/claude-accounts/2"
+  : > "$TMP/work.log"
+  # shellcheck disable=SC2046  # login_env prints NAME=value words; splitting them is intended
+  out="$(env $(login_env) STUB_LOG="$TMP/work.log" STUB_SECURITY_STDIN="$TMP/work.stdin" STUB_CLAUDE_LOGIN=present \
+         "$TESTVM_DIR/claude-login.sh" push --account "Claude Code-credentials-6392715e" --host-folder "/nonexistent/work" --guest-home "/Users/admin/testvm/richos-test-a/home" \
+         richos-test-a "$WORK_GUEST" 2>/dev/null)"
+  ok $? "a second sign-in must report logged in"
+  eq "$out" "claude login: guest logged in"
+  work_payload="$(cat "$TMP/work.stdin")"
+  wscoped="Claude Code-credentials-$(printf '%s' "$WORK_GUEST" | shasum -a 256 | awk '{print substr($1,1,8)}')"
+  has   "$work_payload" "-s \"$wscoped\""
+  hasnt "$work_payload" '-s "Claude Code-credentials"'
+  hasnt "$work_payload" 'alex'
+  has   "$work_payload" '"/Users/admin/testvm/richos-test-a/home/Library/Keychains/login.keychain-db"'
+  eq "$(printf '%s\n' "$work_payload" | grep -c '^add-generic-password')" "1" "exactly one guest item"
+  hasnt "$(cat "$TMP/work.stdin" "$TMP/work.log")" "not-a-real-token"
+  hasnt "$(cat "$TMP/work.stdin" "$TMP/work.log")" "also-not-real"
+t_done
+
 t "claude login: the keychain route alone is still enough — two stores, either one"
   # The file is the primary since Ray's finding, and the keychain write is kept
   # because it is a DIFFERENT mechanism from the one that failed him: `security
