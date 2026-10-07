@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # watch.test.sh — watch.sh keeps a frame at the start, at a scene change, and
 # after 5 s without one; names each by its time; and interleaves frames with the
-# transcript in watch.md. A recording with no sound still gets its frames.
+# transcript in watched.md. A recording with no sound still gets its frames.
 #
 # Fixture: 12 s of black with a white box appearing at 3.0 s, so the expected
 # frames are exactly 0.0 s (start), 3.0 s (scene change) and 8.0 s (no change
@@ -39,7 +39,7 @@ mkdir -p "$SANDBOX/home"
 PRINTED="$(HOME="$SANDBOX/home" "$SCRIPT" "$SANDBOX/rec.mov" "$OUT" 2>"$SANDBOX/err1")"
 STATUS=$?
 if [ "$STATUS" -eq 0 ]; then ok "exit 0"; else bad "exit 0 (got $STATUS: $(tail -5 "$SANDBOX/err1"))"; fi
-if [ "$PRINTED" = "$OUT/watch.md" ] && [ -f "$OUT/watch.md" ]; then ok "prints the index path"; else bad "prints the index path (printed: $PRINTED)"; fi
+if [ "$PRINTED" = "$OUT/watched.md" ] && [ -f "$OUT/watched.md" ]; then ok "prints the index path"; else bad "prints the index path (printed: $PRINTED)"; fi
 FRAMES="$(cd "$OUT/frames" 2>/dev/null && ls | tr '\n' ' ')"
 EXPECT="frame-0001-t00m00.0s.png frame-0002-t00m03.0s.png frame-0003-t00m08.0s.png "
 if [ "$FRAMES" = "$EXPECT" ]; then
@@ -47,21 +47,21 @@ if [ "$FRAMES" = "$EXPECT" ]; then
 else
     bad "frames at start, at the scene change and 5 s later (got: $FRAMES)"
 fi
-if grep -q 'frame-0001-t00m00.0s.png  (start)' "$OUT/watch.md" \
-    && grep -q 'frame-0002-t00m03.0s.png  (scene change' "$OUT/watch.md" \
-    && grep -q 'frame-0003-t00m08.0s.png  (no change for 5s)' "$OUT/watch.md"; then
-    ok "watch.md says why each frame was kept"
+if grep -q 'frame-0001-t00m00.0s.png  (start)' "$OUT/watched.md" \
+    && grep -q 'frame-0002-t00m03.0s.png  (scene change' "$OUT/watched.md" \
+    && grep -q 'frame-0003-t00m08.0s.png  (no change for 5s)' "$OUT/watched.md"; then
+    ok "watched.md says why each frame was kept"
 else
-    bad "watch.md says why each frame was kept"
+    bad "watched.md says why each frame was kept"
 fi
 if grep -iq 'white box' "$OUT/transcript.md" 2>/dev/null; then ok "transcript has the spoken words"; else bad "transcript has the spoken words"; fi
-FIRST_WORDS="$(grep -n '^\*\*\[' "$OUT/watch.md" | head -1 | cut -d: -f1)"
-FIRST_FRAME="$(grep -n 'FRAME' "$OUT/watch.md" | head -1 | cut -d: -f1)"
-LAST_FRAME="$(grep -n 'FRAME' "$OUT/watch.md" | tail -1 | cut -d: -f1)"
+FIRST_WORDS="$(grep -n '^\*\*\[' "$OUT/watched.md" | head -1 | cut -d: -f1)"
+FIRST_FRAME="$(grep -n 'FRAME' "$OUT/watched.md" | head -1 | cut -d: -f1)"
+LAST_FRAME="$(grep -n 'FRAME' "$OUT/watched.md" | tail -1 | cut -d: -f1)"
 if [ -n "$FIRST_WORDS" ] && [ "$FIRST_FRAME" -lt "$FIRST_WORDS" ] && [ "$FIRST_WORDS" -lt "$LAST_FRAME" ]; then
-    ok "watch.md interleaves frames and transcript in time order"
+    ok "watched.md interleaves frames and transcript in time order"
 else
-    bad "watch.md interleaves frames and transcript in time order"
+    bad "watched.md interleaves frames and transcript in time order"
 fi
 if file "$OUT/frames/frame-0002-t00m03.0s.png" | grep -q 'PNG image data, 320 x 240'; then
     ok "frames are full-size PNGs the Read tool can open"
@@ -69,13 +69,13 @@ else
     bad "frames are full-size PNGs the Read tool can open"
 fi
 
-# 2. a recording with no sound: frames, no transcript, said in watch.md
+# 2. a recording with no sound: frames, no transcript, said in watched.md
 OUT2="$SANDBOX/out2"
 "$SCRIPT" "$SANDBOX/mute.mov" "$OUT2" >/dev/null 2>&1
 STATUS=$?
 COUNT="$(ls "$OUT2/frames" 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$STATUS" -eq 0 ] && [ "$COUNT" = 3 ] && grep -q 'no audio track' "$OUT2/watch.md" 2>/dev/null; then
-    ok "a silent recording gets its 3 frames and watch.md says there is no transcript"
+if [ "$STATUS" -eq 0 ] && [ "$COUNT" = 3 ] && grep -q 'no audio track' "$OUT2/watched.md" 2>/dev/null; then
+    ok "a silent recording gets its 3 frames and watched.md says there is no transcript"
 else
     bad "a silent recording gets its frames (exit $STATUS, $COUNT frames)"
 fi
