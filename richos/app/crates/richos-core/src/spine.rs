@@ -702,6 +702,9 @@ pub struct Spine {
     /// which is a POSITIVE signal that the upstream works rather than the absence of a
     /// failure.
     upstream_budget: crate::upstream::RetryBudget,
+    /// How an overload retry waits out the CEO's schedule (`upstream::OVERLOAD_RETRY_WAITS`).
+    /// The real clock in the app; a test drives the 158 minutes with a fake one.
+    retry_clock: std::sync::Arc<dyn crate::upstream::RetryClock>,
 }
 
 /// Where a timeline read finds the engine's worker-lifecycle rows.
@@ -826,6 +829,7 @@ impl Spine {
             proposal_observer: None,
             worker_events: WorkerEventsSource::Disabled,
             upstream_budget: crate::upstream::RetryBudget::new(),
+            retry_clock: std::sync::Arc::new(crate::upstream::SystemRetryClock),
         }
     }
 
@@ -1540,6 +1544,11 @@ impl Spine {
     /// A clone of the shared control handle, for the shell's own commands.
     pub fn turn_control(&self) -> TurnControl {
         self.control.clone()
+    }
+
+    /// Replace the clock an overload retry waits on. Tests only; the app keeps the real one.
+    pub fn set_retry_clock(&mut self, clock: std::sync::Arc<dyn crate::upstream::RetryClock>) {
+        self.retry_clock = clock;
     }
 
     pub fn has_lease(&self) -> bool {
@@ -4000,6 +4009,15 @@ impl Spine {
             at: now_millis(),
         });
 
+        // AN OVERLOAD WAITS OUT HIS SCHEDULE AND RETRIES ON THE SAME SESSION (CEO, 2026-10-07):
+        // 1, 2, 5, 10, 20, 40 and 80 minutes before retries 1 to 7. Bounded by the budget alone,
+        // so it does not depend on `allow_recovery`, and it needs no lease factory: the lease
+        // that met the `529` is kept and asked again, so its context is not lost.
+        if may_retry && failure.fault == crate::upstream::UpstreamFault::Overloaded {
+            let wait = self.upstream_budget.wait_before_retry().unwrap_or_default();
+            self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Recovering, None));
+            return self.retry_after_overload(turn_id, binding, original_text, wait);
+        }
         let will_recover = may_retry && allow_recovery && self.lease_factory.is_some();
         if will_recover {
             self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Recovering, None));
@@ -4008,6 +4026,44 @@ impl Spine {
         self.emit_live(self.turn_status_event(binding, turn_id, TurnStatus::Failed, None));
         self.emit_live(self.thread_summary_event(binding, turn_id, ThreadStatus::Failed));
         Err(SpineError::Cognition(CognitionError::Protocol(failure.summary())))
+    }
+
+    /// **The overload retry: wait, then ask the SAME lease again** (CEO, 2026-10-07).
+    ///
+    /// The replay turn is journaled first and published as the running turn, so his Stop (and
+    /// a quit, which stops the running turn) reaches it during the wait: the wait ends at once
+    /// and `deliver` then finds the stop before the prompt and ends the turn as stopped. The
+    /// failed turn is superseded exactly as `recover_and_replay` supersedes one; unlike it, the
+    /// lease is NOT cleared, so the session keeps what it had worked out.
+    fn retry_after_overload(
+        &mut self,
+        failed_turn_id: &str,
+        binding: &ThreadBinding,
+        original_text: &str,
+        wait: std::time::Duration,
+    ) -> Result<(), SpineError> {
+        let original_channel = self.input_channels.get(failed_turn_id).cloned()
+            .or_else(|| self.ledger.turn(failed_turn_id).and_then(|t| t.channel.clone()));
+        let retry_turn_id = match original_channel.clone().filter(|_| self.keep_intake_channel) {
+            Some(channel) => self.record_prompt(binding, original_text, Source::Text, None, None, &channel)?,
+            None => self.ledger.record_prompt_received(binding, original_text, Source::Text)?,
+        };
+        if let Some(channel) = original_channel { self.input_channels.insert(retry_turn_id.clone(), channel); }
+        self.ledger.mark_turn_superseded(failed_turn_id, &retry_turn_id)?;
+        self.emit_live(self.turn_status_event(
+            binding, &retry_turn_id, TurnStatus::Queued, Some(failed_turn_id.to_string()),
+        ));
+        self.control.begin_turn(ActiveTurn {
+            turn_id: retry_turn_id.clone(),
+            thread_id: binding.thread_id().to_string(),
+            entity_id: Some(binding.entity_id().clone()),
+            started_at: None,
+        });
+        eprintln!("[richos] upstream overloaded: retrying in {} s on the same session", wait.as_secs());
+        let control = self.control.clone();
+        let stop_for = retry_turn_id.clone();
+        self.retry_clock.wait(wait, &|| control.stop_claim_for(&stop_for).is_some());
+        self.deliver(&retry_turn_id, binding, original_text, true)
     }
 
     fn recover_and_replay(
