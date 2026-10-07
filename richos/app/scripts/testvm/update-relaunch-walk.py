@@ -105,7 +105,11 @@ class Walk(adopt.Walk):
         return guest(self.vm, 'cat ' + shlex.quote(self.log_path()) + ' 2>/dev/null || true', 60)
 
     def windows(self):
-        return command([HERE / 'ax.sh', self.vm, '--windows'], 150).strip()
+        # Only the window lines ("RichOS 1400x864 at (140,77)"): ax.sh also prints its own timing
+        # lines, which differ on every read, so a before/after comparison of the whole output can
+        # never be equal (walk-95e83a839f1b: the same window, compared unequal on ax_guest_seconds).
+        out = command([HERE / 'ax.sh', self.vm, '--windows'], 150)
+        return '\n'.join(l for l in out.splitlines() if l.strip() and not l.startswith('{')).strip()
 
     def composer(self):
         rows = self.ax('find', '--role', 'AXTextArea', '--title', 'Message to Rich', '--contains', '--first')
@@ -270,7 +274,20 @@ class Walk(adopt.Walk):
         time.sleep(2)
         value = self.composer()
         title = self.facts.get('thread_title') or ''
-        on_thread = self.present(title, role='AXStaticText') if title else None
+        # The open conversation is the rail's selected row (an AXButton) and the header's crumb;
+        # any node carrying its title counts, not only a static text (walk-95e83a839f1b's frame
+        # shows "Acme / Running" and the selected "Running" row while an AXStaticText find missed).
+        on_thread = None
+        if title:
+            on_thread = False
+            for by in ('--title', '--value'):
+                try:
+                    if self.ax('find', by, title, '--first'):
+                        on_thread = True
+                        break
+                except StepFailed as exc:
+                    if 'notfound' not in str(exc) and 'nothing matched' not in str(exc):
+                        raise
         self.shot('3-after-relaunch.png')
         problems = []
         if frame != self.facts['frame_before']:
