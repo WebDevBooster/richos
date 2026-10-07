@@ -10,14 +10,14 @@
 #   watch.sh <video-file> <output-dir> [--every <seconds>] [--lang <code>|auto]
 #
 # Writes:
-#   <output-dir>/watch.md            THE INDEX: frames and transcript lines in time order
+#   <output-dir>/watched.md            THE INDEX: frames and transcript lines in time order
 #   <output-dir>/frames/frame-NNNN-tMMmSS.Ss.png   one PNG per kept moment, at most 1920 px wide
 #   <output-dir>/transcript.md       the transcript (see the audio-transcription skill)
 #   <output-dir>/pipeline/, pipeline.log   the transcription pipeline's own record
 #
 # Exit: 0 frames written (and the transcript, if the file has sound); 1 usage or
 # a missing tool; 2 frames written but the transcription pipeline failed (its
-# reason is printed and is in watch.md).
+# reason is printed and is in watched.md).
 #
 # THE PARAMETERS, AND WHY
 #   Scene changes are judged on the video sampled at 5 frames a second, so an
@@ -166,11 +166,11 @@ fi
     echo "- Read this file top to bottom; Read each FRAME path to see the screen at that moment."
     echo
     sort "$ROWS" | cut -f2- | awk '{ print; print "" }'
-} > "$OUT/watch.md"
+} > "$OUT/watched.md"
 rm -f "$ROWS"
 
-echo "watch: $n frames, index $OUT/watch.md" >&2
+echo "watch: $n frames, index $OUT/watched.md" >&2
 [ -n "$TNOTE" ] && echo "watch: $TNOTE" >&2
-echo "$OUT/watch.md"
+echo "$OUT/watched.md"
 if [ "$TSTATUS" -ne 0 ] && [ "$TSTATUS" -ne 3 ]; then exit 2; fi
 exit 0

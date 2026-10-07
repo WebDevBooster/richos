@@ -143,29 +143,89 @@ impl std::fmt::Display for SttError {
     }
 }
 
-/// Resolve `whisper-cli`: `RICHOS_WHISPER_BIN`, then PATH, then the Homebrew prefixes.
-/// Deliberately the SAME env var the Node service uses so one machine configures both.
+/// The `bin` directory of the engine runtime this app process verified, if it has one.
+///
+/// Set by the desktop shell (`main.rs` at boot, `setup_view.rs` after a first-run engine install)
+/// from `richos_core::runtime::verify_engine`, which has just hashed every runtime file against
+/// `delivery.json`, `bin/whisper-cli` included. This crate does not depend on richos-core, so the
+/// shell hands the directory over rather than this crate finding the engine itself.
+static DELIVERED_RUNTIME_BIN: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
+/// Tell the resolver where the verified engine runtime's executables are (`<runtime>/bin`), or
+/// that this launch has none.
+pub fn set_delivered_runtime_bin(dir: Option<PathBuf>) {
+    if let Ok(mut held) = DELIVERED_RUNTIME_BIN.write() {
+        *held = dir;
+    }
+}
+
+fn delivered_runtime_bin() -> Option<PathBuf> {
+    DELIVERED_RUNTIME_BIN.read().ok().and_then(|held| held.clone())
+}
+
+/// Where a DEVELOPER's own `whisper-cli` may be (Homebrew on Apple silicon, then Intel, then the
+/// system). Reached only when this launch has no delivered runtime, which a user's install always
+/// has once first-run setup has installed the engine.
+pub const DEVELOPER_WHISPER_DIRS: [&str; 3] = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+
+/// Resolve `whisper-cli`. **The order, and why:**
+///
+/// 1. `RICHOS_WHISPER_BIN` — an engineer who names a binary is not asking to be second-guessed.
+///    Deliberately the SAME env var the Node service uses so one machine configures both.
+/// 2. **The engine runtime's own copy**, `<engine>/runtime/bin/whisper-cli`. Since 2026-10-07 it
+///    is built from pinned whisper.cpp 1.9.1 source (`scripts/build-runtimes.py`), the version the
+///    decode settings were measured on, installed onto every user's Mac by first-run setup and
+///    hashed at every load. It comes before PATH because PATH holds whatever version someone else
+///    installed, and a user's voice should not depend on that.
+/// 3. PATH, then [`DEVELOPER_WHISPER_DIRS`] (Homebrew) — only for a launch without a delivered
+///    runtime: a development build, or a fresh Mac before setup has installed the engine.
 pub fn resolve_whisper_bin() -> Result<PathBuf, SttError> {
-    if let Ok(v) = std::env::var("RICHOS_WHISPER_BIN") {
-        let p = PathBuf::from(expand_tilde(&v));
+    let developer_dirs = DEVELOPER_WHISPER_DIRS.map(Path::new);
+    whisper_bin_from(
+        std::env::var("RICHOS_WHISPER_BIN").ok().as_deref(),
+        delivered_runtime_bin().as_deref(),
+        whisper_on_path,
+        &developer_dirs,
+    )
+}
+
+fn whisper_on_path() -> Option<PathBuf> {
+    let out = Command::new("/usr/bin/env").args(["sh", "-c", "command -v whisper-cli"]).output().ok()?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!s.is_empty() && Path::new(&s).exists()).then(|| PathBuf::from(s))
+}
+
+/// [`resolve_whisper_bin`]'s order as a function of its inputs, so the order is provable without
+/// touching this machine's PATH or its Homebrew. `on_path` runs only if nothing before it answered.
+pub fn whisper_bin_from(
+    env_override: Option<&str>,
+    delivered_bin: Option<&Path>,
+    on_path: impl FnOnce() -> Option<PathBuf>,
+    developer_dirs: &[&Path],
+) -> Result<PathBuf, SttError> {
+    if let Some(v) = env_override {
+        let p = PathBuf::from(expand_tilde(v));
         if p.exists() {
             return Ok(p);
         }
         return Err(SttError::BinaryNotFound(format!("RICHOS_WHISPER_BIN={v} does not exist")));
     }
-    if let Ok(out) = Command::new("/usr/bin/env").args(["sh", "-c", "command -v whisper-cli"]).output() {
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !s.is_empty() && Path::new(&s).exists() {
-            return Ok(PathBuf::from(s));
-        }
+    if let Some(p) = delivered_bin.map(|dir| dir.join("whisper-cli")).filter(|p| p.is_file()) {
+        return Ok(p);
     }
-    for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
-        let p = Path::new(dir).join("whisper-cli");
+    if let Some(p) = on_path() {
+        return Ok(p);
+    }
+    for dir in developer_dirs {
+        let p = dir.join("whisper-cli");
         if p.exists() {
             return Ok(p);
         }
     }
-    Err(SttError::BinaryNotFound("whisper-cli is not on PATH".into()))
+    Err(SttError::BinaryNotFound(match delivered_bin {
+        Some(dir) => format!("whisper-cli is not in the engine runtime ({}), on PATH or in a developer prefix", dir.display()),
+        None => "this launch has no engine runtime, and whisper-cli is not on PATH or in a developer prefix".into(),
+    }))
 }
 
 /// Resolve a GGML model file. Mirrors `tools/richos-service/lib/config.js::resolveModel`,
@@ -1118,6 +1178,62 @@ mod tests {
         let _ = resolve_model("small.en");
         let _ = resolve_model("definitely-not-a-real-model");
         assert!(resolve_model("definitely-not-a-real-model").is_err());
+    }
+}
+
+#[cfg(test)]
+mod delivered_decoder_tests {
+    use super::*;
+
+    /// A temporary directory holding `<runtime>/bin/whisper-cli` and an empty developer prefix.
+    fn machine(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("richos-delivered-whisper-{tag}-{}", std::process::id()));
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+        let bin = root.join("engine/runtime/bin");
+        let homebrew = root.join("opt/homebrew/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&homebrew).unwrap();
+        std::fs::write(bin.join("whisper-cli"), b"#!/bin/sh\n").unwrap();
+        (root, bin, homebrew)
+    }
+
+    /// THE CEO'S CASE (2026-10-07): a user's Mac with no Homebrew and nothing on PATH. Before the
+    /// runtime carried a decoder this was `BinaryNotFound` and voice was not offered at all.
+    #[test]
+    fn a_mac_without_homebrew_or_path_resolves_the_runtimes_copy() {
+        let (root, bin, homebrew) = machine("bare");
+        let resolved = whisper_bin_from(None, Some(&bin), || None, &[homebrew.as_path()]);
+        assert_eq!(resolved.unwrap(), bin.join("whisper-cli"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The runtime's pinned copy wins over a PATH copy and a Homebrew copy; PATH is not even asked.
+    #[test]
+    fn the_runtimes_copy_comes_before_path_and_homebrew() {
+        let (root, bin, homebrew) = machine("both");
+        std::fs::write(homebrew.join("whisper-cli"), b"#!/bin/sh\n").unwrap();
+        let resolved = whisper_bin_from(None, Some(&bin), || panic!("PATH was asked"), &[homebrew.as_path()]);
+        assert_eq!(resolved.unwrap(), bin.join("whisper-cli"));
+        // Without a delivered runtime (a development build), Homebrew's is still found.
+        let developer = whisper_bin_from(None, None, || None, &[homebrew.as_path()]);
+        assert_eq!(developer.unwrap(), homebrew.join("whisper-cli"));
+        // RICHOS_WHISPER_BIN is the explicit developer override and wins over everything.
+        let named = homebrew.join("whisper-cli");
+        let overridden = whisper_bin_from(Some(named.to_str().unwrap()), Some(&bin), || None, &[]);
+        assert_eq!(overridden.unwrap(), named);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A runtime directory without the file falls through, and nothing anywhere is a typed miss.
+    #[test]
+    fn nothing_anywhere_is_binary_not_found() {
+        let (root, bin, homebrew) = machine("none");
+        std::fs::remove_file(bin.join("whisper-cli")).unwrap();
+        let missing = whisper_bin_from(None, Some(&bin), || None, &[homebrew.as_path()]);
+        assert!(matches!(missing, Err(SttError::BinaryNotFound(_))));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

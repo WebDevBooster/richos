@@ -1067,7 +1067,7 @@ def script_suites_environment(simulated_phones, skip_unchanged=False):
 # the reason, and nightly-local.test.py fails on any other difference.
 CONDITIONS_GATES = ("gates/script-suites", UI_SUITE_GATE)
 CONDITIONS_NOT_REPRODUCED = {
-    "RICHOS_RUNTIME_DIR": "set by Runner.runtime() to <state>/runtime once verify-runtime.py "
+    "RICHOS_RUNTIME_DIR": "set by Runner.runtime() to <state>/runtime-<recipe sha256[:12]> once verify-runtime.py "
                           "accepts it; proof-run.py's supply_runtime() hands a check that same "
                           "verified folder itself, or says why it could not",
     "RUN_TESTS_SKIP_UNCHANGED": "the operator's choice to skip a suite whose inputs passed "
@@ -1557,8 +1557,20 @@ class Runner:
         print("  Nothing above has been done. No tag was created, nothing was built, "
               "uploaded or published.")
 
+    def runtime_path(self, override=None):
+        """The runtime this run verifies: the operator's --runtime-dir, else the state directory's
+        runtime for THIS source's recipe (`lib/runtime_cache.py`), so a recipe change builds its
+        own runtime rather than refusing the previous one."""
+        if override:
+            return override
+        library = str(Path(__file__).resolve().parent / "lib")
+        if library not in sys.path:
+            sys.path.insert(0, library)
+        import runtime_cache
+        return runtime_cache.cache_path(self.state, self.source / SCRIPTS / "runtime-sources.json")
+
     def runtime(self, override):
-        path = override or self.state / "runtime"
+        path = self.runtime_path(override)
         if not path.exists():
             if override:
                 raise ValueError("specified runtime directory does not exist")
@@ -2571,7 +2583,8 @@ class Runner:
         with self.phase("preflight"):
             self.preflight()
         if command == "check":
-            if runtime or (self.state / "runtime").exists():
+            recipe = self.source / SCRIPTS / "runtime-sources.json"
+            if runtime or (recipe.is_file() and self.runtime_path().exists()):
                 with self.phase("runtime-verify"):
                     self.runtime(runtime)
             print("Preflight passed. No release was triggered or published.", flush=True)

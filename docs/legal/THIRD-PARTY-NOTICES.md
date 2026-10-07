@@ -466,8 +466,9 @@ SHA-256 pins are in `richos/app/scripts/runtime-sources.json`. The delivered
 | jq | 1.8.2 | Upstream binary with `runtime/sources/JQ-COPYING` |
 | Git | 2.55.0 | `runtime/sources/GIT-COPYING` and exact corresponding source `git-2.55.0.tar.xz` |
 | GNU libiconv, statically linked into Git | 1.18 | `runtime/sources/ICONV-COPYING.LIB` and exact corresponding source `libiconv-1.18.tar.gz` |
+| whisper.cpp (`whisper-cli`, with the ggml it vendors statically linked), MIT | 1.9.1 | `runtime/sources/WHISPER-CPP-LICENSE`; built from the pinned upstream source archive |
 
-The Git and libiconv build instructions are the public runtime build script.
+The Git, libiconv and whisper.cpp build instructions are the public runtime build script.
 Git is built with a relocatable prefix and system libraries; libiconv is built
 from the included source. No macOS system binary is copied. macOS supplies
 Bash and the system libraries used by this delivery. The complete upstream

@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""voice-walk.py's verdicts, offline. The live walk is its own proof."""
+import importlib.util
+from pathlib import Path
+import unittest
+
+HERE = Path(__file__).resolve().parent.parent
+spec = importlib.util.spec_from_file_location('voice_walk', HERE / 'voice-walk.py')
+walk = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(walk)
+
+
+class SpokenPrompt(unittest.TestCase):
+    def test_an_internal_reprime_is_never_the_transcript(self):
+        # The walk's first live run read this row as a transcript and passed.
+        rows = [{'event': 'PromptReceived', 'source': 'internal', 'text': '[re-prime]'}]
+        self.assertIsNone(walk.spoken_prompt(rows))
+
+    def test_typed_and_empty_voice_prompts_are_not_it(self):
+        rows = [{'event': 'PromptReceived', 'source': 'text', 'text': 'typed'},
+                {'event': 'PromptReceived', 'source': 'jam', 'text': '  '}]
+        self.assertIsNone(walk.spoken_prompt(rows))
+
+    def test_the_first_voice_prompt_with_words_is_it(self):
+        rows = [{'event': 'PromptReceived', 'source': 'internal', 'text': '[re-prime]'},
+                {'event': 'PromptReceived', 'source': 'jam', 'text': 'Ship the new build tomorrow morning.'}]
+        self.assertEqual(walk.spoken_prompt(rows)['text'], 'Ship the new build tomorrow morning.')
+
+
+class DecoderIdentity(unittest.TestCase):
+    def test_the_readiness_line_names_the_decoder_by_sha(self):
+        line = ('[richos] voice: ready on this machine (ready) — whisper.cpp 1.9.1 bin:fe7b744a4b31 '
+                'model:small.en@c6138d6d58ec | model:small.en (env-override)')
+        self.assertEqual(walk.decoder_sha12(line), 'fe7b744a4b31')
+        self.assertIsNone(walk.decoder_sha12('[richos] voice: ready on this machine (ready) — no sha'))
+
+
+class TalkPressesTheTalkControl(unittest.TestCase):
+    """The 2026-10-07 run (walk-1fede03eadc0) pressed "Talk to Rich" by title, which on a
+    relaunched app is the home screen's door, and nothing started the microphone."""
+
+    def walk_with(self, on_screen):
+        w = object.__new__(walk.VoiceWalk)
+        w.clicks = []
+        presses = {'talk-toggle': 0}
+
+        def ax(mode, *args, app=None, timeout=40):
+            dom_id = args[args.index('--id') + 1]
+            if mode == 'click':
+                w.clicks.append(dom_id)
+                if dom_id == 'home-enter':
+                    on_screen.discard('home-enter')
+                    on_screen.add('talk-toggle')
+                else:
+                    presses[dom_id] += 1
+                return [{'meta': True}, {'clicked': True}]
+            if dom_id not in on_screen:
+                raise walk.StepFailed('command failed (1): ax.sh find\n{"error":"notfound","detail":"nothing matched"}')
+            desc = 'Stop talking' if dom_id == 'talk-toggle' and presses['talk-toggle'] else 'Talk to Rich'
+            return [{'meta': True}, {'role': 'AXButton', 'desc': desc}]
+
+        w.ax = ax
+        w.shot = lambda name: None
+        return w
+
+    def test_the_home_door_is_passed_then_the_talk_control_is_pressed_by_id(self):
+        w = self.walk_with({'home-enter'})
+        got = w.talk()
+        self.assertEqual(w.clicks, ['home-enter', 'talk-toggle'])
+        self.assertTrue(got['home_door_pressed'])
+        self.assertEqual(got['talk_control']['desc'], 'Stop talking')
+
+    def test_a_door_press_that_hit_the_deadline_is_read_not_repeated(self):
+        # walk-977f9c8d80b5: the door's click came back exit 124 although the press had landed.
+        w = self.walk_with({'home-enter'})
+        inner = w.ax
+
+        def ax(mode, *args, app=None, timeout=40):
+            out = inner(mode, *args, app=app, timeout=timeout)
+            if mode == 'click' and 'home-enter' in args:
+                raise walk.StepFailed('command failed (124): ax.sh click\n{"error": "guest_deadline"}')
+            return out
+
+        w.ax = ax
+        got = w.talk()
+        self.assertEqual(w.clicks, ['home-enter', 'talk-toggle'])
+        self.assertEqual(got['talk_control']['desc'], 'Stop talking')
+
+    def test_no_home_screen_goes_straight_to_the_talk_control(self):
+        w = self.walk_with({'talk-toggle'})
+        w.talk()
+        self.assertEqual(w.clicks, ['talk-toggle'])
+
+
+class WindowUpAsksASlowReadAgain(unittest.TestCase):
+    """walk-3fa7da94531b failed its relaunch on one AX read that hit the guest deadline."""
+
+    def test_a_guest_deadline_is_read_again_and_a_real_error_is_not(self):
+        w = object.__new__(walk.VoiceWalk)
+        answers = [walk.StepFailed('command failed (124): ax.sh find\n{"error": "guest_deadline"}'), True]
+
+        def present(title, role='AXButton', app=None):
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        w.present = present
+        w.shot = lambda name: None
+        self.assertTrue(w.window_up(seconds=10))
+
+        def broken(title, role='AXButton', app=None):
+            raise walk.StepFailed('command failed (2): no app pid')
+
+        w.present = broken
+        with self.assertRaises(walk.StepFailed):
+            w.window_up(seconds=10)
+
+
+class AFindIsAskedAgainAClickIsNot(unittest.TestCase):
+    """walk-ea458ffa8bca lost first-run to one find that hit the guest deadline."""
+
+    DEADLINE = 'command failed (124): ax.sh find\n{"error": "guest_deadline"}'
+
+    def test_a_find_that_hit_the_deadline_is_asked_again(self):
+        from unittest import mock
+        w = object.__new__(walk.VoiceWalk)
+        answers = [walk.StepFailed(self.DEADLINE), [{'meta': True}, {'role': 'AXButton'}]]
+        with mock.patch.object(walk.adopt_walk.Walk, 'ax', side_effect=answers) as base:
+            self.assertEqual(w.ax('find', '--title', 'Start the questions')[1]['role'], 'AXButton')
+        self.assertEqual(base.call_count, 2)
+
+    def test_a_click_that_hit_the_deadline_is_never_pressed_again(self):
+        from unittest import mock
+        w = object.__new__(walk.VoiceWalk)
+        with mock.patch.object(walk.adopt_walk.Walk, 'ax', side_effect=[walk.StepFailed(self.DEADLINE)]) as base:
+            with self.assertRaises(walk.StepFailed):
+                w.ax('click', '--id', 'talk-toggle')
+        self.assertEqual(base.call_count, 1)
+
+
+if __name__ == '__main__':
+    unittest.main()
