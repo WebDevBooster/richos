@@ -21,11 +21,15 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   accounts   Account 2 "Work" written into the app's claude-accounts.json at the folder run.sh
              signed in (<home>/claude-accounts/2), the app relaunched, the quota panel opened and
              both accounts' weekly readings read from the app's own view (claude-quota.json)
-  cutoff     relaunched with RICHOS_TEST_WEEKLY_CUTOFF=1:<Home's weekly + 1>; the view's weekly
-             point for Home must say so
   watch      handoff-watch.py started in the guest (every record the handoff writes, timed)
-  job        JOB, typed into the composer: one teammate reads every file and summarizes it into
-             MODULES.md, committing after every five files (Home moved 2 points in 24 min on 2026-10-07 09:21-09:45Z, so the order can come early); another reviews; then it is landed
+  cutoff     relaunched with RICHOS_TEST_WEEKLY_CUTOFF=1:<Home's weekly now + 1>; the view's
+             weekly point for Home must say so
+  job        JOB, typed into the composer at once: one teammate reads every file and summarizes
+             it into MODULES.md, committing after every five files (Home moved 2 points in 24 min
+             on 2026-10-07 09:21-09:45Z, so the order can come early); another reviews; then it
+             is landed. Refused when Home already reached the cut-off (run 9).
+  work-reading  the relaunched app reads Work (the quota panel's Refresh every 45 s, only until
+             it has; counted): the app switches only to an account it has read
   observe    nothing is pressed (an Approve the app asks for is pressed and COUNTED: the pass
              line "with no step by anyone" then fails). Watched until the job closes or --within.
              Then the verdict below, from what was saved.
@@ -66,7 +70,7 @@ StepFailed = command_walk.StepFailed
 OPEN = command_walk.OPEN
 command = command_walk.command
 
-STEPS = ['identity', 'team', 'corpus', 'first-run', 'connect', 'accounts', 'cutoff', 'watch', 'job', 'observe']
+STEPS = ['identity', 'team', 'corpus', 'first-run', 'connect', 'accounts', 'watch', 'cutoff', 'job', 'work-reading', 'observe']
 HANDOFF_PREFIX = 'RichOS handoff:'
 LEFTOVERS = 'RichOS: work in progress saved at the account switch'
 HANDOFF_BRIEF = 'Handoff from the previous teammate:'
@@ -387,27 +391,29 @@ class HandoffWalk(command_walk.CommandWalk):
         (self.out / 'quota-after-cutoff.json').write_text(json.dumps(quota, indent=2) + '\n')
         if point is None or point > cut:
             raise StepFailed(f'the app\'s weekly point for Home is {point}, not the cut-off {cut}')
-        # THE RELAUNCH FORGETS WORK'S READING (run 8: Work null in the relaunched app, so no switch
-        # could follow the order), and the app switches only to an account it has read
-        # (quota.rs readings). So this instance, the one that runs the job, reads Work before the
-        # job is sent, the same way `accounts` did; the presses are counted, and none is made
-        # once the job is sent.
+        return {'cutoff': '1:%d' % cut, 'weekly_point_in_view': point, 'leaving': quota.get('leaving')}
+
+    def work_reading(self):
+        """THE RELAUNCH FORGETS WORK'S READING (run 8: Work null in the relaunched app), and the app
+        switches only to an account it has read (quota.rs readings). Reading Work BEFORE the job
+        cost the job its start (run 9: four presses, ~4 min, and Home reached the cut-off as the
+        job was sent, so it ran on Work from the first turn). So the job goes out first and this
+        instance reads Work while the job's first files are read, with the quota panel's Refresh,
+        every 45 s, only until Work has a reading; the presses are counted, and none is made
+        after that."""
+        before = self.facts.get('refresh_presses', 0)
         opened = self.panel()
-        quota, home_now, work = self.read_both(600, opened)
-        try:
-            self.shot('2-quota-before-job.png')
-        except StepFailed:
-            pass
+        quota, home_now, work = self.read_both(900, opened)
         self.close_panel()
-        (self.out / 'quota-before-job.json').write_text(json.dumps(quota, indent=2) + '\n')
+        (self.out / 'quota-work-read.json').write_text(json.dumps(quota, indent=2) + '\n')
+        self.facts['refresh_presses_during_job'] = self.facts.get('refresh_presses', 0) - before
+        self.facts['work_read_at_guest_ms'] = round(self.clock()) if work is not None else None
         self.save()
         if work is None:
-            self.diagnose(self.home + '/' + WORK_FOLDER, 'before-job')
-            raise StepFailed('the relaunched app never read Work, so it could not switch to it')
-        if '1' in (quota.get('leaving') or []):
-            raise StepFailed(f'Home reached the cut-off ({home_now} of {cut}) before the job could start; run again')
-        return {'cutoff': '1:%d' % cut, 'weekly_point_in_view': point, 'home_now': home_now, 'work': work,
-                'refresh_presses': self.facts.get('refresh_presses'), 'leaving': quota.get('leaving')}
+            self.diagnose(self.home + '/' + WORK_FOLDER, 'work-reading')
+            raise StepFailed('the relaunched app never read Work in 15 minutes, so it cannot switch to it')
+        return {'home_now': home_now, 'work': work, 'presses': self.facts['refresh_presses_during_job'],
+                'leaving': quota.get('leaving')}
 
     def watch(self):
         remote = self.payload + '/handoff-watch.py'
@@ -423,6 +429,10 @@ class HandoffWalk(command_walk.CommandWalk):
         return {'watching': self.data}
 
     def job(self):
+        quota = self.quota()
+        if '1' in (quota.get('leaving') or []):
+            raise StepFailed('Home reached the cut-off (%s of %s) before the job was sent; run again'
+                             % (self.weekly(quota, '1'), self.facts.get('cutoff')))
         sent = self.send(JOB)
         self.facts['sent_ms'] = sent
         self.save()
@@ -443,7 +453,7 @@ class HandoffWalk(command_walk.CommandWalk):
         if not sent:
             raise StepFailed('job must have run (no send time on record)')
         end = time.monotonic() + self.a.within
-        presses, record, shots, last_note, misses = [], None, set(), 0, 0
+        presses, record, shots, last_note, misses, left_at = [], None, set(), 0, 0, None
         while time.monotonic() < end:
             # One read or press that misses its deadline in a run of hours is not the round's
             # verdict: it is recorded and the next pass tries again; ten in a row end the watch.
@@ -463,6 +473,15 @@ class HandoffWalk(command_walk.CommandWalk):
                     shots.add('continued')
                     time.sleep(20)
                     self.shot('4-successor.png')
+                if not markers and '1' in (self.quota().get('leaving') or []):
+                    # Home is at its point and no helper on it was ordered: either the order is
+                    # late, or nothing ran on Home when it got there (run 9: the job started on
+                    # Work). Ten minutes of that ends the watch; the verdict says which.
+                    left_at = left_at or time.monotonic()
+                    if time.monotonic() - left_at > 600:
+                        self.facts['ended_early'] = 'Home was leaving for 10 minutes and no helper was ordered'
+                        self.save()
+                        break
                 if time.monotonic() - last_note > 300:
                     last_note = time.monotonic()
                     quota = self.quota()
