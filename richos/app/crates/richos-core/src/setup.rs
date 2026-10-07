@@ -1274,12 +1274,12 @@ pub fn sha256_file(path: &Path) -> std::io::Result<String> {
 /// there, and a successful install left `engine.incoming.<pid>.<nanos>` sitting next to
 /// `engine` in the CEO's Application Support folder forever. The residue test caught it. There
 /// is no release path now — the directory always goes.
-struct Staging {
+pub(crate) struct Staging {
     dir: PathBuf,
 }
 
 impl Staging {
-    fn new(near: &Path, tag: &str) -> Result<Staging, SetupError> {
+    pub(crate) fn new(near: &Path, tag: &str) -> Result<Staging, SetupError> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -1298,7 +1298,7 @@ impl Staging {
         Ok(Staging { dir })
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.dir
     }
 }
