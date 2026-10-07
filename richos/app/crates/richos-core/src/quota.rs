@@ -1096,7 +1096,10 @@ impl Service {
         let weekly = window.id == "seven_day";
         let name = if window.id == "five_hour" { "five-hour" } else if weekly { "weekly" } else { window.label.as_str() };
         let whose = if many { format!("{}'s {name} window", in_use.label) } else { format!("the {name} window") };
-        let threshold = if weekly { resets::WEEKLY_THRESHOLD } else { f64::from(policy.pause_percent) };
+        // The weekly point at normal speed is 99, or the test cut-off on the account it names
+        // (handoff round 1: "pause them at 49%, not 99%" under the cut-off 51).
+        let threshold = if weekly { self.cutoff(&in_use.id).unwrap_or(resets::WEEKLY_THRESHOLD) }
+            else { f64::from(policy.pause_percent) };
         let act = if weekly { reading.weekly_point(window) } else { reading.act_point(window, threshold) }.floor();
         let next = self.accounts.next(&readings, policy.line(), crate::util::now_millis()).map(|a| a.label);
         // What acts on this window: the weekly switch whenever there is a second account; at
@@ -2007,6 +2010,24 @@ pub(crate) mod tests {
         assert!(service.view().leaving.is_empty());
         *service.snapshot.lock().unwrap() = live(99.);
         assert_eq!(service.view().leaving, vec!["1".to_string()], "published with one account too");
+    }
+
+    /// **Handoff round 1 (2026-10-07), under the test cut-off `1:51`:** the fast-use alert
+    /// said Rich would "pause them at 49%, not 99%". The weekly point at normal speed was 51,
+    /// never 99, on that account. The alert names the point it moved from, so under the cut-off
+    /// it is 51.
+    #[test]
+    fn under_the_test_cut_off_the_fast_use_alert_names_the_cut_off_as_the_point_it_moved_from() {
+        let dir = Scratch::new();
+        let mut service = Service::open(dir.path()).unwrap();
+        service.weekly_cutoff = parse_weekly_cutoff("1:51");
+        let mut fast = live(45.);
+        fast.speeds.insert("seven_day".into(), 3. / 60_000.);
+        *service.snapshot.lock().unwrap() = fast;
+        service.note_speed();
+        let alert = service.take_alert().expect("3 points a minute is fast");
+        assert!(alert.contains(", not 51%"), "{alert}");
+        assert!(!alert.contains("99%"), "{alert}");
     }
 
     /// **Plan §15 answer 11: when the speed comes back down, everything resets.** After the
