@@ -133,8 +133,17 @@ class Walk(adopt.Walk):
     def click_at(self, x, y):
         command([HERE / 'ax.sh', self.vm, 'click', '--at', f'{int(x)},{int(y)}'], 90)
 
-    def ocr(self, frame, words):
-        r = subprocess.run([str(HERE.parent / 'qa' / 'ocr-find.sh'), words, str(self.out / frame), '--quiet'],
+    def ocr(self, frame, words, box=None):
+        """Whether `words` are read off the frame. With `box` (an ax node), only that box is read,
+        cropped and scaled three times first: the placeholder's light gray "Click" is lost when
+        the whole 1680x1050 frame is read (nightly 41 walk, walk-bd5c53b21c6c: "and select
+        folder" only), and read whole from the field's own crop."""
+        target = self.out / frame
+        if box:
+            target = self.out / (Path(frame).stem + '-field-x3.png')
+            command([sys.executable, HERE.parent / 'qa' / 'frame.py', 'crop', self.out / frame, target,
+                     int(box['x']), int(box['y']), int(box['w']), int(box['h']), '--scale', '3'], 60)
+        r = subprocess.run([str(HERE.parent / 'qa' / 'ocr-find.sh'), words, str(target), '--quiet'],
                            capture_output=True, text=True, timeout=300)
         return r.returncode == 0
 
@@ -201,8 +210,8 @@ class Walk(adopt.Walk):
         self.shot('1-company-sheet.png')
         field = self.node('Its folder on this Mac', 'AXTextField')
         ev = {'field': {k: field.get(k) for k in ('x', 'y', 'w', 'h', 'value')},
-              'placeholder_on_frame': self.ocr('1-company-sheet.png', PLACEHOLDER),
-              'old_placeholder_on_frame': self.ocr('1-company-sheet.png', '/Users/you')}
+              'placeholder_on_frame': self.ocr('1-company-sheet.png', PLACEHOLDER, box=field),
+              'old_placeholder_on_frame': self.ocr('1-company-sheet.png', '/Users/you', box=field)}
         problems = []
         if not ev['placeholder_on_frame']:
             problems.append(f'the empty folder field does not read "{PLACEHOLDER}"')
@@ -276,14 +285,14 @@ class Walk(adopt.Walk):
             if not copy[key]:
                 problems.append(f'{key}: "{words}" is not on the sheet')
         ev['copy'] = copy
-        ev['placeholder_on_frame'] = self.ocr('2-sheet-light.png', PLACEHOLDER)
+        field = self.node('Project folder location', 'AXTextField')
+        ev['placeholder_on_frame'] = self.ocr('2-sheet-light.png', PLACEHOLDER, box=field)
         if not ev['placeholder_on_frame']:
             problems.append(f'the folder field does not read "{PLACEHOLDER}"')
         company = self.nodes('--title', 'Company', '--role', 'AXPopUpButton')
         ev['company_value'] = company[0].get('value') if company else None
         if ev['company_value'] != 'Acme':
             problems.append(f'Company is {ev["company_value"]!r}, not pre-selected as Acme')
-        field = self.node('Project folder location', 'AXTextField')
         c = self.chooser_from(field, 0.5, '2-click-middle')
         if c['chooser_opened']:
             c['open_closed_it'] = self.choose(self.docs, '2-choose')
