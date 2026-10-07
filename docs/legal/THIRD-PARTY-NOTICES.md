@@ -467,6 +467,44 @@ SHA-256 pins are in `richos/app/scripts/runtime-sources.json`. The delivered
 | Git | 2.55.0 | `runtime/sources/GIT-COPYING` and exact corresponding source `git-2.55.0.tar.xz` |
 | GNU libiconv, statically linked into Git | 1.18 | `runtime/sources/ICONV-COPYING.LIB` and exact corresponding source `libiconv-1.18.tar.gz` |
 | whisper.cpp (`whisper-cli`, with the ggml it vendors statically linked), MIT | 1.9.1 | `runtime/sources/WHISPER-CPP-LICENSE`; built from the pinned upstream source archive |
+| FFmpeg (`ffmpeg`, `ffprobe`), static macOS arm64 build by Martin Riedl, GPL-3.0-or-later | 9.0.2 | `runtime/sources/FFMPEG-COPYING.GPLv3`; directions to the exact corresponding source in `runtime/sources/FFMPEG-SOURCE.txt` |
+
+### FFmpeg: a third party's static build, and where its source is
+
+`ffmpeg` and `ffprobe` are not built here. They are the unmodified static
+macOS arm64 build of FFmpeg 9.0.2 that Martin Riedl publishes at
+<https://ffmpeg.martin-riedl.de> (built 2026-09-20 19:18 UTC, signed with
+Developer ID team `KU3N25YGLU`), pinned by SHA-256 like jq. That build is
+configured with `--enable-gpl --enable-version3` and links about thirty
+libraries statically (x264, x265, aom, dav1d, libvpx, OpenSSL, Opus and
+others; `ffmpeg -version` prints the whole configuration), so as a whole it is
+distributed under the GNU General Public License version 3 or later.
+
+**Its corresponding source is not shipped inside the runtime, unlike Git's.**
+It is 34 archives totaling 304,272,357 bytes (measured 2026-10-07), more than
+twice the size of the whole engine asset today. Instead, under GPLv3 section
+6(d), the runtime carries clear directions beside the programs:
+`runtime/sources/FFMPEG-SOURCE.txt` lists FFmpeg 9.0.2, every library at the
+version the build used, and the build script
+(`git.martin-riedl.de/ffmpeg/build-script`, Apache-2.0) at commit
+`6a611e19870e197bc37c6e4c7fccddebd3715466`, each with its download URL and
+SHA-256. The same list is the `corresponding_source` entry in
+`richos/app/scripts/runtime-sources.json`. How the versions were established:
+the build publishes its own `versions.txt` beside the zip, listing 31
+libraries; 30 of those versions match the build script's `version/` files at
+that commit, which is the script's "ffmpeg (version 9.0.2)" commit, made
+about three hours before the build (libogg, which libvorbis and libtheora
+need, is pinned there too). x264 is the one exception: the script builds it from
+the `master` branch, so the listed commit is `0480cb05`, which was master at
+the build time and still is. rav1e's Rust dependencies are fixed by the
+`Cargo.lock` inside its archive.
+
+**What is still open.** Those archives are hosted by their upstream projects,
+not by RichOS. GPLv3 6(d) leaves the distributor responsible for keeping the
+source available as long as the programs are distributed, so the durable step
+is to publish the 34 archives (and the ffmpeg zips, which today come from one
+person's site) beside the engine asset on the RichOS release. That is a
+release-publishing step and is not done yet.
 
 The Git, libiconv and whisper.cpp build instructions are the public runtime build script.
 Git is built with a relocatable prefix and system libraries; libiconv is built

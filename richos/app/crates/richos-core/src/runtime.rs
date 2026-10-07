@@ -140,7 +140,9 @@ impl EngineRuntime {
         let mut actual = BTreeSet::new();
         inventory(&root, &root, &mut actual).map_err(|e| RuntimeError(e.to_string()))?;
         if actual != expected { return Err(RuntimeError("runtime delivery has missing or unexpected files".into())); }
-        for relative in ["bin/python3", "bin/node", "bin/git", "bin/jq", "git/libexec/git-core/git-remote-https"] {
+        // ffmpeg and ffprobe since 2026-10-07: Rich watches and hears videos with them, and his
+        // PATH reaches nothing outside this runtime and the system folders.
+        for relative in ["bin/python3", "bin/node", "bin/git", "bin/jq", "bin/ffmpeg", "bin/ffprobe", "git/libexec/git-core/git-remote-https"] {
             let path = root.join(relative);
             if !path.is_file() { return Err(RuntimeError(format!("runtime is missing {relative}"))); }
             #[cfg(unix)] {

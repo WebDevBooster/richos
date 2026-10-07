@@ -15,6 +15,8 @@
 #      commands (the product reap gap design C8);
 #   3. a positive probe: the same check with a module that does not exist FAILS, so a pass
 #      above is not a snippet that cannot fail.
+#   4. ffmpeg and ffprobe arrive as upstream zips: a zip holding exactly its one named file is
+#      installed executable, and a zip with anything else in it is refused (synthetic zips only).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON="python3"
@@ -44,5 +46,37 @@ if "$PYTHON" -c "${check/import sqlite3/import sqlite3, richos_no_such_module}" 
   echo "  FAIL  B3 a closure check with a missing module still passed"; fail=1
 else
   echo "  PASS  B3 a closure check with a missing module fails"
+fi
+if out=$(python3 - "$HERE/build-runtimes.py" 2>&1 <<'PY'
+import importlib.util, os, sys, tempfile, zipfile
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("build_runtimes", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+with tempfile.TemporaryDirectory(prefix="richos zipped tool ") as temporary:
+    root = Path(temporary)
+    good = root / "ffmpeg.zip"
+    with zipfile.ZipFile(good, "w") as bundle:
+        bundle.writestr("ffmpeg", "#!/bin/sh\necho fictional\n")
+    module.install_zipped_executable(good, "ffmpeg", root / "ffmpeg")
+    assert (root / "ffmpeg").read_text() == "#!/bin/sh\necho fictional\n"
+    assert os.stat(root / "ffmpeg").st_mode & 0o777 == 0o755
+    for members in (["ffmpeg", "extra"], ["ffprobe"], ["../ffmpeg"]):
+        bad = root / "bad.zip"
+        with zipfile.ZipFile(bad, "w") as bundle:
+            for member in members:
+                bundle.writestr(member, "x")
+        try:
+            module.install_zipped_executable(bad, "ffmpeg", root / "refused")
+        except RuntimeError:
+            assert not (root / "refused").exists(), members
+        else:
+            raise SystemExit(f"a zip holding {members} was installed")
+print("ok")
+PY
+); then
+  echo "  PASS  B4 a one-file ffmpeg zip installs executable; extra, misnamed or escaping members are refused"
+else
+  echo "  FAIL  B4 the zipped-executable install: $out"; fail=1
 fi
 exit "$fail"
