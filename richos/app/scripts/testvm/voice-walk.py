@@ -175,8 +175,20 @@ class VoiceWalk(adopt_walk.Walk):
                 last = exc
             time.sleep(1)
         self.shot('relaunch-missing.png')
+        # Why the find saw nothing, kept: present() reads a refusal ("blocked: ... modal=...") as
+        # not found, and candidate 43's voice run 3 showed the talk control on screen while the
+        # find kept missing it. The raw answer and the window's tree say which.
+        why = ''
+        try:
+            self.ax('find', '--title', 'Talk to Rich', '--role', 'AXButton', '--contains', '--first')
+        except StepFailed as exc:
+            why = str(exc)[-400:]
+        try:
+            (self.out / 'relaunch-missing.tree').write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 60))
+        except Exception as exc:  # the tree is evidence only; the step already failed
+            why += f'; tree: {exc}'
         raise StepFailed(f'"Talk to Rich" never appeared within {seconds} s of the relaunch' +
-                         (f'; last AX read: {last}' if last else ''))
+                         (f'; last AX read: {last}' if last else '') + (f'; raw find: {why}' if why else ''))
 
     def ready(self):
         end = time.monotonic() + 60
