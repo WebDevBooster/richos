@@ -123,8 +123,14 @@ sub step_one {  # one gate step of one helper; true when the gate ordered it to 
   my $code = $? >> 8;
   my $said = ''; if (open(my $e, '<', $err)) { local $/; $said = <$e> // ''; close $e; }
   unlink $in, $err;
-  if (open(my $l, '>>', "$dir/calls.log")) { print $l join(' ', time(), ($folder || 'account-1'), 'gate', $id, 'exit', $code), "\n"; close $l; }
-  return 0 unless $code == 2 && $said =~ /Stop the task now/;
+  # The order is named as such; any other refusal carries the gate's first words, because an
+  # exit 2 alone cannot tell the order from the hook refusing for another reason (walk
+  # walk-1db6a7b8afee: every step exited 2, from before the cut-off on).
+  my $ordered = $code == 2 && $said =~ /Stop the task now/;
+  my ($first) = split /\n/, $said; $first //= '';
+  if (open(my $l, '>>', "$dir/calls.log")) { print $l join(' ', time(), ($folder || 'account-1'), 'gate', $id, 'exit', $code,
+    $ordered ? 'order' : length $first ? ('said:', substr($first, 0, 200)) : ()), "\n"; close $l; }
+  return 0 unless $ordered;
   journal({ hook_event_name => 'SubagentStop', agent_id => $id, agent_type => $type });
   return 1;
 }

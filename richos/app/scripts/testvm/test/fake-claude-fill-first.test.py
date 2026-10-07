@@ -160,7 +160,10 @@ with tempfile.TemporaryDirectory() as root:
     allow = 'cat > /dev/null\nexit 0\n'
     check(stops_for(refuse, 'Mark\nAndy\n', 'gate-refuses') == ['walk-agent-1', 'walk-agent-2'],
           'a gate that refuses with the order ends each helper with a SubagentStop row')
-    check('gate walk-agent-1 exit 2' in (walk / 'calls.log').read_text(), 'the gate step is a line in calls.log')
+    check('gate walk-agent-1 exit 2 order' in (walk / 'calls.log').read_text(), 'the gate step is a line in calls.log, the order named')
+    other = 'cat > /dev/null\necho "Refused: some other reason." >&2\nexit 2\n'
+    check(stops_for(other, 'Mark\n', 'gate-other') == [] and 'gate walk-agent-1 exit 2 said: Refused: some other reason.' in (walk / 'calls.log').read_text(),
+          'another refusal ends nothing and is logged with its words, never as the order')
     check(stops_for(allow, 'Mark\nAndy\n', 'gate-allows') == [], 'a gate that admits the step ends no helper')
     check(stops_for(refuse, '', 'no-helpers') == [] and 'gate' not in (walk / 'calls.log').read_text(),
           'with no helpers listed the gate is never called and nothing ends (as on main)')
