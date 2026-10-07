@@ -671,6 +671,28 @@ pub fn model_verified(model_id: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// **Does voice have a model to hear with — answered WITHOUT calibrating.** `Ok` with the first
+/// live-ladder model that is installed and verified ([`model_verified`]), best first, or `Err`.
+///
+/// Why first-run setup asks this rather than [`readiness`]: `readiness` CHOOSES the model by
+/// timing real decodes on this machine ([`choose_model`]) whenever a rung's speed is not cached,
+/// and setup's presence check runs at every launch, on the boot path. Measured 2026-10-07 in a
+/// test-VM guest with both pinned models installed: large-v3-turbo-q5_0 4.929 s per utterance
+/// (three tries before it is rejected) and small.en 2.310 s, and the boot missed gui-boot's 60 s
+/// mark. The two answers agree: the ladder keeps only installed rungs and always accepts its
+/// last, so `readiness` is `Ready` exactly when some live-ladder model is installed and its
+/// weights verify, which is what this checks, at the cost of a cached hash.
+pub fn voice_model_installed() -> Result<String, String> {
+    let mut reasons = Vec::new();
+    for id in crate::hardware::Costs::load().live_ladder {
+        match model_verified(&id) {
+            Ok(_) => return Ok(id),
+            Err(why) => reasons.push(why),
+        }
+    }
+    Err(if reasons.is_empty() { "the live ladder names no model".to_string() } else { reasons.join("; ") })
+}
+
 pub fn readiness() -> SpeechReadiness {
     let bin = match resolve_whisper_bin() {
         Ok(b) => b,

@@ -205,24 +205,22 @@ pub fn detect(boot_engine: Option<&std::path::Path>) -> SetupStatus {
 /// **The speech-model half of the video tools: BOTH models** (media-tools plan §2; the CEO,
 /// 2026-10-07, "Both, in this nightly, yes"). Present exactly when
 ///
-/// 1. `stt::readiness()` is `Ready` — the one resolution voice mode, `voice_readiness` and the
-///    voice-model download all run, so setup cannot call a model present that the microphone
-///    path would not find, nor fetch one it would not look for; AND
+/// 1. voice has a model: a live-ladder model is installed and verified
+///    (`stt::voice_model_installed`), which is exactly when `stt::readiness()` is `Ready`,
+///    answered without the decode timing `readiness` runs to choose among them; AND
 /// 2. the transcription model (`stt::TRANSCRIPTION_MODEL_ID`) is installed and verified
 ///    (`stt::model_verified`).
 ///
-/// The `Err` names the half that is missing, for the operator's boot line; readiness's `Debug`
-/// is hand-written to carry no home-folder path (`stt.rs`).
+/// The `Err` names the half that is missing, for the operator's boot line.
 fn speech_model() -> Result<String, String> {
     use richos_voice::stt;
-    // The operator's boot-line wording, never shown to the CEO (`looked_in` is the boot log's).
-    let voice = match stt::readiness() {
-        stt::SpeechReadiness::Ready(r) => Ok(r.model_id().to_string()),
-        other => {
-            let operator_line = format!("for voice, {other:?}");
-            Err(operator_line)
-        }
-    };
+    // NOT `readiness()`: that calibrates by timing decodes, and this runs on the boot path (see
+    // `stt::voice_model_installed` for the measurement). The operator's boot-line wording, never
+    // shown to the CEO (`looked_in` is the boot log's).
+    let voice = stt::voice_model_installed().map_err(|why| {
+        let operator_line = format!("for voice, {why}");
+        operator_line
+    });
     let transcription = stt::model_verified(stt::TRANSCRIPTION_MODEL_ID)
         .map(|_| stt::TRANSCRIPTION_MODEL_ID.to_string())
         .map_err(|why| format!("for transcription, {why}"));
