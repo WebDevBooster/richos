@@ -225,7 +225,11 @@ with tempfile.TemporaryDirectory() as root:
     back, back_journal = lease('back-end', back_config)
     back.stdin.write(user('The assignment: Start the Northwind job.'))
     back.stdin.flush()
+    desk_tools = set(inits[-1].get('tools', []))
     answers(back)  # the turn has ended; the helper keeps running
+    work_tools = {f'mcp__richos_work__{t}' for t in ('repositories', 'prepare', 'inspect', 'integrate', 'complete')}
+    check(work_tools <= set(inits[-1].get('tools', [])) and not work_tools & desk_tools,
+          'only the back end declares the five work tools (native.rs work_readiness_facts)')
     check(events(back_journal, 'SubagentStart') == ['work-agent-1'], 'the back end launched the work-agent', events(back_journal, 'SubagentStart'))
     deadline = time.time() + 20
     while 'gate work-agent-1 exit 0' not in (walk / 'calls.log').read_text() and time.time() < deadline:

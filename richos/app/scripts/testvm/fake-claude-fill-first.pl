@@ -229,12 +229,15 @@ while (my $line = <STDIN>) {
     # proved on the real app (the S7 walk). Without it a company conversation's turn is refused
     # before it starts: "The connection did not report whether company interview tools loaded."
     # (native.rs ensure_onboarding_tools_loaded; the 2026-10-05 round-16 walk, relaunch log).
-    # These are declarations only; this fake executes none of these tools.
+    # These are declarations only; this fake executes none of these tools. A back-end lease
+    # also declares the five work tools: without them the app refuses its job before and after
+    # its turn ("The desktop work tools did not load", native.rs work_readiness_facts).
+    my @work = $backend ? map { "mcp__richos_work__$_" } qw(repositories prepare inspect integrate complete) : ();
     print $json->encode({ type => 'system', subtype => 'init', model => 'fill-first-fixture',
       plugins => [ { name => 'rich-skills' }, { name => 'richos-app-engine' } ], permissionMode => 'auto',
       tools => [ 'Bash', 'mcp__richos_onboarding__save_company_notes', 'mcp__richos_onboarding__decline_onboarding',
         'mcp__richos_continuity__checkpoint', 'mcp__richos_continuity__inspect',
-        'mcp__richos_assignments__record', 'mcp__richos_status__background_work' ] }), "\n";
+        'mcp__richos_assignments__record', 'mcp__richos_status__background_work', @work ] }), "\n";
     my $internal =index($json->encode($msg->{message} // {}), '[INTERNAL') >= 0;
     # While /Users/admin/fill-first/log-turns exists, each user turn's text (first 400 chars, one
     # line) goes to calls.log as "turn <text>", so a walk can read what the app sent to the back end.
