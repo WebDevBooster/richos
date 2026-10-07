@@ -29,9 +29,12 @@
 //! - **No automatic retry of a corrupted download.** `Finding::retryable` decides, and it says no
 //!   to a hash mismatch: retrying corruption in a loop is how a transient fault becomes a support
 //!   conversation.
-//! - **No binary, ever.** RichOS fetches pinned WEIGHTS. `whisper-cli` is not pinned and cannot be
-//!   (`model-pins.json`: a Homebrew binary's sha256 is a property of an arch and a bottle
-//!   revision), so a machine with no decoder is told so and offered nothing.
+//! - **No binary from here.** This file fetches pinned WEIGHTS only. The decoder, `whisper-cli`,
+//!   arrives another way since 2026-10-07: it is built from pinned whisper.cpp 1.9.1 source into
+//!   the engine's runtime (`scripts/build-runtimes.py`, `scripts/runtime-sources.json`), so
+//!   first-run setup installs it with the engine at `<engine>/runtime/bin/whisper-cli`, hashed
+//!   with every other runtime file, and `richos_voice::stt::resolve_whisper_bin` looks there
+//!   first. A machine with no decoder is therefore one with no engine installed yet.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
