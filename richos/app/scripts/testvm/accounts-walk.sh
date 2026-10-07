@@ -26,6 +26,9 @@
 #                       fresh again" selected (AXValue in 5b-radios-*.json); 5b-d13-quota-on the
 #                       Technical view's Automatic pause on; 5b-d13-quota-held Home's five-hour at
 #                       95%: "Ready to pause", and no switch. ACCOUNTS_WALK_UNTIL=d13 ends here.
+#   5c-age-{fresh-dark,dark,light}  The quota sheet's account lanes: no age while both readings
+#                       are current, then "read N min ago" on both after 5.5 min of null answers
+#                       (with .read.json, the matching nodes, and .tree). ACCOUNTS_WALK_UNTIL=age runs 5c and ends there.
 #   6-switched-chat     Home's week at 99%: Rich's line, with See your accounts
 #   7-switched-{dark,light}  The sheet: the banner (when and why) and Recent changes
 #   8-menu-two          Settings: "Using Work, switched <time>"
@@ -160,7 +163,14 @@ usage /Users/admin/fill-first/usage-1.json 20 86 || setup_failed "the one accoun
 relaunch_app || setup_failed "relaunching the app with the fake claude"
 
 wait_for 'Not now' || true
-ax click --title 'Not now' --first || true
+# Since the setup essentials (e0a346d76) a guest without the video tools first gets the setup
+# sheet, then the memory question; each says Not now (main.js, WHAT A FIRST RUN ASKS), so one
+# press is not enough (handoff-walk.sh, walk walk-7de64f57aafc, candidate 43).
+for _ in 1 2 3; do
+  ax find --title 'Add this company' --first >/dev/null 2>&1 && break
+  ax click --title 'Not now' --first >/dev/null 2>&1 || true
+  sleep 4
+done
 wait_for 'Add this company' || true
 sleep 2
 for attempt in 1 2 3; do
@@ -220,7 +230,10 @@ grep -q 'claude-accounts/2 auth logout' "$S/4-calls.log" || fail "4 the same acc
 note "5 the right account: Work is ready"
 login_as 'work@fixture.invalid' || fail "5 the login-as fixture"
 # shellcheck disable=SC2016  # the $(...) is meant to expand in the guest's shell, not here
-DATA=$("$T/guest.sh" "$VM" 'dirname "$(find /Users/admin/testvm -type d -name claude-accounts 2>/dev/null | head -1)"')
+# The app's own data folder: the claude-accounts under com.richos.app. The bare name matched a
+# folder directly in the guest home on candidate 43, so every record read missed (walk
+# walk-cb80366dad73: "app data: <guest-home>").
+DATA=$("$T/guest.sh" "$VM" 'dirname "$(find /Users/admin/testvm -type d -path "*/com.richos.app/claude-accounts" 2>/dev/null | head -1)"')
 note "app data: $DATA"
 usage "$DATA/claude-accounts/2/usage.json" 0 12 || fail "Work's usage fixture"
 press 'Try again' "5 Try again"
@@ -314,6 +327,70 @@ quota_refresh "5b Refresh after"
 sleep 4
 ax click --title 'Close Claude Code quota' >/dev/null 2>&1 || ax --key 53 >/dev/null 2>&1 || true
 sleep 2
+# 5c (walk of nightly 43): an account lane whose last good reading is older than the normal check
+# (5 min) says "read <age> ago" beside its figures (quota.js renderLanes, abba6a411). With both
+# accounts answering null (the fake's {"null": true}, as Claude Code 2.1.289 does some of the
+# time), the readings stay the last good ones and age. The lanes are read before (no age: both
+# current) and after 5.5 min, in dark and light, from the window's accessibility tree.
+# ACCOUNTS_WALK_UNTIL=age runs 5c after 5b and ends there.
+quota_sheet() {  # open the Technical view's Claude Code quota sheet from the Settings menu
+  for try in 1 2 3; do
+    menu open
+    ax click --title 'Claude Code quota' --role AXMenuItem --contains --first >/dev/null 2>&1 || note "no Claude Code quota row (try $try)"
+    sleep 4
+    ax find --title 'Close Claude Code quota' --first >/dev/null 2>&1 && return 0
+  done
+  fail "$1 (the Claude Code quota sheet did not open)"
+  return 1
+}
+quota_close() { ax click --title 'Close Claude Code quota' >/dev/null 2>&1 || ax --key 53 >/dev/null 2>&1 || true; sleep 2; }
+ages() {  # ages <shot>: the frame, and how many lanes say "read <age> ago"
+  # Counted in the accessibility tree, exhaustively: a lane's age is the static text "read", its
+  # age in bold, then "ago" (quota.js renderLanes), and nothing else on the sheet is the word
+  # "read" alone. OCR read "read 9min ago" and missed a dark lane (run walk-cb80366dad73).
+  "$T/shot.sh" "$VM" "$S/$1.png" >/dev/null 2>&1 || fail "capture $1"
+  ax find --value 'read' --role AXStaticText --json > "$S/$1.read.json" 2>/dev/null || true
+  grep -c '"role"' "$S/$1.read.json" || true
+}
+if [ "${ACCOUNTS_WALK_UNTIL:-}" = age ]; then
+  note "5c the lanes' age: both current first"
+  theme Dark
+  quota_sheet "5c fresh" || true
+  quota_refresh "5c Refresh, both accounts read now"
+  sleep 6
+  fresh_t=$(date +%s)
+  n=$(ages 5c-age-fresh-dark)
+  note "5c fresh: $n lane(s) say 'read N min ago'"
+  [ "$n" = 0 ] || fail "5c a current reading is shown with an age ($n)"
+  ax tree > "$S/5c-age-fresh-dark.tree" 2>&1 || true
+  "$T/guest.sh" "$VM" "printf '{\"null\":true}' > /Users/admin/fill-first/usage-1.json; printf '{\"null\":true}' > \"$DATA/claude-accounts/2/usage.json\"" \
+    || fail "5c the null-answer fixtures"
+  quota_refresh "5c Refresh, both answer null"
+  sleep 6
+  quota_close
+  left=$(( 330 - ($(date +%s) - fresh_t) ))
+  note "5c waiting ${left}s, until both readings are 5.5 min old"
+  [ "$left" -gt 0 ] && sleep "$left"
+  for t in Dark Light; do
+    if [ "$t" = Light ]; then lower=light; else lower=dark; fi
+    theme "$t"
+    quota_sheet "5c aged ($lower)" || continue
+    quota_refresh "5c Refresh ($lower), null again"
+    sleep 6
+    n=$(ages "5c-age-$lower")
+    note "5c aged ($lower): $n lane(s) say 'read N min ago'"
+    [ "$n" = 2 ] || fail "5c both lanes should show their age ($lower: $n)"
+    ax tree > "$S/5c-age-$lower.tree" 2>&1 || true
+    quota_close
+  done
+  "$T/guest.sh" "$VM" "cat \"$DATA/engine-state/claude-quota.json\"" > "$S/5c-quota-record.txt" 2>&1 || true
+  if [ "${#FAILS[@]}" -gt 0 ]; then
+    note "done at 5c, with ${#FAILS[@]} failed step(s): $(printf '%s; ' "${FAILS[@]}")"
+    exit 1
+  fi
+  note "done at 5c (ACCOUNTS_WALK_UNTIL=age)"
+  exit 0
+fi
 if [ "${ACCOUNTS_WALK_UNTIL:-}" = d13 ]; then
   if [ "${#FAILS[@]}" -gt 0 ]; then
     note "done at D13, with ${#FAILS[@]} failed step(s): $(printf '%s; ' "${FAILS[@]}")"

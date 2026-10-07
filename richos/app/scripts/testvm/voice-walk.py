@@ -155,18 +155,43 @@ class VoiceWalk(adopt_walk.Walk):
         a window that walk-e5e9903a36b4, the same bundle, had read at once."""
         end = time.monotonic() + seconds
         last = None
+        declined = False
         while time.monotonic() < end:
             try:
-                if self.present('Talk to Rich'):
+                # The home screen's door is an AXButton; with no home screen the window opens on
+                # the conversation, whose talk control (#talk-toggle, aria-pressed) is an
+                # AXCheckBox/AXToggle (candidate 43, voice run 4: relaunch-missing.tree).
+                if self.present('Talk to Rich') or self.present('Talk to Rich', role='AXCheckBox'):
                     return True
+                # This walk copies one speech model in and declines setup, so the video tools are
+                # still missing and the relaunched app puts the setup sheet up again (setup
+                # essentials, e0a346d76); it holds the window and the find above sees nothing
+                # (candidate 43, voice run 2: relaunch-missing.png). Declined once, as at first run.
+                if not declined and self.present('Set it up'):
+                    self.press('Not now')
+                    declined = True
+                    self.facts['relaunch_setup_sheet_declined'] = True
+                    self.save()
             except StepFailed as exc:
                 if 'guest_deadline' not in str(exc):
                     raise
                 last = exc
             time.sleep(1)
         self.shot('relaunch-missing.png')
+        # Why the find saw nothing, kept: present() reads a refusal ("blocked: ... modal=...") as
+        # not found, and candidate 43's voice run 3 showed the talk control on screen while the
+        # find kept missing it. The raw answer and the window's tree say which.
+        why = ''
+        try:
+            self.ax('find', '--title', 'Talk to Rich', '--role', 'AXButton', '--contains', '--first')
+        except StepFailed as exc:
+            why = str(exc)[-400:]
+        try:
+            (self.out / 'relaunch-missing.tree').write_text(command([HERE / 'ax.sh', self.vm, 'tree'], 60))
+        except Exception as exc:  # the tree is evidence only; the step already failed
+            why += f'; tree: {exc}'
         raise StepFailed(f'"Talk to Rich" never appeared within {seconds} s of the relaunch' +
-                         (f'; last AX read: {last}' if last else ''))
+                         (f'; last AX read: {last}' if last else '') + (f'; raw find: {why}' if why else ''))
 
     def ready(self):
         end = time.monotonic() + 60
