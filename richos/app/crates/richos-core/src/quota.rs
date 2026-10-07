@@ -526,7 +526,18 @@ struct Snapshot {
     since_reading: f64,
     /// This account's last measured handoff (`Reading::handoff`), set at every token scan.
     handoff: Option<(u64, f64)>,
+    /// Null answers in a row before this account's first reading (`FIRST_READING_RETRY_MS`).
+    empties: u32,
 }
+
+/// **An account with no reading yet is asked again soon after a null answer** (handoff round
+/// 2, runs 2-4 and 6: null answers, the usage endpoint's 429 reported as `rate_limits: null`,
+/// starved Work's first reading for the whole run, and an account never read is never switched
+/// to). 30 seconds after the first null, doubling to `FIRST_READING_RETRY_MAX_MS` and staying
+/// there until the first reading arrives: well under the 5-minute schedule, never more than
+/// one ask in 30 seconds. With a reading in hand a null waits for the normal schedule.
+pub const FIRST_READING_RETRY_MS: u64 = 30_000;
+pub const FIRST_READING_RETRY_MAX_MS: u64 = 120_000;
 
 /// One window's reading as a speed base: used percent, its reset time, and when it was read.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -608,7 +619,7 @@ impl Snapshot {
         let rises = std::mem::take(&mut self.rises);
         let (rise_until, token_speed, handoff) = (self.rise_until, self.token_speed, self.handoff);
         *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rises, rise_until, empty_at: None, token_speed,
-            since_reading: 0., handoff };
+            since_reading: 0., handoff, empties: 0 };
     }
     /// **A check that came back with no figures.** Every kind records when, so the pause stops
     /// waiting on it (`Admission::NoReading`). A null answer (`ReadError::NoReading`) is not a
@@ -621,6 +632,7 @@ impl Snapshot {
         if error == ReadError::NoReading {
             self.error = None;
             self.retry_at = None;
+            if self.checked_at.is_none() { self.empties = self.empties.saturating_add(1); }
             return;
         }
         if error == ReadError::Unsupported {
@@ -737,12 +749,17 @@ impl Snapshot {
             // Counted from the last check of any outcome, so a check that came back empty is
             // asked again one interval later (5 minutes, or 1 while usage is fast), not on the
             // monitor's next tick.
+            // An account never read yet is asked again soon after a null answer
+            // (`FIRST_READING_RETRY_MS`).
             next_check_at: [self.checked_at, self.empty_at].into_iter().flatten().max().map(|t| {
+                let wait = if self.checked_at.is_none() && self.error.is_none() && self.empties > 0 {
+                    (FIRST_READING_RETRY_MS << (self.empties - 1).min(8)).min(FIRST_READING_RETRY_MAX_MS)
+                } else { interval };
                 self.windows
                     .iter()
                     .filter_map(|w| w.resets_at)
                     .filter(|r| *r > t)
-                    .fold(t.saturating_add(interval), u64::min)
+                    .fold(t.saturating_add(wait), u64::min)
             }),
             refresh_interval_ms: interval,
             retry_at: self.retry_at.filter(|t| *t > now),
@@ -1804,6 +1821,28 @@ pub(crate) mod tests {
         assert!(service.view().leaving.is_empty(), "a fresh 53% is current and is not moved");
     }
 
+    /// **An account the app has never read is asked again soon** (handoff round 2, runs 2-4
+    /// and 6: null answers starved Work's first reading for the whole run, and an account with
+    /// no reading is never switched to). While there is no reading yet, a null answer is asked
+    /// again 30 seconds later, then 1, 2 minutes, and never sooner than 2 minutes after that:
+    /// well under the 5-minute schedule and at most one ask in 30 seconds. Once a reading has
+    /// arrived, a null answer waits for the normal schedule again, as before.
+    #[test]
+    fn a_null_answer_before_the_first_reading_is_asked_again_soon_and_bounded() {
+        let mut s = Snapshot::default();
+        let mut at = NOW;
+        for wait in [30_000, 60_000, 120_000, 120_000, 120_000] {
+            s.empty(ReadError::NoReading, at);
+            let next = s.view(policy(), at).next_check_at.expect("a next check");
+            assert_eq!(next - at, wait, "no reading yet: asked again after {wait} ms");
+            at = next;
+        }
+        s.accept(snapshot(20., 3_600_000).windows, at);
+        s.empty(ReadError::NoReading, at + 1_000);
+        assert_eq!(s.view(policy(), at + 1_000).next_check_at, Some(at + 1_000 + REFRESH_INTERVAL_MS),
+            "with a reading in hand, the normal schedule");
+    }
+
     #[test]
     fn weekly_99_holds_until_fresh_allowance_even_near_five_hour_reset() {
         let mut state = snapshot(100., RESET_EXEMPTION_MS - 1);
@@ -2661,7 +2700,9 @@ for line in sys.stdin:
         assert_eq!(view.state, State::Unavailable, "no figures, so no reading to show");
         let empty = view.empty_at.expect("the empty answer is recorded");
         assert!(empty >= before);
-        assert_eq!(view.next_check_at, Some(empty + REFRESH_INTERVAL_MS), "asked again on the normal schedule");
+        // No reading yet, so asked again soon (handoff round 2: FIRST_READING_RETRY_MS), not
+        // on the 5-minute schedule; with figures in hand, below, the normal schedule.
+        assert_eq!(view.next_check_at, Some(empty + FIRST_READING_RETRY_MS), "an account never read is asked again soon");
         assert_eq!(view.admission, Admission::NoReading);
         assert!(view.admission.allows_work(), "a missing reading does not hold new background work");
         // The gate, a separate process, decides the same from the published file.
