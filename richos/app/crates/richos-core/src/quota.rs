@@ -789,6 +789,9 @@ pub struct Service {
     transcripts_one: Option<PathBuf>,
     /// When the transcripts were last read (`track_tokens`).
     scanned_at: std::sync::atomic::AtomicU64,
+    /// The token use every lease of the app streamed, by account (`tokens::Sink`), taken into
+    /// each account's track at every token scan. The shell gives it to each lease it starts.
+    sink: std::sync::Arc<tokens::Sink>,
 }
 
 /// The shortest gap between two transcript reads from the monitor's one-second tick.
@@ -886,6 +889,7 @@ impl Service {
             tokens: Mutex::new(learned.into_iter().map(|(id, e)| (id, tokens::Track::with_episodes(e))).collect()),
             transcripts_one: None,
             scanned_at: std::sync::atomic::AtomicU64::new(0),
+            sink: std::sync::Arc::new(tokens::Sink::default()),
         };
         service.publish()?;
         Ok(service)
@@ -1017,24 +1021,27 @@ impl Service {
         self.accounts.in_use().id
     }
 
-    /// **Token use, before every decision** (`tokens`): read what each account's transcripts
-    /// gained, give its freshest weekly reading to its track (an episode may close: tokens per
-    /// point are learned from it), and set its token speed from the last minute. True when a
-    /// token speed changed.
+    /// **Token use, before every decision** (`tokens`): take what the app's own leases streamed
+    /// on each account (`tokens::Sink`) and what its transcripts gained (Claude Code used
+    /// outside the app), give its freshest weekly reading to its track (an episode may close:
+    /// tokens per point are learned from it), and set its token speed from the last minute.
+    /// True when a token speed changed.
     fn track_tokens(&self) -> bool {
         let now = crate::util::now_millis();
         self.scanned_at.store(now, std::sync::atomic::Ordering::SeqCst);
+        let streamed = self.sink.take();
         let (mut learned, mut moved) = (false, false);
         for account in self.accounts.list() {
             let one = account.id == crate::claude_accounts::ACCOUNT_ONE;
-            let Some(folder) = (if one { self.transcripts_one.clone() } else { account.folder.clone() }) else { continue };
+            let folder = if one { self.transcripts_one.clone() } else { account.folder.clone() };
             let week = |s: &Snapshot| s.windows.iter().find(|w| w.id == "seven_day").cloned().zip(s.checked_at);
             let reading = if one { week(&self.snapshot.lock().unwrap()) }
                 else { self.extra.lock().unwrap().get(&account.id).and_then(|(_, s)| week(s)) };
             let speed = {
                 let mut tracks = self.tokens.lock().unwrap();
                 let track = tracks.entry(account.id.clone()).or_default();
-                track.scan(&folder, now);
+                if let Some(folder) = &folder { track.scan(folder, now); }
+                for (_, found) in streamed.iter().filter(|(id, _)| *id == account.id) { track.add_use(found); }
                 if let Some((window, at)) = reading { learned |= track.reading(&window, at, now); }
                 track.speed(now)
             };
@@ -1342,6 +1349,12 @@ impl Service {
     /// The folder a lease on the account in use runs under, and that account's id.
     pub fn lease_account(&self) -> crate::claude_accounts::Account {
         self.accounts.in_use()
+    }
+
+    /// Where a lease puts the tokens it streams (`EngineProfile::token_sink`), counted under
+    /// the account it runs on.
+    pub fn token_sink(&self) -> std::sync::Arc<tokens::Sink> {
+        self.sink.clone()
     }
 
     /// Add an account. `current` names the account already signed in when this is the second

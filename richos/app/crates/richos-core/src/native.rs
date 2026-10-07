@@ -1300,6 +1300,11 @@ pub struct NativeClient {
 struct ReaderState {
     /// The last usage reading the child streamed (`rate_limit_event`), and when (fill-first).
     streamed_usage: Option<crate::quota::StreamedReading>,
+    /// **Where every `assistant` frame's usage goes, and the account this lease runs on**
+    /// (`quota::tokens::Sink`): the lease writes no transcript, so this is the only place the
+    /// quota service can see what the app's own Rich and teammates spend. `None` without an
+    /// engine profile that names both.
+    token_sink: Option<(String, std::sync::Arc<crate::quota::tokens::Sink>)>,
     question_scope: Option<std::path::PathBuf>,
     permissions: Option<crate::permissions::ScopedPermissions>,
     /// Did the child list all five `richos_work` tools? [`InitFact`], not `bool` — see its
@@ -1662,6 +1667,7 @@ impl Default for ReaderState {
             turns_named_by_the_child: false,
             background: Vec::new(),
             streamed_usage: None,
+            token_sink: None,
         }
     }
 }
@@ -2038,6 +2044,8 @@ impl NativeClient {
         let between: Arc<Mutex<BetweenTurn>> = Arc::new(Mutex::new(BetweenTurn::default()));
         let state: Arc<Mutex<ReaderState>> = Arc::new(Mutex::new(ReaderState::default()));
         state.lock().unwrap().question_scope = onboarding.map(|(_,_,path,_)|crate::question_tools::path(path));
+        state.lock().unwrap().token_sink = profile
+            .and_then(|p| Some((p.claude_account.as_ref()?.id.clone(), p.token_sink.clone()?)));
         if let (Some(profile), Some((_, scope))) = (profile, continuity) {
             state.lock().unwrap().permissions = Some(crate::permissions::ScopedPermissions {desk: profile.permissions.clone(), scope: scope.into()});
         }
@@ -2356,6 +2364,14 @@ impl NativeClient {
         if ty == "rate_limit_event" {
             if let Some(windows) = streamed_windows(&msg) {
                 state.lock().unwrap().streamed_usage = Some((windows, crate::util::now_millis()));
+            }
+        }
+        // Every assistant message's tokens, whichever turn it belongs to and whoever said it
+        // (a helper's nested frames too): they are all spent on this lease's account.
+        if ty == "assistant" {
+            let sink = state.lock().unwrap().token_sink.clone();
+            if let Some((account, sink)) = sink {
+                sink.frame(&account, &msg, crate::util::now_millis());
             }
         }
 
@@ -4693,6 +4709,43 @@ printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
         assert!((windows[1].used_percent - 58.).abs() < 1e-9, "0.58 x 100 in f64 is 57.99999999999999");
     }
 
+    /// **The CEO, 2026-10-07: the switch point rests on the tokens the app's own teammates
+    /// use.** Handoff round 2, run 10: the leases run with `--no-session-persistence`, so no
+    /// transcript exists and the token speed saw nothing. Here a lease streams Rich's message
+    /// twice (the way one message arrives in several frames; it counts once, at its largest
+    /// copy) and a helper's nested message, 2,000,000 and 1,000,000 Opus tokens. With
+    /// 1,000,000 tokens a point learned before, that is 3 points in the last minute on the
+    /// lease's account, while its weekly window still reads 52%.
+    #[test]
+    fn a_leases_streamed_tokens_and_its_helpers_move_the_weekly_speed_of_its_account() {
+        let script = write_script("streamed-tokens", r#"
+read -r init
+printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"req_init","response":{}}}'
+read -r prompt
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_rich","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"On it"}],"usage":{"input_tokens":0,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":1999000}},"parent_tool_use_id":null}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_rich","model":"claude-opus-5-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{}}],"usage":{"input_tokens":0,"output_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":1999000}},"parent_tool_use_id":null}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_helper","model":"claude-opus-5-5","role":"assistant","content":[{"type":"text","text":"reading"}],"usage":{"input_tokens":10,"output_tokens":990,"cache_creation_input_tokens":9000,"cache_read_input_tokens":990000}},"parent_tool_use_id":"toolu_1"}'
+printf '%s\n' '{"type":"result","stop_reason":"end_turn"}'
+"#);
+        let root = script.parent().unwrap();
+        let app = root.join("app");
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::write(app.join(crate::quota::TOKEN_POINTS_FILE),
+            r#"{"1":[{"points":1.0,"tokens":{"claude-opus-5-5":1000000}}]}"#).unwrap();
+        let service = crate::quota::Service::open(&app).unwrap();
+        let mut cognition = NativeCognition::start(&script, root, &doctrine_fixture(), &skills_fixture()).unwrap();
+        cognition.client.reader_state.lock().unwrap().token_sink = Some(("1".into(), service.token_sink()));
+        cognition.prompt("hello", &mut |_| {}).unwrap();
+        let now = crate::util::now_millis();
+        let week = vec![crate::quota::Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: 52.,
+            resets_at: Some(now + 72 * 3_600_000), duration_ms: 168 * 3_600_000 }];
+        service.before_turn("1", Some((week, now)));
+        let view = service.view();
+        let per_minute = view.speeds.get("seven_day").copied().unwrap_or(0.) * 60_000.;
+        assert!((per_minute - 3.).abs() < 1e-9, "3,000,000 Opus tokens at 1,000,000 a point = 3 points a minute, got {per_minute}");
+        assert_eq!(view.windows[0].used_percent, 52.);
+    }
+
     fn assert_returned_before_the_result(root: &Path) {
         assert!(!root.join("result-sent").exists(),
             "the prompt returned only after the provider sent its result: the question retained the asking turn");
@@ -4895,7 +4948,7 @@ done
             },
             work_scope: None,
             permissions: std::sync::Arc::new(crate::permissions::PermissionDesk::default()),
-            operator_desk: None, claude_account: None,
+            operator_desk: None, claude_account: None, token_sink: None,
         }
     }
 
@@ -7055,7 +7108,7 @@ read -r keep_alive
             cognition.engine_profile = Some(crate::engine_profile::EngineProfile {
                 engine: root.clone(), coordination: root.clone(), plugin: root.clone(), state: root.clone(),
                 runtime: crate::runtime::EngineRuntime {root: root.clone(), python:"/usr/bin/python3".into(), node:"/usr/bin/false".into(), git:"/usr/bin/git".into(),versions:BTreeMap::new()},
-                work_scope:None, permissions:Default::default(), operator_desk: None, claude_account: None
+                work_scope:None, permissions:Default::default(), operator_desk: None, claude_account: None, token_sink: None
             });
             let result = cognition.prompt("Synthetic audit turn", &mut |_| {});
             let provider_alive = cognition.client.child.try_wait().unwrap().is_none();
