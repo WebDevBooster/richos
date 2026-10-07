@@ -23,6 +23,15 @@
 # /Users/admin/fill-first/agents exists, the provider's rows for one background agent per line
 # of that file on the first user turn (SubagentStart and PostToolUse[Agent] "async_launched",
 # the rows app_workers.rs reads). /Users/admin/fill-first/reply.txt, when present, is the answer.
+#
+# HELPER STEPS (weekly-switch handoff plan 2026-10-07, slice 6). While the agents file lists
+# helpers, each user turn (and each second of a held turn) is one step of every helper that has
+# not ended: the fake runs the gate command from the lease's <plugin-dir>/hooks/hooks.json
+# (PreToolUse), with a helper payload (agent_id walk-agent-N) on stdin and the lease's own
+# environment, as Claude Code would. When the gate refuses with the order (exit 2, "Stop the task
+# now" on stderr), the fake writes that helper's SubagentStop row; an admitted step writes
+# nothing. Every step is a line in calls.log ("gate <agent> exit <n>"). Without helpers, or
+# without a hooks.json, no step runs and nothing here changes.
 # Nothing here reaches a network.
 use strict; use warnings; use JSON::PP; use Fcntl qw(:flock); use File::Path qw(make_path);
 $| = 1;
@@ -80,6 +89,36 @@ sub journal {  # append callback rows under the journal's lock, as app-evidence.
   close $out; close $lock;
 }
 journal({ hook_event_name => 'SessionStart' });
+my %ended;
+sub gate_command {  # the PreToolUse command of the lease's hooks.json, or undef
+  return undef unless $profile && open(my $fh, '<', "$profile/hooks/hooks.json");
+  local $/; my $text = <$fh>; close $fh;
+  my $m = eval { $json->decode($text) } or return undef;
+  return $m->{hooks}{PreToolUse}[0]{hooks}[0]{command};
+}
+sub helper_steps {  # one step of every listed helper that has not ended
+  return unless $evidence && open(my $names, '<', "$dir/agents");
+  my @who = grep { length } map { s/\s+\z//r } <$names>; close $names;
+  my $command = gate_command() or return;
+  my $n = 0;
+  for my $type (@who) {
+    $n++; my $id = "walk-agent-$n";
+    next if $ended{$id};
+    my $payload = $json->encode({ hook_event_name => 'PreToolUse', session_id => $session, agent_id => $id,
+      agent_type => $type, tool_name => 'Bash', tool_input => { command => 'true' } });
+    my $in = "$dir/gate-in-$n.json"; my $err = "$dir/gate-err-$n.txt";
+    open(my $w, '>', $in) or next; print $w $payload; close $w;
+    system("($command) < '$in' > /dev/null 2> '$err'");
+    my $code = $? >> 8;
+    my $said = ''; if (open(my $e, '<', $err)) { local $/; $said = <$e> // ''; close $e; }
+    unlink $in, $err;
+    if (open(my $l, '>>', "$dir/calls.log")) { print $l join(' ', time(), ($folder || 'account-1'), 'gate', $id, 'exit', $code), "\n"; close $l; }
+    if ($code == 2 && $said =~ /Stop the task now/) {
+      $ended{$id} = 1;
+      journal({ hook_event_name => 'SubagentStop', agent_id => $id, agent_type => $type });
+    }
+  }
+}
 sub iso { my @t = gmtime(shift); sprintf('%04d-%02d-%02dT%02d:%02d:%02dZ', $t[5]+1900, $t[4]+1, $t[3], $t[2], $t[1], $t[0]) }
 while (my $line = <STDIN>) {
   my $msg = eval { $json->decode($line) } or next;
@@ -107,6 +146,13 @@ while (my $line = <STDIN>) {
         'mcp__richos_continuity__checkpoint', 'mcp__richos_continuity__inspect',
         'mcp__richos_assignments__record', 'mcp__richos_status__background_work' ] }), "\n";
     my $internal =index($json->encode($msg->{message} // {}), '[INTERNAL') >= 0;
+    # While /Users/admin/fill-first/log-turns exists, each user turn's text (first 400 chars, one
+    # line) goes to calls.log as "turn <text>", so a walk can read what the app sent to the back end.
+    if (!$internal && -e "$dir/log-turns" && open(my $tl, '>>', "$dir/calls.log")) {
+      my $c = $msg->{message}{content};
+      my $sent = ref $c eq 'ARRAY' ? join(' ', map { ref $_ eq 'HASH' ? ($_->{text} // '') : '' } @$c) : ($c // '');
+      $sent =~ s/\s+/ /g; print $tl join(' ', time(), ($folder || 'account-1'), 'turn', substr($sent, 0, 400)), "\n"; close $tl;
+    }
     if (!$internal && $evidence && open(my $names, '<', "$dir/agents")) {
       my @who = grep { length } map { s/\s+\z//r } <$names>; close $names;
       my $seen = '';
@@ -117,7 +163,10 @@ while (my $line = <STDIN>) {
           { hook_event_name => 'PostToolUse', tool_name => 'Agent', tool_response => { status => 'async_launched', agentId => "walk-agent-$n" } }) } @who);
       }
     }
-    unless ($internal) { for (1 .. 600) { last unless -e "$dir/slow"; sleep 1; } }
+    unless ($internal) {
+      helper_steps();
+      for (1 .. 600) { last unless -e "$dir/slow"; sleep 1; helper_steps(); }
+    }
     my $u = usage();
     print $json->encode({ type => 'rate_limit_event', rate_limit_info => { status => 'allowed', unifiedWindows => {
       five_hour => { utilization => $u->{five} / 100, resetsAt => $u->{five_at} // $five_reset },

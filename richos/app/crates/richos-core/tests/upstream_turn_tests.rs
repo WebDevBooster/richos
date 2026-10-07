@@ -24,9 +24,12 @@ use richos_core::entity::EntityId;
 use richos_core::ledger::{Ledger, Source, TurnState};
 use richos_core::stream::{StreamEvent, TurnObserver};
 use richos_core::timeline::{TimelineItem, ViewMode, Visibility};
-use richos_core::upstream::{RetryBudget, UpstreamFault, MAX_UPSTREAM_RETRIES};
+use richos_core::steering::TurnControl;
+use richos_core::upstream::{RetryBudget, RetryClock, UpstreamFault, MAX_OVERLOAD_RETRIES, OVERLOAD_RETRY_WAITS};
 use richos_core::LeaseFactory;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 mod support;
 
@@ -57,6 +60,24 @@ fn tmp_ledger(tag: &str) -> (std::path::PathBuf, Ledger) {
     let _ = std::fs::remove_file(&path);
     let ledger = Ledger::open(&path).unwrap();
     (path, ledger)
+}
+
+/// A clock that waits no time and writes down every wait it was asked for. Every spine in this
+/// suite runs on one, because an overload now waits out the CEO's schedule (158 minutes in all)
+/// before it gives up.
+#[derive(Default)]
+struct FakeClock(Mutex<Vec<Duration>>);
+impl RetryClock for FakeClock {
+    fn wait(&self, wait: Duration, stop_asked: &dyn Fn() -> bool) -> bool {
+        self.0.lock().unwrap().push(wait);
+        !stop_asked()
+    }
+}
+
+fn spine(ledger: Ledger) -> richos_core::spine::Spine {
+    let mut spine = support::spine(ledger);
+    spine.set_retry_clock(Arc::new(FakeClock::default()));
+    spine
 }
 
 #[derive(Clone, Default)]
@@ -177,7 +198,7 @@ impl LeaseFactory for OutageFactory {
 #[test]
 fn an_api_error_delivered_as_assistant_text_is_a_failure_and_not_a_completed_turn() {
     let (path, ledger) = tmp_ledger("text-shape");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ApiErrorAsTextCognition {
         session_id: "sess-1".into(),
@@ -206,7 +227,7 @@ fn an_api_error_delivered_as_assistant_text_is_a_failure_and_not_a_completed_tur
 #[test]
 fn an_api_error_delivered_as_a_client_error_classifies_the_same_way() {
     let (path, ledger) = tmp_ledger("err-shape");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ApiErrorAsErrCognition {
         session_id: "sess-1".into(),
@@ -230,7 +251,7 @@ fn an_api_error_delivered_as_a_client_error_classifies_the_same_way() {
 #[test]
 fn the_loss_statement_is_emitted_at_the_failure_and_excludes_the_error_message_itself() {
     let (path, ledger) = tmp_ledger("loss-live");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let obs = RecordingObserver::default();
     spine.set_observer(Box::new(obs.clone()));
     let _thread = spine.create_thread("General", &femcboost()).unwrap();
@@ -244,7 +265,11 @@ fn the_loss_statement_is_emitted_at_the_failure_and_excludes_the_error_message_i
     let _ = spine.submit_prompt("how is the release going?", Source::Text);
 
     let errors = obs.errors();
-    assert_eq!(errors.len(), 1, "exactly one statement, at the moment it happened");
+    assert_eq!(
+        errors.len(),
+        1 + MAX_OVERLOAD_RETRIES as usize,
+        "one statement per attempt, each at the moment it happened (this lease never recovers)"
+    );
     let m = &errors[0];
     assert!(m.contains("Anthropic's servers are at capacity"), "what happened: {m}");
     assert!(m.contains("what you asked for is saved"), "what survived: {m}");
@@ -270,7 +295,7 @@ fn the_loss_statement_is_emitted_at_the_failure_and_excludes_the_error_message_i
 fn the_statement_survives_a_cold_reopen_and_renders_in_the_ceo_view() {
     let (path, ledger) = tmp_ledger("reload");
     let thread = {
-        let mut spine = support::spine(ledger);
+        let mut spine = spine(ledger);
         let thread = spine.create_thread("General", &femcboost()).unwrap();
         spine.attach_lease(Box::new(ApiErrorAsTextCognition {
             session_id: "sess-1".into(),
@@ -282,7 +307,7 @@ fn the_statement_survives_a_cold_reopen_and_renders_in_the_ceo_view() {
     };
 
     let reopened = Ledger::open(&path).unwrap();
-    let spine = support::spine(reopened);
+    let spine = spine(reopened);
     let view = spine.timeline(&thread).unwrap().view(ViewMode::Ceo);
     let outage = view
         .items
@@ -312,7 +337,7 @@ fn the_statement_survives_a_cold_reopen_and_renders_in_the_ceo_view() {
 #[test]
 fn the_vendors_diagnostic_never_renders_as_richs_words_but_the_real_reply_still_does() {
     let (path, ledger) = tmp_ledger("no-vendor-voice");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ApiErrorAsTextCognition {
         session_id: "sess-1".into(),
@@ -358,39 +383,144 @@ fn the_vendors_diagnostic_never_renders_as_richs_words_but_the_real_reply_still_
 // 3. RETRY IS BOUNDED AND VISIBLE
 // =========================================================================================
 
-/// INVARIANT: four consecutive turns against an outage do NOT produce four automatic
-/// retries. The 2026-09-03 shape, run through the real spine.
+/// A lease that answers `529` or answers properly, as its script says, and writes down which
+/// session every prompt reached and what it said. An empty script answers.
+struct ScriptedCognition {
+    session_id: String,
+    /// `true` = this attempt meets the captured `529`.
+    script: Arc<Mutex<VecDeque<bool>>>,
+    prompts: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl Cognition for ScriptedCognition {
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+    fn reprime(&mut self, _p: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<(), CognitionError> {
+        Ok(())
+    }
+    fn prompt(&mut self, text: &str, on_item: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
+        self.prompts.lock().unwrap().push((self.session_id.clone(), text.to_string()));
+        if self.script.lock().unwrap().pop_front().unwrap_or(false) {
+            return Err(CognitionError::Io(captured_529().to_string()));
+        }
+        on_item(TurnItem::Text { seq: 0, text: "the release is on track" });
+        Ok("end_turn".to_string())
+    }
+}
+
+/// **The CEO, 2026-10-07: *"There needs to be an exponential backoff ... first retry after 1
+/// minute; second retry: after another 2-minute wait; third retry: after another 5-minute
+/// wait; 4th retry: after another 10-minute wait; 5th retry: after another 20-minute wait;
+/// 6th retry: after another 40-minute wait; 7th retry: after another 80-minute wait."***
 ///
-/// **The arithmetic, shown rather than asserted.** `MAX_UPSTREAM_RETRIES` is 1 and the
-/// budget resets only on a SUCCESS, so across four consecutive failing turns the spine
-/// spawns a fresh lease exactly once. Four turns that would each have cost a retry cost
-/// one between them.
+/// Through the real spine, on a fake clock:
+///
+/// 1. seven `529`s, then an answer: the waits are 1, 2, 5, 10, 20, 40 and 80 minutes, all
+///    eight attempts carry his words to the SAME session (`sess-0`), no lease is spawned, and
+///    the turn completes;
+/// 2. the answer reset the schedule: one more `529` waits 1 minute again;
+/// 3. eight `529`s: after the 7th retry fails, the turn ends as it always did, interrupted
+///    with its upstream record, and nothing more is tried.
+///
+/// RED before this change: an overload bought one IMMEDIATE retry on a FRESH lease
+/// (`recover_and_replay`), so no wait was asked for and the factory spawned.
 #[test]
-fn four_consecutive_failing_turns_buy_exactly_one_automatic_retry_between_them() {
-    let (path, ledger) = tmp_ledger("bounded");
+fn an_overload_waits_out_his_schedule_on_the_same_session_and_a_success_resets_it() {
+    let (path, ledger) = tmp_ledger("schedule");
     let mut spine = support::spine(ledger);
-    let _thread = spine.create_thread("General", &femcboost()).unwrap();
-    let spawns = Arc::new(Mutex::new(0u64));
-    spine.attach_lease(Box::new(ApiErrorAsErrCognition {
+    let clock = Arc::new(FakeClock::default());
+    spine.set_retry_clock(clock.clone());
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
+    let script = Arc::new(Mutex::new(VecDeque::new()));
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    spine.attach_lease(Box::new(ScriptedCognition {
         session_id: "sess-0".into(),
-        error_line: captured_529().to_string(),
+        script: script.clone(),
+        prompts: prompts.clone(),
     }));
+    let spawns = Arc::new(Mutex::new(0u64));
     spine.set_lease_factory(Box::new(OutageFactory {
         spawns: spawns.clone(),
         error_line: captured_529().to_string(),
     }));
+    let minutes = |m: &[u64]| m.iter().map(|m| Duration::from_secs(m * 60)).collect::<Vec<_>>();
+    assert_eq!(OVERLOAD_RETRY_WAITS.to_vec(), minutes(&[1, 2, 5, 10, 20, 40, 80]), "his schedule, as written");
 
-    for i in 0..4 {
-        let _ = spine.submit_prompt(&format!("attempt {i}"), Source::Text);
-    }
-
-    let n = *spawns.lock().unwrap();
-    assert_eq!(
-        n, u64::from(MAX_UPSTREAM_RETRIES),
-        "four failing turns bought {} automatic retries; the ceiling is {MAX_UPSTREAM_RETRIES}",
-        n
+    // 1. Seven overloads, then the answer.
+    script.lock().unwrap().extend([true; 7]);
+    spine.submit_prompt("how is the release going?", Source::Text).expect("the eighth attempt answered");
+    assert_eq!(*clock.0.lock().unwrap(), minutes(&[1, 2, 5, 10, 20, 40, 80]));
+    let sent = prompts.lock().unwrap().clone();
+    assert_eq!(sent.len(), 8, "the try and seven retries: {sent:?}");
+    assert!(
+        sent.iter().all(|(session, text)| session == "sess-0" && text == "how is the release going?"),
+        "every retry is his same turn on the same session: {sent:?}"
     );
+    assert_eq!(*spawns.lock().unwrap(), 0, "no fresh session was opened");
+    assert_eq!(spine.lease_session_id(), Some("sess-0"));
+    let turns = spine.ledger().thread_turns(&thread).unwrap();
+    let answered = turns.iter().rev().find(|t| t.user_text == "how is the release going?").unwrap();
+    assert_eq!(answered.state, TurnState::Completed);
+
+    // 2. The answer reset the schedule.
+    script.lock().unwrap().push_back(true);
+    spine.submit_prompt("and the budget?", Source::Text).expect("the retry answered");
+    assert_eq!(*clock.0.lock().unwrap(), minutes(&[1, 2, 5, 10, 20, 40, 80, 1]), "starts again at 1 minute");
+
+    // 3. Eight overloads: the 7th retry fails and the turn ends.
+    script.lock().unwrap().extend([true; 8]);
+    assert!(spine.submit_prompt("and the hiring plan?", Source::Text).is_err());
+    assert_eq!(
+        *clock.0.lock().unwrap(),
+        minutes(&[1, 2, 5, 10, 20, 40, 80, 1, 1, 2, 5, 10, 20, 40, 80]),
+        "seven waits and no eighth"
+    );
+    assert_eq!(prompts.lock().unwrap().len(), 8 + 2 + 8);
+    let turns = spine.ledger().thread_turns(&thread).unwrap();
+    let last = turns.iter().rev().find(|t| t.user_text == "and the hiring plan?").unwrap();
+    assert_eq!(last.state, TurnState::Interrupted);
+    assert_eq!(last.upstream_failure.as_ref().unwrap().fault, UpstreamFault::Overloaded.tag());
+    assert_eq!(*spawns.lock().unwrap(), 0);
     let _ = std::fs::remove_file(&path);
+}
+
+/// The way out of the wait: his Stop during it ends it at once, and his turn is not sent again.
+#[test]
+fn his_stop_during_the_wait_ends_it_and_nothing_is_sent_again() {
+    struct StopsDuringTheWait(TurnControl, Mutex<Vec<Duration>>);
+    impl RetryClock for StopsDuringTheWait {
+        fn wait(&self, wait: Duration, stop_asked: &dyn Fn() -> bool) -> bool {
+            self.1.lock().unwrap().push(wait);
+            self.0.request_stop().unwrap();
+            !stop_asked()
+        }
+    }
+    let (path, ledger) = tmp_ledger("stop-in-wait");
+    let intake = path.with_extension("intake.jsonl");
+    let control = TurnControl::open(&intake).unwrap();
+    let mut spine = support::spine(ledger);
+    spine.set_turn_control(control.clone());
+    let clock = Arc::new(StopsDuringTheWait(control, Mutex::new(Vec::new())));
+    spine.set_retry_clock(clock.clone());
+    let thread = spine.create_thread("General", &femcboost()).unwrap();
+    let script = Arc::new(Mutex::new(VecDeque::from([true; 8])));
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    spine.attach_lease(Box::new(ScriptedCognition {
+        session_id: "sess-0".into(),
+        script,
+        prompts: prompts.clone(),
+    }));
+
+    let _ = spine.submit_prompt("how is the release going?", Source::Text);
+
+    assert_eq!(*clock.1.lock().unwrap(), vec![Duration::from_secs(60)], "one wait, cut short");
+    assert_eq!(prompts.lock().unwrap().len(), 1, "his stop came before the retry was sent");
+    let turns = spine.ledger().thread_turns(&thread).unwrap();
+    let last = turns.iter().rev().find(|t| t.user_text == "how is the release going?").unwrap();
+    assert_eq!(last.state, TurnState::Stopped, "{last:?}");
+    let _ = std::fs::remove_file(&path);
+    std::fs::remove_file(&intake).unwrap_or_default();
 }
 
 /// POSITIVE CONTROL for the ceiling: it is an allowance, not a refusal. A turn that
@@ -400,18 +530,22 @@ fn a_successful_turn_between_failures_restores_the_allowance() {
     // Held at the budget level, because driving a heal through the spine needs a lease
     // that changes behavior mid-run and that would prove the double, not the rule.
     let mut b = RetryBudget::new();
-    assert!(b.charge(UpstreamFault::Overloaded), "first failure buys the retry");
-    assert!(!b.charge(UpstreamFault::Overloaded), "second does not");
+    for _ in 0..MAX_OVERLOAD_RETRIES {
+        assert!(b.charge(UpstreamFault::Overloaded), "each failure up to the 7th buys a retry");
+    }
+    assert!(!b.charge(UpstreamFault::Overloaded), "the 8th does not");
     b.succeeded();
-    assert!(b.may_retry(), "a completed turn restores it");
+    assert!(b.may_retry(UpstreamFault::Overloaded), "a completed turn restores it");
     assert!(b.charge(UpstreamFault::Overloaded), "and it can be spent again");
+    assert_eq!(b.wait_before_retry(), Some(Duration::from_secs(60)), "from the first wait");
 }
 
-/// INVARIANT: what was spent reaches the CEO, in attempts, with the cost named.
+/// INVARIANT: each wait reaches the CEO as it starts, with its length, and the end says what
+/// was spent, with the cost named.
 #[test]
-fn the_attempts_spent_are_stated_to_the_ceo_by_the_second_failing_turn() {
+fn each_retry_is_announced_with_its_wait_and_the_last_statement_says_it_stopped() {
     let (path, ledger) = tmp_ledger("visible");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let obs = RecordingObserver::default();
     spine.set_observer(Box::new(obs.clone()));
     let _thread = spine.create_thread("General", &femcboost()).unwrap();
@@ -421,18 +555,45 @@ fn the_attempts_spent_are_stated_to_the_ceo_by_the_second_failing_turn() {
     }));
 
     let _ = spine.submit_prompt("first", Source::Text);
-    let _ = spine.submit_prompt("second", Source::Text);
 
     let errors = obs.errors();
-    assert_eq!(errors.len(), 2);
-    assert!(errors[0].contains("tried once"), "first: {}", errors[0]);
-    assert!(errors[1].contains("tried 2 times"), "second: {}", errors[1]);
+    assert_eq!(errors.len(), 8, "{errors:?}");
+    for (said, when) in errors.iter().zip(["1 minute", "2 minutes", "5 minutes", "10 minutes", "20 minutes", "40 minutes", "80 minutes"]) {
+        assert!(said.contains(&format!("try again in {when}")), "{said}");
+        assert!(said.contains("same conversation"), "{said}");
+    }
+    assert!(errors[7].contains("tried 8 times"), "last: {}", errors[7]);
     assert!(
-        errors[1].contains("costs against your Claude usage"),
+        errors[7].contains("costs against your Claude usage"),
         "the reason the ceiling exists is named: {}",
-        errors[1]
+        errors[7]
     );
     let _ = std::fs::remove_file(&path);
+}
+
+/// INVARIANT (CEO, 2026-10-07, "go with recommended"): after all seven retries fail, a NEW
+/// message gets the full schedule again, starting at 1 minute.
+#[test]
+fn a_new_message_after_seven_failed_retries_waits_one_minute_first() {
+    let (path, ledger) = tmp_ledger("new-message-restarts");
+    let mut spine = spine(ledger);
+    let obs = RecordingObserver::default();
+    spine.set_observer(Box::new(obs.clone()));
+    let _thread = spine.create_thread("General", &femcboost()).unwrap();
+    spine.attach_lease(Box::new(ApiErrorAsErrCognition {
+        session_id: "sess-0".into(),
+        error_line: captured_529().to_string(),
+    }));
+
+    spine.submit_prompt("first", Source::Text).ok();
+    assert_eq!(obs.errors().len(), 8, "seven retries, all failed");
+    spine.submit_prompt("second", Source::Text).ok();
+
+    let errors = obs.errors();
+    assert_eq!(errors.len(), 16, "the new message gets the whole schedule: {errors:?}");
+    assert!(errors[8].contains("try again in 1 minute"), "{}", errors[8]);
+    assert!(errors[15].contains("tried 8 times"), "{}", errors[15]);
+    std::fs::remove_file(&path).ok();
 }
 
 // =========================================================================================
@@ -444,7 +605,7 @@ fn the_attempts_spent_are_stated_to_the_ceo_by_the_second_failing_turn() {
 #[test]
 fn a_quota_failure_says_something_different_and_spends_no_retry() {
     let (path, ledger) = tmp_ledger("quota");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let obs = RecordingObserver::default();
     spine.set_observer(Box::new(obs.clone()));
     let thread = spine.create_thread("General", &femcboost()).unwrap();
@@ -494,7 +655,7 @@ fn a_quota_failure_says_something_different_and_spends_no_retry() {
 #[test]
 fn the_overload_arm_reports_no_known_schedule() {
     let (path, ledger) = tmp_ledger("overload-bool");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let thread = spine.create_thread("General", &femcboost()).unwrap();
     spine.attach_lease(Box::new(ApiErrorAsErrCognition {
         session_id: "sess-0".into(),
@@ -522,7 +683,7 @@ fn the_overload_arm_reports_no_known_schedule() {
 #[test]
 fn an_ordinary_local_failure_produces_no_upstream_record_at_all() {
     let (path, ledger) = tmp_ledger("local");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let obs = RecordingObserver::default();
     spine.set_observer(Box::new(obs.clone()));
     let thread = spine.create_thread("General", &femcboost()).unwrap();
@@ -556,7 +717,7 @@ fn an_ordinary_local_failure_produces_no_upstream_record_at_all() {
 #[test]
 fn a_healthy_turn_produces_no_outage_and_no_error() {
     let (path, ledger) = tmp_ledger("healthy");
-    let mut spine = support::spine(ledger);
+    let mut spine = spine(ledger);
     let obs = RecordingObserver::default();
     spine.set_observer(Box::new(obs.clone()));
     let thread = spine.create_thread("General", &femcboost()).unwrap();

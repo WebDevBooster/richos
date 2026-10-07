@@ -233,19 +233,31 @@ fn the_injected_upstream_reproduces_the_measured_size_dependent_failure() {
 // Retry
 // =========================================================================================
 
-/// INVARIANT: retry is BOUNDED. Four consecutive attempts is what happened on 2026-09-03;
-/// RichOS makes two and then stops, whatever the caller asks for.
+/// INVARIANT: retry is BOUNDED. An overload follows the CEO's schedule (2026-10-07) — seven
+/// retries after 1, 2, 5, 10, 20, 40 and 80 minutes — and then stops, whatever the caller asks
+/// for. Any other fault keeps its one immediate retry.
 #[test]
 fn retry_is_bounded_and_the_ceiling_holds_against_a_caller_that_keeps_asking() {
     let mut b = RetryBudget::new();
-    assert!(b.may_retry(), "a fresh budget allows the one retry");
-    assert!(b.charge(UpstreamFault::Overloaded), "first failure buys the retry");
-    assert!(!b.may_retry(), "and there is no second one");
+    let mut waits = Vec::new();
+    for _ in 0..7 {
+        assert!(b.may_retry(UpstreamFault::Overloaded));
+        assert!(b.charge(UpstreamFault::Overloaded), "each of the first seven buys a retry");
+        waits.push(b.wait_before_retry().unwrap().as_secs() / 60);
+    }
+    assert_eq!(waits, [1, 2, 5, 10, 20, 40, 80], "his schedule, in minutes");
+    assert!(!b.may_retry(UpstreamFault::Overloaded), "and there is no eighth");
     for _ in 0..10 {
         assert!(!b.charge(UpstreamFault::Overloaded), "the ceiling does not move");
+        assert_eq!(b.wait_before_retry(), None);
     }
-    assert_eq!(b.retries_spent(), 1);
-    assert_eq!(b.attempts(), 11, "every attempt is still counted, so the CEO can be told");
+    assert_eq!(b.retries_spent(), 7);
+    assert_eq!(b.attempts(), 17, "every attempt is still counted, so the CEO can be told");
+
+    let mut b = RetryBudget::new();
+    assert!(b.charge(UpstreamFault::ServerError), "a server error keeps its one retry");
+    assert_eq!(b.wait_before_retry(), Some(std::time::Duration::ZERO), "immediate, as before");
+    assert!(!b.charge(UpstreamFault::ServerError), "and only one");
 }
 
 /// INVARIANT: a `429` buys NO retry at all — its window rolls over in hours, so an
@@ -254,7 +266,8 @@ fn retry_is_bounded_and_the_ceiling_holds_against_a_caller_that_keeps_asking() {
 fn quota_exhaustion_buys_no_retry_because_its_schedule_answers_the_question() {
     let mut b = RetryBudget::new();
     assert!(!b.charge(UpstreamFault::RateLimited));
-    assert!(!b.may_retry());
+    assert!(!b.may_retry(UpstreamFault::RateLimited));
+    assert_eq!(b.wait_before_retry(), None);
     assert_eq!(b.attempts(), 1);
 }
 
@@ -263,10 +276,10 @@ fn quota_exhaustion_buys_no_retry_because_its_schedule_answers_the_question() {
 #[test]
 fn a_successful_turn_restores_the_allowance() {
     let mut b = RetryBudget::new();
-    b.charge(UpstreamFault::Overloaded);
-    assert!(!b.may_retry());
+    b.charge(UpstreamFault::ServerError);
+    assert!(!b.may_retry(UpstreamFault::ServerError));
     b.succeeded();
-    assert!(b.may_retry(), "a completed turn is a positive signal that the upstream works");
+    assert!(b.may_retry(UpstreamFault::ServerError), "a completed turn is a positive signal that the upstream works");
     assert_eq!(b.attempts(), 0);
     assert_eq!(b.ceo_message(), None, "and nothing to report");
 }
@@ -278,11 +291,11 @@ fn what_was_spent_trying_is_stated_in_attempts_and_names_the_cost() {
     let mut b = RetryBudget::new();
     assert_eq!(b.ceo_message(), None, "a healthy run says nothing");
 
-    b.charge(UpstreamFault::Overloaded);
+    b.charge(UpstreamFault::ServerError);
     let one = b.ceo_message().expect("one failure must produce a line");
     assert!(one.contains("tried once"), "singular is written out: {one}");
 
-    b.charge(UpstreamFault::Overloaded);
+    b.charge(UpstreamFault::ServerError);
     let two = b.ceo_message().expect("two failures must produce a line");
     assert!(two.contains("tried 2 times"), "the count is the billed count: {two}");
     assert!(
@@ -290,9 +303,17 @@ fn what_was_spent_trying_is_stated_in_attempts_and_names_the_cost() {
         "the cost is named, because that is why the ceiling exists: {two}"
     );
     assert!(
-        two.contains(UpstreamFault::Overloaded.ceo_message()),
+        two.contains(UpstreamFault::ServerError.ceo_message()),
         "and the fault's own sentence is carried, not replaced"
     );
+
+    // An overload says when the next try is, while one is coming.
+    let mut b = RetryBudget::new();
+    b.charge(UpstreamFault::Overloaded);
+    let next = b.ceo_message().unwrap();
+    assert!(next.contains("try again in 1 minute,"), "{next}");
+    assert!(next.contains("retry 1 of 7"), "{next}");
+    assert!(next.contains(UpstreamFault::Overloaded.ceo_message()), "{next}");
 }
 
 // =========================================================================================

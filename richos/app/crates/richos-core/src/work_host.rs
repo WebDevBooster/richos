@@ -310,6 +310,9 @@ struct Inner {
     taken_unsaved: Vec<(String, String)>,
     /// How many runs of this launch have carried each answer to a back end (design D4's bound).
     answer_starts: std::collections::HashMap<String, u32>,
+    /// **The overload schedule for this back end's turns** (CEO, 2026-10-07): consecutive
+    /// `529`s since its last turn that answered, the same budget the conversation keeps.
+    overload: crate::upstream::RetryBudget,
 }
 
 /// **ONE BACK-END RICH, AND THERE IS ONE PER CONVERSATION THREAD.**
@@ -359,6 +362,7 @@ impl Backend {
                 carrying: Vec::new(),
                 taken_unsaved: Vec::new(),
                 answer_starts: std::collections::HashMap::new(),
+                overload: crate::upstream::RetryBudget::new(),
             }),
             wake: Condvar::new(),
         })
@@ -431,6 +435,8 @@ pub struct WorkHost {
     worker_wait: Mutex<std::time::Duration>,
     /// The output record, when the shell attached one ([`WorkHost::set_output_store`]).
     output: Mutex<Option<crate::output::OutputStore>>,
+    /// How an overload retry waits out the CEO's schedule; shortened by tests, like `screen_poll`.
+    retry_clock: Mutex<Arc<dyn crate::upstream::RetryClock>>,
 }
 
 /// The context window this build assumes while a back end has reported nothing, and the
@@ -810,7 +816,13 @@ impl WorkHost {
             command_wait: Mutex::new(COMMAND_WAIT_BUDGET),
             worker_wait: Mutex::new(WORKER_WAIT_BUDGET),
             output: Mutex::new(None),
+            retry_clock: Mutex::new(Arc::new(crate::upstream::SystemRetryClock)),
         })
+    }
+
+    /// Replace the clock an overload retry waits on. Tests only; the app keeps the real one.
+    pub fn set_retry_clock(&self, clock: Arc<dyn crate::upstream::RetryClock>) {
+        *self.retry_clock.lock().unwrap() = clock;
     }
 
     /// Attach the output record (Output side panel PRD §3, §4.1 (b)/(c)). With it, the back
@@ -1675,37 +1687,85 @@ impl WorkHost {
             if let (Some(quota), Some(account)) = (quota, lease.account()) {
                 quota.accounts.ran_on(account);
             }
-            lease.prompt(text, &mut |item: TurnItem| {
-                *items += 1;
-                // The back end has his answers: its first item of the turn that carried them.
-                if let Some(ids) = to_take.borrow_mut().take() {
-                    self.answers_taken(backend, &ids, &session);
-                }
-                if !confirmed {
-                    confirmed = true;
-                    advance(AssignmentState::Running, started_detail);
-                }
-                match item {
-                TurnItem::Text { text, .. } => {
-                    chars.set(chars.get() + text.len());
-                    // Bounded while it accumulates, not only at the end: a back end that
-                    // streamed a hundred megabytes would otherwise hold all of it before
-                    // anything trimmed it. 64 KiB is eight times the answer cap, so no
-                    // real answer can reach this line and be cut by it.
-                    if keeping_an_answer && said.len() < 64 * 1024 {
-                        said.push_str(text);
+            // **AN OVERLOADED TURN IS SENT AGAIN, ON THIS SAME SESSION, ON HIS SCHEDULE** (CEO,
+            // 2026-10-07): 1, 2, 5, 10, 20, 40 and 80 minutes before retries 1 to 7. Classified
+            // here, at the turn, beside the usage-limit backstop the settle arms carry, so every
+            // turn of a run gets it (the first and each continuation) and nothing of the run is
+            // started again. His Stop and a quit end the wait at once; past the 7th retry the
+            // turn's own failure goes on to the arms below exactly as before.
+            loop {
+                let (items_before, said_before) = (*items, said.len());
+                let sent = lease.prompt(text, &mut |item: TurnItem| {
+                    *items += 1;
+                    // The back end has his answers: its first item of the turn that carried them.
+                    if let Some(ids) = to_take.borrow_mut().take() {
+                        self.answers_taken(backend, &ids, &session);
                     }
-                }
-                TurnItem::Machinery(record) => {
-                    // **The one machinery record that is READ rather than retained**,
-                    // same as `spine.rs:2034`. The back end's own machinery is not
-                    // otherwise journalled: its turns are never rendered.
-                    if let Some(usage) = record.context_usage() {
-                        measured.set(Some(usage));
+                    if !confirmed {
+                        confirmed = true;
+                        advance(AssignmentState::Running, started_detail);
                     }
+                    match item {
+                    TurnItem::Text { text, .. } => {
+                        chars.set(chars.get() + text.len());
+                        // Bounded while it accumulates, not only at the end: a back end that
+                        // streamed a hundred megabytes would otherwise hold all of it before
+                        // anything trimmed it. 64 KiB is eight times the answer cap, so no
+                        // real answer can reach this line and be cut by it.
+                        if keeping_an_answer && said.len() < 64 * 1024 {
+                            said.push_str(text);
+                        }
+                    }
+                    TurnItem::Machinery(record) => {
+                        // **The one machinery record that is READ rather than retained**,
+                        // same as `spine.rs:2034`. The back end's own machinery is not
+                        // otherwise journalled: its turns are never rendered.
+                        if let Some(usage) = record.context_usage() {
+                            measured.set(Some(usage));
+                        }
+                    }
+                    }
+                });
+                // The failed turn's own words, or the words it streamed (the two shapes the
+                // conversation's `detect_upstream_failure` reads), and only an overload.
+                let overloaded = sent.as_ref().err()
+                    .and_then(|why| crate::upstream::UpstreamFailure::classify_lines(&why.to_string()))
+                    .or_else(|| said.get(said_before..).and_then(crate::upstream::UpstreamFailure::classify_lines))
+                    .filter(|failure| failure.fault == crate::upstream::UpstreamFault::Overloaded);
+                let Some(failure) = overloaded else {
+                    if sent.is_ok() {
+                        // An answered turn: the next overload starts again at the first wait.
+                        backend.inner.lock().unwrap().overload.succeeded();
+                    }
+                    return sent;
+                };
+                let stop_asked = || {
+                    let inner = backend.inner.lock().unwrap();
+                    inner.closing || inner.stopped.contains(&record.id)
+                };
+                let wait = {
+                    let mut inner = backend.inner.lock().unwrap();
+                    let granted = inner.overload.charge(failure.fault);
+                    granted.then(|| inner.overload.wait_before_retry()).flatten()
+                };
+                let Some(wait) = wait.filter(|_| !stop_asked()) else { return sent };
+                let minutes = wait.as_secs() / 60;
+                eprintln!("[richos] work: {}; trying the same turn again in {minutes} min on the same session", failure.summary());
+                advance(
+                    if confirmed { AssignmentState::Running } else { AssignmentState::Preparing },
+                    &format!(
+                        "Anthropic's servers are at capacity. Trying again in {} on the same connection.",
+                        if minutes == 1 { "1 minute".to_string() } else { format!("{minutes} minutes") }
+                    ),
+                );
+                let clock = Arc::clone(&*self.retry_clock.lock().unwrap());
+                if !clock.wait(wait, &stop_asked) {
+                    return sent;
                 }
-                }
-            })
+                // The failed attempt's words are not part of the answer.
+                *items = items_before;
+                said.truncate(said_before);
+            }
         };
         let mut items = 0usize;
         let mut said = String::new();
@@ -5616,6 +5676,68 @@ mod tests {
         let told = h.notices.0.lock().unwrap().clone();
         assert_eq!(told.len(), 1, "only the second run's ending reached him: {told:?}");
         assert!(told.iter().all(|(_, n)| !n.text.contains("usage limit")), "{told:?}");
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// A clock that waits no time and writes down every wait it was asked for.
+    #[derive(Default)]
+    struct FakeRetryClock(Mutex<Vec<std::time::Duration>>);
+    impl crate::upstream::RetryClock for FakeRetryClock {
+        fn wait(&self, wait: std::time::Duration, stop_asked: &dyn Fn() -> bool) -> bool {
+            self.0.lock().unwrap().push(wait);
+            !stop_asked()
+        }
+    }
+
+    /// **The CEO, 2026-10-07: *"There needs to be an exponential backoff ... first retry after 1
+    /// minute; second retry: after another 2-minute wait; third retry: after another 5-minute
+    /// wait; 4th retry: after another 10-minute wait; 5th retry: after another 20-minute wait;
+    /// 6th retry: after another 40-minute wait; 7th retry: after another 80-minute wait."***
+    ///
+    /// A work turn meets seven `529`s in a row: the host waits 1, 2, 5, 10, 20, 40 and 80
+    /// minutes and sends the SAME turn again on the SAME back end each time (one spawn, eight
+    /// identical prompts, the row's session the first one), and the eighth attempt answers. A
+    /// second assignment then meets one `529`: its wait is 1 minute again, because the answered
+    /// turn reset the schedule.
+    ///
+    /// RED before this change: the work host had no overload handling at all, so the first
+    /// `529` failed the run and no wait was ever asked for.
+    #[test]
+    fn an_overloaded_work_turn_waits_out_his_schedule_on_the_same_session_and_a_success_resets_it() {
+        const CAPTURED_529: &str =
+            include_str!("../../../../../docs/verification/upstream-failure-2026-09-05/captured-529.txt");
+        let overloaded = CAPTURED_529.lines().next().unwrap().to_string();
+        let minutes = |m: u64| std::time::Duration::from_secs(m * 60);
+        let h = harness(5);
+        let clock = Arc::new(FakeRetryClock::default());
+        h.host.set_retry_clock(clock.clone());
+        h.fail_next.lock().unwrap().extend(std::iter::repeat_n(overloaded.clone(), 7));
+        h.host.start();
+        let first = h.host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(h.host.wait_for_completed(1, std::time::Duration::from_secs(10)), "the run never finished");
+
+        assert_eq!(*clock.0.lock().unwrap(), [1, 2, 5, 10, 20, 40, 80].map(minutes).to_vec(), "his schedule");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "every retry went to the back end that met the 529");
+        let prompts = h.work_prompts.lock().unwrap().clone();
+        assert!(prompts.len() >= 8, "{prompts:?}");
+        assert!(prompts[..8].iter().all(|p| *p == prompts[0]), "the same turn, sent again: {prompts:?}");
+        let row = assignment::read(&h.state, "depot", "thread-one", &first.id).unwrap();
+        assert_eq!(row.work_session.as_deref(), Some("work-session-one"), "{row:?}");
+        // The eighth attempt answered, so the run reached this harness's ordinary settle (with no
+        // worker receipts it reports that nothing was landed, as every harness run does), never
+        // the overload.
+        assert!(!row.detail.contains("529") && !row.detail.contains("capacity"), "{}", row.detail);
+        assert!(told(&h).iter().all(|t| !t.contains("529") && !t.contains("capacity")), "{:?}", told(&h));
+
+        // The answered turn reset the schedule: the next overload waits 1 minute again.
+        h.fail_next.lock().unwrap().push_back(overloaded);
+        h.host
+            .register(&h.binding, &Registration { obligation_id: "obligation-8".into(), ..registration(&h) })
+            .unwrap();
+        assert!(h.host.wait_for_completed(2, std::time::Duration::from_secs(10)), "the second run never finished");
+        assert_eq!(*clock.0.lock().unwrap(), [1, 2, 5, 10, 20, 40, 80, 1].map(minutes).to_vec());
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "still the one back end");
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
