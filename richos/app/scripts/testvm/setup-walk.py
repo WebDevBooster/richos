@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""setup-walk.py — setup is not complete until the video tools are installed (CEO 2026-10-07).
+"""setup-walk.py — the video tools download in the background from launch, and first setup does
+not wait for them (CEO 2026-10-07).
 
 Run by run-walk.py, which holds one guest slot for this run only, boots the guest and removes the clone:
 
@@ -8,24 +9,31 @@ Run by run-walk.py, which holds one guest slot for this run only, boots the gues
 
 run-walk.py passes the owned VM name as the first argument.
 
-THE QUESTION. The CEO, 2026-10-07: "The RichOS desktop app (once installed) neeeds to install the
-necessary tools on the user's Mac such as Whisper, ffmpeg and the youtube download tool. These
-tools need to be classed as necessary essentials." Media-tools plan slice 3 (richos-hq
-docs/plans/2026-10-07-media-tools.md §2): `Component::MediaTools` is present only when yt-dlp is
-installed and a pinned speech model resolves, and the setup sheet fetches the model.
+THE QUESTION. The CEO, 2026-10-07: "the download of the essential files starts right away and
+independently of the other stuff. So that by the time the user is done with their intial setup all
+those essential files will already have downloaded or nearly finished downloading in the
+background." And: "Important is that the user can do all the other stuff for the initial setup
+(like typing their company name, selecting a folder that will be associated with that etc) while
+the audio tools are seamlessly downloading and installing in the background." The video tools are
+yt-dlp and both pinned speech models (media-tools plan §2): small.en for voice and
+large-v3-turbo-q5_0 for transcription, 1,061,655,396 B together (`model-pins.json`).
 
-The guest has Claude Code and the engine (run.sh's RICHOS_ENGINE_DIR), which is exactly an install
-that finished setup before this change: the sheet must come up once, listing only the video tools.
+The guest has Claude Code and the engine (run.sh's RICHOS_ENGINE_DIR) and no video tools, so the
+first-run questions it asks are the memory question and the company question.
 
-WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
+WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65). Every step writes its
+moments to ONE timeline on the guest's clock, each with how much of the two models is on disk then:
   identity    the running app says it was built from --expect-sha
-  incomplete  the boot line names "my video tools" as NOT installed and nothing else; no speech
-              model is on the guest; the sheet is up with one item, "my video tools"
-  install     "Set it up" is pressed; the run's own lines are read until it finishes or fails
-  installed   tools/yt-dlp verifies (launcher record = file hash) and answers --version on the
-              runtime's Python; BOTH models are on disk with their pinned sha256 (the one voice
-              resolves, and large-v3-turbo-q5_0 for transcription: the CEO, 2026-10-07, "Both,
-              in this nightly, yes."); the sheet says "Setup is done."
+  meanwhile   the models start arriving with nothing pressed; then first setup is done as a new
+              user does it: the memory question answered "Set it up" and closed, the company name
+              typed, its folder given, "Add this company" pressed, the first conversation created.
+              PASS when the download started before any press and every one of those moments came
+              while it was still running.
+              (On a build where the setup sheet lists "my video tools", the walk presses its "Set it
+              up", which is the only way that build fetches them, and goes on as soon as it can.)
+  arrived     the download finishes by itself: the app's own line says the video tools are
+              installed; tools/yt-dlp verifies (launcher record = file hash) and answers --version
+              on the runtime's Python; BOTH models are on disk with their pinned sha256
   relaunch    the app is relaunched; the boot line says "nothing missing." and no sheet comes up
 
 CEO §53: no sound is played. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
@@ -50,10 +58,58 @@ adopt_walk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(adopt_walk)
 StepFailed = adopt_walk.StepFailed
 
-STEPS = ['identity', 'incomplete', 'install', 'installed', 'relaunch']
+STEPS = ['identity', 'meanwhile', 'arrived', 'relaunch']
 PINS = HERE.parents[2] / 'engine' / 'voice' / 'models' / 'model-pins.json'
-# The transcription model setup installs beside voice's (stt.rs TRANSCRIPTION_MODEL_ID).
+# The model voice fetches on a Mac with none (the cost table's safe rung) and the transcription
+# model (stt.rs TRANSCRIPTION_MODEL_ID).
+VOICE = 'ggml-small.en.bin'
 TRANSCRIPTION = 'ggml-large-v3-turbo-q5_0.bin'
+MODELS = (VOICE, TRANSCRIPTION)
+# The first-setup moments a user acts in; each must come while the download is still running.
+USER_MOMENTS = ('company name typed', 'folder given', '"Add this company" pressed', 'first conversation created')
+
+# One guest call: the guest's clock and every file's size in the models folder, together.
+SAMPLE = ("import json,os,sys,time\n"
+          "d=sys.argv[1]\n"
+          "try:\n    names=os.listdir(d)\nexcept OSError:\n    names=[]\n"
+          "f={}\n"
+          "for n in names:\n"
+          "    try:\n        f[n]=os.path.getsize(os.path.join(d,n))\n    except OSError:\n        pass\n"
+          "print(json.dumps({'t':time.time()*1000,'files':f}))\n")
+
+
+def pinned_bytes():
+    pins = {m['file']: m['bytes'] for m in json.loads(PINS.read_text())['models']}
+    return {name: pins[name] for name in MODELS}
+
+
+def download_progress(files, want):
+    """How much of the two models is on disk, from one listing of the models folder: finished
+    files plus their `.part` partials. `done` is both finished at their pinned size, no partial."""
+    got = 0
+    for name, size in want.items():
+        got += min(files.get(name, 0) or files.get(name + '.part', 0), size)
+    done = all(files.get(name) == size for name, size in want.items()) and \
+        not any(name + '.part' in files for name in want)
+    return {'bytes': got, 'of': sum(want.values()), 'done': done}
+
+
+def meanwhile_verdict(timeline):
+    """PASS (None) when the download was running before anything was pressed and every user moment
+    came while it was still running; otherwise the reason."""
+    first_press = next((i for i, row in enumerate(timeline) if row.get('pressed')), None)
+    started = next((i for i, row in enumerate(timeline) if row['downloaded_bytes'] > 0), None)
+    if started is None:
+        return 'the models never started arriving during first setup'
+    if first_press is not None and started > first_press:
+        return 'the models started arriving only after a press: ' + timeline[first_press]['event']
+    for name in USER_MOMENTS:
+        row = next((r for r in timeline if r['event'] == name), None)
+        if row is None:
+            return f'first setup never reached "{name}"'
+        if row['download_done']:
+            return f'"{name}" came only after the download had finished ({row["since_launch_s"]} s)'
+    return None
 
 
 def boot_setup(text):
@@ -66,13 +122,13 @@ def boot_setup(text):
     return {'nothing_missing': nothing, 'missing': missing}
 
 
-def run_outcome(text):
-    """How `run_setup` ended, from its own lines (setup_view.rs `emit`): 'finished', 'failed' or
-    None while it is still running."""
-    if re.search(r'^\[richos\] setup \d+/\d+ FAILED', text, re.M):
+def tools_outcome(text):
+    """How the video tools' download ended, from the app's own lines (setup_view.rs): 'done',
+    'failed' or None while it runs. Either source: the background download, or a setup press."""
+    if re.search(r'^\[richos\] (?:setup|video tools in the background) \d+/\d+ done: My video tools are installed\.$', text, re.M):
+        return 'done'
+    if re.search(r'^\[richos\] (?:setup|video tools in the background) \d+/\d+ FAILED', text, re.M):
         return 'failed'
-    if re.search(r'^\[richos\] setup \d+/\d+ finished:', text, re.M):
-        return 'finished'
     return None
 
 
@@ -83,6 +139,8 @@ class SetupWalk(adopt_walk.Walk):
         self.log = self.payload + '/app.log'
         self.tools = self.home + '/Library/Application Support/RichOS/tools'
         self.models = self.home + '/.config/richos/models'
+        self.want = pinned_bytes()
+        self.timeline = self.facts.get('timeline', [])
 
     def shows_text(self, text):
         """Static text on the guest's screen: WebKit puts a text run's words in AXValue."""
@@ -105,47 +163,125 @@ class SetupWalk(adopt_walk.Walk):
             time.sleep(1)
         raise StepFailed(f'the app printed no first-run setup verdict within {seconds} s ({path})')
 
-    def incomplete(self):
-        verdict = self.wait_boot_setup(self.log)
-        if verdict['nothing_missing'] or verdict['missing'] != ['my video tools']:
-            raise StepFailed(f'the boot should name the video tools alone as missing: {verdict}')
-        looked = [line for line in self.read_log().splitlines() if '[richos]   looked in ' in line]
-        models = guest(self.vm, 'ls ' + shlex.quote(self.models) + ' 2>/dev/null || true')
-        if models:
-            raise StepFailed(f'the guest already has a speech model, so this walk proves nothing: {models}')
-        self.wait_for('Set it up', seconds=60)
-        one = self.shows_text("There's one thing I need on this Mac.")
-        item = self.shows_text('my video tools')
-        self.shot('sheet-before.png')
-        if not (one and item):
-            raise StepFailed(f'the sheet should list the video tools as its one item (one={one}, item={item})')
-        return {'boot': verdict, 'looked_in': looked, 'models_before': models or '(none)'}
+    # --- the one clock ------------------------------------------------------------------------
+    def launched_ms(self):
+        if 'launched_ms' not in self.facts:
+            # run.sh starts the app with its output redirected into app.log, so the log's birth is
+            # the launch, on the guest's clock.
+            out = guest(self.vm, "python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_birthtime*1000)' "
+                        + shlex.quote(self.log))
+            self.facts['launched_ms'] = float(out)
+        return self.facts['launched_ms']
 
-    def install(self):
-        before = self.clock()
-        self.press('Set it up')
+    def sample(self):
+        s = json.loads(guest(self.vm, 'python3 -c ' + shlex.quote(SAMPLE) + ' ' + shlex.quote(self.models)))
+        return s['t'], download_progress(s['files'], self.want)
+
+    def mark(self, event, pressed=False):
+        t, progress = self.sample()
+        row = {'event': event, 'since_launch_s': round((t - self.launched_ms()) / 1000, 1),
+               'downloaded_bytes': progress['bytes'],
+               'downloaded_pct': round(100 * progress['bytes'] / progress['of'], 1),
+               'download_done': progress['done'], 'pressed': pressed}
+        self.timeline.append(row)
+        self.facts['timeline'] = self.timeline
+        self.save()
+        print(f"  {row['since_launch_s']:>7} s  {row['downloaded_pct']:>5}%  "
+              f"{'done' if row['download_done'] else 'running':7}  {event}", flush=True)
+        return row
+
+    def click(self, title, event):
+        self.press(title)
+        return self.mark(event, pressed=True)
+
+    # --- steps --------------------------------------------------------------------------------
+    def meanwhile(self):
+        verdict = self.wait_boot_setup(self.log)
+        _, before = self.sample()
+        self.mark('walk begins')
+        # 1. THE DOWNLOAD STARTS BY ITSELF: model bytes on disk with nothing pressed.
+        end = time.monotonic() + 60
+        while time.monotonic() < end:
+            _, progress = self.sample()
+            if progress['bytes'] > 0:
+                self.mark('models arriving, nothing pressed')
+                break
+            if self.present('Set it up') and self.shows_text('my video tools'):
+                self.mark('the setup sheet lists my video tools, nothing arriving')
+                break
+            time.sleep(1)
+        else:
+            self.mark('nothing arriving 60 s into the walk, nothing pressed')
+        self.shot('first-screen.png')
+
+        # 2. FIRST SETUP, AS A NEW USER DOES IT, whatever comes up, until the company question.
+        guest(self.vm, 'mkdir -p {c} && cd {c} && if [ ! -d .git ]; then printf "Acme notes\\n" > README.md '
+                       '&& git init -q && git add README.md && git -c user.name=QA -c user.email=qa@example.invalid '
+                       'commit -q -m init; fi'.format(c=shlex.quote(self.company)))
+        end = time.monotonic() + self.a.within
+        while time.monotonic() < end:
+            if self.present('Add this company'):
+                break
+            if self.present('Set it up') and self.shows_text('my video tools'):
+                self.click('Set it up', 'setup sheet: "Set it up" pressed (it lists my video tools)')
+            elif self.present('Set it up') and self.shows_text('Where should I keep what you tell me?'):
+                if self.a.memory == 'set-up':
+                    self.click('Set it up', 'memory question: "Set it up" pressed')
+                else:
+                    self.click('Not now', 'memory question: "Not now" pressed')
+            elif self.present('Close') and (self.shows_text('Setup is done.') or self.shows_text("That's set up.")
+                                            or self.shows_text('Your memory folder.')
+                                            or self.shows_text('Your Anthropic account')):
+                self.click('Close', '"Close" pressed')
+            else:
+                time.sleep(1)
+                continue
+            time.sleep(2)
+        else:
+            raise StepFailed(f'the company question never came up within {self.a.within} s: '
+                             + json.dumps(self.timeline)[-1500:])
+        self.mark('company question up')
+        self.type_into('Acme', '--role', 'AXTextField', '--title', "What's the company called?")
+        self.mark('company name typed', pressed=True)
+        self.type_into(self.company, '--role', 'AXTextField', '--title', 'Its folder on this Mac')
+        self.mark('folder given', pressed=True)
+        self.click('Add this company', '"Add this company" pressed')
+        end = time.monotonic() + 60
+        created = None
+        while time.monotonic() < end and not created:
+            rows = guest(self.vm, 'cat ' + shlex.quote(self.data + '/conversation-ledger.jsonl') + ' 2>/dev/null || true')
+            created = next((json.loads(r) for r in rows.splitlines() if '"ThreadCreated"' in r), None)
+            if not created:
+                time.sleep(1)
+        if not created:
+            raise StepFailed('no conversation was created after the company was added')
+        self.mark('first conversation created')
+        if self.present('Start the questions'):
+            self.click('Not now', 'business questions: "Not now"')
+        self.shot('first-conversation.png')
+        why = meanwhile_verdict(self.timeline)
+        if why:
+            raise StepFailed(why)
+        return {'boot': verdict, 'models_before': before, 'thread': created.get('thread_id'),
+                'timeline': self.timeline}
+
+    def arrived(self):
         end = time.monotonic() + self.a.within
         outcome = None
         while time.monotonic() < end:
-            outcome = run_outcome(self.read_log())
+            outcome = tools_outcome(self.read_log())
             if outcome:
                 break
             time.sleep(5)
-        after = self.clock()
         lines = [line for line in self.read_log().splitlines()
-                 if line.startswith('[richos] setup') or 'yt-dlp' in line or 'voice model' in line]
-        progress = [line for line in lines if '%' in line]
-        self.shot('sheet-after.png')
-        evidence = {'outcome': outcome, 'seconds': round((after - before) / 1000, 1),
-                    'lines': [line for line in lines if '%' not in line][-30:],
-                    'progress_first_last': progress[:1] + progress[-1:], 'progress_lines': len(progress)}
-        self.facts['install'] = evidence
+                 if (line.startswith('[richos] setup') or line.startswith('[richos] video tools')
+                     or 'yt-dlp' in line or 'voice model' in line) and '%' not in line]
+        self.facts['tools_lines'] = lines[-40:]
         self.save()
-        if outcome != 'finished':
-            raise StepFailed(f'setup did not finish within {self.a.within} s: {json.dumps(evidence)[:2000]}')
-        return evidence
-
-    def installed(self):
+        if outcome != 'done':
+            raise StepFailed(f'the video tools did not finish within {self.a.within} s ({outcome}): '
+                             + json.dumps(lines[-20:])[:2000])
+        self.mark('the app says: My video tools are installed.')
         launcher = guest(self.vm, 'cat ' + shlex.quote(self.tools + '/yt-dlp'))
         record = re.search(r'^# yt-dlp nightly (\S+) sha256 ([0-9a-f]{64})$', launcher, re.M)
         if not record:
@@ -161,20 +297,18 @@ class SetupWalk(adopt_walk.Walk):
         pins = {m['file']: m for m in json.loads(PINS.read_text())['models']}
         models = guest(self.vm, 'ls ' + shlex.quote(self.models)).split()
         found = [name for name in models if name in pins]
-        if TRANSCRIPTION not in found or len(found) != 2:
-            raise StepFailed(f'expected the voice model and {TRANSCRIPTION} in {self.models}, found {models}')
+        if sorted(found) != sorted(MODELS):
+            raise StepFailed(f'expected {MODELS} in {self.models}, found {models}')
         verified = {}
         for name in found:
             model_sha = guest(self.vm, 'shasum -a 256 ' + shlex.quote(f'{self.models}/{name}'), 300).split()[0]
             if model_sha != pins[name]['sha256']:
                 raise StepFailed(f'{name} hashes to {model_sha}, the pin says {pins[name]["sha256"]}')
             verified[name] = {'sha256': model_sha, 'bytes': pins[name]['bytes']}
-        done = self.shows_text('Setup is done.')
-        if not done:
-            raise StepFailed('the sheet does not say "Setup is done."')
-        return {'yt_dlp': {'tag': tag, 'sha256': sha, 'version': version},
-                'models': verified,
-                'sheet': 'Setup is done.'}
+        self.mark('video tools installed and verified (yt-dlp and both models against their pins)')
+        voice = [line for line in self.read_log().splitlines() if line.startswith('[richos] voice: ')]
+        return {'yt_dlp': {'tag': tag, 'sha256': sha, 'version': version}, 'models': verified,
+                'voice_lines': voice[-3:], 'timeline': self.timeline}
 
     def relaunch(self):
         launched = relaunch(self.vm)
@@ -197,7 +331,11 @@ def main():
     p.add_argument('vm')
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--expect-sha', required=True, help='the commit the bundle under test was built from')
-    p.add_argument('--within', type=float, default=2700, help='seconds for "Set it up" to finish (two models, about 1 GB)')
+    p.add_argument('--within', type=float, default=2700, help='seconds for first setup, and for the download (two models, about 1 GB)')
+    p.add_argument('--memory', choices=('set-up', 'not-now'), default='set-up',
+                   help='the answer to the memory question. Setting it up takes about 30 s in the guest, and the '
+                        "guest's network fetches the 1 GB in about 63 s (run of 2026-10-07 18:38Z), so not-now "
+                        'reaches the company question while the models are still arriving')
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
@@ -219,6 +357,7 @@ def main():
             ok = False
         row['seconds'] = round(time.monotonic() - began, 1)
         report['steps'].append(row)
+        report['timeline'] = walk.timeline
         (a.out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
         print(f"{step}: {row['outcome']}" + (f" — {row.get('detail')}" if row['outcome'] != 'PASS' else ''), flush=True)
         if not ok:

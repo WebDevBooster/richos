@@ -33,6 +33,7 @@
 //! nothing, which is the failure mode this whole module exists to avoid.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use richos_core::setup::{
@@ -113,7 +114,7 @@ pub const SETUP_INCOMPLETE_BOTH: &str =
 ///
 /// A BLOCKED BUILD GETS THE SENTENCE THAT IS TRUE OF IT. Three of these four arms promise
 /// "press Set it up", and on a build with no engine pin there is no such button to press —
-/// `ask_for` hides it and shows [`SETUP_UNPINNED_NOTE`] instead. Promising a control that is
+/// `ask_for_with` hides it and shows [`SETUP_UNPINNED_NOTE`] instead. Promising a control that is
 /// not drawn is the same class of defect as promising a restart that cannot work, so that
 /// arm gets the note the sheet itself is showing, which names the party who can act.
 pub fn incomplete_message(status: &SetupStatus) -> Option<&'static str> {
@@ -127,7 +128,7 @@ pub fn incomplete_message(status: &SetupStatus) -> Option<&'static str> {
     // THE VIDEO TOOLS ARE NOT A CAUSE OF "NO LEASE", SO THEY GET NO SENTENCE HERE. This function
     // answers why a send found no lease, and a lease needs Claude Code and the engine only
     // (`EngineLeaseFactory`); the sheet itself lists the video tools whenever they are missing
-    // (`ask_for`). With only they missing, the no-lease cause is the other one — the account —
+    // (`ask_for_with`). With only they missing, the no-lease cause is the other one — the account —
     // and naming the video tools would send him to the wrong fix.
     match (
         needs.contains(&Component::ClaudeCode),
@@ -161,12 +162,117 @@ pub struct SetupProgress {
 }
 
 fn emit(app: &AppHandle, p: SetupProgress) {
+    emit_from(app, p, false)
+}
+
+/// `background` heads the operator's line with "video tools in the background" rather than
+/// "setup", so the launch download's lines are never read as a step of a press.
+fn emit_from(app: &AppHandle, p: SetupProgress, background: bool) {
+    let from = if background { "video tools in the background" } else { "setup" };
     // The operator's line first, so a run is legible in a log with no window attached.
     match (p.state, &p.detail) {
-        ("failed", Some(d)) => eprintln!("[richos] setup {}/{} FAILED — {d}", p.index, p.total),
-        (state, _) => eprintln!("[richos] setup {}/{} {state}: {}", p.index, p.total, p.what),
+        ("failed", Some(d)) => eprintln!("[richos] {from} {}/{} FAILED — {d}", p.index, p.total),
+        (state, _) => eprintln!("[richos] {from} {}/{} {state}: {}", p.index, p.total, p.what),
     }
     let _ = app.emit(EVENT_SETUP, p);
+}
+
+// =============================================================================================
+// THE VIDEO TOOLS DOWNLOAD BY THEMSELVES, FROM LAUNCH (the CEO, 2026-10-07)
+// =============================================================================================
+//
+// *"the download of the essential files starts right away and independently of the other stuff.
+// So that by the time the user is done with their intial setup all those essential files will
+// already have downloaded or nearly finished downloading in the background."* And: *"The speech
+// models and video tools begin downloading in the background at first launch, while the user does
+// the rest of setup."*
+//
+// Until this change they were the LAST step of a press of "Set it up": the sheet hid both of its
+// buttons for the whole run, so the memory question, the company question and the first
+// conversation all waited for 1,061,655,396 B of models (small.en 487,614,201 + large-v3-turbo-q5_0
+// 574,041,195, `model-pins.json`).
+//
+// Now one background thread fetches them, started by the boot the moment it finds them missing
+// (`main.rs`, the first-run setup block), and by a press only when it is not already running.
+// While it runs the video tools are not on the sheet and not part of any press: nothing in first
+// setup waits for them. Its lines are the step's own (`started_line`, the done sentence), on the
+// same `richos://setup` channel, and every model event also goes to `rich://voice-model`, so the
+// voice panel shows the same download and voice switches on when a model arrives.
+
+/// Whether the background download is running now.
+static VIDEO_TOOLS_DOWNLOADING: AtomicBool = AtomicBool::new(false);
+
+/// Is the video tools' background download running right now?
+pub fn video_tools_downloading() -> bool {
+    VIDEO_TOOLS_DOWNLOADING.load(Ordering::SeqCst)
+}
+
+/// **What the sheet asks for, and what a press installs**: everything missing, except the video
+/// tools while their background download runs. A pure function of the status and that one fact,
+/// so the rule is a unit test.
+pub fn sheet_needs(status: &SetupStatus, downloading: bool) -> Vec<Component> {
+    status
+        .needs()
+        .into_iter()
+        .filter(|c| !(downloading && *c == Component::MediaTools))
+        .collect()
+}
+
+/// The steps a press of "Set it up" runs and waits for, in order. **Never the video tools**: a
+/// press that finds them missing starts their background download instead ([`run`]).
+pub fn foreground_steps(needs: &[Component]) -> Vec<Component> {
+    needs.iter().copied().filter(|c| *c != Component::MediaTools).collect()
+}
+
+/// Clears the running flag however the download thread ends, a panic included.
+struct Downloading;
+impl Drop for Downloading {
+    fn drop(&mut self) {
+        VIDEO_TOOLS_DOWNLOADING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// **Start the video tools' download in the background, now.** `false` when it was already
+/// running (one at a time) or the thread could not start. Returns at once: nothing waits for it.
+pub fn start_video_tools_download(app: &AppHandle) -> bool {
+    if VIDEO_TOOLS_DOWNLOADING.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    let app = app.clone();
+    let spawned = std::thread::Builder::new().name("video-tools-download".into()).spawn(move || {
+        let running = Downloading;
+        let step = |state, what: String| SetupProgress {
+            state,
+            component: Some(Component::MediaTools.as_str()),
+            what,
+            index: 1,
+            total: 1,
+            detail: None,
+            kind: None,
+            machine_unchanged: None,
+        };
+        emit_from(&app, step("started", started_line(Component::MediaTools)), true);
+        let home = SetupPaths::from_process().home;
+        let outcome = install_media_tools(&app, home.as_deref(), 1, 1);
+        // The flag clears BEFORE the last line, so a window that re-reads the status on it reads
+        // the finished state rather than "still downloading".
+        drop(running);
+        match outcome {
+            Ok(what) => emit_from(&app, step("done", what), true),
+            Err(e) => emit_from(&app, failure(Component::MediaTools, 1, 1, &e), true),
+        }
+    });
+    match spawned {
+        Ok(_) => {
+            eprintln!("[richos] video tools: downloading in the background");
+            true
+        }
+        Err(e) => {
+            VIDEO_TOOLS_DOWNLOADING.store(false, Ordering::SeqCst);
+            eprintln!("[richos] video tools: the background download could not start: {e}");
+            false
+        }
+    }
 }
 
 /// Read this machine, using the SAME engine answer the boot used.
@@ -259,16 +365,24 @@ pub struct SetupAskItem {
 /// (`SetupStatus::needs().is_empty()`), and a serialized field that duplicates a method is a
 /// second place for the answer to be wrong.
 pub fn view(status: &SetupStatus) -> serde_json::Value {
+    view_with(status, video_tools_downloading())
+}
+
+/// [`view`] for a stated download state. **Complete when nothing the sheet would ask for is
+/// missing**: video tools still downloading in the background hold nothing up (their own
+/// progress and done lines say how far they are).
+pub fn view_with(status: &SetupStatus, downloading: bool) -> serde_json::Value {
     serde_json::json!({
         "status": status,
-        "ask": ask_for(status),
-        "complete": status.complete(),
+        "ask": ask_for_with(status, downloading),
+        "complete": sheet_needs(status, downloading).is_empty(),
     })
 }
 
-/// Turn a status into the sheet's contents.
-pub fn ask_for(status: &SetupStatus) -> SetupAsk {
-    let needs = status.needs();
+/// Turn a status into the sheet's contents, for a stated download state: the video tools are not
+/// on the sheet while their background download runs.
+pub fn ask_for_with(status: &SetupStatus, downloading: bool) -> SetupAsk {
+    let needs = sheet_needs(status, downloading);
     let items = needs
         .iter()
         .map(|c| SetupAskItem { component: c.as_str(), name: c.display_name(), why: c.why() })
@@ -296,7 +410,14 @@ pub fn run(
     engine_dir: &Arc<Mutex<PathBuf>>,
 ) -> Result<SetupStatus, String> {
     let status = detect(boot_engine);
-    let needs = status.needs();
+    let wanted = sheet_needs(&status, video_tools_downloading());
+    // THE VIDEO TOOLS ARE NEVER A STEP THIS PRESS WAITS FOR. Missing and not downloading (the
+    // launch's download failed, or never started): their background download starts now,
+    // FIRST, so it runs beside Claude Code's installer rather than after it.
+    if wanted.contains(&Component::MediaTools) {
+        start_video_tools_download(app);
+    }
+    let needs = foreground_steps(&wanted);
     if needs.is_empty() {
         // Nothing to do is a success with no steps, not an error and not a no-op that looks
         // like one: the window asked because the status said to, and the status can have
@@ -370,7 +491,8 @@ pub fn run(
                     })
                 }
             },
-            Component::MediaTools => install_media_tools(app, paths.home.as_deref(), index, total),
+            // Filtered out by `foreground_steps`: started in the background above, never waited for.
+            Component::MediaTools => continue,
         };
 
         match outcome {
@@ -406,7 +528,7 @@ pub fn run(
         SetupProgress {
             state: "finished",
             component: None,
-            what: if after.complete() {
+            what: if sheet_needs(&after, video_tools_downloading()).is_empty() {
                 "The software is installed. Connect your account to start working.".to_string()
             } else {
                 // Reached only if something removed a component between the install and this
@@ -430,19 +552,20 @@ fn emit_failure(
     total: usize,
     e: &SetupError,
 ) {
-    emit(
-        app,
-        SetupProgress {
-            state: "failed",
-            component: Some(component.as_str()),
-            what: format!("{} could not be installed.", component.display_name()),
-            index,
-            total,
-            detail: Some(e.to_string()),
-            kind: Some(e.kind()),
-            machine_unchanged: Some(e.machine_unchanged()),
-        },
-    );
+    emit(app, failure(component, index, total, e));
+}
+
+fn failure(component: Component, index: usize, total: usize, e: &SetupError) -> SetupProgress {
+    SetupProgress {
+        state: "failed",
+        component: Some(component.as_str()),
+        what: format!("{} could not be installed.", component.display_name()),
+        index,
+        total,
+        detail: Some(e.to_string()),
+        kind: Some(e.kind()),
+        machine_unchanged: Some(e.machine_unchanged()),
+    }
 }
 
 /// The progress line, in his language. Present tense, no path, no byte count — the byte count
@@ -458,17 +581,19 @@ fn started_line(c: Component) -> String {
     }
 }
 
-/// **THE VIDEO TOOLS, INSTALLED** (media-tools plan §2, slice 3): yt-dlp through slice 2's
-/// verified install, then BOTH speech models through the voice panel's own verified, resumable
-/// fetch, with this sheet as the one asking: the model voice resolves (`fetch_model`) and the
-/// transcription model (`fetch_pinned`, `stt::TRANSCRIPTION_MODEL_ID`; the CEO, 2026-10-07:
-/// "Both, in this nightly, yes"). Each part is skipped when it is already there, so the CEO's
-/// Mac — which has both models in `~/Models/Whisper` — fetches only the 3 MB yt-dlp, and pressing
-/// "Set it up" again after a failed model download resumes it rather than starting over
-/// (`provision.rs` resume rules).
+/// **THE VIDEO TOOLS, INSTALLED** (media-tools plan §2, slice 3), by the background download
+/// ([`start_video_tools_download`]) and nothing else: yt-dlp through slice 2's verified install,
+/// then BOTH speech models through the voice panel's own verified, resumable fetch — the model
+/// voice will hear with, then the transcription model (`stt::TRANSCRIPTION_MODEL_ID`; the CEO,
+/// 2026-10-07: "Both, in this nightly, yes"). Each part is skipped when it is already there, so the
+/// CEO's Mac — which has both models in `~/Models/Whisper` — fetches only the 3 MB yt-dlp, and a
+/// download that failed resumes rather than starting over (`provision.rs` resume rules).
 ///
-/// Each model ends by being checked again, never by trusting the fetch's `Ok`: the fetch answers
-/// `Ok` for a download the voice panel already has running, and for one stopped on request.
+/// **NO DECODER NEEDED, because it starts at launch.** On a fresh Mac `whisper-cli` arrives with
+/// the engine, which is installed only once he presses "Set it up". So this never asks
+/// `stt::readiness` which model to fetch (that needs the decoder and times decodes); it fetches the
+/// pinned files by name, and `provision` checks every one against its pinned sha256 before it
+/// becomes a model. Which model voice gets without a decoder is [`voice_model_to_fetch`].
 fn install_media_tools(
     app: &AppHandle,
     home: Option<&std::path::Path>,
@@ -476,7 +601,7 @@ fn install_media_tools(
     total: usize,
 ) -> Result<String, SetupError> {
     use richos_core::media_tools;
-    use richos_voice::stt::{self, SpeechReadiness};
+    use richos_voice::stt;
 
     let home = home.ok_or(SetupError::NoHome)?;
     let tools = media_tools::tools_dir(home);
@@ -495,22 +620,14 @@ fn install_media_tools(
     let observer = SetupModelObserver { app: app.clone(), index, total };
     let state = crate::ensure_model_fetch_state(app);
 
-    // 1. THE MODEL VOICE RESOLVES (chosen by speed, `stt::choose_model`).
-    if let SpeechReadiness::Ready(r) = stt::readiness() {
-        eprintln!("[richos] setup: voice speech model {} already installed and verified", r.model_id());
-    } else {
-        let voice_state = state.clone();
-        run_fetch(|| crate::voice_provision::fetch_model(&observer, voice_state))?;
-        match stt::readiness() {
-            SpeechReadiness::Ready(r) => {
-                eprintln!("[richos] setup: voice speech model {} installed and verified", r.model_id())
-            }
-            // Still not there (the voice panel's download is the one running, or it was
-            // stopped): the sentence voice mode itself gives for this state.
-            other => {
-                eprintln!("[richos] setup: voice speech model still not ready after the fetch: {other:?}");
-                return Err(SetupError::SpeechModelFailed { sentence: other.ceo_message().unwrap_or_default() });
-            }
+    // 1. THE MODEL VOICE HEARS WITH, first: with only the large model installed, voice would take
+    //    it whatever its speed (the ladder always accepts its last installed rung).
+    match stt::voice_model_installed() {
+        Ok(id) => eprintln!("[richos] setup: voice speech model {id} already installed and verified"),
+        Err(why) => {
+            let id = voice_model_to_fetch();
+            eprintln!("[richos] setup: voice speech model missing ({why}); fetching {id}");
+            fetch_verified(&observer, &state, &id)?;
         }
     }
 
@@ -520,27 +637,67 @@ fn install_media_tools(
         Ok(path) => eprintln!("[richos] setup: transcription model {id} already installed and verified at {}", path.display()),
         Err(why) => {
             eprintln!("[richos] setup: transcription model {id} missing ({why}); fetching it");
-            run_fetch(|| crate::voice_provision::fetch_pinned(&observer, state, id))?;
-            match stt::model_verified(id) {
-                Ok(path) => eprintln!("[richos] setup: transcription model {id} installed and verified at {}", path.display()),
-                Err(why) => {
-                    eprintln!("[richos] setup: transcription model {id} still not verified after the fetch: {why}");
-                    return Err(SetupError::SpeechModelFailed {
-                        sentence: stt::SttError::ModelNotFound(why).ceo_message(),
-                    });
-                }
-            }
+            fetch_verified(&observer, &state, id)?;
         }
     }
     Ok(format!("{} are installed.", capitalized(Component::MediaTools.display_name())))
 }
 
-/// Run one model download to its end. ITS OWN THREAD AND ITS OWN RUNTIME: `run_setup` is a sync
-/// command Tauri runs inside an async task, where `block_on` panics ("Cannot start a runtime from
-/// within a runtime"); a scoped thread owns a current-thread runtime for exactly this download
-/// and ends with it. A download's own failure is its sentence (written by `provision`); a panic
-/// is left to the caller's re-check, which gives voice's own sentence.
-fn run_fetch<F, Fut>(fetch: F) -> Result<(), SetupError>
+/// **The model voice will hear with, named without a decoder.** `RICHOS_VOICE_WHISPER_MODEL_ID`
+/// when an engineer set it (voice honors it first, `stt::choose_model`); otherwise the cost
+/// table's safe rung (small.en today). That is the model `stt::readiness` asks for on any Mac with
+/// no live-ladder model installed: the ladder keeps only installed rungs, and with none it answers
+/// the safe rung (`hardware::resolve_live`). With this and the large model in, voice still
+/// chooses between them by speed.
+fn voice_model_to_fetch() -> String {
+    std::env::var("RICHOS_VOICE_WHISPER_MODEL_ID")
+        .ok()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| richos_voice::hardware::Costs::load().safe_rung)
+}
+
+/// **Fetch the pinned model `id` until it is in place and verified, or say why not.** The fetch's
+/// own answer is the check: `installed` and `already-present` mean `provision` hashed the file
+/// against its pin. `already-running` is the voice panel's own download: this waits for it to end
+/// and asks again, which then finds the file or resumes it. `canceled` (Stop in the voice panel)
+/// and anything else is no model, with voice's own sentence for that.
+fn fetch_verified(
+    observer: &SetupModelObserver,
+    state: &Arc<crate::voice_provision::ModelFetchState>,
+    id: &str,
+) -> Result<(), SetupError> {
+    loop {
+        let fetched = run_fetch(|| crate::voice_provision::fetch_pinned(observer, state.clone(), id))?;
+        let status = fetched.as_ref().and_then(|v| v.get("status")).and_then(|s| s.as_str()).unwrap_or("");
+        match status {
+            "installed" | "already-present" => {
+                eprintln!("[richos] setup: speech model {id} in place and verified against its pin");
+                return Ok(());
+            }
+            "already-running" => {
+                eprintln!("[richos] setup: speech model {id}: another download is running; waiting for it");
+                while state.in_flight.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            }
+            other => {
+                eprintln!("[richos] setup: speech model {id} not in place after the fetch ({other:?})");
+                return Err(SetupError::SpeechModelFailed {
+                    sentence: richos_voice::stt::SttError::ModelNotFound(id.to_string())
+                        .ceo_message(),
+                });
+            }
+        }
+    }
+}
+
+/// Run one model download to its end. ITS OWN THREAD AND ITS OWN RUNTIME: `block_on` inside a
+/// runtime panics ("Cannot start a runtime from within a runtime"); a scoped thread owns a
+/// current-thread runtime for exactly this download and ends with it. A download's own failure is
+/// its sentence (written by `provision`); a panic is `None`, which the caller reports as a model
+/// that is not in place.
+fn run_fetch<F, Fut>(fetch: F) -> Result<Option<serde_json::Value>, SetupError>
 where
     F: FnOnce() -> Fut + Send,
     Fut: std::future::Future<Output = Result<serde_json::Value, String>>,
@@ -557,11 +714,16 @@ where
             .join()
     });
     match fetched {
-        Ok(Ok(v)) => eprintln!("[richos] setup: speech model fetch answered {v}"),
-        Ok(Err(sentence)) => return Err(SetupError::SpeechModelFailed { sentence }),
-        Err(_) => eprintln!("[richos] setup: the speech model download stopped unexpectedly"),
+        Ok(Ok(v)) => {
+            eprintln!("[richos] setup: speech model fetch answered {v}");
+            Ok(Some(v))
+        }
+        Ok(Err(sentence)) => Err(SetupError::SpeechModelFailed { sentence }),
+        Err(_) => {
+            eprintln!("[richos] setup: the speech model download stopped unexpectedly");
+            Ok(None)
+        }
     }
-    Ok(())
 }
 
 fn capitalized(s: &str) -> String {
@@ -569,10 +731,11 @@ fn capitalized(s: &str) -> String {
     chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
 }
 
-/// **The model download's progress, on this sheet instead of the voice panel** (plan §2). Each
-/// `rich://voice-model` event becomes a `started` line for this step, with how far it has got,
-/// so a 574 MB download is a moving line rather than a sheet that looks hung. Failure is not
-/// relayed here: `install_media_tools` returns it, and `run` emits it once.
+/// **The model download's progress, on this sheet AND in the voice panel** (plan §2). Each
+/// `rich://voice-model` event goes to the voice panel verbatim and becomes a `started` line for
+/// this step, with how far it has got, so a 574 MB download is a moving line rather than a sheet
+/// that looks hung. Failure is not relayed as a line here: `install_media_tools` returns it, and
+/// the background download emits it once.
 struct SetupModelObserver {
     app: AppHandle,
     index: usize,
@@ -580,7 +743,13 @@ struct SetupModelObserver {
 }
 
 impl crate::voice_provision::ModelObserver for SetupModelObserver {
-    fn on_model_event(&self, _name: &str, payload: serde_json::Value) {
+    fn on_model_event(&self, name: &str, payload: serde_json::Value) {
+        // THE VOICE PANEL SEES THE SAME DOWNLOAD, on its own channel: its progress row, and on
+        // `installed` the window asks voice again, so voice switches on when a model arrives
+        // (`ui/main.js`, the `rich://voice-model` listener).
+        if let Err(e) = self.app.emit(name, payload.clone()) {
+            eprintln!("[richos] setup: the voice panel missed a model event ({e})");
+        }
         let phase = payload.get("phase").and_then(|p| p.as_str()).unwrap_or("");
         let received = payload.get("received").and_then(|v| v.as_u64()).unwrap_or(0);
         let whole = payload.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -591,7 +760,7 @@ impl crate::voice_provision::ModelObserver for SetupModelObserver {
             "verifying" => format!("{} 100%", started_line(Component::MediaTools)),
             _ => return,
         };
-        emit(
+        emit_from(
             &self.app,
             SetupProgress {
                 state: "started",
@@ -603,6 +772,7 @@ impl crate::voice_provision::ModelObserver for SetupModelObserver {
                 kind: None,
                 machine_unchanged: None,
             },
+            true,
         );
     }
 }
@@ -660,14 +830,41 @@ mod tests {
     #[test]
     fn only_the_video_tools_missing_puts_them_alone_on_the_sheet() {
         let st = status_with_video_tools(true, true, true, false);
-        let ask = ask_for(&st);
+        let ask = ask_for_with(&st, false);
         let items: Vec<&str> = ask.items.iter().map(|i| i.component).collect();
         assert_eq!(items, vec!["media-tools"]);
         assert_eq!(ask.items[0].name, "my video tools");
         assert!(ask.can_install, "the video tools are always installable");
-        assert!(!view(&st)["complete"].as_bool().unwrap(), "setup is not complete without them");
+        assert!(!view_with(&st, false)["complete"].as_bool().unwrap(), "setup is not complete without them");
         // An unpinned build still offers them when the engine is already there.
-        assert!(ask_for(&status_with_video_tools(true, true, false, false)).can_install);
+        assert!(ask_for_with(&status_with_video_tools(true, true, false, false), false).can_install);
+    }
+
+    /// **NOTHING IN FIRST SETUP WAITS FOR THE VIDEO TOOLS** (the CEO, 2026-10-07: "The speech
+    /// models and video tools begin downloading in the background at first launch, while the
+    /// user does the rest of setup."). While their background download runs they are not on the
+    /// sheet and not a step of any press; a press never waits for them even when they are missing
+    /// and not downloading (it starts their download instead); and a Mac whose Claude Code and
+    /// engine are in is complete for the window while the models are still arriving.
+    #[test]
+    fn the_video_tools_download_in_the_background_and_hold_nothing_up() {
+        use Component::*;
+        // The customer's Mac at first launch: nothing installed, the download already started.
+        let fresh = status_with_video_tools(false, false, true, false);
+        assert_eq!(sheet_needs(&fresh, true), vec![ClaudeCode, Engine]);
+        let names: Vec<&str> = ask_for_with(&fresh, true).items.iter().map(|i| i.component).collect();
+        assert_eq!(names, vec!["claude-code", "engine"], "the sheet does not ask for what is already downloading");
+        // A press waits for Claude Code and the engine, never for the video tools.
+        assert_eq!(foreground_steps(&[ClaudeCode, Engine, MediaTools]), vec![ClaudeCode, Engine]);
+        assert!(foreground_steps(&sheet_needs(&fresh, false)).iter().all(|c| *c != MediaTools));
+        // Claude Code and the engine in, the models still downloading: nothing to ask, setup done
+        // for the window, so the memory and company questions come next.
+        let lease_ready = status_with_video_tools(true, true, true, false);
+        assert!(ask_for_with(&lease_ready, true).items.is_empty());
+        assert!(view_with(&lease_ready, true)["complete"].as_bool().unwrap());
+        // Not downloading (the launch's download failed): the sheet offers them again.
+        assert_eq!(sheet_needs(&lease_ready, false), vec![MediaTools]);
+        assert!(!view_with(&lease_ready, false)["complete"].as_bool().unwrap());
     }
 
     /// **THE NO-LEASE SENTENCE NEVER BLAMES THE VIDEO TOOLS.** A lease needs Claude Code and the
@@ -744,7 +941,7 @@ mod tests {
         assert!(incomplete_message(&status(true, true, true)).is_none());
     }
 
-    /// **A BUILD THAT CANNOT INSTALL DOES NOT PROMISE A BUTTON.** `ask_for` hides "Set it up"
+    /// **A BUILD THAT CANNOT INSTALL DOES NOT PROMISE A BUTTON.** `ask_for_with` hides "Set it up"
     /// when the engine is unpinned, so a sentence saying to press it would name a control the
     /// sheet is not drawing.
     #[test]
