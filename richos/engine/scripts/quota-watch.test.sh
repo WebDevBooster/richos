@@ -71,6 +71,9 @@
 #   G09      get_usage refused with "Login expired": the login alarm is raised
 #            (sandboxed: a recorder, never the CEO's notification center)
 #   G10      any other refusal raises no login alarm
+#   G11      claude starts in an empty directory this user cannot write, never
+#            /, because Claude Code lists every file under its working
+#            directory (from /, the Desktop, Downloads and every volume)
 #   G08      get_usage failing: a stale status-line file still wakes the lead
 #   R04      this morning's 91% (07:57Z) to 95% (08:07Z), lead idle: through
 #            get_usage the pause fires before 08:07Z under 95%, no wake needed
@@ -467,7 +470,8 @@ open(os.path.join(d, "pids"), "a").write("%d\n" % os.getpid())
 want = ["--print", "--input-format=stream-json", "--output-format=stream-json", "--verbose",
         "--setting-sources", "", "--no-session-persistence", "--tools", "",
         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
-if sys.argv[1:] != want or "CLAUDECODE" in os.environ or os.getcwd() != "/":
+open(os.path.join(d, "cwd"), "w").write(os.getcwd())
+if sys.argv[1:] != want or "CLAUDECODE" in os.environ:
     open(os.path.join(d, "refused"), "a").write(json.dumps([sys.argv[1:], os.getcwd()]) + "\n")
     sys.exit(3)
 read = lambda n, dflt: (open(os.path.join(d, n)).read().strip() if os.path.exists(os.path.join(d, n)) else dflt)
@@ -565,6 +569,22 @@ check "G06  an unreadable answer and an early close both fall back to the status
     "$([ "$RCG" -eq 0 ] && printf '%s' "$OUTG" | grep -q 'cannot read' && [ "$RC" -eq 0 ] \
        && printf '%s' "$OUT" | grep -q 'closed its output'; echo $?)" "garbage: rc=$RCG $OUTG // eof: rc=$RC $OUT"
 
+fi
+
+# G11: claude is started in an EMPTY directory this user cannot write, never in
+# `/`. Claude Code lists every file under its working directory at start
+# (`rg --no-config --files --hidden <cwd>`, seen 2026-10-07 with 2.1.292). From
+# `/` that walk reaches the Desktop, Downloads, the external SSD and network
+# volumes, and run from launchd (no Terminal with Full Disk Access in front of
+# it) each of those raised a macOS permission dialog on the CEO's screen.
+if wants "G11"; then
+write_payload 50 3600 10
+fake ok 40; rm -f "$FAKE/cwd"; gonce
+GCWD="$(cat "$FAKE/cwd" 2>/dev/null)"
+check "G11  claude starts in an empty directory this user cannot write, never / (its file listing walks the whole disk from there)" \
+    "$([ -n "$GCWD" ] && [ "$GCWD" != "/" ] && [ -d "$GCWD" ] && [ -z "$(ls -A "$GCWD")" ] && [ ! -w "$GCWD" ] \
+       && printf '%s' "$OUT" | grep -q 'via get_usage'; echo $?)" \
+    "cwd=${GCWD:-none} entries=$(ls -A "${GCWD:-/nonexistent}" 2>/dev/null | head -3 | tr '\n' ' ') rc=$RC out=$OUT"
 fi
 
 # G09 / G10: a refusal that says the login is dead raises the login alarm (a

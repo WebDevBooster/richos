@@ -851,24 +851,24 @@ pub(crate) mod tests {
     /// `docs/research/2026-10-04-fifteen-fable-workers-quota-burn.md`), used here as the worst
     /// case: no weekly figure was measured for that run. That is fast (20 points per
     /// five-minute check), so the next check is one minute away. **The weekly point is the
-    /// handoff point** (weekly-switch plan §1, his words 2026-10-07: "1 or 2 percentage points
-    /// earlier than 99%"): the next check and a 10-minute handoff would use 4 x 11 = 44 points,
-    /// more than 2, so it is 99 - 2 = 97, and never lower. At 96.9% it stays; at 97% it
-    /// switches, before 99%. It no longer moves to `100 - 4 = 96` as `act_point` does (Frank's
-    /// review of the plan, minor 11: at an extreme speed the switch comes later than before).
+    /// handoff point** (weekly-switch plan §1, his words 2026-10-07: "the percentage for the
+    /// switch needs to be adjusted dynamically so that this doesn't happen", "this" being 100%
+    /// before the switch): the next check and a 10-minute handoff would use 4 x 11 = 44 points,
+    /// so it is 99 - (44 - 1) = 56, and 56 + 44 = 100. At 55.9% it stays; at 56% it switches,
+    /// so the next check and the handoff end by 100%.
     #[test]
-    fn a_fast_weekly_burn_switches_two_points_before_99_percent() {
+    fn a_fast_weekly_burn_switches_as_early_as_its_speed_requires() {
         let (_dir, accounts) = two_accounts();
         let per_ms = 4.0 / 60_000.;
-        let mut fast = reading(10., HOUR, 96.9, 24 * HOUR);
+        let mut fast = reading(10., HOUR, 55.9, 24 * HOUR);
         fast.speeds.insert("seven_day".into(), per_ms);
         assert!(fast.fast());
         assert_eq!(fast.interval(), crate::quota::FAST_REFRESH_INTERVAL_MS);
-        assert!((fast.weekly_point(&fast.windows[1]) - 97.).abs() < 1e-9);
+        assert!((fast.weekly_point(&fast.windows[1]) - 56.).abs() < 1e-9);
         assert!(!accounts.evaluate(&readings(fast.clone(), reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
-        fast.windows[1].used_percent = 97.;
+        fast.windows[1].used_percent = 56.;
         assert!(accounts.evaluate(&readings(fast, reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
-        assert_eq!(accounts.in_use().id, "2", "switched at 97%, two points before 99%");
+        assert_eq!(accounts.in_use().id, "2", "switched at 56%, 44 points before 100%");
     }
 
     /// **Round 18, why it switched: the line in the conversation**, in the mockup's words (the

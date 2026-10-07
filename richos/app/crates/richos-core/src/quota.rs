@@ -133,26 +133,25 @@ impl Reading {
     pub fn reaches(&self, window: &Window, threshold: f64) -> bool {
         window.used_percent >= self.act_point(window, threshold)
     }
-    /// **The weekly handoff point** (weekly-switch plan §1; his words, 2026-10-07: at 99%,
-    /// *"Unless the current token consumption velocity is very high. In that case the handoff
-    /// command must come 1 or 2 percentage points earlier than 99%"*):
+    /// **The weekly handoff point** (weekly-switch plan §1; his words, 2026-10-07: *"the
+    /// percentage for the switch needs to be adjusted dynamically so that this doesn't happen.
+    /// My "1-2% sooner" was just guesswork."*, "this" being 100% before the switch):
     ///
-    /// `point = 99 - min(2, max(0, ceil(s x (I + H)) - 1))`
+    /// `point = 99 - max(0, ceil(s x (I + H)) - 1)`
     ///
     /// with `s` the window's measured speed, `I` the time to the next check (`interval`) and
     /// `H` the time a teammate needs to hand off (`HANDOFF_MS`). If the wait for the next check
-    /// and the handoff would use 1 point or less, it is 99; up to 2 points, 98; more, 97. Every
-    /// weekly decision uses it, so the account switch and the order to every teammate on the
-    /// account fire at the same moment. 99 is the test cut-off instead, on the one account it
-    /// names (`weekly_cutoff`).
-    ///
-    /// Unlike `act_point`, it never goes below 97 (two points under the base): at an extreme
-    /// speed the switch comes later than `100 - s x I` would put it (Frank's review, minor 11).
+    /// and the handoff would use 1 point or less, it is 99; up to 2 points, 98; up to 5, 95;
+    /// and so on, as early as the speed requires, with no floor but 0. So the point plus
+    /// `s x (I + H)` is at or under 100 at any speed: the next check and the handoff end by
+    /// 100%. Every weekly decision uses it, so the account switch and the order to every
+    /// teammate on the account fire at the same moment. 99 is the test cut-off instead, on the
+    /// one account it names (`weekly_cutoff`).
     pub fn weekly_point(&self, window: &Window) -> f64 {
         let base = self.weekly_cutoff.unwrap_or(resets::WEEKLY_THRESHOLD);
         let speed = self.speeds.get(&window.id).copied().unwrap_or(0.);
         let points = speed * (self.interval() + HANDOFF_MS) as f64;
-        let earlier = (points.ceil() - 1.).clamp(0., 2.);
+        let earlier = (points.ceil() - 1.).max(0.);
         (base - earlier).clamp(0., 100.)
     }
     /// Has this weekly window reached its handoff point?
@@ -1896,7 +1895,8 @@ pub(crate) mod tests {
     /// published view (the panel's) carries them. Five-hour gaining 8 a minute: 100 - 8 = 92
     /// (from 93). Weekly gaining 2 a minute, checked every minute: the next check and a
     /// 10-minute handoff use 2 x (1 + 10) = 22 points, so the weekly handoff point is
-    /// 99 - 2 = 97 (weekly-switch plan §1; it was 100 - 2 = 98 before the handoff existed).
+    /// 99 - (22 - 1) = 78, and 78 + 22 = 100 (weekly-switch plan §1; it was 100 - 2 = 98
+    /// before the handoff existed, and 97 while the handoff point was capped two points early).
     #[test]
     fn a_measured_jump_moves_both_check_points_and_the_view_shows_them() {
         let mut s = Snapshot::default();
@@ -1904,34 +1904,49 @@ pub(crate) mod tests {
         assert_eq!(s.view(policy(), NOW).act_at, [("five_hour".to_string(), 93.), ("seven_day".to_string(), 99.)].into());
         s.accept(both_at(48., 62.), NOW + 60_000);
         let act = s.view(policy(), NOW + 60_000).act_at;
-        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 97.).abs() < 1e-9, "{act:?}");
+        assert!((act["five_hour"] - 92.).abs() < 1e-9 && (act["seven_day"] - 78.).abs() < 1e-9, "{act:?}");
     }
 
     // ---- the weekly switch handoff (richos-hq docs/plans/2026-10-07-weekly-switch-handoff.md) --
 
-    /// **Plan §1, the weekly handoff point at three measured speeds**, checked every 5 minutes
-    /// (none of them is fast: the five-hour window does not move) with a 10-minute handoff, so
-    /// `s x (I + H)` is the speed times 15 minutes:
-    /// - 0.05 a minute: 0.75 points, 1 or less, so 99;
-    /// - 0.1 a minute: 1.5 points, up to 2, so 98, one point earlier;
-    /// - 0.3 a minute: 4.5 points, more than 2, so 97, two points earlier (never lower).
+    /// **Plan §1, the weekly handoff point moves as early as the measured speed requires**
+    /// (his words, 2026-10-07: *"the percentage for the switch needs to be adjusted dynamically
+    /// so that this doesn't happen"*, "this" being 100% before the switch). With a 10-minute
+    /// handoff, `s x (I + H)` is the speed times 15 minutes when checked every 5, and times 11
+    /// when the speed is fast enough to check every minute:
+    /// - 0.05 a minute: 0.05 x 15 = 0.75 points, 1 or less, so 99;
+    /// - 0.1 a minute: 0.1 x 15 = 1.5 points, so 98;
+    /// - 0.3 a minute: 0.3 x 15 = 4.5 points, so 95;
+    /// - 1 point in 3 minutes: (1 / 3) x 15 = 5 points, so 95;
+    /// - 4 a minute (fast, checked every minute): 4 x 11 = 44 points, so 56.
     ///
-    /// The published point and the weekly hold agree: at the point the view holds, a tenth
-    /// under it the view admits.
+    /// At every speed the point plus `s x (I + H)` is at or under 100: the next check and the
+    /// handoff end by 100%. The published point and the weekly hold agree: at the point the
+    /// view holds, a tenth under it the view admits.
     #[test]
-    fn the_weekly_handoff_point_is_99_98_or_97_at_three_measured_speeds() {
-        for (gain, point) in [(0.05, 99.), (0.1, 98.), (0.3, 97.)] {
+    fn the_weekly_handoff_point_moves_as_early_as_the_measured_speed_requires() {
+        for (gain, minutes, interval, point) in [
+            (0.05, 1, REFRESH_INTERVAL_MS, 99.),
+            (0.1, 1, REFRESH_INTERVAL_MS, 98.),
+            (0.3, 1, REFRESH_INTERVAL_MS, 95.),
+            (1., 3, REFRESH_INTERVAL_MS, 95.),
+            (4., 1, FAST_REFRESH_INTERVAL_MS, 56.),
+        ] {
             let mut s = Snapshot::default();
             s.accept(both_at(40., 60.), NOW);
-            s.accept(both_at(40., 60. + gain), NOW + 60_000);
-            let view = s.view(policy(), NOW + 60_000);
-            assert_eq!(view.refresh_interval_ms, REFRESH_INTERVAL_MS, "{gain} a minute is not fast");
-            assert!((view.act_at["seven_day"] - point).abs() < 1e-9, "{gain} a minute: {:?}", view.act_at);
+            let at = NOW + minutes * 60_000;
+            s.accept(both_at(40., 60. + gain), at);
+            let view = s.view(policy(), at);
+            assert_eq!(view.refresh_interval_ms, interval, "{gain} in {minutes} min");
+            assert!((view.act_at["seven_day"] - point).abs() < 1e-9, "{gain} in {minutes} min: {:?}", view.act_at);
             assert_eq!(view.act_at["five_hour"], 93., "the five-hour point is untouched");
+            let reading = s.reading();
+            let wait_and_handoff = reading.speeds["seven_day"] * (reading.interval() + HANDOFF_MS) as f64;
+            assert!(point + wait_and_handoff <= 100. + 1e-9, "{gain} in {minutes} min: {point} + {wait_and_handoff} passes 100");
             for (used, held) in [(point - 0.1, false), (point, true)] {
                 s.windows[1].used_percent = used;
-                let admission = s.view(policy(), NOW + 60_000).admission;
-                assert_eq!(matches!(admission, Admission::Held { .. }), held, "{gain} a minute at {used}%: {admission:?}");
+                let admission = s.view(policy(), at).admission;
+                assert_eq!(matches!(admission, Admission::Held { .. }), held, "{gain} in {minutes} min at {used}%: {admission:?}");
             }
         }
     }
