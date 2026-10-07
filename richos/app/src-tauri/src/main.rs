@@ -4290,14 +4290,21 @@ fn speech_preflight() -> Result<(), String> {
 }
 
 /// **The speech model Rich's video skill transcribes with** (media-tools plan section 3): the
-/// file voice mode's own resolution picks, so voice and video use one model. Read at every lease
-/// spawn, so a model setup installs later reaches the next lease. `None` when voice could not
-/// hear on this machine either; the skill then says it watched the pictures only.
+/// pinned transcription model setup installs (`stt::TRANSCRIPTION_MODEL_ID`, large-v3-turbo-q5_0)
+/// when `stt::model_verified` passes, otherwise the file voice mode's own resolution picks
+/// (`richos_core::engine_profile::speech_model_for_video`). Read at every lease spawn, so a model
+/// setup installs later reaches the next lease; the verification is a stat once setup has hashed
+/// the file (`toolchain::check` caches by file identity). `None` when neither is ready; the skill
+/// then says it watched the pictures only.
 fn speech_model_for_rich() -> Option<PathBuf> {
-    match richos_voice::stt::readiness() {
-        richos_voice::stt::SpeechReadiness::Ready(recognizer) => Some(recognizer.model_path().to_path_buf()),
-        _ => None,
-    }
+    use richos_voice::stt;
+    richos_core::engine_profile::speech_model_for_video(
+        stt::model_verified(stt::TRANSCRIPTION_MODEL_ID),
+        || match stt::readiness() {
+            stt::SpeechReadiness::Ready(recognizer) => Some(recognizer.model_path().to_path_buf()),
+            _ => None,
+        },
+    )
 }
 
 /// **WHETHER TO OFFER VOICE AT ALL.** Read by the window at launch, once.

@@ -115,12 +115,21 @@ pub struct EngineProfile {
     /// `claude_account`. Set by the shell beside it; `None` everywhere else.
     pub token_sink: Option<std::sync::Arc<crate::quota::tokens::Sink>>,
     /// **The speech model the video skill transcribes with** (media-tools plan section 3). Set
-    /// by the shell to the file `richos_voice::stt` resolves for voice mode, so voice and video
-    /// use one model; it reaches the provider as `RICHOS_SPEECH_MODEL` in [`Self::configure`].
-    /// `None` when this machine has no ready model, and then nothing is set: the skill tells the
-    /// CEO it watched the pictures only. Resolved by the shell because this crate does not
-    /// depend on `richos-voice` (no native audio here).
+    /// by the shell through [`speech_model_for_video`]: the pinned large-v3-turbo-q5_0 that setup
+    /// installs for transcription when it is installed and verified (the CEO, 2026-10-07: "Both,
+    /// in this nightly, yes."), otherwise the model voice mode resolves. It reaches the provider
+    /// as `RICHOS_SPEECH_MODEL` in [`Self::configure`]. `None` when neither is ready, and then
+    /// nothing is set: the skill tells the CEO it watched the pictures only. Resolved by the shell
+    /// because this crate does not depend on `richos-voice` (no native audio here).
     pub speech_model: Option<PathBuf>,
+}
+
+/// **Which speech model the video skill transcribes with**, the value of
+/// [`EngineProfile::speech_model`]. `transcription` is the pinned transcription model's own check
+/// (`richos_voice::stt::model_verified(TRANSCRIPTION_MODEL_ID)` in the shell); `voice` is the
+/// model voice mode resolves, asked only when the transcription model is not usable.
+pub fn speech_model_for_video(transcription: Result<PathBuf, String>, voice: impl FnOnce() -> Option<PathBuf>) -> Option<PathBuf> {
+    transcription.ok().or_else(voice)
 }
 
 fn quote(path: &Path) -> String { format!("'{}'", path.to_string_lossy().replace('\'', "'\\''")) }
