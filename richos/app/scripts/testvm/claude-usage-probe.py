@@ -26,6 +26,11 @@ def main(argv):
     args = [claude, '--print', '--input-format=stream-json', '--output-format=stream-json', '--verbose',
             '--setting-sources', '', '--no-session-persistence', '--tools', '', '--strict-mcp-config',
             '--mcp-config', '{"mcpServers":{}}']
+    # --debug-file PATH: Claude Code's own debug log of this one probe, and the lines about the
+    # usage fetch are printed with the answer (why `rate_limits` came back null).
+    debug = argv[argv.index('--debug-file') + 1] if '--debug-file' in argv else None
+    if debug:
+        args += ['--debug-file', debug]
     began = time.time()
     p = subprocess.Popen(args, cwd='/var/empty', env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
@@ -45,8 +50,15 @@ def main(argv):
     p.kill()
     err = p.stderr.read().decode(errors='replace')[-1500:]
     rows = [line for line in buf.decode(errors='replace').splitlines() if '"probe-2"' in line]
+    usage_lines = []
+    if debug:
+        try:
+            with open(debug, encoding='utf-8', errors='replace') as fh:
+                usage_lines = [line.strip()[:400] for line in fh if 'usage' in line.lower() or '429' in line][-20:]
+        except OSError as exc:
+            usage_lines = ['no debug log: ' + str(exc)]
     print(json.dumps({'folder': folder, 'answered': bool(rows), 'seconds': round(time.time() - began, 1),
-                      'answer': rows[0][:2500] if rows else None, 'stderr': err}))
+                      'answer': rows[0][:2500] if rows else None, 'stderr': err, 'debug_usage_lines': usage_lines}))
     return 0 if rows else 1
 
 

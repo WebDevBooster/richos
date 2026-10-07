@@ -197,22 +197,20 @@ class HandoffWalk(command_walk.CommandWalk):
         written = json.loads(guest(self.vm, 'cat ' + shlex.quote(path)))
         if not any(a.get('folder') == folder for a in written.get('accounts', [])):
             raise StepFailed('the app does not keep Work at ' + folder + ': ' + json.dumps(written))
+        # THE USAGE ENDPOINT ANSWERS ABOUT ONCE IN FOUR MINUTES PER SIGN-IN, AND THIS MAC ASKS TOO.
+        # Measured (probe2, run-walk.py --no-app, no app at all): Home answered at 1 s and 245 s
+        # and 429 at 11, 31, 61 and 121 s; Claude Code then answers get_usage with
+        # `rate_limits: null` ("429 remembered for this bearer"). The guest holds this Mac's own
+        # access tokens, and this Mac's RichOS app and tooling ask with them on their own
+        # schedules, so the guest app's five-minute check of Work can land in the 429 window
+        # every time (runs 2-4: Work never read in 7 minutes) and the app cannot switch to an
+        # account it never read (quota.rs readings). The quota panel's Refresh asks at once, so
+        # it is pressed every 45 s, only until both accounts have a reading. The panel is the
+        # technical view's (settings-button.js), so that is turned on first.
+        self.technical_view()
         opened = self.panel()
-        quota, home, work = self.read_both(120, opened)
-        if work is None:
-            # THE GUEST'S WORK FOLDER HAS NEVER MADE A MODEL CALL; HIS ON THIS MAC HAS. run.sh copies
-            # the access token alone, and Claude Code answered get_usage under the fresh folder
-            # with `rate_limits: null` every time (walk-13a326a3b697, work-diagnosis.txt) while
-            # Home, whose folder the app had already used, answered with figures. One short model
-            # call under Work makes the guest's folder match his, and the probe before and after
-            # it says whether that was the difference.
-            self.diagnose(folder, 'before')
-            self.facts['work_primed'] = self.prime(folder)
-            self.save()
-            self.diagnose(folder, 'after')
-            # Every added account is read on Account 1's schedule (quota.rs refresh_accounts): one
-            # five-minute interval plus slack.
-            quota, home, work = self.read_both(420, opened)
+        self.facts['refresh_presses'] = 0
+        quota, home, work = self.read_both(600, opened)
         self.shot('1-quota-panel.png')
         (self.out / 'quota-at-start.json').write_text(json.dumps(quota, indent=2) + '\n')
         self.close_panel()
@@ -224,33 +222,58 @@ class HandoffWalk(command_walk.CommandWalk):
         self.save()
         return {'home_weekly': home, 'work_weekly': work, 'work_folder': folder}
 
+    def probe(self):
+        """Not in the default steps: run alone under `run-walk.py --no-app` to ask, with no app at
+        all, whether each pushed sign-in answers get_usage with figures (Claude Code's own debug
+        lines about the usage fetch included)."""
+        remote = self.payload + '/claude-usage-probe.py'
+        command([HERE / 'guest.sh', self.vm, '--push', HERE / 'claude-usage-probe.py', remote], 60)
+        found = {}
+        began = time.monotonic()
+        # --probe-gaps: when, in seconds from the first, each pair of asks is made (the usage
+        # endpoint answers 429 to a second ask on the same sign-in a second later: probe1).
+        for n, at in enumerate(float(g) for g in self.a.probe_gaps.split(',')):
+            time.sleep(max(0, began + at - time.monotonic()))
+            for label, folder in (('home', self.home + '/.claude'), ('work', self.home + '/' + WORK_FOLDER)):
+                text = guest(self.vm, 'python3 ' + shlex.quote(remote) + ' ' + shlex.quote(folder) + ' ' + shlex.quote(self.home)
+                             + ' --debug-file /tmp/probe-' + label + '-' + str(n) + '.txt || true', 120)
+                row = json.loads(text.strip().splitlines()[-1])
+                row['at_s'] = round(time.monotonic() - began, 1)
+                found[f'{label}-{n}'] = row
+        (self.out / 'probe.json').write_text(json.dumps(found, indent=2) + '\n')
+        return {k: {'answered': v['answered'], 'rate_limits_null': '"rate_limits":null' in (v.get('answer') or '')}
+                for k, v in found.items()}
+
     def read_both(self, seconds, opened):
         """Both accounts' weekly readings from the app's own view, waited for at most `seconds`."""
-        end, quota, home, work = time.monotonic() + seconds, {}, None, None
+        end, quota, home, work, pressed = time.monotonic() + seconds, {}, None, None, 0.0
         while time.monotonic() < end:
             quota = self.quota()
             home, work = self.weekly(quota, '1'), self.weekly(quota, '2')
             if home is not None and work is not None:
                 break
-            time.sleep(10)
-            if opened:
+            if opened and time.monotonic() - pressed >= 45:
+                pressed = time.monotonic()
                 try:
                     self.ax('click', '--id', 'quota-refresh')
+                    self.facts['refresh_presses'] = self.facts.get('refresh_presses', 0) + 1
                 except StepFailed:
-                    pass
+                    opened = self.panel()
+            time.sleep(5)
         return quota, home, work
 
-    def prime(self, folder):
-        """One short model call under the guest's Work folder (Haiku, no tools, no settings, no
-        session kept), so the folder has made a call, as his own Work folder on this Mac has."""
-        cmd = ('cd /var/empty && env CLAUDE_CONFIG_DIR={f} HOME={h} DISABLE_AUTOUPDATER=1 /Users/admin/.local/bin/claude '
-               '-p "Reply with the single word OK." --model haiku --setting-sources "" --tools "" --strict-mcp-config '
-               '--mcp-config \'{{"mcpServers":{{}}}}\' --no-session-persistence 2>&1 | tail -c 400; echo "exit $?"').format(
-                   f=shlex.quote(folder), h=shlex.quote(self.home))
+    def technical_view(self):
+        """Settings > Technical view > Turn it on (fakewalk1's handoff-walk.sh: the toggle's place)."""
         try:
-            return {'at_guest_ms': round(self.clock()), 'said': guest(self.vm, cmd, 180)}
-        except (RuntimeError, subprocess.TimeoutExpired) as exc:
-            return {'failed': str(exc)[:1000]}
+            self.press('Settings', role='AXPopUpButton')
+            time.sleep(2)
+            command([HERE / 'ax.sh', self.vm, 'click', '--at', '1492,284'])
+            time.sleep(2)
+            self.press('Turn it on')
+            time.sleep(2)
+        except StepFailed as exc:
+            self.facts['technical_view'] = 'not confirmed: ' + str(exc)[:300]
+            self.save()
 
     def diagnose(self, folder, name='failed'):
         """Why an account has no reading, asked in the guest before it is deleted: the app's claude
@@ -611,10 +634,11 @@ def main():
     p.add_argument('--corpus', type=Path, required=True, help='a tar holding lib/*.py, the files the job summarizes')
     p.add_argument('--within', type=float, default=5 * 3600, help='seconds for the job to close after it is sent')
     p.add_argument('--approvals', type=int, default=6, help='most Approve presses (each one fails pass line 5)')
+    p.add_argument('--probe-gaps', default='0,2', help="the probe step's ask times, seconds from the first")
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
-    unknown = [s for s in steps if s not in STEPS]
+    unknown = [s for s in steps if s not in STEPS + ['probe']]
     if unknown:
         p.error('unknown step(s): ' + ', '.join(unknown))
     walk = HandoffWalk(a)
