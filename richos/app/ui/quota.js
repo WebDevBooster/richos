@@ -331,7 +331,11 @@
         lane.setAttribute("aria-label", `${a.label}: show its windows below`);
       }
       const week = winOf(a, "seven_day");
-      let html = `<span class="quota-lane-mark" aria-hidden="true"></span><span class="quota-lane-main"><span class="quota-lane-head"><span class="quota-lane-label">${esc(a.label)}</span>`;
+      // A reading older than the normal check (a null or failed check since, quota.rs `empty`)
+      // is shown with its age, never as current (handoff round 2, run 10: Work read 0% for 27
+      // minutes while its use rose).
+      const age = a.checkedAt && Date.now() - a.checkedAt >= 300000 ? duration(Date.now() - a.checkedAt) : null;
+      let html =`<span class="quota-lane-mark" aria-hidden="true"></span><span class="quota-lane-main"><span class="quota-lane-head"><span class="quota-lane-label">${esc(a.label)}</span>`;
       if (a.inUse) html += `<span class="quota-lane-tag">in use</span>`;
       else if (isNext) html += `<span class="quota-lane-tag is-next">next</span>`;
       else if (gone) html += `<span class="quota-lane-tag is-gone">used up</span>`;
@@ -341,7 +345,7 @@
       html += `</span>`;
       if (signing) html += `<span class="quota-lane-note"><span class="quota-lane-pulse" aria-hidden="true"></span>Claude Code is signing in through your browser. The reading arrives when it is done.</span>`;
       else if (!read) html += `<span class="quota-lane-note">${esc(accountNote(a))}</span>`;
-      else html += `<span class="quota-lane-figs">${figure(winOf(a, "five_hour"), "five-hour", old)}${figure(week, "weekly", old)}</span>`;
+      else html += `<span class="quota-lane-figs">${figure(winOf(a, "five_hour"), "five-hour", old || !!age)}${figure(week, "weekly", old || !!age)}${age ? `<span class="quota-fig quota-lane-age">read <b>${esc(age)}</b> ago</span>` : ""}</span>`;
       html += `</span><span class="quota-lane-side"></span>`;
       lane.innerHTML = html;
       const side = lane.querySelector(".quota-lane-side");

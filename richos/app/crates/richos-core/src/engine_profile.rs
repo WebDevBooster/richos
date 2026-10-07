@@ -111,6 +111,9 @@ pub struct EngineProfile {
     /// the provider as `CLAUDE_CONFIG_DIR` in [`Self::configure`]; Account 1 has no folder and
     /// inherits the app's environment exactly as before. `None` everywhere else.
     pub claude_account: Option<crate::claude_accounts::Account>,
+    /// **Where this lease's token use goes** (`quota::Service::token_sink`), counted under
+    /// `claude_account`. Set by the shell beside it; `None` everywhere else.
+    pub token_sink: Option<std::sync::Arc<crate::quota::tokens::Sink>>,
 }
 
 fn quote(path: &Path) -> String { format!("'{}'", path.to_string_lossy().replace('\'', "'\\''")) }
@@ -321,7 +324,7 @@ impl EngineProfile {
         write(&plugin.join("spawn-preflight.json"),
               &json!({"hooks":{"PreToolUse":[{"matcher":"Agent","hooks":preflight}]}}).to_string())?;
         Ok(Self { engine, coordination, plugin, state, runtime, work_scope: None, permissions: Default::default(),
-                  operator_desk: None, claude_account: None })
+                  operator_desk: None, claude_account: None, token_sink: None })
     }
     /// Install the desktop executable's quota wrapper. Source-test clients which
     /// do not implement that CLI entrypoint keep their canonical hooks unchanged.

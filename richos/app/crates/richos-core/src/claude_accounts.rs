@@ -731,7 +731,7 @@ pub(crate) mod tests {
         Reading { windows: vec![
             Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: five, resets_at: Some(NOW + five_reset), duration_ms: 5 * HOUR },
             Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: weekly, resets_at: Some(NOW + weekly_reset), duration_ms: 168 * HOUR },
-        ], speeds: BTreeMap::new(), expected: false, rises: BTreeMap::new(), weekly_cutoff: None }
+        ], speeds: BTreeMap::new(), expected: false, rises: BTreeMap::new(), weekly_cutoff: None, handoff: None }
     }
     fn two_accounts() -> (Scratch, Accounts) {
         let dir = Scratch::new();
@@ -853,22 +853,22 @@ pub(crate) mod tests {
     /// five-minute check), so the next check is one minute away. **The weekly point is the
     /// handoff point** (weekly-switch plan §1, his words 2026-10-07: "the percentage for the
     /// switch needs to be adjusted dynamically so that this doesn't happen", "this" being 100%
-    /// before the switch): the next check and a 10-minute handoff would use 4 x 11 = 44 points,
-    /// so it is 99 - (44 - 1) = 56, and 56 + 44 = 100. At 55.9% it stays; at 56% it switches,
+    /// before the switch): the next check and a 5-minute handoff would use 4 x 6 = 24 points,
+    /// so it is 99 - (24 - 1) = 76, and 76 + 24 = 100. At 75.9% it stays; at 76% it switches,
     /// so the next check and the handoff end by 100%.
     #[test]
     fn a_fast_weekly_burn_switches_as_early_as_its_speed_requires() {
         let (_dir, accounts) = two_accounts();
         let per_ms = 4.0 / 60_000.;
-        let mut fast = reading(10., HOUR, 55.9, 24 * HOUR);
+        let mut fast = reading(10., HOUR, 75.9, 24 * HOUR);
         fast.speeds.insert("seven_day".into(), per_ms);
         assert!(fast.fast());
         assert_eq!(fast.interval(), crate::quota::FAST_REFRESH_INTERVAL_MS);
-        assert!((fast.weekly_point(&fast.windows[1]) - 56.).abs() < 1e-9);
+        assert!((fast.weekly_point(&fast.windows[1]) - 76.).abs() < 1e-9);
         assert!(!accounts.evaluate(&readings(fast.clone(), reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
-        fast.windows[1].used_percent = 56.;
+        fast.windows[1].used_percent = 76.;
         assert!(accounts.evaluate(&readings(fast, reading(0., HOUR, 5., 48 * HOUR)), Some(93), NOW).unwrap());
-        assert_eq!(accounts.in_use().id, "2", "switched at 56%, 44 points before 100%");
+        assert_eq!(accounts.in_use().id, "2", "switched at 76%, 24 points before 100%");
     }
 
     /// **Round 18, why it switched: the line in the conversation**, in the mockup's words (the

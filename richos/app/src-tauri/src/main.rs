@@ -571,6 +571,7 @@ impl LeaseFactory for EngineLeaseFactory {
         profile.permissions = self.permissions.clone();
         // Fill-first: the work lease runs under the Claude account in use now.
         profile.claude_account = Some(self.quota.lease_account());
+        profile.token_sink = Some(self.quota.token_sink()); // what the lease spends, counted on that account
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
@@ -643,6 +644,7 @@ impl EngineLeaseFactory {
         profile.operator_desk = self.operator_desk.clone();
         // Fill-first: the conversation lease runs under the Claude account in use now.
         profile.claude_account = Some(self.quota.lease_account());
+        profile.token_sink = Some(self.quota.token_sink()); // what the lease spends, counted on that account
         let bridge = richos_core::ecs::EcsBridge::new(&runtime.python, &dir, &self.data_dir.join("ecs"))
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         self.quota.request_refresh();
