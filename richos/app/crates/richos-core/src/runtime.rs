@@ -155,9 +155,26 @@ impl EngineRuntime {
         Ok(Self { python: root.join("bin/python3"), node: root.join("bin/node"), git: root.join("bin/git"), root, versions: delivery.versions })
     }
 
+    /// Rich's PATH, and every teammate's and hook's (`engine_profile.rs` sets it): the verified
+    /// runtime first, then the system folders, then the app's tools folder (yt-dlp,
+    /// `media_tools.rs`). The tools folder is LAST on purpose (media-tools review m2): it is
+    /// user-writable and not hash-checked at load, so nothing put there may shadow a system
+    /// command.
     pub fn path(&self) -> String {
-        format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", self.root.join("bin").display())
+        let home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from);
+        search_path(&self.root.join("bin"), home.map(|h| crate::media_tools::tools_dir(&h)).as_deref())
     }
+}
+
+/// The PATH for a runtime `bin` folder and, if there is one, the tools folder. A folder whose
+/// name holds `:` cannot be a PATH entry and is left out rather than split in two.
+pub fn search_path(runtime_bin: &Path, tools: Option<&Path>) -> String {
+    let mut path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", runtime_bin.display());
+    if let Some(tools) = tools.map(|t| t.display().to_string()).filter(|t| !t.contains(':')) {
+        path.push(':');
+        path.push_str(&tools);
+    }
+    path
 }
 
 /// Delivered interpreters must not import a launching terminal's modules or
