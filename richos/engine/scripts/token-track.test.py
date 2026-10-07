@@ -24,9 +24,9 @@ class Report(unittest.TestCase):
             rows = []
             # msg a streamed twice (the larger copy counts); 3 weekly points in total
             for mid, at, model, u in [
-                ("a", T0 + 10, "m1", dict(input_tokens=1, output_tokens=1, cache_creation_input_tokens=0, cache_read_input_tokens=0)),
-                ("a", T0 + 11, "m1", dict(input_tokens=10, output_tokens=100, cache_creation_input_tokens=1000, cache_read_input_tokens=10000)),
-                ("b", T0 + 400, "m2", dict(input_tokens=20, output_tokens=200, cache_creation_input_tokens=2000, cache_read_input_tokens=20000)),
+                ("a", T0 + 610, "m1", dict(input_tokens=1, output_tokens=1, cache_creation_input_tokens=0, cache_read_input_tokens=0)),
+                ("a", T0 + 611, "m1", dict(input_tokens=10, output_tokens=100, cache_creation_input_tokens=1000, cache_read_input_tokens=10000)),
+                ("b", T0 + 700, "m2", dict(input_tokens=20, output_tokens=200, cache_creation_input_tokens=2000, cache_read_input_tokens=20000)),
                 ("c", T0 + 5000, "m1", dict(input_tokens=999, output_tokens=999, cache_creation_input_tokens=999, cache_read_input_tokens=999)),
             ]:
                 rows.append({"timestamp": iso(at), "message": {"id": mid, "model": model, "usage": u}})
@@ -36,15 +36,33 @@ class Report(unittest.TestCase):
             os.makedirs(state)
             reset = T0 + 86400
             with open(os.path.join(state, "readings.jsonl"), "w") as fh:
-                for at, used in [(T0, 50), (T0 + 600, 53)]:  # a and b fall inside; c after
+                for at, used in [(T0, 50), (T0 + 600, 53), (T0 + 1200, 54)]:  # 53 lasts from +600 to +1200: a and b inside, c after
                     fh.write(json.dumps({"at": at, "account": "x", "seven_day": {"used": used, "resets_at": reset}}) + "\n")
             env = dict(os.environ, TOKEN_TRACK_STATE=state)
             out = subprocess.run([sys.executable, os.path.join(HERE, "token-track.py"), "report", "--account", "x=" + folder],
                                  env=env, capture_output=True, text=True)
             self.assertEqual(out.returncode, 0, out.stderr)
-            # tokens: input 30, output 300, write 3000, read 30000 over 3 points
-            self.assertIn("1 point = 11,110 tokens (input 10, output 100, cache write 1000, cache read 10000)", out.stdout)
-            self.assertIn("3 points over 1 rises", out.stdout)
+            # tokens: input 30, output 300, write 3000, read 30000 over 1 point
+            self.assertIn("1 point = 33,330 tokens (input 30, output 300, cache write 3000, cache read 30000)", out.stdout)
+            self.assertIn("1 points over 1 rises", out.stdout)
+
+    def test_weekly_73_74_75_gives_edges_of_74(self):
+        sys.path.insert(0, HERE)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("tt", os.path.join(HERE, "token-track.py"))
+        tt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tt)
+        reset = T0 + 86400
+        rows = [{"at": T0 + 60 * i, "account": "x", "seven_day": {"used": u, "resets_at": reset}}
+                for i, u in enumerate([73, 73, 74, 74, 74, 75, 75])]
+        self.assertEqual(tt.episodes(rows, "seven_day"), [(74, T0 + 120, T0 + 300, 75)])
+        tokens = [(T0 + 100, "m", dict(input=1, output=1, cache_write=1, cache_read=1)),   # before 74 began
+                  (T0 + 200, "m", dict(input=5, output=6, cache_write=7, cache_read=8)),   # inside 74
+                  (T0 + 300, "m", dict(input=1, output=1, cache_write=1, cache_read=1)),   # at the edge, counts
+                  (T0 + 400, "m", dict(input=9, output=9, cache_write=9, cache_read=9))]   # after
+        r = tt.per_point(rows, tokens, "seven_day")
+        self.assertEqual(r["points"], 1)
+        self.assertEqual(r["tokens"], dict(input=6, output=7, cache_write=8, cache_read=9))
 
 
 if __name__ == "__main__":

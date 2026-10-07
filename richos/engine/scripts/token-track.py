@@ -18,6 +18,11 @@ are summed; the answer is total tokens / total points over those pairs, so
 percentage rounding averages out. A window that reset between two readings is
 skipped.
 
+Run once a minute by token-track-launchd.sh (a per-user launchd agent that needs no session). From
+the per-minute readings `report` finds each percentage value's start (the first reading showing it,
+after a lower one) and end (the first reading showing a higher one), and counts the tokens between
+those two edges; the last five such values are listed per window.
+
 The default account is ~/.claude. State: ~/.claude/state/token-track/
 (override with TOKEN_TRACK_STATE). Nothing is written into a repository.
 """
@@ -93,28 +98,48 @@ def window(reading, which):
     return (w["used"], w["resets_at"]) if w else (None, None)
 
 
+def episodes(readings, which):
+    """Each percentage value as the readings show it: [(value, start, end, next_value)].
+    start = time of the first reading showing the value, taken only when the reading before it
+    (same window) showed a lower value, so the rise itself was seen; end = time of the first reading
+    showing a higher value in the same window. A value still current, or whose rise was not seen
+    (the first reading, a window reset), is not returned."""
+    rows = sorted((r for r in readings if r.get(which)), key=lambda r: r["at"])
+    out = []
+    cur = None  # [value, start, resets_at]
+    for r in rows:
+        used, resets = window(r, which)
+        if cur is not None and abs(resets - cur[2]) > 120:
+            cur = None  # the window reset between two readings
+        if cur is None:
+            cur = [used, None, resets]
+        elif used > cur[0]:
+            if cur[1] is not None:
+                out.append((cur[0], cur[1], r["at"], used))
+            cur = [used, r["at"], resets]
+        elif used < cur[0]:
+            cur = [used, None, resets]
+    return out
+
+
 def per_point(readings, tokens, which):
-    rows = [r for r in readings if r.get(which)]
-    rows.sort(key=lambda r: r["at"])
     total = {k: 0 for k in KINDS}
     by_model = {}
     points = 0.0
-    rises = 0
-    for a, b in zip(rows, rows[1:]):
-        ua, ra = window(a, which)
-        ub, rb = window(b, which)
-        if ra is None or rb is None or abs(ra - rb) > 120 or ub < ua:
-            continue
+    eps = episodes(readings, which)
+    for value, start, end, nxt in eps:
         for at, model, counts in tokens:
-            if a["at"] < at <= b["at"]:
+            if start < at <= end:
                 for k in KINDS:
                     total[k] += counts[k]
                     by_model.setdefault(model, {x: 0 for x in KINDS})[k] += counts[k]
-        if ub > ua:
-            rises += 1
-            points += ub - ua
-    return {"points": points, "rises": rises, "tokens": total, "by_model": by_model,
+        points += nxt - value
+    return {"points": points, "rises": len(eps), "tokens": total, "by_model": by_model, "episodes": eps,
             "per_point": {k: round(total[k] / points) for k in KINDS} if points else None}
+
+
+def iso(epoch):
+    return datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def load_readings(path):
@@ -146,6 +171,8 @@ def cmd_report(args):
             print("  %s: 1 point = %s tokens (input %d, output %d, cache write %d, cache read %d); "
                   "%g points over %d rises" % (name, format(sum(p.values()), ","), p["input"], p["output"],
                                                p["cache_write"], p["cache_read"], r["points"], r["rises"]))
+            for value, start, end, nxt in r["episodes"][-5:]:
+                print("    %g%% from %s to %s (%d s)" % (value, iso(start), iso(end), end - start))
             for model, c in sorted(r["by_model"].items()):
                 print("    %s: %s" % (model, ", ".join("%s %s" % (k, format(c[k], ",")) for k in KINDS)))
     return 0
