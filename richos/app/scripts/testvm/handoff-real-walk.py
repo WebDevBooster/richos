@@ -25,7 +25,7 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
              point for Home must say so
   watch      handoff-watch.py started in the guest (every record the handoff writes, timed)
   job        JOB, typed into the composer: one teammate reads every file and summarizes it into
-             SUMMARY.md, committing after every ten files; another reviews; then it is landed
+             SUMMARY.md, committing after every five files (Home moved 2 points in 24 min on 2026-10-07 09:21-09:45Z, so the order can come early); another reviews; then it is landed
   observe    nothing is pressed (an Approve the app asks for is pressed and COUNTED: the pass
              line "with no step by anyone" then fails). Watched until the job closes or --within.
              Then the verdict below, from what was saved.
@@ -87,7 +87,7 @@ TEAM = {
 JOB = ('Please have scribe do this job in the Acme repository, and have checker review it before it is landed. '
        'Read every .py file in the lib folder, in alphabetical order, one file at a time and each one in full, '
        'and write a one-paragraph summary of each into SUMMARY.md at the top of the repository: one section per '
-       'file, headed "## lib/<file name>", followed by the paragraph. Commit after every ten files. When every '
+       'file, headed "## lib/<file name>", followed by the paragraph. Commit after every five files. When every '
        'file is summarized, land it.')
 
 
@@ -197,7 +197,9 @@ class HandoffWalk(command_walk.CommandWalk):
         written = json.loads(guest(self.vm, 'cat ' + shlex.quote(path)))
         if not any(a.get('folder') == folder for a in written.get('accounts', [])):
             raise StepFailed('the app does not keep Work at ' + folder + ': ' + json.dumps(written))
-        end, quota, home, work = time.monotonic() + 240, {}, None, None
+        # Every added account is read on Account 1's schedule (quota.rs refresh_accounts): one
+        # five-minute interval plus slack.
+        end, quota, home, work = time.monotonic() + 420, {}, None, None
         opened = self.panel()
         while time.monotonic() < end:
             quota = self.quota()
@@ -214,11 +216,39 @@ class HandoffWalk(command_walk.CommandWalk):
         (self.out / 'quota-at-start.json').write_text(json.dumps(quota, indent=2) + '\n')
         self.close_panel()
         if home is None or work is None:
+            self.diagnose(folder)
             raise StepFailed(f'the app has no weekly reading for both accounts (Home {home}, Work {work}): '
                              + json.dumps([{k: a.get(k) for k in ('id', 'label', 'message')} for a in quota.get('accounts') or []]))
         self.facts.update(home_weekly_at_start=home, work_weekly_at_start=work)
         self.save()
         return {'home_weekly': home, 'work_weekly': work, 'work_folder': folder}
+
+    def diagnose(self, folder):
+        """Why an account has no reading, asked in the guest before it is deleted: the app's claude
+        children and any keychain dialog, then the same control-only get_usage the app asks, under
+        each account's folder (usage figures only; no credential is read or printed)."""
+        probe = self.payload + '/claude-usage-probe.py'
+        text = []
+        try:
+            command([HERE / 'guest.sh', self.vm, '--push', HERE / 'claude-usage-probe.py', probe], 60)
+        except StepFailed as exc:
+            text.append('== the probe could not be pushed\n' + str(exc)[:1000])
+        for title, cmd in (
+                ('claude processes', 'ps -axww -o pid,etime,args | grep -i "[c]laude" | cut -c1-400'),
+                ('keychain dialog', 'pgrep -fl SecurityAgent || echo none'),
+                ('work folder', 'ls -la ' + shlex.quote(folder)),
+                ('get_usage under Work', 'python3 ' + shlex.quote(probe) + ' ' + shlex.quote(folder) + ' ' + shlex.quote(self.home) + ' || true'),
+                ('get_usage under Home', 'python3 ' + shlex.quote(probe) + ' ' + shlex.quote(self.home + '/.claude') + ' '
+                 + shlex.quote(self.home) + ' || true')):
+            try:
+                text.append('== ' + title + '\n' + guest(self.vm, cmd, 90))
+            except (RuntimeError, subprocess.TimeoutExpired) as exc:
+                text.append('== ' + title + '\nnot answered: ' + str(exc)[:1000])
+        (self.out / 'work-diagnosis.txt').write_text('\n'.join(text) + '\n')
+        try:
+            self.shot('1b-diagnosis.png')
+        except StepFailed:
+            pass
 
     def cutoff(self):
         home = self.facts.get('home_weekly_at_start')
