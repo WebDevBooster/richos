@@ -507,6 +507,10 @@ struct Snapshot {
     /// The weekly speed from the last minute's token use, points per millisecond
     /// (`tokens::Track::speed`), set at every token scan (`Service::track_tokens`).
     token_speed: Option<f64>,
+    /// Weekly points the counted tokens spent since `checked_at` (`tokens::Track::points_since`),
+    /// set at every token scan. Used only while the reading is older than the normal check
+    /// (`reading_with`).
+    since_reading: f64,
 }
 
 /// One window's reading as a speed base: used percent, its reset time, and when it was read.
@@ -555,13 +559,25 @@ impl Snapshot {
     /// 2026-10-07): live tokens move it before the percentage does, and the percentage speed
     /// stays its floor, for a model with no tokens-per-point figure yet and for use this Mac's
     /// transcripts cannot see.
+    ///
+    /// **An old figure is never treated as current** (handoff round 2, run 10: a null answer
+    /// kept Work's 0.0% for 27 minutes while its use rose). While the last good reading is
+    /// older than the normal check, the weekly figure the decisions read is moved forward by
+    /// the points the counted tokens spent since it (`since_reading`). The figure shown stays
+    /// the one read, with its age (`View::checked_at`, `State::Stale`).
     fn reading_with(&self, weekly_cutoff: Option<f64>, now: u64) -> Reading {
         let mut speeds = self.speeds.clone();
         if let Some(tokens) = self.token_speed.filter(|s| *s > 0.) {
             let speed = speeds.entry("seven_day".to_string()).or_insert(0.);
             *speed = speed.max(tokens);
         }
-        Reading { windows: self.windows.clone(), speeds,
+        let mut windows = self.windows.clone();
+        if self.checked_at.is_some_and(|t| now.saturating_sub(t) >= REFRESH_INTERVAL_MS) && self.since_reading > 0. {
+            for window in windows.iter_mut().filter(|w| w.id == "seven_day") {
+                window.used_percent = (window.used_percent + self.since_reading).min(100.);
+            }
+        }
+        Reading { windows, speeds,
             expected: self.rise_until.is_some_and(|t| t > now), rises: self.rises.clone(), weekly_cutoff }
     }
     fn accept(&mut self, mut windows: Vec<Window>, observed: u64) {
@@ -576,7 +592,8 @@ impl Snapshot {
         let bases = std::mem::take(&mut self.bases);
         let rises = std::mem::take(&mut self.rises);
         let (rise_until, token_speed) = (self.rise_until, self.token_speed);
-        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rises, rise_until, empty_at: None, token_speed };
+        *self = Self { windows, checked_at: Some(observed), retry_at: None, error, speeds, bases, rises, rise_until, empty_at: None, token_speed,
+            since_reading: 0. };
     }
     /// **A check that came back with no figures.** Every kind records when, so the pause stops
     /// waiting on it (`Admission::NoReading`). A null answer (`ReadError::NoReading`) is not a
@@ -658,13 +675,13 @@ impl Snapshot {
             Admission::Unknown
         } else if self.checked_at.is_none() {
             if answered_empty { Admission::NoReading } else { Admission::Unknown }
-        } else if let Some(until) = self.windows.iter()
+        } else if let Some(until) = reading.windows.iter() // moved forward while old (`reading_with`)
             .filter(|w| w.id == "seven_day" && reading.reaches_weekly(w))
             .filter_map(|w| w.resets_at.filter(|t| *t > now)).max() {
             // Weekly exhaustion never inherits the five-hour 20-minute exception.
             // An approval is not allowance: hold until a fresh post-reset reading.
             Admission::Held { resets_at: until }
-        } else if self.windows.iter().any(|w| w.id == "seven_day"
+        } else if reading.windows.iter().any(|w| w.id == "seven_day"
             && reading.reaches_weekly(w)) {
             Admission::Unknown // Expired or unreadable weekly reset needs a new reading.
         } else {
@@ -1037,15 +1054,20 @@ impl Service {
             let week = |s: &Snapshot| s.windows.iter().find(|w| w.id == "seven_day").cloned().zip(s.checked_at);
             let reading = if one { week(&self.snapshot.lock().unwrap()) }
                 else { self.extra.lock().unwrap().get(&account.id).and_then(|(_, s)| week(s)) };
-            let speed = {
+            let (speed, since) = {
                 let mut tracks = self.tokens.lock().unwrap();
                 let track = tracks.entry(account.id.clone()).or_default();
                 if let Some(folder) = &folder { track.scan(folder, now); }
                 for (_, found) in streamed.iter().filter(|(id, _)| *id == account.id) { track.add_use(found); }
+                let since = reading.as_ref().map_or(0., |(_, at)| track.points_since(*at, now));
                 if let Some((window, at)) = reading { learned |= track.reading(&window, at, now); }
-                track.speed(now)
+                (track.speed(now), since)
             };
-            let mut set = |s: &mut Snapshot| { moved |= s.token_speed != Some(speed); s.token_speed = Some(speed); };
+            let mut set = |s: &mut Snapshot| {
+                moved |= s.token_speed != Some(speed) || s.since_reading != since;
+                s.token_speed = Some(speed);
+                s.since_reading = since;
+            };
             if one { set(&mut self.snapshot.lock().unwrap()); }
             else if let Some((_, snapshot)) = self.extra.lock().unwrap().get_mut(&account.id) { set(snapshot); }
         }
@@ -1686,6 +1708,56 @@ pub(crate) mod tests {
         let per_minute = after.speeds["seven_day"] * minute as f64;
         assert!((per_minute - 2.).abs() < 1e-9, "2,000,000 / 1,000,000 tokens a point = 2 points a minute, got {per_minute}");
         assert!(after.act_at["seven_day"] < 99., "the switch point moved: {}", after.act_at["seven_day"]);
+    }
+
+    /// **An old figure is never current** (handoff round 2, run 10: Work read 0.0% weekly for
+    /// 27 minutes while its use rose, every check since answering null). Opus at 1,000,000
+    /// tokens a point is learned from the app's own readings, the last good reading says 52%
+    /// 20 minutes ago, and 3,000,000 Opus tokens were spent 10 minutes ago (outside the live
+    /// minute, so no speed sees them). While the reading is older than the normal check, the
+    /// decision reads 52 + 3 = 55%: past the test cut-off 54, so the account is being left. The
+    /// figure shown stays 52%, with its age (`checked_at`) and as stale. A fresh reading of 53%
+    /// is current again and moves nowhere: 53 is under 54.
+    #[test]
+    fn an_old_weekly_figure_is_moved_forward_by_the_tokens_since_it_and_shown_with_its_age() {
+        let root = Scratch::new();
+        let mut service = Service::open(&root.path().join("app")).unwrap();
+        service.weekly_cutoff = parse_weekly_cutoff("1:54");
+        let folder = root.path().join("claude");
+        service.transcripts_one = Some(folder.clone());
+        let transcript = folder.join("projects").join("p").join("session.jsonl");
+        fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        let now = crate::util::now_millis();
+        let (minute, hour) = (60_000, 3_600_000);
+        let append = |id: &str, at: u64, tokens: u64| {
+            use io::Write;
+            let t = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(at) * 1_000_000).unwrap();
+            let stamp = format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", t.year(), u8::from(t.month()), t.day(),
+                t.hour(), t.minute(), t.second(), t.millisecond());
+            let line = json!({"type": "assistant", "timestamp": stamp, "message": {"id": id, "model": "claude-opus-5-5",
+                "usage": {"input_tokens": 0, "output_tokens": 1_000, "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": tokens - 1_000}}});
+            let mut file = fs::OpenOptions::new().create(true).append(true).open(&transcript).unwrap();
+            writeln!(file, "{line}").unwrap();
+        };
+        let week = |used: f64, at: u64| (vec![Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: used,
+            resets_at: Some(now + 72 * hour), duration_ms: 168 * hour }], at);
+        let one = crate::claude_accounts::ACCOUNT_ONE;
+        service.before_turn(one, Some(week(50., now - 3 * hour)));
+        service.before_turn(one, Some(week(51., now - 2 * hour)));
+        append("msg_1", now - 90 * minute, 1_000_000);
+        service.before_turn(one, Some(week(52., now - hour)));
+        service.before_turn(one, Some(week(52., now - 20 * minute)));
+        append("msg_2", now - 10 * minute, 3_000_000);
+        // Every check since came back null: no reading reaches the service.
+        service.before_turn(one, None);
+        let view = service.view();
+        assert_eq!(view.windows[0].used_percent, 52., "the figure shown is the one read");
+        assert_eq!(view.checked_at, Some(now - 20 * minute), "and it carries its age");
+        assert_eq!(view.state, State::Stale);
+        assert_eq!(view.leaving, vec![one.to_string()], "52% read 20 minutes ago + 3 points spent since = 55%, past 54");
+        service.before_turn(one, Some(week(53., now)));
+        assert!(service.view().leaving.is_empty(), "a fresh 53% is current and is not moved");
     }
 
     #[test]

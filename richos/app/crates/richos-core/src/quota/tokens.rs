@@ -174,10 +174,23 @@ impl Track {
                 _ => Some((used, None, window.resets_at)),
             };
         }
-        // Keep only what an episode still open or the live window can use.
-        let keep = self.current.and_then(|c| c.1).map_or(now.saturating_sub(LIVE_MS), |s| s.min(now.saturating_sub(LIVE_MS)));
+        // Keep only what an episode still open, the live window, or the tokens since the last
+        // good reading (`points_since`) can use.
+        let keep = [self.current.and_then(|c| c.1), Some(now.saturating_sub(LIVE_MS)), self.last_reading]
+            .into_iter().flatten().min().unwrap_or(0);
         self.events.retain(|_, e| e.0 > keep);
         closed
+    }
+
+    /// **Weekly points spent since `since`** (the last good reading), each measured model's
+    /// tokens divided by its tokens per point. A model with no figure adds nothing: its tokens
+    /// cannot be turned into points honestly.
+    pub fn points_since(&self, since: u64, now: u64) -> f64 {
+        let per_point = figures(&self.episodes);
+        self.events.values()
+            .filter(|e| e.0 > since && e.0 <= now)
+            .filter_map(|e| per_point.get(&e.1).map(|p| e.2 as f64 / p))
+            .sum()
     }
 
     /// Weekly points per millisecond from the last minute's tokens (`LIVE_MS`), each model's
