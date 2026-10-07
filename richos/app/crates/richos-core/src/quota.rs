@@ -809,6 +809,9 @@ pub struct Service {
     /// first seen fast, taken once by whoever says it in the conversation.
     alert: Mutex<Option<String>>,
     was_fast: std::sync::atomic::AtomicBool,
+    /// Was that alert about the weekly window? The way back names the line the alert named
+    /// (nightly 43 walk, D15).
+    alerted_weekly: std::sync::atomic::AtomicBool,
     /// Rich's other lines about the quota, said once each at `Digest`: usage back to normal
     /// (plan answer 11), and every account used up (round 16).
     notes: Mutex<std::collections::VecDeque<String>>,
@@ -928,6 +931,7 @@ impl Service {
             extra: Mutex::new(BTreeMap::new()),
             alert: Mutex::new(None),
             was_fast: std::sync::atomic::AtomicBool::new(false),
+            alerted_weekly: std::sync::atomic::AtomicBool::new(false),
             notes: Mutex::new(std::collections::VecDeque::new()),
             account_notes: Mutex::new(std::collections::VecDeque::new()),
             was_held: std::sync::atomic::AtomicBool::new(false),
@@ -1170,9 +1174,14 @@ impl Service {
         let many = self.accounts.count() > 1;
         if !fast {
             if was {
+                // The weekly point it moved from: 99, or the test cut-off on the account in use.
+                let week = self.cutoff(&in_use.id).unwrap_or(resets::WEEKLY_THRESHOLD);
+                let weekly = self.alerted_weekly.swap(false, std::sync::atomic::Ordering::SeqCst);
                 let lines = match (many, policy.enabled) {
-                    (true, true) => format!(", and the lines are back at {}% and 99%", policy.pause_percent),
-                    (true, false) => ", and the weekly switch is back at 99%".to_string(),
+                    (true, true) => format!(", and the lines are back at {}% and {week}%", policy.pause_percent),
+                    (true, false) => format!(", and the weekly switch is back at {week}%"),
+                    // One account: the line the alert was about (nightly 43 walk, D15).
+                    (false, true) if weekly => format!(", and the weekly line is back at {week}%"),
                     (false, true) => format!(", and the line is back at {}%", policy.pause_percent),
                     (false, false) => String::new(),
                 };
@@ -1227,7 +1236,16 @@ impl Service {
                 (per_ms * 60_000.0).round().max(1.0), window.used_percent.floor()),
         };
         let what = format!("Usage is climbing fast: {what}. I'm checking every minute now");
+        // **A point already passed is not said as a point to come** (nightly 43 walk, D15): with
+        // no floor on the weekly point (`weekly_point`), the moved point can be at or below the
+        // figure the window is already at, and the app acts on it at once. The test is the
+        // app's own (`reaches_weekly`, `reaches`), so the words and the action agree.
+        let passed = if weekly { reading.reaches_weekly(window) } else { reading.reaches(window, threshold) };
+        self.alerted_weekly.store(weekly, std::sync::atomic::Ordering::SeqCst);
         *self.alert.lock().unwrap() = Some(match verb {
+            Some(_) if passed && weekly =>
+                format!("{what}, and the team is being told to hand over now, so it never reaches 100%."),
+            Some(verb) if passed => format!("{what} and will {verb} now, so it never reaches 100%."),
             Some(verb) => {
                 let not = if act < threshold { format!(", not {threshold}%") } else { String::new() };
                 format!("{what} and will {verb} at {act}%{not}, so it never reaches 100%.")
@@ -2189,19 +2207,44 @@ pub(crate) mod tests {
     /// **Handoff round 1 (2026-10-07), under the test cut-off `1:51`:** the fast-use alert
     /// said Rich would "pause them at 49%, not 99%". The weekly point at normal speed was 51,
     /// never 99, on that account. The alert names the point it moved from, so under the cut-off
-    /// it is 51.
+    /// it is 51. The week is at 30%, under the moved point 34 (at 45% the point is already
+    /// passed and the alert says the handover is now, D15 below).
     #[test]
     fn under_the_test_cut_off_the_fast_use_alert_names_the_cut_off_as_the_point_it_moved_from() {
         let dir = Scratch::new();
         let mut service = Service::open(dir.path()).unwrap();
         service.weekly_cutoff = parse_weekly_cutoff("1:51");
-        let mut fast = live(45.);
+        let mut fast = live(30.);
         fast.speeds.insert("seven_day".into(), 3. / 60_000.);
         *service.snapshot.lock().unwrap() = fast;
         service.note_speed();
         let alert = service.take_alert().expect("3 points a minute is fast");
         assert!(alert.contains(", not 51%"), "{alert}");
         assert!(!alert.contains("99%"), "{alert}");
+    }
+
+    /// **Nightly 43 walk, D15:** one account under the cut-off `1:51`, already at 51% of the
+    /// week and climbing 3 points a minute. The moved point is 51 - (ceil(3 x 1 + 3 x 5) - 1) =
+    /// 34, below the 51% the account is at, so the alert said "will pause them at 34%, not
+    /// 51%", a point already passed. It says the team is being told to hand over now. Back at
+    /// normal speed, the way back named the five-hour line ("the line is back at 93%"); it
+    /// names the weekly line the alert was about, at the point it moved from.
+    #[test]
+    fn a_weekly_point_already_passed_is_said_as_handing_over_now_and_the_way_back_names_the_weekly_line() {
+        let dir = Scratch::new();
+        let mut service = Service::open(dir.path()).unwrap();
+        service.weekly_cutoff = parse_weekly_cutoff("1:51");
+        let mut fast = live(51.);
+        fast.speeds.insert("seven_day".into(), 3. / 60_000.);
+        *service.snapshot.lock().unwrap() = fast;
+        assert_eq!(service.view().act_at["seven_day"], 34., "the moved point, below 51%");
+        service.note_speed();
+        assert_eq!(service.take_alert().as_deref(), Some(
+            "Usage is climbing fast: the weekly window is filling about 3% a minute and is at 51%. I'm checking every minute now, and the team is being told to hand over now, so it never reaches 100%."));
+        service.snapshot.lock().unwrap().speeds.clear();
+        service.note_speed();
+        assert_eq!(service.take_notes(), vec![
+            "Usage is back to normal. I'm checking every 5 minutes again, and the weekly line is back at 51%.".to_string()]);
     }
 
     /// **Plan §15 answer 11: when the speed comes back down, everything resets.** After the
