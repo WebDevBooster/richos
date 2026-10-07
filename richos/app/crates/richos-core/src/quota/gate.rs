@@ -565,6 +565,33 @@ mod tests {
         assert_eq!(fs::read_dir(state.join(HANDOFFS_DIR)).unwrap().count(), 1, "only the helper on the leaving account was ordered");
     }
 
+    /// **One account, automatic pause off: no order at the weekly point.** The fast-use alert
+    /// says "Automatic pause is off in Settings, so nothing acts before it reaches 100%", so a
+    /// helper on Account 1 at 99% of its week keeps working: not leaving, no order, no marker.
+    #[test]
+    fn one_account_with_automatic_pause_off_orders_no_handoff_at_the_weekly_point() {
+        let (_root, service, state, scope) = setup();
+        service.set_policy(Policy { enabled: false, pause_percent: 93 }).unwrap();
+        let now = crate::util::now_millis();
+        *service.snapshot.lock().unwrap() = Snapshot {
+            checked_at: Some(now),
+            windows: vec![
+                Window { id: "five_hour".into(), label: "Five-hour".into(), used_percent: 10.,
+                    resets_at: Some(now + 3_600_000), duration_ms: 18_000_000 },
+                Window { id: "seven_day".into(), label: "Weekly".into(), used_percent: 99.,
+                    resets_at: Some(now + 48 * 3_600_000), duration_ms: 604_800_000 },
+            ],
+            ..Default::default()
+        };
+        service.publish().unwrap();
+        let view: View = read_json(&state.join("claude-quota.json")).unwrap();
+        assert!(view.leaving.is_empty(), "one account with the pause off is not left: {:?}", view.leaving);
+        let helper = json!({"agent_id":"helper-a","session_id":"session-1","tool_name":"Bash"});
+        wait(&helper, &state, &scope, "1", Duration::ZERO, Duration::ZERO)
+            .expect("the helper keeps working, with no handoff order");
+        assert!(!state.join(HANDOFFS_DIR).join("helper-a.json").exists(), "no marker: nobody was ordered");
+    }
+
     /// **What a handoff really takes replaces the 10-minute guess** (the CEO, 2026-10-07: *"I
     /// would hope that when the teammates get their handoff message, they'd get to a full
     /// finish within a few minutes. Hopefully no more than 3-5 minutes or so."*).

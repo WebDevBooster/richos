@@ -371,8 +371,8 @@ pub struct View {
     pub first_label: Option<String>,
     /// **Every account being left for its week** (weekly-switch plan §1): its weekly window
     /// has reached its handoff point (`Reading::weekly_point`). Published with one account
-    /// too. The gate orders every teammate running on one of these accounts to commit, hand
-    /// off and end (`gate.rs`).
+    /// too, unless that one account has automatic pause off. The gate orders every teammate
+    /// running on one of these accounts to commit, hand off and end (`gate.rs`).
     #[serde(default)]
     pub leaving: Vec<String>,
 }
@@ -986,10 +986,15 @@ impl Service {
             }
         };
         let readings = self.readings();
-        // Every account being left for its week (plan §1), with one account too.
-        view.leaving = self.accounts.list().into_iter()
-            .filter(|account| readings.get(&account.id).is_some_and(|r| r.leaving(now)))
-            .map(|account| account.id).collect();
+        // Every account being left for its week (plan §1), with one account too, unless that
+        // one account has automatic pause off: then nothing acts before 100%, as the fast-use
+        // alert says, so no handoff order goes out. With two or more the weekly switch acts
+        // whatever the pause setting says.
+        view.leaving = if self.accounts.count() <= 1 && !policy.enabled { Vec::new() } else {
+            self.accounts.list().into_iter()
+                .filter(|account| readings.get(&account.id).is_some_and(|r| r.leaving(now)))
+                .map(|account| account.id).collect()
+        };
         view.resets = self.resets.view();
         view.at_threshold = self.accounts.at_threshold();
         if self.accounts.count() > 1 {
@@ -2150,8 +2155,8 @@ pub(crate) mod tests {
     /// applies to one account only.** Two accounts, both at 51% of the week; the app launched
     /// with `RICHOS_TEST_WEEKLY_CUTOFF=2:51`. Only Work (2) is leaving: Account 1 at the same
     /// 51% is not. With Work in use, the switch leaves it for Account 1 at once. Account 1
-    /// then at 99% is leaving too, at the ordinary point. One account is published as well:
-    /// leaving at 99%, not at 98.9%.
+    /// then at 99% is leaving too, at the ordinary point. One account with automatic pause on
+    /// is published as well: leaving at 99%, not at 98.9%.
     #[test]
     fn leaving_lists_only_the_account_past_its_point_and_the_cut_off_is_one_account() {
         let dir = Scratch::new();
@@ -2174,6 +2179,7 @@ pub(crate) mod tests {
 
         let dir = Scratch::new();
         let service = Service::open(dir.path()).unwrap();
+        service.set_policy(Policy { enabled: true, pause_percent: 93 }).unwrap();
         *service.snapshot.lock().unwrap() = live(98.9);
         assert!(service.view().leaving.is_empty());
         *service.snapshot.lock().unwrap() = live(99.);
