@@ -345,11 +345,14 @@ Keychain may require user interaction to sign; the command fails if its signing
 probe cannot complete within 90 seconds. This implementation currently supports
 Apple Silicon macOS, matching the bundled runtime recipe.
 
-The runner verifies its public runtime cache before every build. If the cache at
-`~/.richos-nightly/runtime` is absent, the release command builds it from the
-pinned public source recipe. A stale or corrupted cache is a refusal. An existing
-verified runtime directory can be selected with `--runtime-dir /absolute/path`.
-The check command validates a present cache but never builds a missing one.
+The runner verifies its public runtime cache before every build. The cache is
+keyed to the recipe: `~/.richos-nightly/runtime-<first 12 hex digits of the
+SHA-256 of runtime-sources.json>` (`scripts/lib/runtime_cache.py`). If it is
+absent, the release command builds it from the pinned public source recipe, so a
+changed recipe gets its own runtime and the previous one is no longer used. A
+corrupted cache is a refusal. An existing verified runtime directory can be
+selected with `--runtime-dir /absolute/path`. The check command validates a
+present cache but never builds a missing one.
 
 ## Publication
 

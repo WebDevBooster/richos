@@ -14615,8 +14615,14 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "d2df877df69f960522c15f0aea9063415c2b893b891b5e77fb62de832988de7d",
+          "sha256": "88fbf080182f49f025dc2c5458b9ed081fe0aec6af3e1578c2004cf55c9752e1",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/runtime_cache.py",
+          "sha256": "3654ad977e91f80454a0120616a6bf7bb2af5408c3c472b5250abbe85f0d20f3",
+          "evidence": "Imported by proof-run.py supply_runtime and nightly-local.py Runner.runtime_path: hashes the bytes of runtime-sources.json to name the nightly's recipe-keyed runtime cache directory. Stdlib only; reads no configuration."
         },
         {
           "root": "repository",
@@ -14639,7 +14645,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "aad82c209362f9568e9897322923c6d54ff4fc54343f93a583230fa1a8072032",
+          "sha256": "9ea00c16e9ad9f2748fa5794319a1c104bedf97d024b438e92693d3ca4b703a6",
           "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         },
         {
@@ -14840,8 +14846,14 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/proof-run.py",
-          "sha256": "d2df877df69f960522c15f0aea9063415c2b893b891b5e77fb62de832988de7d",
+          "sha256": "88fbf080182f49f025dc2c5458b9ed081fe0aec6af3e1578c2004cf55c9752e1",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/runtime_cache.py",
+          "sha256": "3654ad977e91f80454a0120616a6bf7bb2af5408c3c472b5250abbe85f0d20f3",
+          "evidence": "Imported by proof-run.py supply_runtime and nightly-local.py Runner.runtime_path: hashes the bytes of runtime-sources.json to name the nightly's recipe-keyed runtime cache directory. Stdlib only; reads no configuration."
         },
         {
           "root": "repository",
