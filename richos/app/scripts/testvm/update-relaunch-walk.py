@@ -247,6 +247,13 @@ class Walk(adopt.Walk):
             except StepFailed as exc:
                 frame, last_error = '', str(exc)[-600:]
             try:
+                # The guest's first-run engine sheet ("There's one thing I need on this Mac") comes
+                # back on every launch, the relaunch's too, and it is modal over the composer
+                # (walk-ec1c6a5c0a65's frame: same window, same conversation, the draft in the
+                # composer, under that sheet). first-run answers it with Not now; so does this.
+                if frame and self.present('Set it up'):
+                    self.press('Not now')
+                    time.sleep(1)
                 if frame and self.present('Message to Rich', role='AXTextArea'):
                     break
             except StepFailed as exc:
