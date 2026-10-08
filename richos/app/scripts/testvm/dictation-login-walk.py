@@ -807,10 +807,11 @@ def main():
                 # launchd's and Background Task Management's own words about the agent, and the
                 # BTM record: walk-3eb1015dee52 showed 'spawn failed, EX_CONFIG, runs = 17' and
                 # the reason is only in the unified log.
+                predicate = (f'eventMessage CONTAINS "{AGENT}" OR eventMessage CONTAINS "richos-tauri" OR '
+                             '(process == "launchd" AND eventMessage CONTAINS[c] "richos")')
                 (a.out / 'launchd-log.txt').write_text(guest(
-                    a.vm, f'log show --last 6m --style compact --predicate \'eventMessage CONTAINS "{AGENT}" OR '
-                          '(process == "launchd" AND eventMessage CONTAINS "richos")\' 2>&1 | tail -80; echo ---; '
-                          f'sudo -n sfltool dumpbtm 2>/dev/null | grep -i -B3 -A12 {AGENT} | head -60 || true', 180))
+                    a.vm, 'log show --last 8m --style compact --predicate ' + shlex.quote(predicate) + ' 2>&1 | tail -120; '
+                          f'echo ---; sudo -n sfltool dumpbtm 2>/dev/null | grep -i -B3 -A12 {AGENT} | head -60 || true', 240))
             except Exception as exc:  # evidence only; the step already failed
                 (a.out / 'evidence-error.txt').write_text(str(exc))
             break
