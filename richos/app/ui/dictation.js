@@ -143,11 +143,18 @@
   }
 
   // ---- the sheet -------------------------------------------------------------------------
+  // BUILT THE FIRST TIME IT OPENS, NOT AT LOAD: a build where dictation is not there
+  // (DICTATION_READY false) carries not one node of it, and the shell every other screen is
+  // measured against (tests/contrast.js counts every text node, hidden or not) is unchanged.
   const sheet = document.createElement("div");
   sheet.id = "dictation-sheet"; sheet.className = "overlay"; sheet.hidden = true;
   sheet.setAttribute("role", "dialog"); sheet.setAttribute("aria-modal", "true");
   sheet.setAttribute("aria-labelledby", "dict-title"); sheet.setAttribute("data-dismiss", "control:#dict-close");
-  sheet.innerHTML = `<section class="overlay-panel dict-panel">
+  const $ = id => document.getElementById(id);
+  let col = null, tryBox = null, tryNote = null;
+  function build() {
+    if (sheet.isConnected) return;
+    sheet.innerHTML = `<section class="overlay-panel dict-panel">
     <header class="dict-heading"><div><p class="dict-eyebrow">Settings</p><h2 id="dict-title">Dictation</h2>
       <p class="dict-lede">Type with your voice in any app on your Mac. Your words appear where your cursor is.</p></div>
       <button id="dict-close" type="button" aria-label="Close Dictation">${ICON.close}</button></header>
@@ -171,9 +178,10 @@
         </div>
         <div class="dict-how-sec dict-priv">${ICON.lock}<p class="dict-how-p"><b>Your voice stays on this Mac.</b> Nothing you say is sent anywhere.</p></div>
       </div></div></section>`;
-  document.body.appendChild(sheet);
-  const $ = id => document.getElementById(id);
-  const col = $("dict-col"), tryBox = $("dict-try"), tryNote = $("dict-try-note");
+    document.body.appendChild(sheet);
+    col = $("dict-col"); tryBox = $("dict-try"); tryNote = $("dict-try-note");
+    $("dict-close").addEventListener("click", () => close());
+  }
 
   function permState(v, pane) {
     if (v === "allowed") return `<span class="dict-perm-ok">${ICON.check}Allowed</span>`;
@@ -235,7 +243,7 @@
     return html;
   }
   function paintSheet() {
-    if (sheet.hidden || !view) return;
+    if (sheet.hidden || !view || !col) return;
     const html = sheetHtml();
     if (html !== col.dataset.painted) {
       const active = document.activeElement && col.contains(document.activeElement) ? document.activeElement : null;
@@ -286,7 +294,7 @@
   }
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   function placeCaret() {
-    if (sheet.hidden) return;
+    if (sheet.hidden || !tryBox) return;
     tryBox.focus({ preventScroll: true });
     const range = document.createRange(); range.selectNodeContents(tryBox); range.collapse(false);
     const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
@@ -377,7 +385,7 @@
     const v = await call("dictation_set_key", { key: n });
     if (v) view = v;
     paint();
-    const strip = col.querySelector(`[data-act="key"][data-k="${n}"]`) || $("dict-capture");
+    const strip = (col && col.querySelector(`[data-act="key"][data-k="${n}"]`)) || $("dict-capture");
     if (strip) strip.focus();
     if (window.RichSettings && window.RichSettings.toast) window.RichSettings.toast(`Dictation now starts and stops with F${n}.`);
   }
@@ -442,7 +450,6 @@
       }
     }
   });
-  $("dict-close").addEventListener("click", () => close());
   sheet.addEventListener("keydown", event => {
     if (event.key !== "Tab") return;
     const controls = [...sheet.querySelectorAll("button, [contenteditable]")].filter(n => !n.disabled && n.getClientRects().length);
@@ -471,6 +478,7 @@
 
   function open() {
     if (window.RichSettings && window.RichSettings.close) window.RichSettings.close();
+    build();
     sheet.hidden = false;
     col.dataset.painted = "";
     paint();
