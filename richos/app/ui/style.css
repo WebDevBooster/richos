@@ -1471,8 +1471,9 @@ body.bp-narrow .first-run {
 
 /* THE HEIGHT IS THE FIELD'S HEIGHT, NOT A NUMBER OF ITS OWN — see the header above
    `#composer-row` for the CEO's sentence and the geometry this replaces. `width` stays 40px:
-   his complaint is about the vertical, and a 46px-square button is a different control. */
-#talk-toggle,
+   his complaint is about the vertical, and a 46px-square button is a different control.
+   `#talk-toggle` left this rule on 2026-10-08: it is now the CEO's round icon itself, with no
+   frame, and has its own block below `.send-glyph`. */
 #stop,
 #send {
   width: 40px;
@@ -1488,7 +1489,6 @@ body.bp-narrow .first-run {
   cursor: pointer;
 }
 
-#talk-toggle:hover,
 #send:hover {
   border-color: var(--accent);
   color: var(--accent-text);
@@ -1518,45 +1518,153 @@ body.bp-narrow .first-run {
   cursor: not-allowed;
 }
 
-#talk-toggle[aria-pressed="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-gold);
+.send-glyph {
+  font-size: 0.8125rem;
+  transform: translateX(1px);
 }
 
-/* THE CONTROL IS PRESENT AND WILL NOT RESPOND (nightly D3).
+/* THE TALK-TO-RICH BUTTON IS THE CEO'S VOICE ICON (2026-10-08).
 
-   A SHAPE CHANGE, NOT A DIMMING, and that is deliberate rather than stylistic. The ordinary
-   way to draw a disabled control is to fade it, and fading is exactly what takes a non-text
-   indicator below the 3:1 floor — the contrast rule does not exempt a control because it is
-   inactive, and "it looked obviously disabled" is how the failing nodes in this project got
-   shipped. So the color tokens are untouched: the border stays `--line-control` and the dot
-   stays `currentColor` at `--ink-soft`, which are the same measured values the enabled
-   control carries in both themes. What changes is the border's STYLE, which carries no
-   contrast burden at all, plus the cursor and the hover response.
+   He replaced the 10px ring ("an unassuming little circle in it which doesn't make it
+   instantly clear that this is the voice i.e. Talk-to-Rich button") with his own
+   `voice-control.svg`, then added: "That SVG might need to become the button instead of
+   putting it into that squircle there." Both were rendered in both themes; the icon inside
+   the old 40px frame shrank to a 26px coin in a box, and the icon AS the button read as voice
+   at a glance. So the round icon is the whole control: no border, no face, a square hit box
+   the field's own height (`--control-h`, 46px at scale 1, larger than the old 40x46), and
+   the icon filling it less 2px so the focus ring and the pressed halo have room.
 
-   The sentence in `#voice-unavailable` is what actually explains it; this only stops the
-   control looking like it is waiting to be pressed. */
+   HIS GEOMETRY IS UNCHANGED; HIS THREE PLACEHOLDER FILLS ARE TOKENS, so both themes and every
+   state follow the palette and no new color is hard-coded:
+
+     his #333333 outer ring  -> currentColor  (--ink; --accent-text under the pointer)
+     his #FFFFFF ring        -> --surface     (the same face the text field has)
+     his #E825A7 disc        -> --accent      (the one accent this app has)
+     his #333333 bars        -> --on-gold     (the ink made to sit on the accent)
+
+   In light mode --ink and --on-gold are both #0c1322, so the light icon is his drawing with
+   gold for pink. In dark mode the ring takes the light ink: a dark ring would vanish into the
+   dark page.
+
+   STATES. Pressed (voice is on; the label reads "Stop talking") swaps the disc and the bars:
+   the disc goes --on-gold and the bars go --accent, and the bars breathe (still under
+   prefers-reduced-motion). It is a color swap inside his shape, and it is the one state that
+   cannot be mistaken for hover (the ring turns --accent-text) or keyboard focus (a 2px
+   --accent-text outline at a 3px offset): an earlier pass drew pressed as a gold halo and it
+   was indistinguishable from the focus ring in both themes. Disabled keeps the
+   nightly-D3 rule that a disabled control CHANGES SHAPE AND NEVER FADES (fading is what takes
+   a non-text indicator under 3:1): a dashed --line-control circle around the icon, the icon's
+   colors untouched, and no hover response. `#voice-unavailable` is what explains it.
+
+   Computed (WCAG non-text floor 3:1; page ground #0c1322 dark / #eae6dd light):
+                                                   dark   light
+     ring (--ink) on the page, at rest            14.55   14.90
+     ring (--accent-text) on the page, hover       7.68    5.48
+     focus ring (--accent-text) on the page        7.68    5.48
+     dashed circle (--line-control), disabled      4.57    3.35
+     ring against its gap (--surface)             12.06   18.07
+     disc (--accent) against its gap               6.36    3.83
+     bars (--on-gold) on the disc                  7.68    4.72
+     pressed: bars (--accent) on the disc          7.68    4.72
+     pressed: disc (--on-gold) against its gap     1.21   18.07
+   That 1.21 is DECLARED, not missed: in dark mode the pressed disc and its gap are both
+   navy, so the gap stops reading as a separate band. Nothing identifies the state by that
+   edge; the state is the gold bars on the dark disc (7.68) inside the light ring (12.06). */
+#talk-toggle {
+  width: var(--control-h);
+  height: var(--control-h);
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.talk-icon {
+  width: calc(var(--control-h) - 2px);
+  height: calc(var(--control-h) - 2px);
+  display: block;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.talk-icon-ring {
+  fill: currentColor;
+}
+
+.talk-icon-gap {
+  fill: var(--surface);
+}
+
+.talk-icon-disc {
+  fill: var(--accent);
+}
+
+.talk-icon-bar {
+  fill: var(--on-gold);
+}
+
+#talk-toggle:hover {
+  color: var(--accent-text);
+}
+
+#talk-toggle:focus-visible {
+  outline: none;
+}
+
+#talk-toggle:focus-visible .talk-icon {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 3px;
+}
+
+#talk-toggle[aria-pressed="true"] .talk-icon-disc {
+  fill: var(--on-gold);
+}
+
+#talk-toggle[aria-pressed="true"] .talk-icon-bar {
+  fill: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: talk-bars 1.1s ease-in-out infinite;
+}
+
+#talk-toggle[aria-pressed="true"] .talk-icon-bar:nth-of-type(2) { animation-delay: -0.15s; }
+#talk-toggle[aria-pressed="true"] .talk-icon-bar:nth-of-type(3) { animation-delay: -0.45s; }
+#talk-toggle[aria-pressed="true"] .talk-icon-bar:nth-of-type(4) { animation-delay: -0.3s; }
+#talk-toggle[aria-pressed="true"] .talk-icon-bar:nth-of-type(5) { animation-delay: -0.6s; }
+
+@keyframes talk-bars {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.55);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #talk-toggle[aria-pressed="true"] .talk-icon-bar {
+    animation: none;
+  }
+}
+
 #talk-toggle:disabled {
-  border-style: dashed;
   cursor: default;
 }
 
 #talk-toggle:disabled:hover {
-  border-color: var(--line-control);
-  color: var(--ink-soft);
+  color: var(--ink);
 }
 
-.talk-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid currentColor;
-}
-
-.send-glyph {
-  font-size: 0.8125rem;
-  transform: translateX(1px);
+#talk-toggle:disabled .talk-icon {
+  outline: 1.5px dashed var(--line-control);
+  outline-offset: 2px;
 }
 
 /* Voice panel — inline, replaces the text field. Never a separate call screen. Shares the
