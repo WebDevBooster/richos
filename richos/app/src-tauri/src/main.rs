@@ -4335,7 +4335,40 @@ impl dictation_app::VoiceMode for AppVoice {
         }
         was_on
     }
+
+    /// **Open RichOS**, **Dictation settings…** and **Fix it** from the dictation tool (plan
+    /// section 6): the window comes forward the way a Dock click brings it (`reopen_window`,
+    /// which builds it if it was closed and takes the front), and with `sheet` the page is told
+    /// to open the Dictation sheet (`dictation-open-sheet`; the sheet is slice 2's).
+    fn come_forward(&self, sheet: bool) {
+        let app = self.app.clone();
+        let ran = self.app.run_on_main_thread(move || {
+            reopen_window(&app);
+            if sheet {
+                if let Err(e) = app.emit(DICTATION_OPEN_SHEET, ()) {
+                    eprintln!("[richos] dictation: the window could not be told to open the Dictation sheet: {e}");
+                }
+            }
+        });
+        if let Err(e) = ran {
+            eprintln!("[richos] dictation: the window could not be brought forward: {e}");
+        }
+    }
+
+    /// The tool's menu changed `dictation.json`: the page re-reads it (`dictation-settings-changed`).
+    fn settings_changed(&self) {
+        if let Err(e) = self.app.emit(DICTATION_SETTINGS_CHANGED, ()) {
+            eprintln!("[richos] dictation: the window could not be told dictation.json changed: {e}");
+        }
+    }
 }
+
+/// The page opens the Dictation sheet (the tool's **Dictation settings…** or **Fix it**).
+#[cfg(target_os = "macos")]
+const DICTATION_OPEN_SHEET: &str = "dictation-open-sheet";
+/// The tool's menu bar menu changed `dictation.json`; what the page shows of it is re-read.
+#[cfg(target_os = "macos")]
+const DICTATION_SETTINGS_CHANGED: &str = "dictation-settings-changed";
 
 /// Forwards voice events to the webview. Same shape as `TauriEmitter` above — the voice
 /// crate is UI-agnostic and names its own events; this just relays them verbatim.
@@ -5507,10 +5540,10 @@ fn provider_auth_status(state: State<AppState>) -> richos_core::provider_auth::A
     view
 }
 #[tauri::command(async)]
-fn provider_auth_start(state: State<AppState>, console: bool) -> richos_core::provider_auth::AuthView {
+fn provider_auth_start(state: State<AppState>) -> richos_core::provider_auth::AuthView {
     state.quota.set_connecting(true);
     let bin = resolve_claude_bin();
-    let view = state.provider_auth.lock().unwrap().start(&bin, console);
+    let view = state.provider_auth.lock().unwrap().start(&bin);
     state.quota.set_connecting(view.state == richos_core::provider_auth::AuthState::Connecting);
     view
 }
@@ -5584,7 +5617,7 @@ fn claude_account_add(state: State<AppState>, label: String, current_label: Opti
         if let Some(folder) = added.folder {
             let bin = resolve_claude_bin();
             let mut auth = richos_core::provider_auth::ProviderAuth::for_folder(folder);
-            auth.start(&bin, false);
+            auth.start(&bin);
             *state.account_auth.lock().unwrap() = Some((added.id, auth));
         }
     }
@@ -5597,7 +5630,7 @@ fn claude_account_sign_in(state: State<AppState>, id: String) -> Result<richos_c
     let folder = state.quota.accounts.folder(&id).ok_or("Account 1 signs in from the main sign-in.")?;
     let bin = resolve_claude_bin();
     let mut auth = richos_core::provider_auth::ProviderAuth::for_folder(folder);
-    let view = auth.start(&bin, false);
+    let view = auth.start(&bin);
     *state.account_auth.lock().unwrap() = Some((id, auth));
     Ok(view)
 }

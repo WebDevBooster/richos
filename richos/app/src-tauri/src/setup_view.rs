@@ -11,7 +11,8 @@
 //! consent copy is [`richos_core::setup::Component::why`], and a test asserts it carries no
 //! slash, no dollar sign, no digit and no mention of Terminal.
 //!
-//! **Two sentences are his, and they and the counter are exempt from that floor.** Once
+//! **Three sentences are his, and they and the counter are exempt from that floor.** The account
+//! sentence ([`SETUP_ACCOUNT_NOTE`], "Max 20x", "Max/Max 20x") is his as of 2026-10-08. Once
 //! dictation is there (`richos_core::dictation_ready`), the video tools' line is the CEO's own
 //! setup sentence ([`richos_core::setup::MEDIA_TOOLS_WHY`], "private/local", "$140+/year") and
 //! the download carries his line ([`SETUP_DOWNLOAD_LINE`], "$140+/year"), with the counter ("490
@@ -57,7 +58,7 @@ pub const EVENT_SETUP: &str = "richos://setup";
 /// completed login through the provider-owned browser flow. Shown on the consent sheet,
 /// before the button, not in a footnote afterwards.
 pub const SETUP_ACCOUNT_NOTE: &str =
-    "You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.";
+    "You need your own Anthropic account and a Max subscription there. You can sign in through your browser after setup; I never see your password. If you don't already have that subscription, sign up there first and pick the Max/Max 20x tier.";
 
 /// **His line while the speech models download**, as Rich says it on the sheet (round 19, state
 /// 2; the CEO wrote it on 2026-10-07 and approved round 19 on 2026-10-08). Word for word as round
@@ -967,9 +968,14 @@ mod tests {
         assert!(SETUP_ACCOUNT_NOTE.contains("Anthropic account"));
         assert!(SETUP_ACCOUNT_NOTE.contains("sign in"));
         assert!(SETUP_ACCOUNT_NOTE.contains("never see your password"));
-        // No path, no digit, no terminal — the same floor the component copy meets.
-        assert!(!SETUP_ACCOUNT_NOTE.contains('/'));
-        assert!(!SETUP_ACCOUNT_NOTE.chars().any(|c| c.is_ascii_digit()));
+        // His sentence (CEO, 2026-10-08), word for word. It carries digits and a slash, so it is
+        // exempt from the component copy's floor, compared against this constant.
+        assert_eq!(
+            SETUP_ACCOUNT_NOTE,
+            "You need your own Anthropic account and a Max subscription there. You can sign in through your browser after setup; I never see your password. If you don't already have that subscription, sign up there first and pick the Max/Max 20x tier."
+        );
+        // The words the sheet turns into the pricing link must be in it.
+        assert!(SETUP_ACCOUNT_NOTE.contains("sign up there first and pick the Max/Max 20x tier"));
     }
 
     /// **ONE WORDING, NOT TWO.** The const the state registry can see and the error the

@@ -15,6 +15,7 @@ use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
 use richos_voice::dictation::{insert_plan, restore_clipboard, spaced, Insert, PLAIN_TEXT_TYPE, RESTORE_AFTER, TRANSIENT_TYPE};
+use richos_voice::dictation_bar::{paste_landed, words_range, Rect};
 use std::ffi::{c_void, CStr, CString};
 use std::sync::Mutex;
 
@@ -30,6 +31,8 @@ extern "C" {
     fn AXUIElementCopyAttributeValue(element: AXUIElementRef, attribute: CFTypeRef, value: *mut CFTypeRef) -> i32;
     fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> i32;
     fn AXValueGetValue(value: CFTypeRef, kind: u32, out: *mut c_void) -> bool;
+    fn AXValueCreate(kind: u32, value: *const c_void) -> CFTypeRef;
+    fn AXUIElementCopyParameterizedAttributeValue(element: AXUIElementRef, attribute: CFTypeRef, parameter: CFTypeRef, value: *mut CFTypeRef) -> i32;
     fn CGEventSourceCreate(state: i32) -> CGEventSourceRef;
     fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, code: u16, down: bool) -> CGEventRef;
     fn CGEventSetFlags(event: CGEventRef, flags: u64);
@@ -64,6 +67,9 @@ extern "C" {
 }
 
 const AX_VALUE_CF_RANGE: u32 = 4; // kAXValueCFRangeType
+const AX_VALUE_CG_POINT: u32 = 1; // kAXValueCGPointType
+const AX_VALUE_CG_SIZE: u32 = 2; // kAXValueCGSizeType
+const AX_VALUE_CG_RECT: u32 = 3; // kAXValueCGRectType
 const HID_SYSTEM_STATE: i32 = 1; // kCGEventSourceStateHIDSystemState
 const HID_EVENT_TAP: u32 = 0; // kCGHIDEventTap
 const FLAG_COMMAND: u64 = 0x0010_0000; // kCGEventFlagMaskCommand
@@ -133,6 +139,9 @@ pub struct Focus {
     pub finder_in_front: bool,
     /// The characters on either side of the cursor, where Accessibility can read them.
     pub around: Option<(Option<char>, Option<char>)>,
+    /// Where the selection began (UTF-16 units), where Accessibility can read it: the words'
+    /// range starts here once pasted, for the flight (slice 3).
+    pub selection_start: Option<isize>,
     /// The front app's bundle identifier, for the log's "into" field.
     pub front_bundle: Option<String>,
     /// What Accessibility answered, for the log: which app, and each question's answer or error.
@@ -189,9 +198,87 @@ pub fn focus() -> Focus {
     );
     if let Ok(element) = element {
         out.focused_element = true;
-        out.around = around_cursor(element.0);
+        if let Some((around, start)) = around_cursor(element.0) {
+            out.around = Some(around);
+            out.selection_start = Some(start);
+        }
     }
     out
+}
+
+/// The focused element, asked of the system-wide element and then of the front app, as
+/// [`focus`] asks.
+fn focused_element() -> Option<Owned> {
+    // SAFETY: creates a +1 system-wide element we release.
+    let system = Owned(unsafe { AXUIElementCreateSystemWide() });
+    if let Ok(e) = asked(system.0, "AXFocusedUIElement") {
+        return Some(e);
+    }
+    // SAFETY: creates a +1 application element we release.
+    let app = Owned(unsafe { AXUIElementCreateApplication(frontmost_pid()?) });
+    asked(app.0, "AXFocusedUIElement").ok()
+}
+
+/// **The front app's focused window on screen** (top-left points), for placing the bar on the
+/// screen that holds it (plan section 6). `None` where Accessibility cannot say.
+pub fn focused_window_rect() -> Option<Rect> {
+    // SAFETY: creates a +1 application element we release.
+    let app = Owned(unsafe { AXUIElementCreateApplication(frontmost_pid()?) });
+    let window = asked(app.0, "AXFocusedWindow").or_else(|_| asked(app.0, "AXMainWindow")).ok()?;
+    let position = attribute(window.0, "AXPosition")?;
+    let size = attribute(window.0, "AXSize")?;
+    let mut p = [0f64; 2];
+    let mut z = [0f64; 2];
+    // SAFETY: AXValues of the documented kinds and CGPoint / CGSize-sized out-parameters.
+    let ok = unsafe {
+        AXValueGetValue(position.0, AX_VALUE_CG_POINT, p.as_mut_ptr() as *mut c_void)
+            && AXValueGetValue(size.0, AX_VALUE_CG_SIZE, z.as_mut_ptr() as *mut c_void)
+    };
+    ok.then_some(Rect { x: p[0], y: p[1], w: z[0], h: z[1] })
+}
+
+/// **Where the pasted words are on screen** (plan section 5, point 3: "Where Accessibility
+/// gives the inserted words' screen rectangle, the words fly and are lit"). Waits, a few times
+/// 60 ms apart, for the app's cursor to sit right after the words (the paste is asynchronous:
+/// Command-V reaches the app on its own run loop), then asks `AXBoundsForRange` for their range.
+/// `None` when the app never says: then the bar says "Added" with no flight.
+pub fn words_rect(selection_start: isize, text: &str) -> Option<Rect> {
+    for _ in 0..10 {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        let Some(element) = focused_element() else { continue };
+        let Some(range) = attribute(element.0, "AXSelectedTextRange") else { continue };
+        let mut r = AxRange { location: 0, length: 0 };
+        // SAFETY: an AXValue and a CFRange-sized out-parameter.
+        if !unsafe { AXValueGetValue(range.0, AX_VALUE_CF_RANGE, &mut r as *mut _ as *mut c_void) } {
+            continue;
+        }
+        if !paste_landed(selection_start, text, r.location) {
+            continue;
+        }
+        let (location, length) = words_range(selection_start, text);
+        let want = AxRange { location, length };
+        // SAFETY: a CFRange AXValue we own, a CFString attribute name and an out-parameter.
+        let parameter = Owned(unsafe { AXValueCreate(AX_VALUE_CF_RANGE, &want as *const _ as *const c_void) });
+        if parameter.0.is_null() {
+            return None;
+        }
+        let name = CFString::from_static_string("AXBoundsForRange");
+        let mut value: CFTypeRef = std::ptr::null();
+        let error = unsafe {
+            AXUIElementCopyParameterizedAttributeValue(element.0, name.as_concrete_TypeRef() as CFTypeRef, parameter.0, &mut value)
+        };
+        let value = Owned(value);
+        if error != 0 || value.0.is_null() {
+            return None;
+        }
+        let mut b = [0f64; 4];
+        // SAFETY: an AXValue of kind CGRect and a CGRect-sized out-parameter.
+        if !unsafe { AXValueGetValue(value.0, AX_VALUE_CG_RECT, b.as_mut_ptr() as *mut c_void) } {
+            return None;
+        }
+        return Some(Rect { x: b[0], y: b[1], w: b[2], h: b[3] });
+    }
+    None
 }
 
 /// The front app's process, from `NSWorkspace`, when Accessibility cannot name it.
@@ -214,7 +301,10 @@ fn frontmost_pid() -> Option<i32> {
     })
 }
 
-fn around_cursor(element: AXUIElementRef) -> Option<(Option<char>, Option<char>)> {
+/// The characters either side of the cursor, and where the selection begins.
+type AroundCursor = ((Option<char>, Option<char>), isize);
+
+fn around_cursor(element: AXUIElementRef) -> Option<AroundCursor> {
     let value = attribute(element, "AXValue")?;
     let range = attribute(element, "AXSelectedTextRange")?;
     // SAFETY: `value` is a +1 reference we hand to a wrapper that now owns it.
@@ -224,7 +314,7 @@ fn around_cursor(element: AXUIElementRef) -> Option<(Option<char>, Option<char>)
     if !unsafe { AXValueGetValue(range.0, AX_VALUE_CF_RANGE, &mut r as *mut _ as *mut c_void) } {
         return None;
     }
-    Some(chars_around(&text, r.location, r.length))
+    Some((chars_around(&text, r.location, r.length), r.location))
 }
 
 /// The characters either side of a selection given, as Accessibility gives it, in UTF-16 units.
@@ -434,6 +524,9 @@ pub struct Inserted {
     pub front_bundle: Option<String>,
     /// What Accessibility answered ([`Focus::seen`]).
     pub seen: String,
+    /// What was pasted (the words with the spacing rule applied) and where the selection began,
+    /// when Accessibility could read it: what [`words_rect`] needs for the flight.
+    pub landed: Option<(isize, String)>,
 }
 
 /// **Put `words` where the cursor is.** `v_code` is [`v_key_code`], read on the main thread.
@@ -455,7 +548,7 @@ pub fn insert(words: &str, v_code: u16) -> Result<Inserted, String> {
     };
     if how == Insert::CopyOnly {
         write_words(pb, &text).ok_or("the words could not be written to the clipboard")?;
-        return Ok(Inserted { how, spaced: false, front_bundle: f.front_bundle, seen: f.seen });
+        return Ok(Inserted { how, spaced: false, front_bundle: f.front_bundle, seen: f.seen, landed: None });
     }
     let saved = save(pb);
     let written = write_words(pb, &text).ok_or("the words could not be written to the clipboard")?;
@@ -472,7 +565,8 @@ pub fn insert(words: &str, v_code: u16) -> Result<Inserted, String> {
         })
         .map_err(|e| e.to_string())?;
     *pending = Some(restore);
-    Ok(Inserted { how, spaced: f.around.is_some(), front_bundle: f.front_bundle, seen: f.seen })
+    let landed = f.selection_start.map(|start| (start, text.clone()));
+    Ok(Inserted { how, spaced: f.around.is_some(), front_bundle: f.front_bundle, seen: f.seen, landed })
 }
 
 /// Copy `words` to the clipboard and nothing else: the case where the words are ready and

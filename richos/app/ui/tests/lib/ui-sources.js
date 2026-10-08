@@ -62,6 +62,15 @@ const path = require("path");
 const UI_DIR = path.resolve(__dirname, "..", "..");
 const ENTRY = "index.html";
 
+/// THE OTHER DOCUMENTS TAURI LOADS, each a window of its own that `index.html` never names:
+/// the dictation tool's bar (and, with `?role=flight`, the words' flight) and its menu bar menu
+/// (dictation plan slice 3, `src-tauri/src/dictation/bar.rs`). Each is an entry exactly as
+/// `index.html` is: its own tags are the first generation, and the closure runs over them too.
+/// Named here rather than discovered, because "this HTML file is a window the app opens" is a
+/// claim about Rust code no scanner here reads; step 3 still refuses an HTML file that is
+/// neither, so a stray page cannot hide.
+const EXTRA_ENTRIES = ["dictation-bar.html", "dictation-menu.html"];
+
 /// What each shipped file is. Every row says WHY, because every row is a claim about
 /// whether a gate needs to look at the file, and an undeclared claim is the defect above.
 ///
@@ -144,6 +153,22 @@ const ROLES = {
       "Design input for the home screen's composition, not product copy.",
   },
 
+  "dictation-bar.html": {
+    role: "ui",
+    why: "the dictation tool's bar and the words' flight, two windows over every app (dictation plan slice 3)",
+  },
+  "dictation-bar.js": {
+    role: "ui",
+    why:
+      "the bar's states and every drawn line it says (round 19 states 14 to 19, Iris's two bar " +
+      "lines), the meter, and the flight",
+  },
+  "dictation-menu.html": { role: "ui", why: "the dictation tool's menu bar menu (round 19 state 17)" },
+  "dictation-menu.js": {
+    role: "ui",
+    why: "the menu bar menu's rows and Iris's line 4 for Secure Event Input",
+  },
+  "dictation-overlay.css": { role: "style", why: "the bar's, the flight's and the menu bar menu's stylesheet" },
   "style.css": { role: "style", why: "the shell's stylesheet" },
   "home.css": { role: "style", why: "the home screen's stylesheet" },
   "splash.css": { role: "style", why: "the opening curtain's stylesheet" },
@@ -338,6 +363,10 @@ function manifest() {
   };
 
   for (const r of entryReferences(fs.readFileSync(entryPath, "utf8"))) push(r.ref);
+  for (const extra of EXTRA_ENTRIES) {
+    push(extra);
+    for (const r of entryReferences(fs.readFileSync(path.join(UI_DIR, extra), "utf8"))) push(r.ref);
+  }
 
   // The closure. Bounded by the number of files on disk, so it terminates; the bound below
   // is a guard against a bug here, not against the tree.
@@ -796,6 +825,7 @@ module.exports = {
   declaredChecks,
   UI_DIR,
   ENTRY,
+  EXTRA_ENTRIES,
   ROLES,
   manifest,
   reconcile,

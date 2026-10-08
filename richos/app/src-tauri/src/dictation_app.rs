@@ -70,11 +70,18 @@ pub fn gated_submit(gate: TurnGate, submit: Arc<dyn Fn(String, bool) + Send + Sy
     })
 }
 
-/// What the yield needs from voice mode.
+/// What the yield needs from voice mode, and what the tool's menu bar menu and its bar's Fix it
+/// ask of the app's window (slice 3).
 pub trait VoiceMode: Send + Sync {
     /// End voice mode for dictation: close its gate FIRST, then close the microphone and tell
     /// the window. `true` when voice mode was on.
     fn end_for_dictation(&self) -> bool;
+    /// Bring the app's window forward, on the Dictation sheet when `sheet` (plan section 6:
+    /// **Open RichOS**, **Dictation settings…**, **Fix it**).
+    fn come_forward(&self, _sheet: bool) {}
+    /// The tool changed `dictation.json` from its menu: whatever the window shows of it is
+    /// re-read.
+    fn settings_changed(&self) {}
 }
 
 /// What a message from the tool does in the app.
@@ -87,6 +94,8 @@ pub fn on_tool_message(message: &ToolMessage, voice: &dyn VoiceMode, link: &Link
         }
         ToolMessage::State { .. } => link.observe(message.clone()),
         ToolMessage::Key { .. } => {}
+        ToolMessage::ComeForward { sheet } => voice.come_forward(*sheet),
+        ToolMessage::SettingsChanged => voice.settings_changed(),
     }
     link.tell_listener(Some(message));
 }
@@ -606,10 +615,9 @@ pub fn privacy_pane(pane: &str) -> Option<&'static str> {
 // =============================================================================================
 
 pub mod mac {
-    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::base::TCFType;
     use core_foundation::boolean::CFBoolean;
     use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
-    use core_foundation::number::CFNumber;
     use core_foundation::string::{CFString, CFStringRef};
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject, Bool};
@@ -628,17 +636,6 @@ pub mod mac {
     extern "C" {
         static kAXTrustedCheckOptionPrompt: CFStringRef;
         fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
-    }
-
-    #[link(name = "Carbon", kind = "framework")]
-    extern "C" {
-        fn IsSecureEventInputEnabled() -> u8;
-    }
-
-    // Declared exactly as `screen.rs` declares it (one signature for one symbol).
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGSessionCopyCurrentDictionary() -> *const std::ffi::c_void;
     }
 
     /// `AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio`. Reading it opens
@@ -682,45 +679,11 @@ pub mod mac {
     }
 
     /// **Secure Event Input** (plan minor 5): `None` when it is off; `Some(app)` when another app
-    /// has it on, naming that app when macOS reports its process (`kCGSSessionSecureInputPID`,
-    /// `unverified:` on every macOS; without it the line has no app name).
+    /// has it on, naming that app when macOS reports its process. Slice 3's reader
+    /// (`dictation::appkit::secure_input`), so the app and the tool read it one way and each
+    /// macOS symbol has one declaration (two clashed at the merge with main).
     pub fn secure_input() -> Option<Option<String>> {
-        // SAFETY: no arguments, no failure mode.
-        if unsafe { IsSecureEventInputEnabled() } == 0 {
-            return None;
-        }
-        Some(secure_input_app())
-    }
-
-    fn secure_input_app() -> Option<String> {
-        // SAFETY: a Copy function: the dictionary is ours to release, under the create rule.
-        let raw = unsafe { CGSessionCopyCurrentDictionary() } as CFDictionaryRef;
-        if raw.is_null() {
-            return None;
-        }
-        // SAFETY: a CFDictionary we own (the create rule), keyed by CFString.
-        let session: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_create_rule(raw) };
-        let pid = session
-            .find(CFString::from_static_string("kCGSSessionSecureInputPID"))
-            .and_then(|v| v.downcast::<CFNumber>())
-            .and_then(|n| n.to_i32())
-            .filter(|pid| *pid > 0)?;
-        objc2::rc::autoreleasepool(|_| {
-            let class = AnyClass::get(c"NSRunningApplication")?;
-            // SAFETY: documented class method and NSString accessors.
-            unsafe {
-                let app: *mut AnyObject = msg_send![class, runningApplicationWithProcessIdentifier: pid];
-                if app.is_null() {
-                    return None;
-                }
-                let name: *mut AnyObject = msg_send![app, localizedName];
-                if name.is_null() {
-                    return None;
-                }
-                let p: *const std::ffi::c_char = msg_send![name, UTF8String];
-                (!p.is_null()).then(|| CStr::from_ptr(p).to_string_lossy().into_owned())
-            }
-        })
+        crate::dictation::appkit::secure_input()
     }
 
     /// The macOS major version (`kern.osproductversion`: "14.6.1" is 14).
@@ -876,12 +839,45 @@ mod tests {
         assert_eq!(sent.load(Ordering::SeqCst), 1, "no turn sent after dictation took the microphone");
     }
 
+    /// INVARIANT (slice 3): the tool's **Open RichOS**, **Dictation settings…** and **Fix it**
+    /// reach the window with the sheet flag they carry, and the menu's change to dictation.json
+    /// is passed on; neither ends voice mode.
+    #[test]
+    fn come_forward_and_settings_changed_reach_the_window() {
+        #[derive(Default)]
+        struct Window {
+            forward: Mutex<Vec<bool>>,
+            changed: AtomicUsize,
+            ended: AtomicBool,
+        }
+        impl VoiceMode for Window {
+            fn end_for_dictation(&self) -> bool {
+                self.ended.store(true, Ordering::SeqCst);
+                false
+            }
+            fn come_forward(&self, sheet: bool) {
+                self.forward.lock().unwrap().push(sheet);
+            }
+            fn settings_changed(&self) {
+                self.changed.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let window = Window::default();
+        let link = Link::default();
+        on_tool_message(&ToolMessage::ComeForward { sheet: true }, &window, &link);
+        on_tool_message(&ToolMessage::ComeForward { sheet: false }, &window, &link);
+        on_tool_message(&ToolMessage::SettingsChanged, &window, &link);
+        assert_eq!(*window.forward.lock().unwrap(), vec![true, false]);
+        assert_eq!(window.changed.load(Ordering::SeqCst), 1);
+        assert!(!window.ended.load(Ordering::SeqCst));
+    }
+
     /// INVARIANT: a state message is only recorded; it never ends voice mode.
     #[test]
     fn a_state_message_never_ends_voice_mode() {
         let voice = FakeVoice { on: AtomicBool::new(true), gate: TurnGate::new() };
         let link = Link::default();
-        let state = ToolMessage::State { owner: "x".into(), on: true, listening: true, writing: false, problem: None, key_tap: true };
+        let state = ToolMessage::State { owner: "x".into(), on: true, listening: true, writing: false, problem: None, key_tap: true, secure_input: false, secure_app: None };
         on_tool_message(&state, &voice, &link);
         assert!(voice.on.load(Ordering::SeqCst));
         assert!(!voice.gate.closed());
@@ -897,7 +893,7 @@ mod tests {
         let link = Link::default();
         *link.writer.lock().unwrap() = Some(app_end);
         link.finish();
-        link.observe(ToolMessage::State { owner: "x".into(), on: true, listening: false, writing: false, problem: None, key_tap: true });
+        link.observe(ToolMessage::State { owner: "x".into(), on: true, listening: false, writing: false, problem: None, key_tap: true, secure_input: false, secure_app: None });
         link.finish();
         *link.writer.lock().unwrap() = None; // closes the app's end
         let mut heard = Vec::new();
@@ -912,7 +908,7 @@ mod tests {
         let (app_end, tool_end) = UnixStream::pair().unwrap();
         let link = Arc::new(Link::default());
         *link.writer.lock().unwrap() = Some(app_end);
-        let listening = |l: bool| ToolMessage::State { owner: "x".into(), on: true, listening: l, writing: !l, problem: None, key_tap: true };
+        let listening = |l: bool| ToolMessage::State { owner: "x".into(), on: true, listening: l, writing: !l, problem: None, key_tap: true, secure_input: false, secure_app: None };
         link.observe(listening(true));
         let heard_finish = Arc::new(AtomicBool::new(false));
         let tool_link = link.clone();
@@ -1145,7 +1141,7 @@ mod tests {
     #[test]
     fn key_capture_goes_through_the_tap() {
         let r = rig("capture");
-        let state = |tap: bool| ToolMessage::State { owner: "x".into(), on: true, listening: false, writing: false, problem: None, key_tap: tap };
+        let state = |tap: bool| ToolMessage::State { owner: "x".into(), on: true, listening: false, writing: false, problem: None, key_tap: tap, secure_input: false, secure_app: None };
         r.host.link.observe(state(false));
         assert!(!r.host.capture(true), "no tap: the window's keys answer");
         r.host.link.observe(state(true));

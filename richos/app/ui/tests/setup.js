@@ -104,7 +104,7 @@ const sheetText = (page) =>
 
 function rustConst(file, name) {
   const src = fs.readFileSync(path.join(UI_DIR, "..", file), "utf8");
-  const m = src.match(new RegExp("pub const " + name + ': &str = "((?:[^"\\\\]|\\\\.)*)";'));
+  const m = src.match(new RegExp("pub const " + name + ': &str =\\s*"((?:[^"\\\\]|\\\\.)*)";'));
   if (!m) throw new Error(name + " is not a one-line string constant in " + file);
   return m[1]
     .replace(/\\u\{([0-9A-Fa-f]+)\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
@@ -112,6 +112,10 @@ function rustConst(file, name) {
 }
 const HIS_TOOLS_LINE = rustConst("crates/richos-core/src/setup.rs", "MEDIA_TOOLS_WHY");
 const HIS_DOWNLOAD_LINE = rustConst("src-tauri/src/setup_view.rs", "SETUP_DOWNLOAD_LINE");
+const HIS_ACCOUNT_NOTE = rustConst("src-tauri/src/setup_view.rs", "SETUP_ACCOUNT_NOTE");
+/// His account sentence (2026-10-08), word for word. It carries "Max 20x" and "Max/Max 20x".
+const ROUND_ACCOUNT_NOTE =
+  "You need your own Anthropic account and a Max subscription there. You can sign in through your browser after setup; I never see your password. If you don't already have that subscription, sign up there first and pick the Max/Max 20x tier.";
 /// His setup sentence (2026-10-08) and round 19's download line, as he approved them.
 const HIS_SETUP_SENTENCE =
   "My voice and video tools: the tools I use to watch and download videos for you. Plus, it gives you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year👍 and allows you to talk instead of typing anywhere on this computer.";
@@ -140,7 +144,7 @@ async function sheetTextExempt(page) {
   }));
   let rest = text;
   const removed = [];
-  for (const s of [HIS_TOOLS_LINE, HIS_DOWNLOAD_LINE]) {
+  for (const s of [HIS_ACCOUNT_NOTE, HIS_TOOLS_LINE, HIS_DOWNLOAD_LINE]) {
     if (rest.includes(s)) {
       rest = rest.split(s).join(" ");
       removed.push(s);
@@ -297,16 +301,19 @@ async function main() {
   await run.check("2  no terminal, no path, no version number reaches his screen", async () => {
     const page = await openApp(browser, { setup: "missing-both" });
     await page.waitForSelector("#setup-sheet:not([hidden])");
-    const text = await sheetText(page);
+    // His account sentence ("Max 20x", "Max/Max 20x") is the one declared exemption here, removed
+    // by comparison with the Rust constant it is rendered from; everything else holds the floor.
+    const { text, rest, removed } = await sheetTextExempt(page);
+    assertEqual(removed.join(" | "), HIS_ACCOUNT_NOTE, "only his account sentence is exempt on this sheet");
     assert(text.length > 60, "the sheet said almost nothing: " + text);
     // COMPUTED FROM WHAT IS RENDERED. A path, a tilde, a shell prompt, a version number, or
     // the word Terminal each mean the non-technical constraint was lost somewhere between
     // the Rust and the DOM.
-    assert(!/\//.test(text), "a path reached his screen: " + text);
-    assert(!/~/.test(text), "a home-relative path reached his screen: " + text);
-    assert(!/\$/.test(text), "a shell variable reached his screen: " + text);
-    assert(!/[Tt]erminal/.test(text), "the Terminal was mentioned: " + text);
-    assert(!/\d+\.\d+/.test(text), "a version number reached his screen: " + text);
+    assert(!/\//.test(rest), "a path reached his screen: " + rest);
+    assert(!/~/.test(rest), "a home-relative path reached his screen: " + rest);
+    assert(!/\$/.test(rest), "a shell variable reached his screen: " + rest);
+    assert(!/[Tt]erminal/.test(rest), "the Terminal was mentioned: " + rest);
+    assert(!/\d+\.\d+/.test(rest), "a version number reached his screen: " + rest);
     // AND THERE IS NO TEXT INPUT. His part is one press, not a path he types.
     const inputs = await page.evaluate(
       () => document.querySelectorAll("#setup-sheet input, #setup-sheet textarea").length
@@ -339,6 +346,24 @@ async function main() {
     bump(5);
     await page.close();
     return "BYO-Anthropic stated, in his words, above the button";
+  });
+
+  await run.check("3a the account sentence is his, and its last clause is an underlined link to the pricing page", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    const LINK = "sign up there first and pick the Max/Max 20x tier";
+    assertEqual((await page.textContent("#setup-account")).trim(), ROUND_ACCOUNT_NOTE, "the sheet's sentence is not his");
+    const links = await page.evaluate(() => [...document.querySelectorAll("#setup-account a")].map((a) => ({
+      text: a.textContent, href: a.href, underline: getComputedStyle(a).textDecorationLine,
+    })));
+    assertEqual(JSON.stringify(links), JSON.stringify([{ text: LINK, href: "https://claude.com/pricing", underline: "underline" }]), "exactly one underlined link, to the pricing page");
+    await page.click("#setup-account a");
+    const opened = await page.evaluate(() => window.__RICHOS_OPENED__ || []);
+    assertEqual(JSON.stringify(opened), JSON.stringify(["claude.com/pricing"]), "the link asks the opener for the pricing page, once");
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    bump(4);
+    await page.close();
+    return "his sentence word for word; one underlined link; a click asks for claude.com/pricing";
   });
 
   await run.check("4  each missing piece is named and explained, in his language", async () => {
@@ -491,7 +516,7 @@ async function main() {
     // THE MECHANISM, and it is why this check watches a POSITION rather than a string.
     // `runSetup` painted the done state and THEN awaited `provider_auth_status`. The mock's
     // default is `connected`, the same answer his Mac gives, and `renderProviderAuth` hides
-    // `#provider-connect` and `#provider-account-kind` on that answer — two controls ABOVE
+    // `#provider-connect` on that answer — a control ABOVE
     // `#setup-close`. So the panel reached the screen at one height and shrank by their height a
     // round trip later.
     const page = await openApp(browser, { setup: "missing-both" });
@@ -1262,6 +1287,9 @@ async function main() {
       sheetHidden: document.getElementById("setup-sheet").hidden,
       top: (function () {
         const e = document.elementFromPoint(700, 475);
+        // The middle of the window falls on the panel now that the account sentence is longer,
+        // and on the backdrop before: either way it is the offer, so name the sheet it is in.
+        if (e && e.closest("#setup-sheet")) return "setup-sheet";
         return e ? e.id || e.className : null;
       })(),
     }));
@@ -1572,11 +1600,12 @@ async function main() {
     // EACH EXEMPT STRING IS HIS, WORD FOR WORD: the constants the sheet renders from.
     assertEqual(HIS_TOOLS_LINE, HIS_SETUP_SENTENCE.slice("My voice and video tools: ".length), "MEDIA_TOOLS_WHY is not his line");
     assertEqual(HIS_DOWNLOAD_LINE, ROUND_19_DOWNLOAD_LINE, "SETUP_DOWNLOAD_LINE is not round 19's line");
+    assertEqual(HIS_ACCOUNT_NOTE, ROUND_ACCOUNT_NOTE, "SETUP_ACCOUNT_NOTE is not his account sentence");
     const page = await openApp(browser, R19);
     await page.waitForSelector("#setup-sheet:not([hidden])");
     // State 1: his item line is on the sheet, and is the only thing exempt.
     const ask = await sheetTextExempt(page);
-    assertEqual(ask.removed.join(" | "), HIS_TOOLS_LINE, "state 1 exempts his item line and nothing else");
+    assertEqual(ask.removed.join(" | "), HIS_ACCOUNT_NOTE + " | " + HIS_TOOLS_LINE, "state 1 exempts his account sentence and his item line, nothing else");
     assertEqual(floorViolations(ask.rest).join(", "), "", "outside his line the floor holds: " + ask.rest);
     // State 2: his download line and the counter, and nothing else.
     await page.click("#setup-go");
@@ -1584,7 +1613,9 @@ async function main() {
     await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(489_999_396, 1_061_655_396, true, "490 MB of 1.06 GB"));
     await page.waitForSelector("#setup-rich-line:not([hidden])");
     const run2 = await sheetTextExempt(page);
-    assertEqual(run2.removed.join(" | "), HIS_DOWNLOAD_LINE + " | 490 MB of 1.06 GB", "state 2 exempts his download line and the counter");
+    // His account sentence is exempt wherever it is still on the sheet; once the sheet is running
+    // the provider's own status may have replaced it, which is not an exemption to expect.
+    assertEqual(run2.removed.filter((s) => s !== HIS_ACCOUNT_NOTE).join(" | "), HIS_DOWNLOAD_LINE + " | 490 MB of 1.06 GB", "state 2 exempts his download line and the counter, and his account sentence only if it is still there");
     assertEqual(floorViolations(run2.rest).join(", "), "", "outside them the floor holds: " + run2.rest);
     assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
     bump(6);
@@ -1595,12 +1626,15 @@ async function main() {
   await run.check("2b NEGATIVE CONTROL: a path on another line, or his line with one word changed, still fails", async () => {
     const page = await openApp(browser, R19);
     await page.waitForSelector("#setup-sheet:not([hidden])");
-    // A path and a version on the account line: not his sentences, so not exempt.
+    // A path and a version on the account line: not his sentence any more, so not exempt.
     await page.evaluate(() => {
-      document.getElementById("setup-account").textContent += " See ~/Library/RichOS 1.2.3 first.";
+      const el = document.getElementById("setup-account");
+      el.textContent = el.textContent.replace("Anthropic", "Anthropik") + " See ~/Library/RichOS 1.2.3 first.";
     });
     const pathed = await sheetTextExempt(page);
-    assertEqual(floorViolations(pathed.rest).join(", "), "a path, a home-relative path, a version number", "a path on another line passed the floor");
+    assertEqual(pathed.removed.includes(HIS_ACCOUNT_NOTE), false, "an altered account sentence was exempted");
+    assert(floorViolations(pathed.rest).includes("a path"), "a path on the account line passed the floor");
+    assert(floorViolations(pathed.rest).includes("a home-relative path"), "a home path on the account line passed the floor");
     // His line with one word changed is not his line: the dollar sign and the slash fail.
     await page.evaluate(() => {
       const why = document.querySelector('#setup-items li[data-component="media-tools"] .setup-item-why');

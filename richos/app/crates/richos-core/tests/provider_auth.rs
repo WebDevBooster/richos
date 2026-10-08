@@ -27,7 +27,7 @@ impl Drop for Fixture { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&se
 fn login_return_is_verified_without_retaining_account_details() {
     let f = Fixture::new(); let bin = f.0.join("claude"); let mut login = ProviderAuth::default();
     assert_eq!(login.refresh(&bin).state, AuthState::SignedOut);
-    assert_eq!(login.start(&bin, false).state, AuthState::Connecting);
+    assert_eq!(login.start(&bin).state, AuthState::Connecting);
     let deadline = Instant::now() + Duration::from_secs(3);
     while login.poll(&bin).state == AuthState::Connecting {
         assert!(Instant::now() < deadline); std::thread::sleep(Duration::from_millis(10));
@@ -42,11 +42,11 @@ fn login_return_is_verified_without_retaining_account_details() {
 fn cancel_then_retry_does_not_sign_out_or_start_duplicate_logins() {
     let f = Fixture::new(); let bin = f.0.join("claude"); let mut login = ProviderAuth::default();
     std::fs::write(f.0.join("hold"), "").unwrap();
-    login.start(&bin, false); login.start(&bin, false);
+    login.start(&bin); login.start(&bin);
     assert_eq!(login.cancel().state, AuthState::Cancelled);
     assert_eq!(provider_auth::status(&bin).state, AuthState::SignedOut);
     std::fs::remove_file(f.0.join("hold")).unwrap();
-    assert_eq!(login.start(&bin, true).state, AuthState::Connecting);
+    assert_eq!(login.start(&bin).state, AuthState::Connecting);
     let deadline = Instant::now() + Duration::from_secs(3);
     while login.poll(&bin).state == AuthState::Connecting {
         assert!(Instant::now() < deadline); std::thread::sleep(Duration::from_millis(10));

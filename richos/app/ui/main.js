@@ -5729,7 +5729,6 @@ let providerAuth = null;
 let providerPoll = null;
 const providerConnectEl = el("provider-connect");
 const providerCancelEl = el("provider-cancel");
-const providerKindEl = el("provider-account-kind");
 
 function renderProviderAuth(view) {
   providerAuth = view;
@@ -5741,7 +5740,6 @@ function renderProviderAuth(view) {
   providerConnectEl.hidden = !canConnect || connecting;
   providerConnectEl.disabled = false;
   providerCancelEl.hidden = !connecting;
-  providerKindEl.hidden = !canConnect || connecting;
   // Round 19's finished sheet has Start where the sheet had Close; sign-in holds either.
   if (setupStartShown) setupStartEl.hidden = connecting;
   else setupCloseEl.hidden = connecting;
@@ -5765,7 +5763,7 @@ async function openAccountConnection() {
 
 providerConnectEl.addEventListener("click", async () => {
   providerConnectEl.disabled = true;
-  try { renderProviderAuth(await Bridge.invoke("provider_auth_start", {console: el("provider-account-select").value === "console"})); }
+  try { renderProviderAuth(await Bridge.invoke("provider_auth_start")); }
   catch (_) { renderProviderAuth({state: "failed", message: "Sign-in could not start. Try again."}); }
 });
 providerCancelEl.addEventListener("click", async () => {
@@ -5801,11 +5799,30 @@ function maybeAskAboutSetup() {
   return true;
 }
 
+/// His account sentence (CEO, 2026-10-08) ends in a call to action that is a link: the words
+/// below, underlined, open the Claude pricing page in his browser. `claude.com/pricing` is a KEY
+/// into the allowlist in `src-tauri/src/opener.rs`, not a URL the shell acts on. The `href` is
+/// the same address written out, so the destination is visible on hover and by a screen reader.
+const SETUP_ACCOUNT_LINK_TEXT = "sign up there first and pick the Max/Max 20x tier";
+const SETUP_ACCOUNT_LINK_KEY = "claude.com/pricing";
+function renderSetupAccountNote(note) {
+  const at = note.indexOf(SETUP_ACCOUNT_LINK_TEXT);
+  if (at < 0) { setupAccountEl.textContent = note; return; }
+  const a = document.createElement("a");
+  a.href = "https://" + SETUP_ACCOUNT_LINK_KEY;
+  a.textContent = SETUP_ACCOUNT_LINK_TEXT;
+  a.addEventListener("click", (event) => {
+    event.preventDefault();
+    Bridge.invoke("open_external", {target: SETUP_ACCOUNT_LINK_KEY}).catch(() => {});
+  });
+  setupAccountEl.replaceChildren(
+    note.slice(0, at), a, note.slice(at + SETUP_ACCOUNT_LINK_TEXT.length));
+}
+
 function openSetupSheet(ask, opts) {
   setupDoneWaitsForVideoTools = false;
   providerConnectEl.hidden = true;
   providerCancelEl.hidden = true;
-  providerKindEl.hidden = true;
   // ROUND 19 (state 1) once dictation is there; the sheet as it was otherwise.
   const r19 = !!ask.dictation;
   setupPanelEl.classList.toggle("overlay-panel--setup", r19);
@@ -5864,7 +5881,7 @@ function openSetupSheet(ask, opts) {
 
   // THE BYO-ANTHROPIC SENTENCE, above the button and not after it. Row 3.14's second
   // condition: D removes one setup step of two, and must not be sold as zero-touch.
-  setupAccountEl.textContent = ask.account_note || "";
+  renderSetupAccountNote(ask.account_note || "");
   setupAccountEl.hidden = !setupAccountEl.textContent;
 
   // A BUILD THAT CANNOT INSTALL SAYS SO INSTEAD OF OFFERING A BUTTON THAT WILL FAIL. The
@@ -5962,7 +5979,7 @@ async function runSetup() {
   //
   // THE MECHANISM, and it is entirely this line's ordering. `provider_auth_status` was awaited
   // AFTER the done state had been painted, so the panel reached the screen with `Close` under
-  // his cursor and with `#provider-connect` and `#provider-account-kind` still above it — the
+  // his cursor and with `#provider-connect` still above it — the
   // state `openSetupSheet` left them in. The answer then came back `connected`,
   // `renderProviderAuth` hid both of those controls, and the panel shrank by exactly their
   // height with his hand already on the way down.

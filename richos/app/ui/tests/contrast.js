@@ -992,7 +992,7 @@ const SURFACES = [
         await p.click('#accounts-sheet [data-act="sign-one"]');
       }
       await p.waitForSelector("#setup-sheet:not([hidden])");
-      await p.waitForSelector("#provider-account-kind:not([hidden])");
+      await p.waitForSelector("#provider-connect:not([hidden])");
       await overlaySettled(p, "#setup-sheet");
     },
     preset: { providerAuth: "signed-out" },

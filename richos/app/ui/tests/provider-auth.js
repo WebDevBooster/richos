@@ -35,12 +35,13 @@ async function main() {
     assert(await page.isHidden("#provider-cancel"), "completed login still offered cancellation");
     const calls = await page.evaluate(() => window.__calls.filter(c => c.cmd === "provider_auth_start"));
     assertEqual(calls.length, 1, "login count");
-    assertEqual(calls[0].args.console, false, "subscription account selection");
+    assertEqual(Object.keys(calls[0].args || {}).length, 0, "sign-in carries no account-type argument");
+    assert(await page.evaluate(() => !document.getElementById("provider-account-kind") && !document.getElementById("provider-account-select")), "the Account type menu is back");
     assertEqual(page.errors.length, 0, "renderer errors");
     await page.close();
     return "browser handoff, verified return and one login request";
   });
-  await run.check("cancel permits a later Console retry without dismissing an active login", async () => {
+  await run.check("cancel permits a later retry without dismissing an active login", async () => {
     const page = await open(browser, {providerAuth: "signed-out", providerAuthHold: true});
     await page.waitForSelector("#provider-connect:not([hidden])");
     await page.click("#provider-connect");
@@ -50,12 +51,11 @@ async function main() {
     await page.waitForSelector("#provider-connect:not([hidden])");
     assert((await page.textContent("#setup-account")).includes("canceled"), "cancellation not reported");
     await page.evaluate(() => { window.__RICHOS_MOCK_PRESET__.providerAuthHold = false; });
-    await page.selectOption("#provider-account-select", "console");
     await page.click("#provider-connect");
     await page.waitForFunction(() => document.getElementById("setup-account").textContent.includes("is connected"));
     const calls = await page.evaluate(() => window.__calls.filter(c => c.cmd === "provider_auth_start"));
     assertEqual(calls.length, 2, "one request per explicit attempt");
-    assertEqual(calls[1].args.console, true, "Console account selection");
+    assertEqual(Object.keys(calls[1].args || {}).length, 0, "retry carries no account-type argument");
     assertEqual(page.errors.length, 0, "renderer errors");
     await page.close();
     return "explicit cancellation and retry select the intended provider flow";
