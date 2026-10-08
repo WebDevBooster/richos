@@ -136,10 +136,13 @@ mod opener;
 mod emission_trace;
 
 /// **DICTATION IN ANY APP** (`richos-hq/docs/plans/2026-10-08-dictation-anywhere.md`, rev 2).
-/// `dictation/` is the tool's macOS edges (the same executable started with `--richos-dictation`).
-/// Every decision is in `richos_voice::dictation`.
+/// `dictation/` is the tool's macOS edges (the same executable started with `--richos-dictation`);
+/// `dictation_app` is this app's side of it: starting the tool, the socket client, the voice-mode
+/// yield. Every decision is in `richos_voice::dictation`.
 #[cfg(target_os = "macos")]
 mod dictation;
+#[cfg(target_os = "macos")]
+mod dictation_app;
 
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
@@ -3564,6 +3567,20 @@ fn main() {
             let output_cache = app.path().app_cache_dir().unwrap_or_else(|_| attachments_home.join("cache"));
             let output_reader = app.state::<AppState>().reader.clone();
             app.manage(output_files::OutputFiles::for_app(output_store, output_reader, &attachments_home, &output_cache));
+            // DICTATION (plan slice 1): when dictation.json says on, the tool starts as this
+            // app's child, on a thread of its own so first paint never waits for it.
+            #[cfg(target_os = "macos")]
+            {
+                ensure_voice_state(app.handle());
+                let link = Arc::new(dictation_app::Link::default());
+                app.manage(link.clone());
+                dictation_app::boot(
+                    link,
+                    attachments_home.clone(),
+                    app.package_info().version.to_string(),
+                    Arc::new(AppVoice { app: app.handle().clone() }),
+                );
+            }
 
             // ================================================================
             // THE UPDATE PATH — last in setup, and last for a reason
@@ -4250,6 +4267,41 @@ use richos_voice::event::{VoiceEvent, VoiceObserver};
 #[derive(Default)]
 struct VoiceHandle {
     controller: Mutex<Option<VoiceController>>,
+    /// This voice session's gate on its turns: closed when dictation takes the microphone, so
+    /// the utterance in progress is discarded, never sent (dictation plan section 2).
+    #[cfg(target_os = "macos")]
+    gate: Mutex<Option<dictation_app::TurnGate>>,
+}
+
+/// Voice mode, as dictation's yield sees it: ended the moment a dictation starts listening.
+#[cfg(target_os = "macos")]
+struct AppVoice {
+    app: AppHandle,
+}
+
+#[cfg(target_os = "macos")]
+impl dictation_app::VoiceMode for AppVoice {
+    fn end_for_dictation(&self) -> bool {
+        let Some(handle) = self.app.try_state::<VoiceHandle>() else { return false };
+        // The gate FIRST: dropping the controller drains its recognizer, and whatever it still
+        // held must reach a closed gate.
+        if let Some(gate) = handle.gate.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            gate.close();
+        }
+        let controller = handle.controller.lock().unwrap_or_else(|p| p.into_inner()).take();
+        let was_on = controller.is_some();
+        drop(controller); // closes the microphone and joins the voice threads
+        if was_on {
+            // The window leaves voice mode the way it does when the pipeline stops on its own.
+            if let Err(e) = self.app.emit(
+                richos_voice::event::EVENT_VOICE_STATE,
+                serde_json::json!({ "state": "off", "at": richos_voice::controller::now_millis() }),
+            ) {
+                eprintln!("[richos] voice: the window could not be told voice mode ended: {e}");
+            }
+        }
+        was_on
+    }
 }
 
 /// Forwards voice events to the webview. Same shape as `TauriEmitter` above — the voice
@@ -4431,6 +4483,12 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     // "listening…" panel in a build with no speech model.
     speech_preflight()?;
     ensure_voice_state(&app);
+    // A dictation listening right now is written first, as if its key had been tapped, so voice
+    // mode and dictation never hold the microphone at once (dictation plan section 2).
+    #[cfg(target_os = "macos")]
+    if let Some(link) = app.try_state::<Arc<dictation_app::Link>>() {
+        link.finish();
+    }
     let handle = app.state::<VoiceHandle>();
     let mut slot = handle.controller.lock().map_err(|_| "voice state poisoned")?;
     if slot.is_some() {
@@ -4509,6 +4567,13 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
             // does (`adopt_at_the_turn_boundary`, CEO ruling §88).
             run_the_spoken_turn(spine, &state.work, &text, rich_audible);
         });
+    // Behind this session's gate, which dictation closes when it takes the microphone.
+    #[cfg(target_os = "macos")]
+    let submit = {
+        let gate = dictation_app::TurnGate::new();
+        *handle.gate.lock().map_err(|_| "voice state poisoned")? = Some(gate.clone());
+        dictation_app::gated_submit(gate, submit)
+    };
 
     let scratch_dir = app
         .path()
