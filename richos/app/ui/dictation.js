@@ -236,7 +236,7 @@
       <div class="dict-card-main"><h3 class="dict-card-title">Dictate in any app</h3><p class="dict-card-sub${cls}" id="dict-state">${st}</p></div>
       <button class="dict-switch" id="dict-switch" type="button" role="switch" data-act="toggle-on" aria-checked="${view.on}" aria-label="Dictate in any app"></button></div>`;
     // line 2: dictation works only while RichOS is open (every copy; the CEO, 2026-10-08), on or off
-    html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> When you close RichOS, dictation stops until you open it again.</span></p>`;
+    html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> When you quit RichOS, dictation stops until you open it again.</span></p>`;
     if (feedback === "on" && works()) html += `<p class="dict-feedback" id="dict-feedback" role="status">${ICON.check}<span>Dictation is on. Try it in the box on the right, or in any app.</span></p>`;
     // the key
     html += `<section class="dict-sec"><div class="dict-sec-h"><h4 class="dict-sec-t">Your key</h4><span class="dict-sec-note">Tap once to start, once more to stop. Nothing to hold down.</span></div>`;
@@ -431,7 +431,11 @@
     // The tool's menu bar menu (slice 3) writes `on` and the accuracy itself, and its Fix it and
     // Dictation settings… ask for this sheet: read again, or open it.
     bridge.listen("dictation-settings-changed", () => read());
-    bridge.listen("dictation-open-sheet", () => open());
+    // A sheet request is kept by the app until a page takes it (third review, finding 4): this
+    // page takes it on the event, and as it boots, so a request made while no page existed
+    // (RichOS kept running by its work with the window closed) still opens the sheet.
+    bridge.listen("dictation-open-sheet", () => { call("dictation_take_sheet_request"); open(); });
+    call("dictation_take_sheet_request").then(pending => { if (pending === true) open(); });
     bridge.listen("rich://dictation", event => {
       const p = event && event.payload !== undefined ? event.payload : event;
       if (p && p.key && capture) { pickKey(Number(p.key)); return; }

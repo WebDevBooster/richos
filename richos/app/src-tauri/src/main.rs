@@ -3893,6 +3893,7 @@ fn main() {
             dictation_app::dictation_permissions_changed,
             #[cfg(target_os = "macos")]
             dictation_app::dictation_open_settings,
+            dictation_take_sheet_request,
             #[cfg(target_os = "macos")]
             dictation_app::dictation_capture_key
         ])
@@ -4342,6 +4343,12 @@ impl dictation_app::VoiceMode for AppVoice {
     /// to open the Dictation sheet (`dictation-open-sheet`; the sheet is slice 2's).
     fn come_forward(&self, sheet: bool) {
         let app = self.app.clone();
+        if sheet {
+            // Kept until a page takes it: a window rebuilt here (RichOS kept running by its
+            // work with the window closed) has no page subscribed yet when the event below
+            // goes out, so the page asks for it as it boots (third review, finding 4).
+            DICTATION_SHEET_REQUEST.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         let ran = self.app.run_on_main_thread(move || {
             reopen_window(&app);
             if sheet {
@@ -4366,6 +4373,32 @@ impl dictation_app::VoiceMode for AppVoice {
 /// The page opens the Dictation sheet (the tool's **Dictation settings…** or **Fix it**).
 #[cfg(target_os = "macos")]
 const DICTATION_OPEN_SHEET: &str = "dictation-open-sheet";
+
+/// A sheet request not yet taken by a page (third review, finding 4): set by `come_forward`,
+/// taken once by `dictation_take_sheet_request`, which the page calls as it boots and when it
+/// hears the event, so a request made before the page existed still opens the sheet.
+static DICTATION_SHEET_REQUEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `true` once per request: the page takes the pending Dictation sheet request.
+#[tauri::command]
+fn dictation_take_sheet_request() -> bool {
+    DICTATION_SHEET_REQUEST.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod dictation_sheet_request_tests {
+    use super::*;
+
+    /// INVARIANT (third review, finding 4): a sheet request is kept until one page takes it,
+    /// and taken once; with none pending, a page booting opens nothing.
+    #[test]
+    fn a_sheet_request_is_taken_once() {
+        assert!(!dictation_take_sheet_request(), "nothing pending");
+        DICTATION_SHEET_REQUEST.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(dictation_take_sheet_request(), "the page that boots takes it");
+        assert!(!dictation_take_sheet_request(), "and it is gone");
+    }
+}
 /// The tool's menu bar menu changed `dictation.json`; what the page shows of it is re-read.
 #[cfg(target_os = "macos")]
 const DICTATION_SETTINGS_CHANGED: &str = "dictation-settings-changed";

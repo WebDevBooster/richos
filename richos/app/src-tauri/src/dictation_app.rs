@@ -105,13 +105,15 @@ pub trait VoiceMode: Send + Sync {
 /// What a message from the tool does in the app.
 pub fn on_tool_message(message: &ToolMessage, voice: &dyn VoiceMode, link: &Link) {
     match message {
-        ToolMessage::WillListen => {
+        ToolMessage::WillListen { seq } => {
             if voice.end_for_dictation() {
                 eprintln!("[richos] voice: ended because dictation started listening");
             }
             // Answered only now, with voice mode's microphone and turn gate closed, so the
-            // tool opens its microphone after and never beside it (finding 2).
-            link.send(&AppMessage::VoiceYielded);
+            // tool opens its microphone after and never beside it (finding 2); the answer names
+            // the handover and this copy, so it stands for no other (third review, finding 1).
+            let bundle = std::env::current_exe().map(|e| bundle_of(&e).display().to_string()).unwrap_or_default();
+            link.send(&AppMessage::VoiceYielded { seq: *seq, bundle });
         }
         ToolMessage::State { .. } => link.observe(message.clone()),
         ToolMessage::Key { .. } => {}
@@ -242,6 +244,22 @@ impl Link {
         true
     }
 
+    /// Hear the tool until its socket closes. At the close, the host is told FIRST, while the
+    /// tool's last word is still here to read (`tool_said_off`: recheck, third review, finding
+    /// 2: clearing it first made every ended tool look as if it had not said off), and only then
+    /// is the state cleared and the window told.
+    fn hear(self: &Arc<Self>, reader: UnixStream, voice: Arc<dyn VoiceMode>) {
+        ipc::read_lines::<ToolMessage>(reader, |m| on_tool_message(&m, voice.as_ref(), self));
+        *self.writer.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        eprintln!("[richos] dictation: the tool's socket closed");
+        if let Some(on_closed) = self.on_closed.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+            on_closed();
+        }
+        *self.last.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        self.changed.notify_all();
+        self.tell_listener(None);
+    }
+
     /// Connect to the tool's socket and start hearing it.
     fn connect(self: &Arc<Self>, hello: AppMessage, voice: Arc<dyn VoiceMode>) -> std::io::Result<()> {
         let socket = ipc::runtime_dir().join(ipc::SOCKET_NAME);
@@ -249,17 +267,7 @@ impl Link {
         let reader = stream.try_clone()?;
         *self.writer.lock().unwrap_or_else(|p| p.into_inner()) = Some(stream);
         let link = self.clone();
-        std::thread::Builder::new().name("dictation-link".into()).spawn(move || {
-            ipc::read_lines::<ToolMessage>(reader, |m| on_tool_message(&m, voice.as_ref(), &link));
-            *link.writer.lock().unwrap_or_else(|p| p.into_inner()) = None;
-            *link.last.lock().unwrap_or_else(|p| p.into_inner()) = None;
-            link.changed.notify_all();
-            link.tell_listener(None);
-            eprintln!("[richos] dictation: the tool's socket closed");
-            if let Some(on_closed) = link.on_closed.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
-                on_closed();
-            }
-        })?;
+        std::thread::Builder::new().name("dictation-link".into()).spawn(move || link.hear(reader, voice))?;
         self.send(&hello);
         Ok(())
     }
@@ -404,16 +412,7 @@ impl Host {
             return;
         }
         let on = self.settings().map(|s| s.on).unwrap_or(false);
-        let now = Instant::now();
-        let allowed = {
-            let mut recent = self.restarts.lock().unwrap_or_else(|p| p.into_inner());
-            recent.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
-            let allowed = restart_allowed(on, &recent, now);
-            if allowed {
-                recent.push(now);
-            }
-            allowed
-        };
+        let allowed = self.restart_permitted(on);
         if !on {
             return;
         }
@@ -434,15 +433,35 @@ impl Host {
 
     /// `ensure_tool`, off this thread, when dictation is on and no tool is connected: what a
     /// read of the sheet or the row does, so a missing tool is never only reported (finding 5).
-    fn reconnect_in_background(&self) {
+    /// `true` when a tool may be started again now: dictation is on, and fewer than
+    /// [`RESTART_LIMIT`] starts were granted in the last [`RESTART_WINDOW`]. A grant is counted
+    /// here, so the sheet's reads (`reconnect_in_background`) and the socket's close
+    /// (`tool_gone`) share one bound (recheck, third review, finding 3).
+    fn restart_permitted(&self, on: bool) -> bool {
+        let now = Instant::now();
+        let mut recent = self.restarts.lock().unwrap_or_else(|p| p.into_inner());
+        recent.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
+        let allowed = restart_allowed(on, &recent, now);
+        if allowed {
+            recent.push(now);
+        }
+        allowed
+    }
+
+    /// A tool that should be running and is not is started again off this thread, within the
+    /// restart bound. `true` when a start was set going.
+    fn reconnect_in_background(&self) -> bool {
         if self.link.connected() || !self.settings().map(|s| s.on).unwrap_or(false) {
-            return;
+            return false;
         }
         if self.starting.try_lock().is_err() {
-            return; // a start is under way
+            return false; // a start is under way
         }
-        let Some(host) = self.me.upgrade() else { return };
-        std::thread::Builder::new().name("dictation-reconnect".into()).spawn(move || host.ensure_tool()).ok();
+        if !self.restart_permitted(true) {
+            return false; // the bound: not started again until the switch is used
+        }
+        let Some(host) = self.me.upgrade() else { return false };
+        std::thread::Builder::new().name("dictation-reconnect".into()).spawn(move || host.ensure_tool()).is_ok()
     }
 
     fn start_tool_now(&self) {
@@ -962,7 +981,7 @@ mod tests {
         submit("a turn before dictation".into(), false);
         assert_eq!(sent.load(Ordering::SeqCst), 1);
         let link = Link::default();
-        on_tool_message(&ToolMessage::WillListen, &voice, &link);
+        on_tool_message(&ToolMessage::WillListen { seq: 9 }, &voice, &link);
         assert!(!voice.on.load(Ordering::SeqCst), "voice mode ended");
         // The recognizer drains what it had: it reaches the gate, and stops there.
         submit("the utterance in progress".into(), false);
@@ -1025,12 +1044,66 @@ mod tests {
         let link = Link::default();
         *link.writer.lock().unwrap() = Some(app_end);
         let voice = FakeVoice { on: AtomicBool::new(true), gate: TurnGate::new() };
-        on_tool_message(&ToolMessage::WillListen, &voice, &link);
+        on_tool_message(&ToolMessage::WillListen { seq: 9 }, &voice, &link);
         assert!(!voice.on.load(Ordering::SeqCst), "voice mode ended before the answer");
         *link.writer.lock().unwrap() = None;
         let mut heard = Vec::new();
         ipc::read_lines::<AppMessage>(tool_end, |m| heard.push(m));
-        assert_eq!(heard, vec![AppMessage::VoiceYielded]);
+        let own = std::env::current_exe().map(|e| bundle_of(&e).display().to_string()).unwrap();
+        assert_eq!(heard, vec![AppMessage::VoiceYielded { seq: 9, bundle: own }], "the answer names the handover and this copy");
+    }
+
+    /// INVARIANT (third review, finding 2): the tool's last word survives its socket closing
+    /// long enough for the host to read it. The review's counterexample: off observed, then at
+    /// EOF `tool_said_off` was false because the reader had cleared the state before telling
+    /// the host; through the real reader, the host now hears the close with the off still there.
+    #[test]
+    fn the_tools_off_is_still_there_when_the_socket_closes() {
+        let (app_end, mut tool_end) = UnixStream::pair().unwrap();
+        let link = Arc::new(Link::default());
+        *link.writer.lock().unwrap() = Some(app_end.try_clone().unwrap());
+        let said_off_at_close = Arc::new(AtomicBool::new(false));
+        let seen = said_off_at_close.clone();
+        let weak = Arc::downgrade(&link);
+        link.set_on_closed(Box::new(move || {
+            if let Some(link) = weak.upgrade() {
+                seen.store(link.tool_said_off(), Ordering::SeqCst);
+            }
+        }));
+        let off = ToolMessage::State {
+            owner: "/other/RichOS.app".into(),
+            on: false,
+            listening: false,
+            writing: false,
+            problem: None,
+            key_tap: false,
+            secure_input: false,
+            secure_app: None,
+            key: 1,
+            model: "small.en".into(),
+        };
+        ipc::send(&mut tool_end, &off).unwrap();
+        drop(tool_end);
+        let voice: Arc<dyn VoiceMode> = Arc::new(FakeVoice { on: AtomicBool::new(false), gate: TurnGate::new() });
+        link.hear(app_end, voice);
+        assert!(said_off_at_close.load(Ordering::SeqCst), "the host read the off at the close");
+        assert!(!link.tool_said_off(), "and the state is cleared after the host was told");
+        assert!(!link.connected());
+    }
+
+    /// INVARIANT (third review, finding 3): the sheet's reads share the restart bound with the
+    /// socket's close: after RESTART_LIMIT grants in RESTART_WINDOW, a read starts no tool.
+    #[test]
+    fn a_read_of_the_sheet_keeps_the_restart_bound() {
+        let r = rig("read-bound");
+        r.host.update(|s| s.on = true).unwrap();
+        *r.host.link.writer.lock().unwrap() = None;
+        for _ in 0..RESTART_LIMIT {
+            assert!(r.host.restart_permitted(true));
+        }
+        assert!(!r.host.restart_permitted(true), "the bound");
+        assert!(!r.host.reconnect_in_background(), "a read past the bound starts nothing");
+        std::fs::remove_dir_all(&r.dir).ok();
     }
 
     /// INVARIANT: `finish` with no tool, or with a tool that is not listening, says nothing to
@@ -1263,7 +1336,7 @@ mod tests {
     #[test]
     fn the_windows_event() {
         assert_eq!(event_payload(Some(&ToolMessage::Key { key: 9 })), serde_json::json!({"key": 9}));
-        assert_eq!(event_payload(Some(&ToolMessage::WillListen)), serde_json::json!({"changed": true}));
+        assert_eq!(event_payload(Some(&ToolMessage::WillListen { seq: 0 })), serde_json::json!({"changed": true}));
         assert_eq!(event_payload(None), serde_json::json!({"changed": true}));
         let heard = Arc::new(Mutex::new(Vec::new()));
         let into = heard.clone();

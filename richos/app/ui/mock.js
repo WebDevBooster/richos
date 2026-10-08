@@ -2908,6 +2908,13 @@
           dictationCalls.push({ cmd, pane: args.pane });
           if (args.pane !== "microphone" && args.pane !== "accessibility") throw `${args.pane} is not a pane dictation opens`;
           return null;
+        case "dictation_take_sheet_request": {
+          // A sheet request kept until a page takes it (main.rs `dictation_take_sheet_request`): true once.
+          dictationCalls.push({ cmd });
+          const pending = !!preset.dictationSheetPending;
+          preset.dictationSheetPending = false;
+          return pending;
+        }
         case "dictation_capture_key":
           dictationCalls.push({ cmd, on: !!args.on });
           return !!args.on && dictationView.keyTap;

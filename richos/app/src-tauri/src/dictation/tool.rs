@@ -54,19 +54,63 @@ extern "C" fn on_sigterm(_: libc::c_int) {
     TERMINATED.store(true, Ordering::SeqCst);
 }
 
-/// **The microphone handover, counted** (review finding 2): `will-listen` went to `expected`
-/// apps; the microphone opens once `heard` answers arrived, or at the bound.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// **The microphone handover, counted by copy** (review finding 2; third review, finding 1):
+/// `will-listen` went to the copies in `told`; the microphone opens once every one of them has
+/// answered this handover, and never at the bound.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Handover {
     pub seq: u64,
-    pub expected: usize,
-    pub heard: usize,
+    /// The copies told `will-listen`, by bundle (an app whose `hello` had not arrived is an
+    /// empty name, which no answer can match).
+    pub told: std::collections::BTreeSet<String>,
+    /// The copies that have answered this handover.
+    pub heard: std::collections::BTreeSet<String>,
+}
+
+/// What one `voice-yielded` did to the handover (recheck, third review, finding 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Accept {
+    /// Counted; others are still to answer.
+    Counted,
+    /// Counted, and every copy told has now answered.
+    Complete,
+    /// An answer to an earlier handover: dropped.
+    Stale,
+    /// A second answer from a copy already counted: dropped.
+    Duplicate,
+    /// An answer from a copy that was not told: dropped.
+    Unknown,
 }
 
 impl Handover {
+    pub fn new(seq: u64, told: Vec<String>) -> Handover {
+        Handover { seq, told: told.into_iter().collect(), heard: Default::default() }
+    }
+
     /// Every app that was told has answered.
     pub fn complete(&self) -> bool {
-        self.heard >= self.expected
+        self.told.iter().all(|b| self.heard.contains(b))
+    }
+
+    /// **One answer, matched to this handover and its copy.** The review's counterexample: a
+    /// late answer from A to a timed-out handover plus A's current answer counted as two apps
+    /// while B had not yielded; here A's late answer is Stale and A's second is Duplicate, and
+    /// B's silence keeps the microphone closed.
+    pub fn accept(&mut self, seq: u64, bundle: &str) -> Accept {
+        if seq != self.seq {
+            return Accept::Stale;
+        }
+        if !self.told.contains(bundle) {
+            return Accept::Unknown;
+        }
+        if !self.heard.insert(bundle.to_string()) {
+            return Accept::Duplicate;
+        }
+        if self.complete() {
+            Accept::Complete
+        } else {
+            Accept::Counted
+        }
     }
 
     /// **May the microphone open now?** Only when every app has yielded it: at the bound, an
@@ -706,29 +750,36 @@ impl Tool {
                     log::line(&format!("{why}; the tool ends"));
                     return self.end();
                 }
-                Control::App(AppMessage::VoiceYielded) => {
+                Control::App(AppMessage::VoiceYielded { seq, bundle }) => {
                     if let Some(h) = self.handover.as_mut() {
-                        h.heard += 1;
-                        if h.complete() {
-                            let h = *h;
-                            self.handover = None;
-                            log::line(&format!("every app ({}) yielded the microphone", h.expected));
-                            self.open_microphone();
+                        match h.accept(seq, &bundle) {
+                            Accept::Complete => {
+                                let told = h.told.len();
+                                self.handover = None;
+                                log::line(&format!("every app ({told}) yielded the microphone for will-listen {seq}"));
+                                self.open_microphone();
+                            }
+                            Accept::Counted => {}
+                            verdict => log::line(&format!(
+                                "a voice-yielded for will-listen {seq} from {bundle} is dropped: {verdict:?}"
+                            )),
                         }
+                    } else {
+                        log::line(&format!("a voice-yielded for will-listen {seq} from {bundle} arrived with no handover open"));
                     }
                 }
                 Control::HandoverTimeout(seq) => {
-                    if let Some(h) = self.handover.filter(|h| h.seq == seq) {
-                        self.handover = None;
+                    let due = self.handover.as_ref().is_some_and(|h| h.seq == seq);
+                    if let Some(h) = due.then(|| self.handover.take()).flatten() {
                         if h.microphone_may_open() {
                             self.open_microphone();
                         } else {
                             // Fails closed (recheck finding 1): voice mode may still be
                             // listening in the app that did not answer, so dictation does not.
                             log::line(&format!(
-                                "{} of {} app(s) answered will-listen within {} ms; the microphone stays closed, voice-still-listening",
-                                h.heard,
-                                h.expected,
+                                "{} of {} app(s) answered will-listen {seq} within {} ms; the microphone stays closed, voice-still-listening",
+                                h.heard.len(),
+                                h.told.len(),
                                 HANDOVER_WAIT.as_millis()
                             ));
                             self.session.finish(Err(Problem::VoiceStillListening));
@@ -1030,16 +1081,20 @@ impl Tool {
         // connected app is told, and the microphone opens once each has answered that it closed
         // voice mode (finding 2), or at the bound.
         self.publish();
-        let expected = self.hub.broadcast(&ToolMessage::WillListen);
         self.handovers += 1;
-        let handover = Handover { seq: self.handovers, expected, heard: 0 };
+        let seq = self.handovers;
+        let told = self.hub.broadcast_to(&ToolMessage::WillListen { seq });
+        let handover = Handover::new(seq, told);
         if handover.complete() {
             self.open_microphone();
             return;
         }
-        log::line(&format!("will-listen sent to {expected} app(s); the microphone waits for their answer"));
+        log::line(&format!(
+            "will-listen {seq} sent to {} app(s); the microphone waits for each one's answer",
+            handover.told.len()
+        ));
         self.handover = Some(handover);
-        later(&self.tx, HANDOVER_WAIT, Control::HandoverTimeout(handover.seq));
+        later(&self.tx, HANDOVER_WAIT, Control::HandoverTimeout(seq));
     }
 
     /// The microphone, once every app has yielded it.
@@ -1258,23 +1313,48 @@ mod tests {
     /// nobody to tell it opens at once.
     #[test]
     fn the_handover_waits_for_every_answer() {
-        let mut h = Handover { seq: 1, expected: 2, heard: 0 };
+        let mut h = Handover::new(1, vec!["/a/RichOS.app".into(), "/b/RichOS.app".into()]);
         assert!(!h.complete());
-        h.heard = 1;
+        h.accept(1, "/a/RichOS.app");
         assert!(!h.complete());
-        h.heard = 2;
+        h.accept(1, "/b/RichOS.app");
         assert!(h.complete());
-        assert!(Handover { seq: 2, expected: 0, heard: 0 }.complete(), "no app connected: nothing to wait for");
+        assert!(Handover::new(2, Vec::new()).complete(), "no app connected: nothing to wait for");
     }
 
     /// INVARIANT (recheck finding 1): at the bound, an unanswered will-listen keeps the
     /// microphone closed; it opens only once every app has yielded, or with no app connected.
     #[test]
     fn the_handover_fails_closed_at_the_bound() {
-        assert!(!Handover { seq: 1, expected: 2, heard: 1 }.microphone_may_open(), "one app silent: closed");
-        assert!(!Handover { seq: 1, expected: 1, heard: 0 }.microphone_may_open(), "the only app silent: closed");
-        assert!(Handover { seq: 1, expected: 2, heard: 2 }.microphone_may_open(), "every app yielded");
-        assert!(Handover { seq: 1, expected: 0, heard: 0 }.microphone_may_open(), "no app connected: nobody to wait for");
+        let two = || Handover::new(1, vec!["/a/RichOS.app".into(), "/b/RichOS.app".into()]);
+        let mut one_silent = two();
+        assert_eq!(one_silent.accept(1, "/a/RichOS.app"), Accept::Counted);
+        assert!(!one_silent.microphone_may_open(), "one app silent: closed");
+        assert!(!Handover::new(1, vec!["/a/RichOS.app".into()]).microphone_may_open(), "the only app silent: closed");
+        let mut both = two();
+        both.accept(1, "/a/RichOS.app");
+        assert_eq!(both.accept(1, "/b/RichOS.app"), Accept::Complete);
+        assert!(both.microphone_may_open(), "every app yielded");
+        assert!(Handover::new(1, Vec::new()).microphone_may_open(), "no app connected: nobody to wait for");
+    }
+
+    /// INVARIANT (third review, finding 1): an answer counts only for its own handover and its
+    /// own copy. The review's counterexample: A's late answer to a timed-out handover plus A's
+    /// current answer counted as two apps while B had not yielded.
+    #[test]
+    fn an_answer_counts_only_for_its_handover_and_its_copy() {
+        let mut h = Handover::new(2, vec!["/a/RichOS.app".into(), "/b/RichOS.app".into()]);
+        assert_eq!(h.accept(1, "/a/RichOS.app"), Accept::Stale, "A's late answer to handover 1");
+        assert_eq!(h.accept(2, "/a/RichOS.app"), Accept::Counted, "A's answer to this one");
+        assert_eq!(h.accept(2, "/a/RichOS.app"), Accept::Duplicate, "A again stands for nobody else");
+        assert_eq!(h.accept(2, "/c/RichOS.app"), Accept::Unknown, "a copy that was not told");
+        assert!(!h.microphone_may_open(), "B has not yielded: closed");
+        assert_eq!(h.accept(2, "/b/RichOS.app"), Accept::Complete);
+        assert!(h.microphone_may_open());
+        // An app whose hello had not arrived is an empty name, which no answer can match.
+        let mut unnamed = Handover::new(3, vec![String::new()]);
+        assert_eq!(unnamed.accept(3, "/a/RichOS.app"), Accept::Unknown);
+        assert!(!unnamed.microphone_may_open());
     }
 
     /// INVARIANT (finding 1): a writing worker told to stop ends with its child gone and is

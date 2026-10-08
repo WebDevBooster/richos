@@ -25,11 +25,11 @@ async function main() {
     const page = await browser.newPage({ viewport: opts.viewport || { width: 1440, height: 900 }, locale: "en-US" });
     page.setDefaultTimeout(30000); // load-bound: a hang guard only; every wait below waits for a fact
     page.on("pageerror", e => errors.push(String(e)));
-    await page.addInitScript(({ theme, view, ready, axAsked, tapNever }) => {
+    await page.addInitScript(({ theme, view, ready, axAsked, tapNever, sheetPending }) => {
       localStorage.setItem("richos-theme", theme);
       localStorage.setItem("richos-mock-config", JSON.stringify({ theme, font_scale: 100 }));
-      window.__RICHOS_MOCK_PRESET__ = { dictation: ready, dictationView: view, dictationAxAsked: axAsked, dictationTapNever: tapNever };
-    }, { theme, view: view || {}, ready: opts.ready !== false, axAsked: !!opts.axAsked,
+      window.__RICHOS_MOCK_PRESET__ = { dictation: ready, dictationView: view, dictationAxAsked: axAsked, dictationTapNever: tapNever, dictationSheetPending: sheetPending };
+    }, { theme, view: view || {}, ready: opts.ready !== false, axAsked: !!opts.axAsked, sheetPending: !!opts.sheetPending,
          // A fixture that says keyTap false with its own tool and Accessibility allowed is a tool
          // whose tap never comes (the sheet pokes it once; recheck finding 6), unless opts says.
          tapNever: opts.tapNever !== undefined ? !!opts.tapNever : !!(view && view.keyTap === false && view.owner === "self" && view.ax === "allowed") });
@@ -50,7 +50,7 @@ async function main() {
     await page.waitForSelector("#dictation-sheet:not([hidden]) #dict-state");
   }
   const text = (page, sel) => page.locator(sel).innerText().then(t => t.replace(/\s+/g, " ").trim());
-  const calls = page => page.evaluate(() => window.__RICHOS_MOCK__.dictationCalls().map(c => c.cmd + (c.on !== undefined ? ":" + c.on : "") + (c.key !== undefined ? ":" + c.key : "") + (c.accuracy ? ":" + c.accuracy : "") + (c.pane ? ":" + c.pane : "") + (c.forward !== undefined ? ":" + c.forward : "")).filter(c => c !== "dictation_status"));
+  const calls = page => page.evaluate(() => window.__RICHOS_MOCK__.dictationCalls().map(c => c.cmd + (c.on !== undefined ? ":" + c.on : "") + (c.key !== undefined ? ":" + c.key : "") + (c.accuracy ? ":" + c.accuracy : "") + (c.pane ? ":" + c.pane : "") + (c.forward !== undefined ? ":" + c.forward : "")).filter(c => c !== "dictation_status" && c !== "dictation_take_sheet_request"));
   const set = (page, patch) => page.evaluate(p => window.__RICHOS_MOCK__.dictationSet(p), patch);
   const waitText = (page, sel, want) => page.waitForFunction(([s, w]) => {
     const n = document.querySelector(s);
@@ -109,7 +109,7 @@ async function main() {
     assertEqual(await text(page, ".dict-card-title"), "Dictate in any app");
     assertEqual(await text(page, "#dict-state"), "Off. Turn it on to type with your voice in Mail, Slack, your browser, anywhere.");
     assertEqual(await page.getAttribute("#dict-switch", "aria-checked"), "false");
-    assertEqual(await text(page, "#dict-copy-note"), "Works only while RichOS is open. When you close RichOS, dictation stops until you open it again.");
+    assertEqual(await text(page, "#dict-copy-note"), "Works only while RichOS is open. When you quit RichOS, dictation stops until you open it again.");
     const keys = await page.locator(".dict-keys > *").allInnerTexts();
     assertEqual(keys, ["esc", "F1", "F2", "F3", "F4", "F5", "F6", "F7"], "esc, then F1 to F7");
     assertEqual(await page.getAttribute('[data-act="key"][data-k="1"]', "aria-checked"), "true");
@@ -126,11 +126,11 @@ async function main() {
     // off, and for a copy whose key another copy holds.
     const on = await open("dark", ALLOWED);
     await sheet(on);
-    assertEqual(await text(on, "#dict-copy-note"), "Works only while RichOS is open. When you close RichOS, dictation stops until you open it again.");
+    assertEqual(await text(on, "#dict-copy-note"), "Works only while RichOS is open. When you quit RichOS, dictation stops until you open it again.");
     await on.close();
     const other = await open("dark", { ...ALLOWED, owner: "other" });
     await sheet(other);
-    assertEqual(await text(other, "#dict-copy-note"), "Works only while RichOS is open. When you close RichOS, dictation stops until you open it again.");
+    assertEqual(await text(other, "#dict-copy-note"), "Works only while RichOS is open. When you quit RichOS, dictation stops until you open it again.");
     await other.close();
     return "off, and line 2 for every copy";
   });
@@ -314,6 +314,20 @@ async function main() {
     await waitText(page, "#dict-state", "Paused: Another app is hiding your keys, so F1 can't reach me. Quitting the app where you last typed a password usually fixes it.");
     await page.close();
     return "line 1, line 4 named and unnamed, and back to On";
+  });
+
+  // ---- 8c. a sheet request made before the page existed (third review, finding 4) --------------
+  await run.check("a Dictation settings or Fix it request made while no page existed opens the sheet as the page boots, and is taken once", async () => {
+    const page = await open("dark", ALLOWED, { sheetPending: true });
+    await page.waitForSelector("#dict-switch");
+    const taken = await page.evaluate(() => window.__RICHOS_MOCK__.dictationCalls().filter(c => c.cmd === "dictation_take_sheet_request").length);
+    assert(taken >= 1, "the page took the request as it booted");
+    await page.close();
+    const plain = await open("dark", ALLOWED);
+    await plain.waitForSelector("#set-btn");
+    assertEqual(await plain.locator("#dict-switch").count(), 0, "no request, no sheet");
+    await plain.close();
+    return "the sheet opened from the kept request, and a page with none opened nothing";
   });
 
   // ---- 9. the off notice ---------------------------------------------------------------------

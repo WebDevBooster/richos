@@ -1,0 +1,27 @@
+2026-10-08T16:06:32Z dictation tool started: version 1.2.0-dev.6dcd14dcb, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T16:06:32Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-a4d2816af3b0/engine/runtime/bin
+2026-10-08T16:06:33Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:06:33Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:06:33Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:06:33Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T16:06:33Z Accessibility is not allowed for RichOS yet; no key tap until it is
+2026-10-08T16:06:33Z an app connected: version 1.2.0-dev.6dcd14dcb, /Users/admin/testvm/walk-a4d2816af3b0/RichOS.app, data folder /Users/admin/testvm/walk-a4d2816af3b0/home/Library/Application Support/com.richos.app (this tool is 1.2.0-dev.6dcd14dcb)
+2026-10-08T16:06:33Z menu bar item at 1438,0 34x24
+2026-10-08T16:06:34Z the menu page is ready
+2026-10-08T16:06:34Z the flight page is ready
+2026-10-08T16:06:34Z the bar page is ready
+2026-10-08T16:06:52Z the app that started this tool has ended; the tool ends
+2026-10-08T16:06:56Z dictation tool started: version 1.2.0-dev.6dcd14dcb, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T16:06:56Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-a4d2816af3b0/engine/runtime/bin
+2026-10-08T16:06:56Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:06:56Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:06:56Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:06:56Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T16:06:56Z Accessibility is not allowed for RichOS yet; no key tap until it is
+2026-10-08T16:06:56Z an app connected: version 1.2.0-dev.6dcd14dcb, /Users/admin/testvm/walk-a4d2816af3b0/RichOS.app, data folder /Users/admin/testvm/walk-a4d2816af3b0/home/Library/Application Support/com.richos.app (this tool is 1.2.0-dev.6dcd14dcb)
+2026-10-08T16:06:56Z menu bar item at 1438,0 34x24
+2026-10-08T16:06:56Z the flight page is ready
+2026-10-08T16:06:56Z the menu page is ready
+2026-10-08T16:06:56Z the bar page is ready
+2026-10-08T16:11:21Z Secure Event Input is on, held by System Settings: the key cannot reach the tap
+2026-10-08T16:13:05Z Secure Event Input is off

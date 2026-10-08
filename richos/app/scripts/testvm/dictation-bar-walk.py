@@ -70,7 +70,7 @@ command = dictation_walk.command
 words_of = dictation_walk.words_of
 
 STEPS = ['identity', 'stage', 'check-window', 'check-panel', 'relaunch', 'settle', 'frames', 'fullscreen', 'menu',
-         'nofield', 'nosound', 'apps', 'chromium', 'window-closed', 'accuracy-mid']
+         'nofield', 'nosound', 'apps', 'chromium', 'accuracy-mid', 'window-closed', 'quit-listening', 'quit-writing']
 TEXTEDIT = 'com.apple.TextEdit'
 # The bar's drawn lines as the guest's tesseract should find them (a fragment of each, so a
 # line break or an apostrophe read as a quote does not decide the step).
@@ -470,6 +470,60 @@ class BarWalk(dictation_walk.DictationWalk):
         out['flight'] = flew[-1].split(' ', 1)[-1] if flew else 'no flight: the app gave Accessibility no rectangle, so the bar said Added alone'
         return out
 
+    def quit_listening(self):
+        return self.quit_during('listening')
+
+    def quit_writing(self):
+        return self.quit_during('writing')
+
+    def quit_during(self, phase):
+        """RichOS quit by its window while a dictation is listening, or being written down (first
+        review, finding 1; third review's missing coverage): the tool ends with the app, no
+        whisper-cli is left, the dictation's scratch folder is empty, and for the writing case the
+        log says the decoder was stopped and the recording removed."""
+        self.use_sample(self.long)
+        launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
+        self.log = launched['log']
+        app = launched['pid']
+        tool = self.wait_tool()['pid']
+        time.sleep(FRESH_TOOL_SETTLE)
+        self.bar_document()
+        since = len(self.dlog_lines())
+        self.press('122')
+        self.wait_dlog('listening (', since, 20)
+        if phase == 'writing':
+            time.sleep(1.5)
+            self.press('122')
+            self.wait_dlog('bar shown: writing', since, 20)
+        scratch = self.data + '/dictation-scratch'
+        before = guest(self.vm, 'ls -A ' + shlex.quote(scratch) + ' 2>/dev/null || true')
+        self.osa(f'tell application "System Events" to tell (first process whose unix id is {app}) to '
+                 'click (first button of window 1 whose subrole is "AXCloseButton")')
+        started = time.monotonic()
+        app_gone = tool_gone = None
+        while time.monotonic() - started < 30 and (app_gone is None or tool_gone is None):
+            if app_gone is None and guest(self.vm, f'kill -0 {app} 2>/dev/null && echo alive || true') != 'alive':
+                app_gone = round(time.monotonic() - started, 2)
+            if tool_gone is None and guest(self.vm, f'kill -0 {tool} 2>/dev/null && echo alive || true') != 'alive':
+                tool_gone = round(time.monotonic() - started, 2)
+            time.sleep(0.1)
+        time.sleep(2)
+        decoders = guest(self.vm, 'ps -axo pid=,command= | grep -i whisper-cli | grep -v grep || true').strip()
+        after = guest(self.vm, 'ls -A ' + shlex.quote(scratch) + ' 2>/dev/null || true').strip()
+        said = [x for x in self.dlog_lines()[since:] if 'stopping its decoder and removing its recording' in x]
+        out = {'phase': phase, 'app_pid': app, 'tool_pid': tool, 'app_gone_after_seconds': app_gone,
+               'tool_gone_after_seconds': tool_gone, 'scratch_before': before.strip(), 'scratch_after': after,
+               'decoders_left': decoders, 'log_said': said[-1:]}
+        if app_gone is None or tool_gone is None:
+            raise StepFailed(f'the app or its tool did not end: {out}')
+        if decoders:
+            raise StepFailed(f'a decoder is left running after the quit: {out}')
+        if after:
+            raise StepFailed(f'recording files are left after the quit: {out}')
+        if phase == 'writing' and not said:
+            raise StepFailed(f'the tool did not say it stopped the decoder and removed the recording: {out}')
+        return out
+
     def close_window_quits(self, on):
         """Relaunch with dictation `on`, close the app's window, and time the app's end and the tool's."""
         launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1' if on else '0'})
@@ -520,15 +574,18 @@ class BarWalk(dictation_walk.DictationWalk):
 
     def accuracy_mid(self):
         """Finding 6: the accuracy is pinned when a dictation begins."""
-        launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
-        self.log = launched['log']
-        self.facts['app_pid'] = launched['pid']
-        self.save()
-        self.wait_tool()
-        # The menu step's press comes long after the tool's start (the settle step waits for the
-        # app's voice-readiness line first); this one came 3 s after a fresh tool's start and
-        # reached no item (walk-c409831e46f9). A settle before the press.
-        time.sleep(FRESH_TOOL_SETTLE)
+        # On the app and tool already running (the chromium step's), so the press on the item is
+        # the menu step's press, minutes into a tool's life, which has opened the menu in every
+        # run; a press seconds after a fresh tool's start under a relaunched app opened nothing
+        # in walk-c409831e46f9, walk-8dcad10d445b and walk-3520f87af8f9 (8 s settle, two presses,
+        # the activation handed back: not understood, and not what this step is about).
+        if not self.tool_pids():
+            launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
+            self.log = launched['log']
+            self.facts['app_pid'] = launched['pid']
+            self.save()
+            self.wait_tool()
+            time.sleep(FRESH_TOOL_SETTLE)
         # Whatever the file says, this dictation begins on More accurate.
         self.presses_to_open = 0
         self.choose_accuracy(0)

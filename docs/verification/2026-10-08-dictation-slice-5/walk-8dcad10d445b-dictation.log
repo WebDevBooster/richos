@@ -1,0 +1,120 @@
+2026-10-08T15:59:04Z dictation tool started: version 1.2.0-dev.6dcd14dcb, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T15:59:04Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-8dcad10d445b/engine/runtime/bin
+2026-10-08T15:59:04Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T15:59:04Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T15:59:04Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T15:59:04Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T15:59:05Z key tap created for F1
+2026-10-08T15:59:05Z an app connected: version 1.2.0-dev.6dcd14dcb, /Users/admin/testvm/walk-8dcad10d445b/RichOS.app, data folder /Users/admin/testvm/walk-8dcad10d445b/home/Library/Application Support/com.richos.app (this tool is 1.2.0-dev.6dcd14dcb)
+2026-10-08T15:59:05Z menu bar item at 1438,0 34x24
+2026-10-08T15:59:05Z the flight page is ready
+2026-10-08T15:59:05Z the bar page is ready
+2026-10-08T15:59:05Z the menu page is ready
+2026-10-08T16:01:04Z menu bar item pressed
+2026-10-08T16:01:04Z menu opened from the menu bar item; the front app is pid Some(2113)
+2026-10-08T16:01:04Z menu shown at 1126,28 346x319
+2026-10-08T16:01:04Z menu key window shown; the tool is active: true; front pid Some(2113)
+2026-10-08T16:01:06Z accuracy set to small.en from the menu bar; the next dictation uses it
+2026-10-08T16:01:06Z menu shown at 1126,28 346x319
+2026-10-08T16:01:06Z menu key window shown; the tool is active: true; front pid Some(2113)
+2026-10-08T16:01:06Z menu closed; the front app is pid Some(2113)
+2026-10-08T16:01:09Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T16:01:09Z every app (1) yielded the microphone
+2026-10-08T16:01:09Z listening (injected wav (/Users/admin/testvm/walk-8dcad10d445b/home/dictation-sample.wav))
+2026-10-08T16:01:09Z bar shown: listening at 579,817 523x138
+2026-10-08T16:01:12Z bar shown: writing at 692,817 296x138
+2026-10-08T16:01:44Z dictation: model small.en, 3.33 s of audio, written in 31813 ms, pasted, spacing read; into com.apple.TextEdit (from Accessibility), focused element yes (AXTextArea, asked system-wide), window yes
+2026-10-08T16:01:44Z the words flew to 182,101 424x13 on the screen at 0,0
+2026-10-08T16:01:45Z bar shown: added at 732,817 216x138
+2026-10-08T16:01:55Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T16:01:55Z every app (1) yielded the microphone
+2026-10-08T16:01:55Z listening (injected wav (/Users/admin/testvm/walk-8dcad10d445b/home/dictation-sample.wav))
+2026-10-08T16:01:55Z bar shown: listening at 579,817 523x138
+2026-10-08T16:01:59Z bar shown: writing at 692,817 296x138
+2026-10-08T16:02:22Z dictation: model small.en, 3.65 s of audio, written in 23447 ms, copied (no text box); into com.apple.finder (from Accessibility), focused element yes (AXGroup, asked system-wide), window yes
+2026-10-08T16:02:23Z bar shown: problem no-text-box at 468,817 745x138
+2026-10-08T16:02:31Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T16:02:31Z bar shown: listening at 579,817 523x138
+2026-10-08T16:02:31Z every app (1) yielded the microphone
+2026-10-08T16:02:31Z listening (injected wav (/Users/admin/testvm/walk-8dcad10d445b/home/dictation-sample.wav))
+2026-10-08T16:02:34Z the microphone delivered nothing for 3.008 s; listening ended
+2026-10-08T16:02:34Z dictation of 3.01 s (3018 ms tapped): nothing written, no-sound
+2026-10-08T16:02:34Z bar shown: writing at 692,817 296x138
+2026-10-08T16:02:34Z bar shown: problem no-sound at 546,817 589x138
+2026-10-08T16:03:18Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T16:03:18Z every app (1) yielded the microphone
+2026-10-08T16:03:18Z listening (injected wav (/Users/admin/testvm/walk-8dcad10d445b/home/dictation-sample.wav))
+2026-10-08T16:03:18Z bar shown: listening at 579,820 523x138
+2026-10-08T16:03:21Z bar shown: writing at 692,820 296x138
+2026-10-08T16:03:25Z dictation: model small.en, 3.26 s of audio, written in 3707 ms, pasted; into com.google.Chrome (from the workspace), focused element none (-25212) (asked system-wide), window yes
+2026-10-08T16:03:25Z bar shown: added at 732,820 216x138
+2026-10-08T16:03:30Z the app that started this tool has ended; the tool ends
+2026-10-08T16:03:41Z dictation tool started: version 1.2.0-dev.6dcd14dcb, key F1, accuracy small.en, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T16:03:41Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-8dcad10d445b/engine/runtime/bin
+2026-10-08T16:03:42Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:03:42Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:03:42Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:03:42Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T16:03:42Z key tap created for F1
+2026-10-08T16:03:42Z an app connected: version 1.2.0-dev.6dcd14dcb, /Users/admin/testvm/walk-8dcad10d445b/RichOS.app, data folder /Users/admin/testvm/walk-8dcad10d445b/home/Library/Application Support/com.richos.app (this tool is 1.2.0-dev.6dcd14dcb)
+2026-10-08T16:03:42Z menu bar item at 1438,0 34x24
+2026-10-08T16:03:42Z the bar page is ready
+2026-10-08T16:03:42Z the menu page is ready
+2026-10-08T16:03:42Z the flight page is ready
+2026-10-08T16:03:43Z the tool became the active app (it never should: the front belongs to the app the words go to); front pid Some(5934); from:
+   0: <std::backtrace::Backtrace>::create
+   1: richos_tauri::dictation::appkit::became_active
+   2: <unknown>
+   3: <unknown>
+   4: <unknown>
+   5: <unknown>
+   6: <unknown>
+   7: <unknown>
+   8: <unknown>
+   9: tao::platform_impl::platform::app::send_event
+  10: <unknown>
+  11: <unknown>
+  12: tao::platform_impl::platform::event_loop::EventLoop<T>::run
+  13: <tauri_runtime_wry::Wry<T> as tauri_runtime::Runtime<T>>::run
+  14: tauri::app::App<R>::run
+  15: richos_tauri::dictation::tool::main
+  16: richos_tauri::main
+  17: std::sys::backtrace::__rust_begin_short_backtrace
+  18: std::rt::lang_start::{{closure}}
+  19: std::rt::lang_start_internal
+  20: _main
+2026-10-08T16:03:50Z the app that started this tool has ended; the tool ends
+2026-10-08T16:03:53Z dictation tool started: version 1.2.0-dev.6dcd14dcb, key F1, accuracy small.en, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T16:03:53Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-8dcad10d445b/engine/runtime/bin
+2026-10-08T16:03:53Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:03:53Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:03:53Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T16:03:53Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T16:03:53Z key tap created for F1
+2026-10-08T16:03:53Z an app connected: version 1.2.0-dev.6dcd14dcb, /Users/admin/testvm/walk-8dcad10d445b/RichOS.app, data folder /Users/admin/testvm/walk-8dcad10d445b/home/Library/Application Support/com.richos.app (this tool is 1.2.0-dev.6dcd14dcb)
+2026-10-08T16:03:53Z menu bar item at 1438,0 34x24
+2026-10-08T16:03:54Z the bar page is ready
+2026-10-08T16:03:54Z the flight page is ready
+2026-10-08T16:03:54Z the menu page is ready
+2026-10-08T16:03:55Z the tool became the active app (it never should: the front belongs to the app the words go to); front pid Some(6168); from:
+   0: <std::backtrace::Backtrace>::create
+   1: richos_tauri::dictation::appkit::became_active
+   2: <unknown>
+   3: <unknown>
+   4: <unknown>
+   5: <unknown>
+   6: <unknown>
+   7: <unknown>
+   8: <unknown>
+   9: tao::platform_impl::platform::app::send_event
+  10: <unknown>
+  11: <unknown>
+  12: tao::platform_impl::platform::event_loop::EventLoop<T>::run
+  13: <tauri_runtime_wry::Wry<T> as tauri_runtime::Runtime<T>>::run
+  14: tauri::app::App<R>::run
+  15: richos_tauri::dictation::tool::main
+  16: richos_tauri::main
+  17: std::sys::backtrace::__rust_begin_short_backtrace
+  18: std::rt::lang_start::{{closure}}
+  19: std::rt::lang_start_internal
+  20: _main
