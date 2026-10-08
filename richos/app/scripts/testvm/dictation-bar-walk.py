@@ -41,7 +41,10 @@ the moment they are needed and read with the guest's tesseract.
   chromium       one dictation into the Chromium app's text box; whether the words flew
   window-closed  CHILD MODE (lead, esc-20261008T072600Z-d94d767e): the app's window closed with
                  dictation on quits the app exactly as with dictation off, and the tool ends with
-                 it within a second. The tool outliving the app is slice 5's.
+                 it within a second. The tool outliving the app is slice 5's (dictation-login-walk.py).
+  accuracy-mid   (review finding 6, 2026-10-08) Faster chosen from the menu WHILE a dictation
+                 listens: that dictation's log line still names the model chosen when it began,
+                 and the next dictation's names small.en; then More accurate is put back
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -67,7 +70,7 @@ command = dictation_walk.command
 words_of = dictation_walk.words_of
 
 STEPS = ['identity', 'stage', 'check-window', 'check-panel', 'relaunch', 'settle', 'frames', 'fullscreen', 'menu',
-         'nofield', 'nosound', 'apps', 'chromium', 'window-closed']
+         'nofield', 'nosound', 'apps', 'chromium', 'window-closed', 'accuracy-mid']
 TEXTEDIT = 'com.apple.TextEdit'
 # The bar's drawn lines as the guest's tesseract should find them (a fragment of each, so a
 # line break or an apostrophe read as a quote does not decide the step).
@@ -465,6 +468,54 @@ class BarWalk(dictation_walk.DictationWalk):
             time.sleep(0.1)
         return {'dictation_on': on, 'app_pid': app, 'app_gone_after_seconds': app_gone, 'tool_pid': tool,
                 'tool_gone_after_seconds': tool_gone}
+
+    def choose_accuracy(self, down_presses):
+        """The menu from the item, the focused row moved `down_presses` times from More accurate,
+        pressed, then Escape. Returns the tool's line for the choice."""
+        (ix, iy), _ = self.item_center()
+        since = len(self.dlog_lines())
+        self.click(ix, iy)
+        self.wait_dlog('menu shown at', since, 10)
+        time.sleep(0.6)
+        for _ in range(down_presses):
+            self.key(125)
+        self.key(49)
+        line = self.wait_dlog('accuracy set to', since, 10)
+        self.key(53)
+        self.wait_dlog('menu closed', since, 10)
+        time.sleep(0.6)
+        return line
+
+    def accuracy_mid(self):
+        """Finding 6: the accuracy is pinned when a dictation begins."""
+        launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
+        self.log = launched['log']
+        self.facts['app_pid'] = launched['pid']
+        self.save()
+        self.wait_tool()
+        # Whatever the file says, this dictation begins on More accurate.
+        self.choose_accuracy(0)
+        self.use_sample(self.long)
+        self.open_textedit('/tmp/dictation-accuracy-mid.txt')
+        since = len(self.dlog_lines())
+        self.press('122')
+        self.wait_dlog('listening (', since, 20)
+        time.sleep(1.0)
+        # Faster, chosen while it listens.
+        changed = self.choose_accuracy(1)
+        guest(self.vm, 'open -a TextEdit /tmp/dictation-accuracy-mid.txt')
+        time.sleep(3)
+        self.press('122')
+        first = self.wait_dlog('dictation: model ', since, dictation_walk.DICTATION_WITHIN)
+        first_model = re.search(r'dictation: model (\S+),', first).group(1)
+        if first_model != 'large-v3-turbo-q5_0':
+            raise StepFailed(f'the dictation in progress changed its model to {first_model}: {first}')
+        self.use_sample(self.spoken)
+        row = self.dictate('122', TEXTEDIT, 'clipboard-before-accuracy-mid')
+        if row['model'] != 'small.en':
+            raise StepFailed(f'the next dictation did not use Faster: {row["log"]}')
+        restored = self.choose_accuracy(0)
+        return {'changed_while_listening': changed, 'dictation_in_progress': first, 'next_dictation': row, 'restored': restored}
 
     def window_closed(self):
         off = self.close_window_quits(False)

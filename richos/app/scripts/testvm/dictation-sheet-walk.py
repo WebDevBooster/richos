@@ -35,7 +35,14 @@ walks' preview, because DICTATION_READY stays false until slice 5.
   ax-prompt     macOS's Accessibility prompt is on screen (OCR)
   granted       the guest's Accessibility row is written; the tool makes its key tap and the sheet
                 says On, with the app's pid unchanged (no relaunch); the time from the write to the
-                tool's line is measured
+                tool's line is measured (UNPROVEN in run 22: a row written behind tccd's back
+                never reaches a running process)
+  granted-settings THE WAY A PERSON DOES IT (slice 5's brief): the Accessibility row removed, the
+                app relaunched and the switch pressed to the Accessibility prompt; then System
+                Settings, Privacy & Security, Accessibility is driven through the accessibility
+                tree: RichOS's switch turned on, the guest's admin password entered where macOS
+                asks; the running app's sheet must say On with no relaunch (the app's pid
+                unchanged), and the tool must make its key tap
   try-it        one dictation of the sample into Try it here; its text is the guest's own decode
   refused       the Accessibility row removed, the app relaunched: the sheet says the drawn denied
                 line with Open System Settings beside it
@@ -76,8 +83,15 @@ class StepUnproven(Exception):
         self.evidence = evidence
 command = dictation_walk.command
 
-STEPS = ['identity', 'stage', 'relaunch', 'switch-on', 'mic-prompt', 'ax-prompt', 'granted', 'try-it',
+STEPS = ['identity', 'stage', 'relaunch', 'switch-on', 'mic-prompt', 'ax-prompt', 'granted', 'granted-settings', 'try-it',
          'refused', 'open-settings', 'second-copy']
+# System Settings, Privacy & Security, Accessibility: the pane the sheet's Open System Settings
+# opens, and the one a person turns RichOS on in (granted-settings).
+AX_PANE = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
+SYSTEM_SETTINGS = 'System Settings'
+# The guest's admin password, which macOS asks for before a privacy switch is changed (lib.sh's
+# TESTVM_GUEST_PASS; the image's stock account). A disposable clone's, never a host's.
+GUEST_PASS = os.environ.get('TESTVM_GUEST_PASS', 'admin')
 
 # macOS's own words in its two prompts, and Iris's sentence (Info.plist), as OCR fragments that sit on
 # one line of a prompt: a wrapped sentence is never one OCR line (setup-walk.py, walk-d33d482c9645).
@@ -441,6 +455,140 @@ class SheetWalk(dictation_walk.DictationWalk):
              'tool_answered': probe, 'prompt_dismissed_in': dismissed_in, 'relaunched_pid': launched['pid'],
              'first_run_sheets_declined': presses, 'sheet_says_on_after_relaunch': on,
              'tcc': self.tcc_rows()})
+
+    # --- System Settings, driven as a person drives it ------------------------------------------
+    def settings_tree(self, depth=14):
+        try:
+            return self.ax('tree', '--depth', str(depth), app=SYSTEM_SETTINGS, timeout=90)
+        except StepFailed:
+            return []
+
+    def settings_find(self, **want):
+        """Nodes of System Settings' tree whose fields contain every value in `want`."""
+        out = []
+        for n in self.settings_tree():
+            if all(str(n.get(k) or '').lower().find(str(v).lower()) >= 0 for k, v in want.items()):
+                out.append(n)
+        return out
+
+    def password_sheet_up(self):
+        return bool(self.settings_find(role='AXSecureTextField'))
+
+    def enter_password(self):
+        """The admin password into the secure field of the sheet macOS put up, then its button.
+        Typed with System Events (sshd-session's own grant), to the frontmost System Settings."""
+        self.bring_front_app(SYSTEM_SETTINGS)
+        secure = self.settings_find(role='AXSecureTextField')
+        if not secure:
+            return False
+        try:
+            self.ax('click', '--role', 'AXSecureTextField', '--first', app=SYSTEM_SETTINGS)
+        except StepFailed:
+            pass
+        self.osa(f'tell application "System Events" to keystroke "{GUEST_PASS}"')
+        time.sleep(0.5)
+        for title in ('Modify Settings', 'Unlock', 'OK'):
+            try:
+                self.ax('click', '--title', title, '--role', 'AXButton', '--first', app=SYSTEM_SETTINGS)
+                return True
+            except StepFailed:
+                continue
+        self.osa('tell application "System Events" to key code 36')  # return
+        return True
+
+    def bring_front_app(self, name):
+        guest(self.vm, 'osascript -e ' + shlex.quote(f'tell application "System Events" to set frontmost of process "{name}" to true'))
+        time.sleep(1)
+
+    def turn_richos_on_in_accessibility(self):
+        """System Settings on the Accessibility pane; RichOS's switch found by its row and pressed;
+        the password entered where asked. Returns what was seen, for the report."""
+        guest(self.vm, 'open ' + shlex.quote(AX_PANE))
+        seen = {'pane_opened': False, 'row': None, 'switch_before': None, 'password_asked': False, 'switch_after': None}
+        end = time.monotonic() + 40
+        while time.monotonic() < end:
+            if self.front_bundle() == 'com.apple.systempreferences' and self.settings_find(title='Accessibility'):
+                seen['pane_opened'] = True
+                break
+            time.sleep(1)
+        if not seen['pane_opened']:
+            raise StepFailed('System Settings did not open on Accessibility')
+        time.sleep(2)
+        self.shot('granted-settings-pane.png')
+        # The app's row: a checkbox (the switch) whose title, or whose parent's, is RichOS.
+        rows = [n for n in self.settings_find(role='AXCheckBox') if 'richos' in (str(n.get('title') or '') + str(n.get('desc') or '') + str(n.get('parent') or '')).lower()]
+        if not rows:
+            # Some releases title the switch by the app and keep the name on a sibling text.
+            rows = [n for n in self.settings_find(role='AXCheckBox')]
+            names = [str(n.get('title') or '') for n in rows]
+            seen['switches'] = names
+            rows = [n for n in rows if 'richos' in str(n.get('title') or '').lower()]
+        if not rows:
+            tree = self.settings_tree()
+            (self.out / 'granted-settings-tree.txt').write_text('\n'.join(json.dumps(n) for n in tree) + '\n')
+            raise StepFailed('no RichOS switch in the Accessibility pane (granted-settings-tree.txt)')
+        seen['row'] = rows[0]
+        seen['switch_before'] = rows[0].get('value')
+        self.ax('click', '--title', 'RichOS', '--role', 'AXCheckBox', '--first', app=SYSTEM_SETTINGS)
+        time.sleep(2)
+        if self.password_sheet_up():
+            seen['password_asked'] = True
+            self.shot('granted-settings-password.png')
+            self.enter_password()
+            time.sleep(3)
+        after = [n for n in self.settings_find(role='AXCheckBox') if 'richos' in str(n.get('title') or '').lower()]
+        seen['switch_after'] = after[0].get('value') if after else None
+        self.shot('granted-settings-on.png')
+        return seen
+
+    def granted_settings(self):
+        """Accessibility allowed the way a person allows it, with the app running: no relaunch."""
+        self.revoke('kTCCServiceAccessibility', True)
+        self.post_ax_notice()
+        launched, presses = self.launch()
+        pid_before = launched['pid']
+        self.open_sheet()
+        self.ax('click', '--id', 'dict-switch', '--first')
+        time.sleep(1)
+        if self.by_id('dict-switch') and not self.shows_text('Waiting for you to allow Accessibility'):
+            # Already on in the file: off, then on again, so the flow asks for Accessibility.
+            self.ax('click', '--id', 'dict-switch', '--first')
+            time.sleep(1)
+            self.ax('click', '--id', 'dict-switch', '--first')
+        # The prompt macOS puts up (Accessibility was asked once already: the sheet offers Open
+        # System Settings instead, or macOS asks again; either way the pane is opened here).
+        try:
+            frame = self.screen_says('granted-settings-prompt', AX_PROMPT, 15)
+            dismissed = self.press_in_prompt('Deny') or self.press_in_prompt('Open System Settings')
+        except StepFailed:
+            frame, dismissed = None, None
+        taps_before = sum('key tap created for F1' in x for x in self.dlog_lines())
+        seen = self.turn_richos_on_in_accessibility()
+        switched = time.monotonic()
+        tap = None
+        while time.monotonic() - switched < 15:
+            if sum('key tap created for F1' in x for x in self.dlog_lines()) > taps_before:
+                tap = round(time.monotonic() - switched, 2)
+                break
+            time.sleep(0.25)
+        guest(self.vm, 'osascript -e ' + shlex.quote('tell application "System Settings" to quit'))
+        self.bring_front(pid_before)
+        on = False
+        try:
+            on = self.until(lambda: self.shows_text(ON_RUN), 20, 'the sheet did not say On')
+        except StepFailed:
+            pass
+        self.shot('granted-settings-sheet.png')
+        alive = guest(self.vm, f'kill -0 {int(pid_before)} 2>/dev/null && echo alive || true') == 'alive'
+        rows = self.tcc_rows()
+        if not alive:
+            raise StepFailed(f'the app (pid {pid_before}) is gone: the sheet must say On with no relaunch')
+        if tap is None:
+            raise StepFailed(f'the tool made no key tap within 15 s of the switch in System Settings ({seen}; TCC {rows})')
+        if not on:
+            raise StepFailed(f'the sheet did not say On after the switch in System Settings, with the app still running ({seen})')
+        return {'app_pid': pid_before, 'first_run_sheets_declined': presses, 'prompt_frame': frame, 'prompt_dismissed_in': dismissed,
+                'system_settings': seen, 'key_tap_after_switch_seconds': tap, 'sheet_says_on': on, 'same_app_pid': alive, 'tcc': rows}
 
     def try_it(self):
         pid = self.facts['app_pid']
