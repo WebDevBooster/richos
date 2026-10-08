@@ -1,0 +1,64 @@
+slot held: ~/.richos-testvm/guest.lock (waited 0s; admission checks 1.7s; user CPU 2.3%, system 1.6%, idle 96.1%; memory pressure normal, free 65%, swap used 9220 MB, swap-out 0.0 MB/s)
+[testvm] 23:29:17Z cloning richos-base -> walk-655aa917b638 (copy-on-write)
+[testvm] 23:29:17Z booting walk-655aa917b638 headless...
+[testvm] 23:29:17Z waiting for walk-655aa917b638 to report an IP...
+[testvm] 23:29:24Z walk-655aa917b638 is up at 192.168.64.3
+[testvm] 23:29:28Z host claude: 2.1.295  (~/.local/share/claude/versions/2.1.295)
+[testvm] 23:29:31Z the guest's claude is not the host's (2.1.277 vs 2.1.295) — copying the host's in
+[testvm] 23:29:33Z copied in 2s
+claude: host 2.1.295 guest 2.1.295
+[testvm] 23:29:34Z copying the bundle in...
+[testvm] 23:29:35Z copying the fixture home in...
+[testvm] 23:29:35Z keychain: preparing an empty, unlocked login keychain at /Users/admin/testvm/walk-655aa917b638/home/Library/Keychains/login.keychain-db
+{"ax_phase": "guest"}
+{"ax_guest_seconds": 0.0075}
+{"ax_phase": "guest"}
+{"ax_guest_seconds": 0.0073}
+{"ax_phase": "guest"}
+{"ax_guest_seconds": 0.0762}
+{"ax_phase": "guest"}
+{"ax_guest_seconds": 0.0106}
+gui-settings=no-timeout
+keychain=/Users/admin/testvm/walk-655aa917b638/home/Library/Keychains/login.keychain-db
+gui-settings=no-timeout
+default={ax_phase:guest}/Users/admin/testvm/walk-655aa917b638/home/Library/Keychains/login.keychain-db{ax_guest_seconds:0.0073}
+gui-session=UNUSABLE ({"ax_phase":"guest"}probe{"ax_guest_seconds":0.133})
+ssh-session=UNUSABLE ({"ax_phase":"guest"}security:SecKeychainSearchCopyNext:Thespecifieditemcouldnotbefoundinthekeychain.{"ax_guest_seconds":0.0371})
+note: gui-session is the verdict — it is the session 'open -n -a' launches the app into.
+      ssh-session is informational; a different securityd session, frequently UNUSABLE by design.
+[testvm] WARNING: walk-655aa917b638 has no usable login keychain in this run's fixture home.
+         'Set my phone up' will raise 'Keychain Not Found' and the sheet will
+         sit on "Getting this Mac ready..." for two minutes behind it (Ray .8,
+         defects 2 and 5). Everything that stores no secret still works.
+         Diagnose:  ~/ab/richos-wt/ray-opus-walk47/richos/app/scripts/testvm/keychain.sh check walk-655aa917b638 /Users/admin/testvm/walk-655aa917b638/home
+[testvm] 23:29:38Z writing the access snapshot into the guest's credential file (no refresh token; may expire during the run)
+[testvm] 23:29:38Z copying a Claude access snapshot into walk-655aa917b638 (no refresh token; stdin only)
+[testvm] 23:29:38Z login stored: credential file yes (360 bytes, matching the access snapshot), keychain item yes
+[testvm] 23:29:38Z the guest's access token expires 06:57Z (no refresh token; keep renews it from this Mac)
+claude login: guest logged in
+[testvm] 23:29:38Z writing the access snapshot into the guest's credential file (no refresh token; may expire during the run)
+[testvm] 23:29:39Z copying a Claude access snapshot into walk-655aa917b638 (no refresh token; stdin only)
+[testvm] 23:29:39Z login stored: credential file yes (360 bytes, matching the access snapshot), keychain item yes
+[testvm] 23:29:39Z the guest's access token expires 06:49Z (no refresh token; keep renews it from this Mac)
+claude login: guest logged in
+[testvm] 23:29:39Z copying the engine payload in...
+[testvm] 23:29:41Z engine payload verified in the guest (scripts/hooks + VERSION present)
+[testvm] 23:29:41Z launching the app in the guest's GUI session...
+[testvm] 23:29:44Z ready in 28s
+vm=walk-655aa917b638 ip=192.168.64.3 pid=1042 ssh=admin@192.168.64.3 windows=1 elapsed=28s
+tailnet=not-joined
+claude: host 2.1.295 guest 2.1.295
+claude login: guest logged in
+shot:  ~/ab/richos-wt/ray-opus-walk47/richos/app/scripts/testvm/shot.sh walk-655aa917b638 <out.png> [--ocr]
+tree:  ~/ab/richos-wt/ray-opus-walk47/richos/app/scripts/testvm/ax.sh walk-655aa917b638 tree            # the screen as text, with real geometry
+click: ~/ab/richos-wt/ray-opus-walk47/richos/app/scripts/testvm/ax.sh walk-655aa917b638 click --title '<button>'
+guest: ~/ab/richos-wt/ray-opus-walk47/richos/app/scripts/testvm/guest.sh walk-655aa917b638 '<shell command>'   # --pull/--push to move a file
+ax:    ~/ab/richos-wt/ray-opus-walk47/richos/app/scripts/testvm/ax.sh walk-655aa917b638 '<applescript>'
+stop:  ~/ab/richos-wt/ray-opus-walk47/richos/app/scripts/testvm/stop.sh walk-655aa917b638      # ALWAYS, before you report (CEO §54)
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '~/ab/richos-wt/ray-opus-walk47/richos/app/scripts/testvm/walk-655aa917b638': [Errno 2] No such file or directory
+[testvm] 23:29:44Z quitting recorded app pid 1042
+[testvm] 23:29:45Z stopping VM walk-655aa917b638...
+[testvm] 23:29:45Z ending the login keeper (pid 54111)
+[testvm] 23:29:46Z deleting ephemeral clone walk-655aa917b638...
+[testvm] 23:29:47Z clean: app quit, VM stopped, clone deleted, state removed.
+slot released: guest.lock after 31s
