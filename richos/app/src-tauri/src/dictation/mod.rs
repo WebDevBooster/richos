@@ -14,8 +14,11 @@
 //! - `bar.rs`: the bar, the words' flight and the menu, as the tool's three windows (slice 3).
 //! - `menubar.rs`: RichOS in the menu bar (slice 3).
 //!
+//! - `login.rs`: the LaunchAgent, its registration and its refusals; the tool's own start of the
+//!   app (slice 5).
+//!
 //! Slice 1 built the tool and the engine with no new screens; slice 3 adds the bar, the flight
-//! window and the menu bar item; the LaunchAgent is slice 5.
+//! window and the menu bar item; slice 5 the login start and every way back into the app.
 
 pub mod appkit;
 pub mod bar;
@@ -23,6 +26,7 @@ pub mod insert;
 pub mod ipc;
 pub mod keytap;
 pub mod log;
+pub mod login;
 pub mod menubar;
 pub mod scratch;
 pub mod store;

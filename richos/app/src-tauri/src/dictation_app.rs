@@ -18,16 +18,28 @@
 //! and asks the tool's tap for the next key ("Press a different key"). The words are the
 //! window's (`ui/dictation.js`, round 19); [`view_of`] decides the facts they are drawn from.
 //!
+//! **The login start** (slice 5, `dictation/login.rs`): in an installed copy on the account's
+//! real home the tool is launchd's, registered as a LaunchAgent when the switch goes on (and
+//! again at each app start while it is on), unregistered when it goes off; it outlives the app.
+//! Anywhere else (a folder copy, an older macOS) the tool stays this app's child.
+//!
+//! **A copy that does not own the key** (review finding 4, 2026-10-08) changes the owner's
+//! settings through the tool (`change`), never its own file, and shows the key and accuracy the
+//! tool reports. **A tool that goes away** (finding 5) is started again, or reconnected to, with
+//! a bound on how often. **The microphone handover is answered** (finding 2): `will-listen` is
+//! acknowledged with `voice-yielded` once voice mode is closed, and `finish` refuses to open
+//! voice mode while a dictation still listens.
+//!
 //! **The test switch stays** for the walks: `RICHOS_DICTATION_TEST_ON` set to `1` or `0` in the
 //! app's environment writes `on` into `dictation.json` at start.
 
 use crate::dictation::ipc::{self, AppMessage, ToolMessage};
-use crate::dictation::store;
+use crate::dictation::{login, store};
 use serde::Serialize;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 /// The test switch's environment variable (slice 1 only).
@@ -35,8 +47,14 @@ pub const TEST_SWITCH: &str = "RICHOS_DICTATION_TEST_ON";
 
 /// How long the app waits for its child tool's socket after starting it.
 const CONNECT_WITHIN: Duration = Duration::from_secs(5);
-/// How long `finish` waits for the dictation to stop listening before voice mode opens anyway.
+/// How long `finish` waits for the dictation to stop listening. Past it, voice mode does NOT
+/// open (finding 2): speech meant for dictation never reaches Rich.
 const FINISH_WITHIN: Duration = Duration::from_secs(3);
+/// A tool that went away is started again after this, so a crash loop is never a tight one.
+const RESTART_AFTER: Duration = Duration::from_secs(1);
+/// At most this many restarts in [`RESTART_WINDOW`]; past it the app stops trying and says so.
+pub const RESTART_LIMIT: usize = 3;
+pub const RESTART_WINDOW: Duration = Duration::from_secs(60);
 
 // =============================================================================================
 // THE YIELD: pure enough to test without a microphone
@@ -91,6 +109,9 @@ pub fn on_tool_message(message: &ToolMessage, voice: &dyn VoiceMode, link: &Link
             if voice.end_for_dictation() {
                 eprintln!("[richos] voice: ended because dictation started listening");
             }
+            // Answered only now, with voice mode's microphone and turn gate closed, so the
+            // tool opens its microphone after and never beside it (finding 2).
+            link.send(&AppMessage::VoiceYielded);
         }
         ToolMessage::State { .. } => link.observe(message.clone()),
         ToolMessage::Key { .. } => {}
@@ -108,6 +129,9 @@ pub fn on_tool_message(message: &ToolMessage, voice: &dyn VoiceMode, link: &Link
 /// the tool's socket closed.
 pub type Listener = Box<dyn Fn(Option<&ToolMessage>) + Send + Sync>;
 
+/// Told when the tool's socket closed (the tool ended, or crashed): the host decides what then.
+pub type OnClosed = Box<dyn Fn() + Send + Sync>;
+
 /// The app's connection to whichever tool holds the key in this login session.
 #[derive(Default)]
 pub struct Link {
@@ -115,6 +139,7 @@ pub struct Link {
     last: Mutex<Option<ToolMessage>>,
     changed: Condvar,
     listener: Mutex<Option<Listener>>,
+    on_closed: Mutex<Option<OnClosed>>,
 }
 
 impl Link {
@@ -126,6 +151,19 @@ impl Link {
     /// Who hears what the tool says (the window, through `rich://dictation`).
     pub fn set_listener(&self, listener: Listener) {
         *self.listener.lock().unwrap_or_else(|p| p.into_inner()) = Some(listener);
+    }
+
+    /// Who hears that the tool's socket closed (the host, which starts it again).
+    pub fn set_on_closed(&self, on_closed: OnClosed) {
+        *self.on_closed.lock().unwrap_or_else(|p| p.into_inner()) = Some(on_closed);
+    }
+
+    /// The key and the model the tool reports it uses (`None` before any state).
+    pub fn tool_settings(&self) -> Option<(u8, String)> {
+        match &*self.last.lock().unwrap_or_else(|p| p.into_inner()) {
+            Some(ToolMessage::State { key, model, .. }) if *key > 0 => Some((*key, model.clone())),
+            _ => None,
+        }
     }
 
     fn tell_listener(&self, message: Option<&ToolMessage>) {
@@ -173,21 +211,29 @@ impl Link {
 
     /// **The talk button was pressed.** If a dictation is listening, it is written as if the key
     /// had been tapped; this waits (at most 3 s) until it has stopped listening, so voice mode and
-    /// dictation never hold the microphone at once.
-    pub fn finish(&self) {
-        if !self.listening() || !self.send(&AppMessage::Finish) {
-            return;
+    /// dictation never hold the microphone at once. `true` when voice mode may open: no
+    /// dictation was listening, or it has stopped. `false` when it still listens, or the tool
+    /// could not be told: voice mode must NOT open then (finding 2).
+    pub fn finish(&self) -> bool {
+        if !self.listening() {
+            return true;
+        }
+        if !self.send(&AppMessage::Finish) {
+            // A tool that cannot be told is a tool whose socket closed; its state is cleared
+            // with it, so re-read before refusing.
+            return !self.listening();
         }
         let deadline = Instant::now() + FINISH_WITHIN;
         let mut last = self.last.lock().unwrap_or_else(|p| p.into_inner());
         while matches!(*last, Some(ToolMessage::State { listening: true, .. })) {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                eprintln!("[richos] voice: the dictation did not stop listening within 3 s; voice mode opens anyway");
-                return;
+                eprintln!("[richos] voice: the dictation did not stop listening within 3 s; voice mode does not open");
+                return false;
             }
             last = self.changed.wait_timeout(last, left).unwrap_or_else(|p| p.into_inner()).0;
         }
+        true
     }
 
     /// Connect to the tool's socket and start hearing it.
@@ -204,10 +250,19 @@ impl Link {
             link.changed.notify_all();
             link.tell_listener(None);
             eprintln!("[richos] dictation: the tool's socket closed");
+            if let Some(on_closed) = link.on_closed.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+                on_closed();
+            }
         })?;
         self.send(&hello);
         Ok(())
     }
+}
+
+/// **Whether a tool that went away is started again** (finding 5), pure: on, and fewer than
+/// [`RESTART_LIMIT`] restarts inside [`RESTART_WINDOW`].
+pub fn restart_allowed(on: bool, recent_restarts: &[Instant], now: Instant) -> bool {
+    on && recent_restarts.iter().filter(|t| now.duration_since(**t) < RESTART_WINDOW).count() < RESTART_LIMIT
 }
 
 // =============================================================================================
@@ -267,23 +322,52 @@ pub struct Host {
     voice: Arc<dyn VoiceMode>,
     /// macOS's microphone prompt is up: `requestAccess` has not answered yet.
     mic_asking: Arc<AtomicBool>,
-    /// One read-modify-write of `dictation.json` at a time.
+    /// One read-modify-write of `dictation.json` at a time in this process (the file lock in
+    /// `store::update` is what excludes the other processes).
     writing: Mutex<()>,
     /// One tool start at a time (the boot, the switch and the sheet can each ask).
     starting: Mutex<()>,
+    /// Whether this copy may register the login start (`login::decide`), decided once.
+    installed: Result<(), login::Refusal>,
+    /// When a tool that went away was started again (finding 5's bound).
+    restarts: Mutex<Vec<Instant>>,
+    /// This host, for the link's closed callback.
+    me: Weak<Host>,
 }
 
 impl Host {
-    pub fn new(link: Arc<Link>, data_dir: PathBuf, version: String, voice: Arc<dyn VoiceMode>) -> Arc<Host> {
-        Arc::new(Host {
-            link,
+    /// `identifier` is this build's bundle identifier; `installed` is decided from it, the data
+    /// folder and the process's environment (`login::gather`).
+    pub fn new(link: Arc<Link>, data_dir: PathBuf, version: String, identifier: &str, voice: Arc<dyn VoiceMode>) -> Arc<Host> {
+        let installed = login::decide(&login::gather(&data_dir, identifier, mac::macos_major()));
+        match &installed {
+            Ok(()) => eprintln!("[richos] dictation: an installed copy; dictation keeps working with RichOS closed (a LaunchAgent)"),
+            Err(why) => eprintln!("[richos] dictation: works only while RichOS is open: {}", why.describe()),
+        }
+        let host = Arc::new_cyclic(|me| Host {
+            link: link.clone(),
             data_dir,
             version,
             voice,
             mic_asking: Arc::new(AtomicBool::new(false)),
             writing: Mutex::new(()),
             starting: Mutex::new(()),
-        })
+            installed,
+            restarts: Mutex::new(Vec::new()),
+            me: me.clone(),
+        });
+        let weak = host.me.clone();
+        link.set_on_closed(Box::new(move || {
+            if let Some(host) = weak.upgrade() {
+                host.tool_gone();
+            }
+        }));
+        host
+    }
+
+    /// This copy may register the login start.
+    pub fn installed(&self) -> bool {
+        self.installed.is_ok()
     }
 
     /// The settings on disk.
@@ -291,24 +375,71 @@ impl Host {
         store::read(&self.data_dir)
     }
 
-    /// Change the settings: read, change, write, under one lock. A file that cannot be read is
-    /// never overwritten.
+    /// Change the settings: read, change, write, under the file lock (and one at a time in this
+    /// process). A file that cannot be read is never overwritten.
     pub fn update(&self, change: impl FnOnce(&mut store::Settings)) -> Result<store::Settings, String> {
         let one_writer = self.writing.lock().unwrap_or_else(|p| p.into_inner());
-        let mut settings = store::read(&self.data_dir)?;
-        change(&mut settings);
-        store::write(&self.data_dir, &settings)?;
+        let settings = store::update(&self.data_dir, change);
         drop(one_writer);
-        Ok(settings)
+        settings
     }
 
     /// **The tool runs while dictation is on.** When `dictation.json` says on and no tool is
-    /// connected, start one as this app's child and connect to whichever tool holds the key (its
-    /// own, or another copy's: a child that finds the key taken exits with 3).
+    /// connected: in an installed copy, register the LaunchAgent (idempotent; launchd starts
+    /// the tool at once) and connect; anywhere else, start one as this app's child. Either way
+    /// the link ends up on whichever tool holds the key (its own, or another copy's: a child
+    /// that finds the key taken exits with 3).
     pub fn ensure_tool(&self) {
         let one_start = self.starting.lock().unwrap_or_else(|p| p.into_inner());
         self.start_tool_now();
         drop(one_start);
+    }
+
+    /// **The tool's socket closed** (finding 5): the tool ended by itself (off, exit 3, a
+    /// version restart) or crashed. While `dictation.json` still says on, it is started again
+    /// after a moment, at most [`RESTART_LIMIT`] times in [`RESTART_WINDOW`]; in an installed
+    /// copy launchd restarts it and this only reconnects.
+    pub fn tool_gone(&self) {
+        let on = self.settings().map(|s| s.on).unwrap_or(false);
+        let now = Instant::now();
+        let allowed = {
+            let mut recent = self.restarts.lock().unwrap_or_else(|p| p.into_inner());
+            recent.retain(|t| now.duration_since(*t) < RESTART_WINDOW);
+            let allowed = restart_allowed(on, &recent, now);
+            if allowed {
+                recent.push(now);
+            }
+            allowed
+        };
+        if !on {
+            return;
+        }
+        if !allowed {
+            eprintln!("[richos] dictation: the tool went away {RESTART_LIMIT} times in a minute; not started again until the switch is used");
+            return;
+        }
+        let Some(host) = self.me.upgrade() else { return };
+        let spawned = std::thread::Builder::new().name("dictation-restart".into()).spawn(move || {
+            std::thread::sleep(RESTART_AFTER);
+            eprintln!("[richos] dictation: the tool went away while dictation is on; starting it again");
+            host.ensure_tool();
+        });
+        if let Err(e) = spawned {
+            eprintln!("[richos] dictation: the tool could not be started again: {e}");
+        }
+    }
+
+    /// `ensure_tool`, off this thread, when dictation is on and no tool is connected: what a
+    /// read of the sheet or the row does, so a missing tool is never only reported (finding 5).
+    fn reconnect_in_background(&self) {
+        if self.link.connected() || !self.settings().map(|s| s.on).unwrap_or(false) {
+            return;
+        }
+        if self.starting.try_lock().is_err() {
+            return; // a start is under way
+        }
+        let Some(host) = self.me.upgrade() else { return };
+        std::thread::Builder::new().name("dictation-reconnect".into()).spawn(move || host.ensure_tool()).ok();
     }
 
     fn start_tool_now(&self) {
@@ -329,26 +460,43 @@ impl Host {
                 return;
             }
         };
-        let mut command = std::process::Command::new(&exe);
-        command.args(child_args(&self.data_dir, std::process::id())).stdin(std::process::Stdio::null());
-        if let Some(bin) = richos_voice::stt::delivered_runtime_bin_dir() {
-            command.env("RICHOS_DICTATION_RUNTIME_BIN", bin);
-        }
-        match command.spawn() {
-            Ok(mut child) => {
-                let pid = child.id();
-                eprintln!("[richos] dictation: the tool started as this app's child (pid {pid})");
-                // Reaped here, and its end said: exit 3 is another copy holding the key.
-                let reaper = std::thread::Builder::new().name("dictation-child".into()).spawn(move || {
-                    if let Ok(status) = child.wait() {
-                        eprintln!("[richos] dictation: the tool (pid {pid}) ended: {status}");
-                    }
-                });
-                if let Err(e) = reaper {
-                    eprintln!("[richos] dictation: the tool's end will not be reported: {e}");
+        let registered = self.installed()
+            && match login::mac::register() {
+                Ok(status) => {
+                    eprintln!(
+                        "[richos] dictation: the login start is registered ({status:?}, {} from Contents/{}); launchd runs the tool",
+                        login::AGENT_LABEL,
+                        login::AGENT_PLIST_IN_BUNDLE
+                    );
+                    true
                 }
+                Err(why) => {
+                    eprintln!("[richos] dictation: the login start could not be registered ({why}); the tool runs as this app's child instead");
+                    false
+                }
+            };
+        if !registered {
+            let mut command = std::process::Command::new(&exe);
+            command.args(child_args(&self.data_dir, std::process::id())).stdin(std::process::Stdio::null());
+            if let Some(bin) = richos_voice::stt::delivered_runtime_bin_dir() {
+                command.env("RICHOS_DICTATION_RUNTIME_BIN", bin);
             }
-            Err(e) => eprintln!("[richos] dictation: the tool could not be started: {e}"),
+            match command.spawn() {
+                Ok(mut child) => {
+                    let pid = child.id();
+                    eprintln!("[richos] dictation: the tool started as this app's child (pid {pid})");
+                    // Reaped here, and its end said: exit 3 is another copy holding the key.
+                    let reaper = std::thread::Builder::new().name("dictation-child".into()).spawn(move || {
+                        if let Ok(status) = child.wait() {
+                            eprintln!("[richos] dictation: the tool (pid {pid}) ended: {status}");
+                        }
+                    });
+                    if let Err(e) = reaper {
+                        eprintln!("[richos] dictation: the tool's end will not be reported: {e}");
+                    }
+                }
+                Err(e) => eprintln!("[richos] dictation: the tool could not be started: {e}"),
+            }
         }
         let hello = AppMessage::Hello {
             version: self.version.clone(),
@@ -371,11 +519,19 @@ impl Host {
         }
     }
 
-    /// **What the sheet and the row show**, read now.
+    /// **What the sheet and the row show**, read now. A tool that should be running and is not
+    /// is started again off this thread (finding 5).
     pub fn view(&self) -> Result<View, String> {
+        self.reconnect_in_background();
         let settings = self.settings()?;
         let own = std::env::current_exe().map(|e| bundle_of(&e).display().to_string()).unwrap_or_default();
         let tool = self.link.owner_and_tap();
+        let tool_settings = self.link.tool_settings();
+        let login = if self.installed() && settings.on {
+            login::mac::status().map(login::Status::login_word).unwrap_or("none")
+        } else {
+            "none"
+        };
         Ok(view_of(&Facts {
             ready: richos_core::dictation_ready(),
             settings: &settings,
@@ -386,27 +542,52 @@ impl Host {
             own_bundle: &own,
             key_tap: tool.as_ref().map(|(_, tap)| *tap).unwrap_or(false),
             secure: mac::secure_input(),
-            macos_major: mac::macos_major(),
+            copy: copy_word(&self.installed),
+            login,
+            tool_key: tool_settings.as_ref().map(|(k, _)| *k),
+            tool_model: tool_settings.as_ref().map(|(_, m)| m.as_str()),
         }))
+    }
+
+    /// Another copy's tool holds the key: its settings are the ones that count (finding 4).
+    fn owned_elsewhere(&self) -> bool {
+        let own = std::env::current_exe().map(|e| bundle_of(&e).display().to_string()).unwrap_or_default();
+        matches!(self.link.owner_and_tap(), Some((owner, _)) if owner != own)
     }
 
     /// **The switch.** On: the setting is written and the tool started (it asks for nothing; the
     /// window asks for the two permissions next, in the drawn order). Off: the tool is told, and
-    /// it stops.
+    /// it stops (whichever copy's tool it is: one switch, one dictation on this Mac); in an
+    /// installed copy the login start is unregistered too, so launchd never starts it again.
     pub fn set_on(&self, on: bool) -> Result<View, String> {
         self.update(|s| s.on = on)?;
         if on {
             self.ensure_tool();
+        } else if self.owned_elsewhere() {
+            self.link.tell(&AppMessage::Change { on: Some(false), key: None, model: None });
         } else {
             self.link.tell(&AppMessage::SettingsChanged);
+        }
+        match login::follow_switch(on, self.installed()) {
+            login::Follow::Register => {} // done by ensure_tool above
+            login::Follow::Unregister => match login::mac::unregister() {
+                Ok(()) => eprintln!("[richos] dictation: the login start is unregistered"),
+                Err(why) => eprintln!("[richos] dictation: the login start could not be unregistered: {why}"),
+            },
+            login::Follow::Nothing => {}
         }
         self.view()
     }
 
-    /// **Your key**: F1 to F19, nothing else.
+    /// **Your key**: F1 to F19, nothing else. With another copy's tool holding the key, the
+    /// change goes to that tool's file, through it, so it takes effect (finding 4).
     pub fn set_key(&self, key: u8) -> Result<View, String> {
         if !(1..=19).contains(&key) {
             return Err(format!("F{key} is not a key dictation can use"));
+        }
+        if self.owned_elsewhere() {
+            self.link.tell(&AppMessage::Change { on: None, key: Some(key), model: None });
+            return self.view();
         }
         self.update(|s| s.key = key)?;
         self.link.tell(&AppMessage::SettingsChanged);
@@ -414,9 +595,13 @@ impl Host {
     }
 
     /// **Accuracy**: More accurate or Faster. The model id is stored; the label is derived from
-    /// it, never stored beside it.
+    /// it, never stored beside it. Through the owner's tool when another copy holds the key.
     pub fn set_accuracy(&self, accuracy: &str) -> Result<View, String> {
         let model = model_for(accuracy).ok_or_else(|| format!("{accuracy} is not an accuracy dictation offers"))?;
+        if self.owned_elsewhere() {
+            self.link.tell(&AppMessage::Change { on: None, key: None, model: Some(model.to_string()) });
+            return self.view();
+        }
         self.update(|s| s.model = model.to_string())?;
         self.link.tell(&AppMessage::SettingsChanged);
         self.view()
@@ -476,14 +661,6 @@ impl Host {
 // THE VIEW: what the sheet and the row are drawn from, decided here so each rule is a test
 // =============================================================================================
 
-/// The login start that keeps dictation on with RichOS closed is slice 5 (`dictation/login.rs`).
-/// Until it is built, every copy's dictation stops when RichOS closes (its tool is this app's
-/// child), so every copy says "Works only while RichOS is open".
-pub const LOGIN_START_BUILT: bool = false;
-
-/// macOS 13 is where `SMAppService` (the login start) begins (plan section 6).
-pub const LOGIN_START_MACOS: u32 = 13;
-
 /// Another app has Secure Event Input on: every key is hidden from every tap.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Secure {
@@ -516,6 +693,9 @@ pub struct View {
     /// `installed` (works with RichOS closed), `open-only` or `old-macos` (works only while
     /// RichOS is open; Iris's line 2 and its two wordings).
     pub copy: &'static str,
+    /// The login start as macOS reports it, in an installed copy with dictation on: `approved`,
+    /// `needs-approval` (switched off in Login Items: Iris's line 3) or `none`.
+    pub login: &'static str,
 }
 
 /// Everything [`view_of`] reads.
@@ -529,21 +709,44 @@ pub struct Facts<'a> {
     pub own_bundle: &'a str,
     pub key_tap: bool,
     pub secure: Option<Option<String>>,
-    pub macos_major: Option<u32>,
+    pub copy: &'static str,
+    pub login: &'static str,
+    /// The key and model the tool reports (finding 4): shown instead of this copy's own file
+    /// when another copy's tool holds the key.
+    pub tool_key: Option<u8>,
+    pub tool_model: Option<&'a str>,
 }
 
 pub fn view_of(f: &Facts) -> View {
+    let owner = owner_word(f.owner, f.own_bundle);
+    let elsewhere = owner == "other";
     View {
         ready: f.ready,
         on: f.settings.on,
-        key: f.settings.key(),
-        accuracy: accuracy_of(&f.settings.model),
+        key: match (elsewhere, f.tool_key) {
+            (true, Some(k)) if (1..=19).contains(&k) => k,
+            _ => f.settings.key(),
+        },
+        accuracy: match (elsewhere, f.tool_model) {
+            (true, Some(m)) => accuracy_of(m),
+            _ => accuracy_of(&f.settings.model),
+        },
         mic: mic_word(f.mic_status, f.mic_asking),
         ax: ax_word(f.ax_trusted, f.settings.ax_asked),
-        owner: owner_word(f.owner, f.own_bundle),
+        owner,
         key_tap: f.key_tap,
         secure: f.secure.clone().map(|app| Secure { app }),
-        copy: copy_word(f.macos_major, LOGIN_START_BUILT),
+        copy: f.copy,
+        login: f.login,
+    }
+}
+
+/// Whether dictation keeps working with RichOS closed, and if not, which of Iris's two
+/// wordings says why: from the registration decision (`login::decide`).
+pub fn copy_word(installed: &Result<(), login::Refusal>) -> &'static str {
+    match installed {
+        Ok(()) => "installed",
+        Err(why) => why.copy_word(),
     }
 }
 
@@ -573,16 +776,6 @@ pub fn owner_word(owner: Option<&str>, own_bundle: &str) -> &'static str {
         None => "none",
         Some(o) if o == own_bundle => "self",
         Some(_) => "other",
-    }
-}
-
-/// Whether dictation keeps working with RichOS closed, and if not, which of Iris's two
-/// wordings says why.
-pub fn copy_word(macos_major: Option<u32>, login_start_built: bool) -> &'static str {
-    match macos_major {
-        Some(m) if m < LOGIN_START_MACOS => "old-macos",
-        _ if !login_start_built => "open-only",
-        _ => "installed",
     }
 }
 
@@ -783,9 +976,13 @@ pub fn dictation_permissions_changed(app: tauri::AppHandle, forward: Option<bool
     Ok(())
 }
 
-/// **Open System Settings** on the pane a refusal names: `microphone` or `accessibility`.
+/// **Open System Settings** on the pane a refusal names: `microphone`, `accessibility`, or
+/// `login-items` (General, Login Items & Extensions, for Iris's line 3).
 #[tauri::command(async)]
 pub fn dictation_open_settings(pane: String) -> Result<(), String> {
+    if pane == "login-items" {
+        return if login::mac::open_login_items() { Ok(()) } else { Err("System Settings could not be opened on Login Items".into()) };
+    }
     let url = privacy_pane(&pane).ok_or_else(|| format!("{pane} is not a pane dictation opens"))?;
     let status = std::process::Command::new("/usr/bin/open").arg(url).status().map_err(|e| e.to_string())?;
     if status.success() {
@@ -872,59 +1069,107 @@ mod tests {
         assert!(!window.ended.load(Ordering::SeqCst));
     }
 
+    fn state(listening: bool) -> ToolMessage {
+        ToolMessage::State { owner: "x".into(), on: true, listening, writing: false, problem: None, key_tap: true, secure_input: false, secure_app: None, key: 1, model: "large-v3-turbo-q5_0".into() }
+    }
+
     /// INVARIANT: a state message is only recorded; it never ends voice mode.
     #[test]
     fn a_state_message_never_ends_voice_mode() {
         let voice = FakeVoice { on: AtomicBool::new(true), gate: TurnGate::new() };
         let link = Link::default();
-        let state = ToolMessage::State { owner: "x".into(), on: true, listening: true, writing: false, problem: None, key_tap: true, secure_input: false, secure_app: None };
-        on_tool_message(&state, &voice, &link);
+        on_tool_message(&state(true), &voice, &link);
         assert!(voice.on.load(Ordering::SeqCst));
         assert!(!voice.gate.closed());
         assert!(link.listening());
     }
 
-    /// INVARIANT: `finish` with no tool, or with a tool that is not listening, says nothing to
-    /// the tool and returns.
+    /// INVARIANT (finding 2): `will-listen` is answered with `voice-yielded` only after voice
+    /// mode was ended, so the tool's microphone opens after this app's closed, never beside it.
     #[test]
-    fn finish_without_a_listening_dictation_says_nothing() {
-        Link::default().finish();
+    fn will_listen_is_answered_after_voice_mode_ended() {
         let (app_end, tool_end) = UnixStream::pair().unwrap();
         let link = Link::default();
         *link.writer.lock().unwrap() = Some(app_end);
-        link.finish();
-        link.observe(ToolMessage::State { owner: "x".into(), on: true, listening: false, writing: false, problem: None, key_tap: true, secure_input: false, secure_app: None });
-        link.finish();
+        let voice = FakeVoice { on: AtomicBool::new(true), gate: TurnGate::new() };
+        on_tool_message(&ToolMessage::WillListen, &voice, &link);
+        assert!(!voice.on.load(Ordering::SeqCst), "voice mode ended before the answer");
+        *link.writer.lock().unwrap() = None;
+        let mut heard = Vec::new();
+        ipc::read_lines::<AppMessage>(tool_end, |m| heard.push(m));
+        assert_eq!(heard, vec![AppMessage::VoiceYielded]);
+    }
+
+    /// INVARIANT: `finish` with no tool, or with a tool that is not listening, says nothing to
+    /// the tool and lets voice mode open.
+    #[test]
+    fn finish_without_a_listening_dictation_says_nothing() {
+        assert!(Link::default().finish());
+        let (app_end, tool_end) = UnixStream::pair().unwrap();
+        let link = Link::default();
+        *link.writer.lock().unwrap() = Some(app_end);
+        assert!(link.finish());
+        link.observe(state(false));
+        assert!(link.finish());
         *link.writer.lock().unwrap() = None; // closes the app's end
         let mut heard = Vec::new();
         ipc::read_lines::<AppMessage>(tool_end, |m| heard.push(m));
         assert!(heard.is_empty(), "{heard:?}");
     }
 
-    /// INVARIANT: with a dictation listening, `finish` says so to the tool and returns only once
-    /// the tool reports it has stopped listening.
+    /// INVARIANT: with a dictation listening, `finish` says so to the tool and returns `true`
+    /// only once the tool reports it has stopped listening.
     #[test]
     fn finish_returns_once_the_dictation_has_stopped_listening() {
         let (app_end, tool_end) = UnixStream::pair().unwrap();
         let link = Arc::new(Link::default());
         *link.writer.lock().unwrap() = Some(app_end);
-        let listening = |l: bool| ToolMessage::State { owner: "x".into(), on: true, listening: l, writing: !l, problem: None, key_tap: true, secure_input: false, secure_app: None };
-        link.observe(listening(true));
+        link.observe(state(true));
         let heard_finish = Arc::new(AtomicBool::new(false));
         let tool_link = link.clone();
         let tool_heard = heard_finish.clone();
         let tool = std::thread::spawn(move || {
             ipc::read_lines::<AppMessage>(tool_end, |m| {
                 if m == AppMessage::Finish && !tool_heard.swap(true, Ordering::SeqCst) {
-                    tool_link.observe(listening(false));
+                    tool_link.observe(state(false));
                 }
             });
         });
-        link.finish();
+        assert!(link.finish(), "voice mode may open once the dictation stopped listening");
         assert!(heard_finish.load(Ordering::SeqCst), "finish returned before the tool heard it");
         assert!(!link.listening(), "finish returned while the dictation was still listening");
         *link.writer.lock().unwrap() = None; // closes the app's end, so the tool's reader ends
         tool.join().unwrap();
+    }
+
+    /// INVARIANT (finding 2): a dictation that does not stop listening within the bound keeps
+    /// the microphone: `finish` answers `false`, and voice mode does not open.
+    #[test]
+    fn finish_refuses_voice_mode_while_the_dictation_still_listens() {
+        let (app_end, tool_end) = UnixStream::pair().unwrap();
+        let link = Link::default();
+        *link.writer.lock().unwrap() = Some(app_end);
+        link.observe(state(true));
+        let started = Instant::now();
+        assert!(!link.finish(), "the tool never said it stopped: voice mode must not open");
+        assert!(started.elapsed() >= FINISH_WITHIN - Duration::from_millis(50), "{:?}", started.elapsed());
+        *link.writer.lock().unwrap() = None;
+        let mut heard = Vec::new();
+        ipc::read_lines::<AppMessage>(tool_end, |m| heard.push(m));
+        assert_eq!(heard, vec![AppMessage::Finish]);
+    }
+
+    /// INVARIANT (finding 5): a tool that went away is started again while dictation is on, at
+    /// most RESTART_LIMIT times in RESTART_WINDOW, and never while it is off.
+    #[test]
+    fn a_tool_that_went_away_is_started_again_with_a_bound() {
+        let now = Instant::now();
+        assert!(restart_allowed(true, &[], now));
+        assert!(!restart_allowed(false, &[], now));
+        let recent: Vec<Instant> = (0..RESTART_LIMIT).map(|i| now - Duration::from_secs(i as u64)).collect();
+        assert!(!restart_allowed(true, &recent, now), "the bound");
+        let old: Vec<Instant> = (0..RESTART_LIMIT).map(|_| now - RESTART_WINDOW - Duration::from_secs(1)).collect();
+        assert!(restart_allowed(true, &old, now), "restarts outside the window do not count");
     }
 
     /// INVARIANT: the test switch is exactly `1` or `0`; the child gets this app's data folder
@@ -973,17 +1218,14 @@ mod tests {
         assert_eq!(owner_word(Some("/Users/a/myrichos-nightly-a/RichOS.app"), "/Applications/RichOS.app"), "other");
     }
 
-    /// INVARIANT (line 2): until the login start is built (slice 5) every copy works only while
-    /// RichOS is open; a Mac older than macOS 13 always does, with its own wording.
+    /// INVARIANT (line 2): an installed copy keeps dictation on with RichOS closed; any other
+    /// copy works only while RichOS is open, and a Mac older than macOS 13 says so in its own
+    /// wording (`login::decide` is where the facts are judged; this is the sheet's word for it).
     #[test]
-    fn works_only_while_richos_is_open_until_the_login_start() {
-        assert_eq!(copy_word(Some(14), LOGIN_START_BUILT), "open-only", "slice 5 sets LOGIN_START_BUILT");
-        assert_eq!(copy_word(Some(14), false), "open-only");
-        assert_eq!(copy_word(None, false), "open-only");
-        assert_eq!(copy_word(Some(12), false), "old-macos");
-        assert_eq!(copy_word(Some(12), true), "old-macos");
-        assert_eq!(copy_word(Some(13), true), "installed");
-        assert_eq!(copy_word(Some(15), true), "installed");
+    fn the_copy_word_follows_the_registration_decision() {
+        assert_eq!(copy_word(&Ok(())), "installed");
+        assert_eq!(copy_word(&Err(login::Refusal::NotInstalled(vec!["a folder copy".into()]))), "open-only");
+        assert_eq!(copy_word(&Err(login::Refusal::OldMacos(12))), "old-macos");
     }
 
     /// INVARIANT: the accuracy label is derived from the model id, and each label stores the
@@ -1009,7 +1251,8 @@ mod tests {
         assert_eq!(privacy_pane(""), None);
     }
 
-    /// INVARIANT: the view is composed of exactly those rules.
+    /// INVARIANT: the view is composed of exactly those rules; with another copy's tool holding
+    /// the key, the key and accuracy shown are the TOOL's, not this copy's file's (finding 4).
     #[test]
     fn the_view_of_a_fresh_install() {
         let settings = store::Settings::default();
@@ -1023,12 +1266,15 @@ mod tests {
             own_bundle: "/Applications/RichOS.app",
             key_tap: false,
             secure: None,
-            macos_major: Some(15),
+            copy: "open-only",
+            login: "none",
+            tool_key: None,
+            tool_model: None,
         });
         assert_eq!(
             serde_json::to_value(&v).unwrap(),
             serde_json::json!({"ready": false, "on": false, "key": 1, "accuracy": "accurate", "mic": "unknown", "ax": "unknown",
-                "owner": "none", "keyTap": false, "secure": null, "copy": "open-only"})
+                "owner": "none", "keyTap": false, "secure": null, "copy": "open-only", "login": "none"})
         );
         let on = store::Settings { on: true, key: 5, model: "small.en".into(), mic_asked: true, ax_asked: true, offered: false };
         let v = view_of(&Facts {
@@ -1041,13 +1287,32 @@ mod tests {
             own_bundle: "/Applications/RichOS.app",
             key_tap: true,
             secure: Some(Some("1Password".into())),
-            macos_major: Some(12),
+            copy: "old-macos",
+            login: "none",
+            tool_key: Some(9),
+            tool_model: Some("large-v3-turbo-q5_0"),
         });
         assert_eq!(
             serde_json::to_value(&v).unwrap(),
-            serde_json::json!({"ready": true, "on": true, "key": 5, "accuracy": "fast", "mic": "allowed", "ax": "denied",
-                "owner": "other", "keyTap": true, "secure": {"app": "1Password"}, "copy": "old-macos"})
+            serde_json::json!({"ready": true, "on": true, "key": 9, "accuracy": "accurate", "mic": "allowed", "ax": "denied",
+                "owner": "other", "keyTap": true, "secure": {"app": "1Password"}, "copy": "old-macos", "login": "none"})
         );
+        let own = view_of(&Facts {
+            ready: true,
+            settings: &on,
+            mic_status: 3,
+            mic_asking: false,
+            ax_trusted: true,
+            owner: Some("/Applications/RichOS.app"),
+            own_bundle: "/Applications/RichOS.app",
+            key_tap: true,
+            secure: None,
+            copy: "installed",
+            login: "needs-approval",
+            tool_key: Some(9),
+            tool_model: Some("large-v3-turbo-q5_0"),
+        });
+        assert_eq!((own.key, own.accuracy, own.copy, own.login), (5, "fast", "installed", "needs-approval"), "its own file when it owns the key");
     }
 
     /// INVARIANT: the window hears a captured key as `{"key": n}` and anything else as a change.
@@ -1082,7 +1347,9 @@ mod tests {
         let (app_end, tool_end) = UnixStream::pair().unwrap();
         *link.writer.lock().unwrap() = Some(app_end);
         let voice: Arc<dyn VoiceMode> = Arc::new(FakeVoice { on: AtomicBool::new(false), gate: TurnGate::new() });
-        Rig { host: Host::new(link, dir.clone(), "1.2.0".into(), voice), dir, tool: tool_end }
+        let host = Host::new(link, dir.clone(), "1.2.0".into(), "com.richos.app", voice);
+        assert!(!host.installed(), "a test's data folder is never the installed one, so nothing here touches launchd");
+        Rig { host, dir, tool: tool_end }
     }
 
     impl Rig {
@@ -1136,12 +1403,40 @@ mod tests {
         r.heard();
     }
 
+    /// INVARIANT (finding 4): with another copy's tool holding the key, the key and the
+    /// accuracy are changed through that tool (`change`), this copy's own file is untouched,
+    /// and the view shows what the tool reports; Off goes to the tool too, and is written here.
+    #[test]
+    fn a_copy_that_does_not_own_the_key_changes_the_owners_settings() {
+        let r = rig("elsewhere");
+        r.host.update(|s| s.on = true).unwrap();
+        let other = |key: u8, model: &str| ToolMessage::State { owner: "/other/RichOS.app".into(), on: true, listening: false, writing: false, problem: None, key_tap: true, secure_input: false, secure_app: None, key, model: model.into() };
+        r.host.link.observe(other(1, "large-v3-turbo-q5_0"));
+        let v = r.host.set_key(7).unwrap();
+        assert_eq!((v.owner, v.key), ("other", 1), "the tool has not applied it yet: the view shows the tool's key");
+        r.host.link.observe(other(7, "large-v3-turbo-q5_0"));
+        assert_eq!(r.host.view().unwrap().key, 7, "once the tool reports it, the view shows it");
+        r.host.set_accuracy("fast").unwrap();
+        let own = r.host.settings().unwrap();
+        assert_eq!((own.key, own.model.as_str()), (1, "large-v3-turbo-q5_0"), "this copy's own file is untouched");
+        assert!(!r.host.set_on(false).unwrap().on);
+        assert!(!r.host.settings().unwrap().on, "Off is written here too, so this copy starts no tool of its own");
+        assert_eq!(
+            r.heard(),
+            vec![
+                AppMessage::Change { on: None, key: Some(7), model: None },
+                AppMessage::Change { on: None, key: None, model: Some("small.en".into()) },
+                AppMessage::Change { on: Some(false), key: None, model: None },
+            ]
+        );
+    }
+
     /// INVARIANT: "Press a different key" goes through the tool's tap when it has one, and is
     /// stopped the same way; with no tap the window's own keys answer.
     #[test]
     fn key_capture_goes_through_the_tap() {
         let r = rig("capture");
-        let state = |tap: bool| ToolMessage::State { owner: "x".into(), on: true, listening: false, writing: false, problem: None, key_tap: tap, secure_input: false, secure_app: None };
+        let state = |tap: bool| ToolMessage::State { owner: "x".into(), on: true, listening: false, writing: false, problem: None, key_tap: tap, secure_input: false, secure_app: None, key: 1, model: String::new() };
         r.host.link.observe(state(false));
         assert!(!r.host.capture(true), "no tap: the window's keys answer");
         r.host.link.observe(state(true));

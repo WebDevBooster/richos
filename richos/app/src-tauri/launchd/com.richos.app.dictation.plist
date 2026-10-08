@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The dictation tool's LaunchAgent (dictation plan revision 2, section 6; slice 5).
+	     Placed at Contents/Library/LaunchAgents/ by tauri.conf.json bundle.macOS.files and
+	     registered by the app with SMAppService.agent(plistName:) when dictation is on in an
+	     installed copy (src-tauri/src/dictation/login.rs). launchd expands nothing here, so the
+	     tool is started with no data folder and computes the installed one for the account. -->
+	<key>Label</key>
+	<string>com.richos.app.dictation</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/richos-tauri</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>richos-tauri</string>
+		<string>--richos-dictation</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<!-- Started again after a crash or a version restart (a non-zero exit); an exit of 0 is
+	     dictation turned off, and stays off. Exit 3 (another copy of RichOS holds the key) is
+	     tried again every ThrottleInterval seconds, which is how the installed copy takes the
+	     key back once a folder copy quits. -->
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<!-- Frank's M9: an interactive process, never App Napped out of its key tap. -->
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.richos.app</string>
+	</array>
+</dict>
+</plist>

@@ -70,8 +70,11 @@ pub fn view(data_dir: &Path, ready: bool) -> OfferView {
     }
 }
 
-/// Record that the offer was shown: `offered: true`, every other field kept.
+/// Record that the offer was shown: `offered: true`, every other field kept. Under the same
+/// file lock the sheet and the tool write through (`store::update`), so this third writer loses
+/// nothing of theirs and they lose nothing of its (review finding 3, 2026-10-08).
 pub fn mark_shown(data_dir: &Path) -> Result<(), String> {
+    let _held = crate::dictation::store::lock(data_dir)?;
     let mut map = read_object(data_dir)?;
     map.insert("offered".to_string(), serde_json::Value::Bool(true));
     std::fs::create_dir_all(data_dir).map_err(|e| format!("the data folder could not be created: {e}"))?;
@@ -107,8 +110,14 @@ mod tests {
         assert_eq!(view(&d, false), OfferView { ready: false, offered: false, key: 1 });
         mark_shown(&d).unwrap();
         assert!(view(&d, true).offered, "a relaunch reads the same file");
-        let leftovers: Vec<_> = std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name()).collect();
-        assert_eq!(leftovers, vec![std::ffi::OsString::from(FILE_NAME)], "no partial file left");
+        // Beside the file only the writers' shared lock (store::LOCK_NAME) may stay: no partial file.
+        let mut leftovers: Vec<_> = std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name()).collect();
+        leftovers.sort();
+        assert_eq!(
+            leftovers,
+            vec![std::ffi::OsString::from(crate::dictation::store::LOCK_NAME), std::ffi::OsString::from(FILE_NAME)],
+            "no partial file left"
+        );
         std::fs::remove_dir_all(&d).unwrap();
     }
 

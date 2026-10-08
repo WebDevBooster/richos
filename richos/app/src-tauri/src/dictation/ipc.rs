@@ -38,6 +38,21 @@ pub enum AppMessage {
     CaptureNextKey,
     /// The window stopped waiting for a key (Escape, Cancel, a key chosen on the strip).
     CancelCapture,
+    /// **The answer to `will-listen`** (review finding 2, 2026-10-08): this app has closed voice
+    /// mode's microphone and its turn gate (or had none open), so the tool may open the
+    /// microphone now. The tool waits for one from every connected app before it listens.
+    VoiceYielded,
+    /// **A change to the key's owner's settings, from a copy that does not own the key** (review
+    /// finding 4): a second copy's sheet changes `dictation.json` where the TOOL reads it, never
+    /// its own, so what the sheet says is what the next dictation does. Each field is optional.
+    Change {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        on: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+    },
 }
 
 /// The tool to the app.
@@ -63,6 +78,13 @@ pub enum ToolMessage {
         secure_input: bool,
         #[serde(default)]
         secure_app: Option<String>,
+        /// The key and the model the tool actually uses (its own `dictation.json`), so a copy
+        /// that does not own the key shows them rather than its own file's (finding 4). Both
+        /// default, so a state from a tool built before them still reads.
+        #[serde(default)]
+        key: u8,
+        #[serde(default)]
+        model: String,
     },
     /// The microphone is about to open for a dictation: voice mode ends first, so the two never
     /// listen at once.
@@ -204,10 +226,15 @@ pub struct Hub {
 }
 
 impl Hub {
-    /// Say `message` to every app; an app that has gone is dropped.
-    pub fn broadcast(&self, message: &ToolMessage) {
-        if let Ok(mut clients) = self.clients.lock() {
-            clients.retain_mut(|c| send(c, message).is_ok());
+    /// Say `message` to every app; an app that has gone is dropped. Returns how many heard it,
+    /// so a caller can tell "an app is connected" from "nobody is" (the tool's Reopen rule).
+    pub fn broadcast(&self, message: &ToolMessage) -> usize {
+        match self.clients.lock() {
+            Ok(mut clients) => {
+                clients.retain_mut(|c| send(c, message).is_ok());
+                clients.len()
+            }
+            Err(_) => 0,
         }
     }
 
@@ -407,6 +434,8 @@ mod tests {
             key_tap: true,
             secure_input: false,
             secure_app: None,
+            key: 1,
+            model: "large-v3-turbo-q5_0".into(),
         };
         serve(&owner, hub.clone(), state, move |m| tx.send(m).unwrap()).unwrap();
         let mut app = UnixStream::connect(owner.socket()).unwrap();
@@ -427,7 +456,15 @@ mod tests {
             r#"{"type":"state","owner":"o","on":true,"listening":false,"writing":false,"problem":null,"keyTap":true}"#,
         )
         .unwrap();
-        assert!(matches!(older, ToolMessage::State { secure_input: false, secure_app: None, .. }));
+        assert!(matches!(older, ToolMessage::State { secure_input: false, secure_app: None, key: 0, .. }));
+        // The handover's answer and the second copy's change (review findings 2 and 4).
+        assert_eq!(serde_json::to_string(&AppMessage::VoiceYielded).unwrap(), r#"{"type":"voice-yielded"}"#);
+        let change = AppMessage::Change { on: None, key: Some(5), model: None };
+        assert_eq!(serde_json::to_string(&change).unwrap(), r#"{"type":"change","key":5}"#);
+        send(&mut app, &change).unwrap();
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), change);
+        send(&mut app, &AppMessage::VoiceYielded).unwrap();
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), AppMessage::VoiceYielded);
         let hello = serde_json::to_string(&AppMessage::Hello { version: "1.2.0".into(), bundle: "b".into(), data_dir: "d".into() }).unwrap();
         assert_eq!(hello, r#"{"type":"hello","version":"1.2.0","bundle":"b","dataDir":"d"}"#);
         // Key capture (slice 2): the plan's names on the wire, both ways.

@@ -854,13 +854,20 @@ impl Recognizer {
     /// Transcribe one utterance (16 kHz mono f32). Returns the text and the MEASURED
     /// wall-clock recognition latency.
     pub fn transcribe(&self, samples: &[f32], scratch_dir: &Path) -> Result<(String, u64), SttError> {
-        self.transcribe_inner(samples,scratch_dir,None)
+        self.transcribe_inner(samples,scratch_dir,None,None)
     }
     /// HTTP callers can bound their owned decoder without changing the desktop loop.
     pub fn transcribe_bounded(&self,samples:&[f32],scratch_dir:&Path,timeout:std::time::Duration)->Result<(String,u64),SttError> {
-        self.transcribe_inner(samples,scratch_dir,Some(timeout))
+        self.transcribe_inner(samples,scratch_dir,Some(timeout),None)
     }
-    fn transcribe_inner(&self,samples:&[f32],scratch_dir:&Path,timeout:Option<std::time::Duration>)->Result<(String,u64),SttError> {
+    /// [`Self::transcribe_bounded`] that also ends early when `stop` is set: the decoder is
+    /// killed and reaped, and the error is `Interrupted`. The dictation tool's writing worker
+    /// uses it so an ordinary quit of the tool joins the worker instead of orphaning whisper-cli
+    /// and leaving the recording on disk (review finding 1, 2026-10-08).
+    pub fn transcribe_bounded_until(&self,samples:&[f32],scratch_dir:&Path,timeout:std::time::Duration,stop:&std::sync::atomic::AtomicBool)->Result<(String,u64),SttError> {
+        self.transcribe_inner(samples,scratch_dir,Some(timeout),Some(stop))
+    }
+    fn transcribe_inner(&self,samples:&[f32],scratch_dir:&Path,timeout:Option<std::time::Duration>,stop:Option<&std::sync::atomic::AtomicBool>)->Result<(String,u64),SttError> {
         std::fs::create_dir_all(scratch_dir).map_err(|e| SttError::Io(e.to_string()))?;
         let wav_path = scratch_dir.join(format!("utt-{}.wav", std::process::id()));
         wav::write_pcm16_mono(&wav_path, samples, SAMPLE_RATE).map_err(|e| SttError::Io(e.to_string()))?;
@@ -870,11 +877,14 @@ impl Recognizer {
         cmd.arg("-m").arg(&self.model).arg("-f").arg(&wav_path);
         cmd.args(decode_args(self.prompt.as_deref()));
         let out = match timeout {
-            Some(timeout)=>bounded_decoder(&mut cmd,scratch_dir,timeout),
+            Some(timeout)=>bounded_decoder_until(&mut cmd,scratch_dir,timeout,stop),
             None=>cmd.output(),
-        }.map_err(|e| SttError::Io(e.to_string()))?;
-        let elapsed_ms = started.elapsed().as_millis() as u64;
+        };
+        // The recording is removed whatever the decoder did: a timeout, a stop or a failure
+        // leaves no voice on disk here (the caller's scratch folder removes the rest).
         let _ = std::fs::remove_file(&wav_path);
+        let out = out.map_err(|e| SttError::Io(e.to_string()))?;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
 
         if !out.status.success() {
             return Err(SttError::Failed {
@@ -891,6 +901,12 @@ impl Recognizer {
 // `pub` since dictation: its scratch-folder tests run the real decoder handling twice in a row and
 // past its deadline (`src-tauri/src/dictation/scratch.rs`).
 pub fn bounded_decoder(command:&mut Command,dir:&Path,timeout:std::time::Duration)->std::io::Result<std::process::Output> {
+    bounded_decoder_until(command,dir,timeout,None)
+}
+
+/// [`bounded_decoder`] that also returns `Interrupted`, with the child killed and reaped, as
+/// soon as `stop` is set. Polled every 20 ms, so a stop costs at most that plus the kill.
+pub fn bounded_decoder_until(command:&mut Command,dir:&Path,timeout:std::time::Duration,stop:Option<&std::sync::atomic::AtomicBool>)->std::io::Result<std::process::Output> {
     use std::{io,process::{Child,Stdio},os::unix::fs::OpenOptionsExt};
     struct Owned(Child);
     impl Drop for Owned {
@@ -913,6 +929,7 @@ pub fn bounded_decoder(command:&mut Command,dir:&Path,timeout:std::time::Duratio
     let mut child=Owned(command.stdin(Stdio::null()).stdout(file(&output)?).stderr(file(&errors)?).spawn()?);
     let started=Instant::now();
     loop {
+        if stop.is_some_and(|s|s.load(std::sync::atomic::Ordering::SeqCst)) {return Err(io::Error::new(io::ErrorKind::Interrupted,"decoder stopped by its owner"))}
         if started.elapsed()>=timeout {return Err(io::Error::new(io::ErrorKind::TimedOut,"decoder deadline"))}
         if [&output,&errors].iter().any(|p|std::fs::metadata(p).map(|m|m.len()>128000).unwrap_or(true)) {
             return Err(io::Error::new(io::ErrorKind::InvalidData,"decoder output limit"));
@@ -1374,6 +1391,27 @@ mod bounded_tests {
         std::fs::create_dir_all(&directory).unwrap();
         let started=Instant::now();let result=bounded_decoder(Command::new("/bin/sleep").arg("10"),&directory,std::time::Duration::from_millis(100));
         assert_eq!(result.unwrap_err().kind(),std::io::ErrorKind::TimedOut);assert!(started.elapsed().as_secs()<2);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// INVARIANT (review finding 1): a decoder told to stop ends at once, `Interrupted`, with its
+    /// child gone, long before its deadline; a stop never set changes nothing.
+    #[test] fn decoder_stop_reaps_its_child_before_the_deadline() {
+        use std::sync::{atomic::{AtomicBool,Ordering},Arc};
+        let directory=std::env::temp_dir().join(format!("bounded-decoder-stop-{}",std::process::id()));
+        std::fs::remove_dir_all(&directory).ok();
+        std::fs::create_dir_all(&directory).unwrap();
+        let stop=Arc::new(AtomicBool::new(false));
+        let flag=stop.clone();
+        std::thread::spawn(move||{std::thread::sleep(std::time::Duration::from_millis(80));flag.store(true,Ordering::SeqCst);});
+        let pid_file=directory.join("child.pid");
+        // The verdict is the error kind: Interrupted comes only from the stop, never from the
+        // 10 s deadline (TimedOut) or the child ending (Ok), so no clock is read.
+        let result=bounded_decoder_until(Command::new("/bin/sh").args(["-c","echo $$ > \"$1\"; exec /bin/sleep 10","x"]).arg(&pid_file),&directory,std::time::Duration::from_secs(10),Some(&stop));
+        assert_eq!(result.unwrap_err().kind(),std::io::ErrorKind::Interrupted);
+        let pid:i32=std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+        // SAFETY: signal 0 checks existence of the child this test started, and nothing else.
+        assert_ne!(unsafe{libc::kill(pid,0)},0,"the stopped decoder (pid {pid}) is gone");
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

@@ -663,6 +663,12 @@ while IFS= read -r p; do
       [ "$m" != "main" ] || { MATCHED=1; note "the shell's own unit tests for $m"; } ;;
     "$APP_REL"/src-tauri/Cargo.toml|"$APP_REL"/src-tauri/build.rs)
       printf '%s\t%s\t--bin richos-tauri\n' "src-tauri" "all" >> "$WORK/rust"; MATCHED=1 ;;
+    # The dictation tool's LaunchAgent plist (dictation plan slice 5): read, key by key, by
+    # `dictation::login::tests::the_launch_agent_plist`, together with its bundle entry in
+    # tauri.conf.json. That test is its proof, so a change here runs the login module's tests.
+    "$APP_REL"/src-tauri/launchd/*.plist)
+      printf '%s\t%s\t--bin richos-tauri dictation::login::\n' "src-tauri" "unit" >> "$WORK/rust"
+      MATCHED=1; note "read by dictation::login's own test" ;;
   esac
 
   # ---- the phone web app ----

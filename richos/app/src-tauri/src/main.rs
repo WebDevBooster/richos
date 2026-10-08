@@ -3587,6 +3587,7 @@ fn main() {
                     link,
                     attachments_home.clone(),
                     app.package_info().version.to_string(),
+                    &app.config().identifier,
                     Arc::new(AppVoice { app: app.handle().clone() }),
                 );
                 app.manage(host.clone());
@@ -4550,10 +4551,14 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     speech_preflight()?;
     ensure_voice_state(&app);
     // A dictation listening right now is written first, as if its key had been tapped, so voice
-    // mode and dictation never hold the microphone at once (dictation plan section 2).
+    // mode and dictation never hold the microphone at once (dictation plan section 2). A
+    // dictation that does not stop keeps the microphone: voice mode does not open, rather than
+    // opening beside it and sending his dictated words to Rich (review finding 2).
     #[cfg(target_os = "macos")]
     if let Some(link) = app.try_state::<Arc<dictation_app::Link>>() {
-        link.finish();
+        if !link.finish() {
+            return Err("a dictation is still listening; tap its key to finish it, then try again".into());
+        }
     }
     let handle = app.state::<VoiceHandle>();
     let mut slot = handle.controller.lock().map_err(|_| "voice state poisoned")?;
@@ -9098,6 +9103,19 @@ fn remember_window_geometry(window: &tauri::WebviewWindow, path: std::path::Path
 /// back to the mirror exactly as it does today — a degraded path that is no worse than the
 /// current behavior, never a curtain drawn on a guess.
 fn launch_init_script(kind: LaunchKind, ordinal: Option<u64>, splash_enabled: Option<bool>) -> String {
+    // One line per window, so a walk can read "a fresh start with the splash" or "a second
+    // window, no splash" off the log instead of off a frame (dictation plan slice 5's proof,
+    // the CEO's "still show the splash screen etc as usual"). The splash itself is the
+    // webview's (`splash.js` declines every kind but `fresh`, and the switch).
+    eprintln!(
+        "[richos] window: launch kind {}, splash {}",
+        kind.as_str(),
+        match (kind, splash_enabled) {
+            (LaunchKind::Fresh, Some(false)) => "off by the switch",
+            (LaunchKind::Fresh, _) => "on",
+            _ => "not for this kind",
+        }
+    );
     format!(
         "window.__RICHOS_LAUNCH__ = Object.freeze({{ kind: {:?}, ordinal: {}, splashEnabled: {} }});",
         kind.as_str(),
