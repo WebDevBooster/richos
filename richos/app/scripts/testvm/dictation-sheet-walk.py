@@ -174,22 +174,40 @@ class SheetWalk(dictation_walk.DictationWalk):
             time.sleep(1)
         raise StepFailed(f'OCR did not read "{text}" on the guest screen within {seconds} s (frames {name}-*.png)')
 
-    def open_sheet(self):
-        """Settings, then its Dictation row. A first-run sheet a slow relaunch puts up late (the
-        memory question, after decline_first_run_sheets' 30 s: walk-513e77dc426d, "blocked ...
-        modal=Where should I keep what you tell me?") is declined and the opening starts over."""
+    def declined_late_sheet(self):
+        """A first-run sheet a slow launch puts up late hides the window's tree from ax.sh
+        ("blocked ... modal=Where should I keep what you tell me?": walk-513e77dc426d after
+        decline_first_run_sheets' 30 s, walk-e0f1629e8f0b's refused relaunch). Declines one
+        that is up; True when it did."""
+        if self.present('Not now'):
+            self.press('Not now')
+            time.sleep(3)
+            return True
+        return False
+
+    def open_settings(self):
+        """The Settings button, until its Dictation row is drawn; a late first-run sheet is
+        declined and the opening starts over, at most three times."""
         for attempt in range(3):
             try:
                 self.ax('click', '--id', 'set-btn', '--first')
                 self.until(lambda: self.by_id('set-dictation-open') is not None, 30, 'the Dictation row did not appear')
+                return
+            except StepFailed as exc:
+                if attempt == 2 or 'blocked' not in str(exc) or not self.declined_late_sheet():
+                    raise
+
+    def open_sheet(self):
+        """Settings, then its Dictation row, with open_settings' tolerance for a late sheet."""
+        for attempt in range(3):
+            try:
+                self.open_settings()
                 self.ax('click', '--id', 'set-dictation-open', '--first')
                 self.until(lambda: self.by_id('dict-switch') is not None, 30, 'the Dictation sheet did not open')
                 return
             except StepFailed as exc:
-                if attempt == 2 or 'blocked' not in str(exc) or not self.present('Not now'):
+                if attempt == 2 or 'blocked' not in str(exc) or not self.declined_late_sheet():
                     raise
-                self.press('Not now')
-                time.sleep(3)
 
     def bring_front(self, pid):
         guest(self.vm, 'osascript -e ' + shlex.quote(
@@ -260,9 +278,19 @@ class SheetWalk(dictation_walk.DictationWalk):
         self.log = launched['log']
         self.facts.update({'log': self.log, 'app_pid': launched['pid']})
         self.save()
-        # The window's tree first: the Settings button is on every screen, sheets or not.
-        self.until(lambda: self.by_id('set-btn') is not None, 180, 'the relaunched app drew no Settings button')
-        presses = self.decline_first_run_sheets(seconds=30)
+        # The window's tree first: the Settings button is on every screen; a first-run sheet up
+        # meanwhile hides it, and is declined.
+        declined = []
+
+        def drawn():
+            if self.by_id('set-btn') is not None:
+                return True
+            if self.declined_late_sheet():
+                declined.append('Not now')
+            return False
+
+        self.until(drawn, 180, 'the relaunched app drew no Settings button')
+        presses = self.decline_first_run_sheets(seconds=30) + len(declined)
         return launched, presses
 
     # --- steps --------------------------------------------------------------------------------
@@ -387,7 +415,7 @@ class SheetWalk(dictation_walk.DictationWalk):
             'TCC.db) never reaches a running RichOS; after a relaunch the tool made its key tap and the sheet says On',
             {'live_wait_seconds': 5, 'row_after_write': row_after_write, 'notice': noticed, 'told_tool': told,
              'tool_answered': probe, 'prompt_dismissed_in': dismissed_in, 'relaunched_pid': launched['pid'],
-             'first_run_sheets_declined': len(presses or []), 'sheet_says_on_after_relaunch': on,
+             'first_run_sheets_declined': presses, 'sheet_says_on_after_relaunch': on,
              'tcc': self.tcc_rows()})
 
     def try_it(self):
@@ -475,10 +503,16 @@ class SheetWalk(dictation_walk.DictationWalk):
                 raise StepFailed('the second copy\'s tool did not find the key taken (exit 3); its log:\n' + text2[-3000:])
             # ax.sh drives the app whose pid run-walk recorded: the second copy, for this read only.
             state.write_text(f'{pid2}\n')
+            def drawn():
+                if self.by_id('set-btn') is not None:
+                    return True
+                self.declined_late_sheet()
+                return False
+
+            self.until(drawn, 180, 'the second copy drew no Settings button')
             self.decline_first_run_sheets(seconds=20)
             self.bring_front(pid2)
-            self.ax('click', '--id', 'set-btn', '--first')
-            self.until(lambda: self.by_id('set-dictation-open') is not None, 30, 'the second copy has no Dictation row')
+            self.open_settings()
             row = self.by_id('set-dictation-state') or {}
             row_text = row.get('value') or row.get('title') or ''
             if OTHER_ROW not in row_text and not self.shows_text(OTHER_ROW):
