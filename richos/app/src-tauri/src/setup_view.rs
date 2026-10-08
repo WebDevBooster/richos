@@ -1036,7 +1036,11 @@ mod tests {
         // The customer's Mac at first launch: nothing installed, the download already started.
         let fresh = status_with_video_tools(false, false, true, false);
         assert_eq!(sheet_needs(&fresh, true), vec![ClaudeCode, Engine]);
-        let names: Vec<&str> = ask_for_with(&fresh, true).items.iter().map(|i| i.component).collect();
+        // The gate stated, not read: `ask_for_with` reads `richos_core::DICTATION_READY`, a build
+        // constant, and once dictation shipped (slice 5) the sheet LISTS the tools while they
+        // download (plan rev 2 section 2 row 1; `once_dictation_is_there_the_sheet_lists_the_video_tools_while_they_download`).
+        // This test is about the press and completeness, which the gate never changes.
+        let names: Vec<&str> = ask_for_gated(&fresh, true, false).items.iter().map(|i| i.component).collect();
         assert_eq!(names, vec!["claude-code", "engine"], "the sheet does not ask for what is already downloading");
         // A press waits for Claude Code and the engine, never for the video tools.
         assert_eq!(foreground_steps(&[ClaudeCode, Engine, MediaTools]), vec![ClaudeCode, Engine]);
