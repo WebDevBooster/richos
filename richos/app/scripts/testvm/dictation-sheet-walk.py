@@ -208,6 +208,16 @@ class SheetWalk(dictation_walk.DictationWalk):
         return guest(self.vm, 'sudo -n launchctl asuser "$(id -u)" sudo -n -u "$(id -un)" osascript -l JavaScript -e '
                      + shlex.quote(script) + ' 2>&1 || echo refused')
 
+    def tell_tool(self, kind):
+        """One line to the tool's socket, as an app connection says it (ipc.rs AppMessage)."""
+        code = ("import socket,sys,time; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); "
+                "s.sendall(('{\"type\":\"%s\"}\\n' % sys.argv[2]).encode()); time.sleep(0.5); s.close(); print('told')")
+        return guest(self.vm, 'python3 -c ' + shlex.quote(code) + ' "/private/tmp/richos-$(id -u)/dictation.sock" '
+                     + shlex.quote(kind) + ' 2>&1 || echo refused')
+
+    def save_dlog(self):
+        (self.out / 'dictation.log').write_text('\n'.join(self.dlog_lines()) + '\n')
+
     def reload_tcc(self, system):
         """tccd answers from what it has already read: a row written behind its back (the walk's
         stand-in for a person's switch in System Settings, which goes through tccd itself) is seen
@@ -297,22 +307,38 @@ class SheetWalk(dictation_walk.DictationWalk):
                 time.sleep(0.2)
             return None
 
-        # The clock starts when the app can know: at the write and its notice if they are seen,
-        # else at tccd's restart and a second notice.
-        seen, reloaded = tap_within(written, 5), None
+        # The clock starts when the app can know: at the write and its notice if they are seen.
+        seen, reloaded, probe = tap_within(written, 5), None, None
         if seen is None:
-            reloaded = self.reload_tcc(True)
-            noticed = [noticed, self.post_ax_notice()]
-            seen = tap_within(time.monotonic(), 30)
-        if seen is None:
-            # What tccd answered RichOS, kept beside the frame: it says whether the row was
-            # honored and the running process held an old answer, or the row was not honored.
-            tcc_log = guest(self.vm, "log show --last 2m --style compact --predicate "
+            # Which side holds the old answer: the tool is told directly, over its socket, what
+            # the window tells it once it reads Accessibility as allowed. A key tap now means the
+            # running tool sees the grant and the app's window never read it; "not allowed"
+            # again means the running processes hold the old answer.
+            lines_before = len(self.dlog_lines())
+            self.shot('granted-unseen.png')
+            self.tell_tool('permissions-changed')
+            time.sleep(3)
+            probe = self.dlog_lines()[lines_before:]
+            seen = tap_within(time.monotonic(), 2)
+            if seen is None:
+                reloaded = self.reload_tcc(True)
+                noticed = [noticed, self.post_ax_notice()]
+                self.tell_tool('permissions-changed')
+                seen = tap_within(time.monotonic(), 30)
+        if seen is None or probe is not None:
+            # What tccd answered RichOS, kept beside the frames.
+            tcc_log = guest(self.vm, "/usr/bin/log show --last 3m --style compact --predicate "
                                      + shlex.quote('subsystem == "com.apple.TCC" AND eventMessage CONTAINS[c] "richos"')
-                                     + " 2>&1 | tail -200 || true", 120)
+                                     + " 2>&1 | tail -300 || true", 120)
             (self.out / 'tcc-answers.log').write_text(tcc_log)
-            raise StepFailed(f'the tool made no key tap within 30 s of the Accessibility row, its notice and a tccd '
-                             f'restart (row: {row_after_write}, notice: {noticed!r}, restart: {reloaded!r})')
+            self.save_dlog()
+        if seen is None:
+            raise StepFailed(f'the tool made no key tap within 30 s of the Accessibility row, its notice, the tool told '
+                             f'directly and a tccd restart (row: {row_after_write}, notice: {noticed!r}, '
+                             f'told directly: {probe!r}, restart: {reloaded!r})')
+        if probe is not None:
+            raise StepFailed(f'the window never read Accessibility as allowed; told directly, the tool answered '
+                             f'{probe!r} (row: {row_after_write}, notice: {noticed!r}, restart: {reloaded!r})')
         on = self.until(lambda: self.shows_text(ON_RUN), 15, 'the sheet did not say On')
         dismissed_in = self.press_in_prompt('Deny')  # the prompt macOS left up; the grant stands
         pid_now = guest(self.vm, f'kill -0 {int(pid_before)} 2>/dev/null && echo alive || true')
