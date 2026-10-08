@@ -1,8 +1,12 @@
 //! `<data dir>/dictation.json`: the one settings file dictation has (plan section 1).
 //!
-//! **The app is its only writer**; the tool reads it at start and again when the app says it
-//! changed (`settings-changed`). The accuracy label is derived from `model`, never stored beside
-//! it, so the label cannot claim a model the next dictation will not use.
+//! **The app writes it**; the tool reads it at start and again when the app says it changed
+//! (`settings-changed`). **The one exception is the tool's menu bar menu** (slice 3): its
+//! Accuracy rows and **Turn dictation off** live in the tool and must work with RichOS's window
+//! closed, so the tool changes exactly those two fields with [`update`], which reads the file
+//! fresh first so nothing the app wrote is lost, and then tells every app `settings-changed`.
+//! The accuracy label is derived from `model`, never stored beside it, so the label cannot claim
+//! a model the next dictation will not use.
 
 use richos_voice::dictation::{DEFAULT_KEY, MORE_ACCURATE};
 use serde::{Deserialize, Serialize};
@@ -63,7 +67,7 @@ pub fn read(data_dir: &Path) -> Result<Settings, String> {
 }
 
 /// Write the settings atomically (a sibling file renamed over the old one), so the tool never
-/// reads half a file. The app's alone.
+/// reads half a file.
 pub fn write(data_dir: &Path, settings: &Settings) -> Result<(), String> {
     std::fs::create_dir_all(data_dir).map_err(|e| format!("the data folder could not be created: {e}"))?;
     let target = path(data_dir);
@@ -74,6 +78,15 @@ pub fn write(data_dir: &Path, settings: &Settings) -> Result<(), String> {
         std::fs::remove_file(&partial).ok();
         format!("{FILE_NAME} could not be replaced: {e}")
     })
+}
+
+/// **Change the file as it is on disk now**: read it fresh, apply `change`, write it back
+/// atomically. What the tool's menu uses, so a field the app wrote a moment ago is kept.
+pub fn update(data_dir: &Path, change: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
+    let mut settings = read(data_dir)?;
+    change(&mut settings);
+    write(data_dir, &settings)?;
+    Ok(settings)
 }
 
 #[cfg(test)]
@@ -110,6 +123,20 @@ mod tests {
         }
         let leftovers: Vec<_> = std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name()).collect();
         assert_eq!(leftovers, vec![std::ffi::OsString::from(FILE_NAME)], "no partial file left");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// INVARIANT: the menu's change keeps every field it does not touch, as the file holds it now.
+    #[test]
+    fn an_update_keeps_what_it_does_not_change() {
+        let d = dir("update");
+        let s = Settings { on: true, key: 5, model: "large-v3-turbo-q5_0".into(), mic_asked: true, ax_asked: true, offered: true };
+        write(&d, &s).unwrap();
+        let after = update(&d, |s| s.model = "small.en".into()).unwrap();
+        assert_eq!(after, Settings { model: "small.en".into(), ..s.clone() });
+        assert_eq!(read(&d).unwrap(), after);
+        std::fs::write(path(&d), b"{broken").unwrap();
+        assert!(update(&d, |s| s.on = false).is_err(), "a broken file is never overwritten with defaults");
         std::fs::remove_dir_all(&d).unwrap();
     }
 

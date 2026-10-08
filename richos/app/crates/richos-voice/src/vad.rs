@@ -55,6 +55,15 @@ pub fn rms(frame: &[f32]) -> f32 {
     (sum / frame.len() as f32).sqrt()
 }
 
+/// **The input meter's 0..1 level for one frame's RMS**: -60 dBFS is 0.0, 0 dBFS is 1.0, so a
+/// normal speaking voice lands in the upper half of the meter instead of a barely-visible
+/// sliver. One function, read by voice mode's panel ([`Vad::level`]) and by the dictation bar's
+/// meter (`dictation_bar::MeterGate`), so the two meters can never disagree about a voice.
+pub fn display_level(rms: f32) -> f32 {
+    let db = 20.0 * rms.max(1e-6).log10();
+    ((db + 60.0) / 60.0).clamp(0.0, 1.0)
+}
+
 /// Tuning for [`Vad`]. Defaults are the open-mic-in-a-quiet-office numbers; every one of
 /// them is a frame count or an amplitude, never a vague adjective.
 #[derive(Debug, Clone, Copy)]
@@ -136,9 +145,7 @@ impl Vad {
     /// A 0..1 display level for the UI meter. Log-ish so a normal speaking voice lands in
     /// the upper half of the meter instead of a barely-visible sliver.
     pub fn level(&self) -> f32 {
-        // -60 dBFS -> 0.0, 0 dBFS -> 1.0.
-        let db = 20.0 * (self.last_rms.max(1e-6)).log10();
-        ((db + 60.0) / 60.0).clamp(0.0, 1.0)
+        display_level(self.last_rms)
     }
 
     /// Classify one frame. Frames shorter/longer than [`VAD_FRAME_SAMPLES`] are accepted

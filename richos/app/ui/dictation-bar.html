@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <title>RichOS dictation</title>
+    <!-- The dictation tool's bar and, with ?role=flight, the words' flight (dictation plan
+         slice 3). Not RichOS's main window: these float over every app. -->
+    <script src="theme-boot.js"></script>
+    <link rel="stylesheet" href="fonts/fonts.css" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="dictation-overlay.css" />
+  </head>
+  <body>
+    <div id="dhud" role="status" aria-live="polite"></div>
+    <div id="flight" aria-hidden="true"></div>
+    <script src="dictation-bar.js"></script>
+  </body>
+</html>

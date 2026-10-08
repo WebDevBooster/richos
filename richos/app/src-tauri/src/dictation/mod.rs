@@ -10,13 +10,20 @@
 //! - `scratch.rs`: one dictation's private folder.
 //! - `log.rs`: `dictation.log`, never the words.
 //!
-//! Slice 1 builds the tool and the engine with no new screens: the bar, the flight window and
-//! the menu bar item are slice 3, the LaunchAgent is slice 5.
+//! - `appkit.rs`: the windows as AppKit sees them, the screens, Secure Event Input (slice 3).
+//! - `bar.rs`: the bar, the words' flight and the menu, as the tool's three windows (slice 3).
+//! - `menubar.rs`: RichOS in the menu bar (slice 3).
+//!
+//! Slice 1 built the tool and the engine with no new screens; slice 3 adds the bar, the flight
+//! window and the menu bar item; the LaunchAgent is slice 5.
 
+pub mod appkit;
+pub mod bar;
 pub mod insert;
 pub mod ipc;
 pub mod keytap;
 pub mod log;
+pub mod menubar;
 pub mod scratch;
 pub mod store;
 pub mod tool;
