@@ -1,0 +1,185 @@
+{
+  "vm": "walk-1e28724389ec",
+  "expect_sha": "9be79b133",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "9be79b133e44967c66a5178c71badfe843f6fd1f"
+      },
+      "outcome": "PASS",
+      "seconds": 0.1
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone"
+          ],
+          "system": [
+            "kTCCServiceAccessibility"
+          ]
+        },
+        "input_monitoring_row": false,
+        "wav": "/Users/admin/testvm/walk-1e28724389ec/home/dictation-sample.wav",
+        "wav_seconds": 3.042,
+        "model": "/Users/admin/testvm/walk-1e28724389ec/home/.config/richos/models/ggml-small.en.bin",
+        "expected_text": {
+          "small.en": "The quarterly numbers look better than we expected this morning."
+        },
+        "accurate_model": "/Users/admin/testvm/walk-1e28724389ec/home/.config/richos/models/ggml-large-v3-turbo-q5_0.bin",
+        "samples": {
+          "spoken": "/Users/admin/testvm/walk-1e28724389ec/home/dictation-spoken.wav",
+          "long": "/Users/admin/testvm/walk-1e28724389ec/home/dictation-long.wav",
+          "silent": "/Users/admin/testvm/walk-1e28724389ec/home/dictation-silent.wav"
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 20.2
+    },
+    {
+      "step": "relaunch",
+      "evidence": {
+        "app_pid": 1422,
+        "tool": {
+          "pid": 1497,
+          "ppid": 1422,
+          "command": "/Users/admin/testvm/walk-1e28724389ec/RichOS.app/Contents/MacOS/richos-tauri --richos-dictation --data-dir /Users/admin/testvm/walk-1e28724389ec/home/Library/Application Support/com.richos.app --parent 1422"
+        },
+        "log": [
+          "[richos] dictation: turned on by the test switch (RICHOS_DICTATION_TEST_ON)",
+          "[richos] dictation: the tool started as this app's child (pid 1497)",
+          "[richos-dictation] dictation tool started: version 1.2.0-dev.9be79b133, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock",
+          "[richos-dictation] whisper-cli from the app's runtime at /Users/admin/testvm/walk-1e28724389ec/engine/runtime/bin",
+          "[richos-dictation] dictation-bar window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] dictation-flight window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] dictation-menu window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] the bar, the flight and the menu windows are built as the panel type",
+          "[richos] dictation: connected to the tool",
+          "[richos-dictation] key tap created for F1",
+          "[richos-dictation] an app connected: version 1.2.0-dev.9be79b133, /Users/admin/testvm/walk-1e28724389ec/RichOS.app, data folder /Users/admin/testvm/walk-1e28724389ec/home/Library/Application Support/com.richos.app (this tool is 1.2.0-dev.9be79b133)"
+        ]
+      },
+      "outcome": "PASS",
+      "seconds": 4.6
+    },
+    {
+      "step": "settle",
+      "evidence": {
+        "voice_readiness": "[richos] voice: ready on this machine (ready) \u2014 whisper.cpp 1.9.1 bin:fe7b744a4b31 model:small.en@c6138d6d58ec | model:small.en (hw-resolved, large-v3-turbo-q5_0 too slow here at 11.195s/utt > 1.000s; this 13.799s/utt) mem:2400534528B/5368709120B pressure:normal",
+        "models": [
+          "ggml-large-v3-turbo-q5_0.bin",
+          "ggml-small.en.bin",
+          "ggml-small.en.bin.part"
+        ],
+        "decoded": {
+          "large-v3-turbo-q5_0": {
+            "text": "The quarterly numbers look better than we expected this morning.",
+            "seconds": 5.4
+          },
+          "small.en": {
+            "text": "The quarterly numbers look better than we expected this morning.",
+            "seconds": 0.0
+          }
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 91.0
+    },
+    {
+      "step": "apps",
+      "evidence": {
+        "applications": [
+          "/Applications:",
+          "Safari.app",
+          "Utilities",
+          "",
+          "/System/Applications:",
+          "App Store.app",
+          "Automator.app",
+          "Books.app",
+          "Calculator.app",
+          "Calendar.app",
+          "Chess.app",
+          "Clock.app",
+          "Contacts.app",
+          "Dictionary.app",
+          "FaceTime.app",
+          "FindMy.app",
+          "Font Book.app",
+          "Freeform.app",
+          "Home.app",
+          "Image Capture.app",
+          "Image Playground.app",
+          "iPhone Mirroring.app",
+          "Launchpad.app",
+          "Mail.app",
+          "Maps.app",
+          "Messages.app",
+          "Mission Control.app",
+          "Music.app",
+          "News.app",
+          "Notes.app",
+          "Passwords.app",
+          "Photo Booth.app",
+          "Photos.app",
+          "Podcasts.app",
+          "Preview.app",
+          "QuickTime Player.app",
+          "Reminders.app",
+          "Shortcuts.app",
+          "Siri.app",
+          "Stickies.app",
+          "Stocks.app",
+          "System Settings.app",
+          "TextEdit.app",
+          "Time Machine.app",
+          "Tips.app",
+          "TV.app",
+          "Utilities",
+          "VoiceMemos.app",
+          "Weather.app"
+        ],
+        "chromium_or_electron": "Google Chrome.app",
+        "installed_chrome": true
+      },
+      "outcome": "PASS",
+      "seconds": 32.5
+    },
+    {
+      "step": "chromium",
+      "evidence": {
+        "app": "Google Chrome.app",
+        "bundle": "com.google.Chrome",
+        "dictation": {
+          "key": "122",
+          "log": "2026-10-08T17:45:45Z dictation: model large-v3-turbo-q5_0, 3.26 s of audio, written in 6206 ms, pasted; into com.google.Chrome (from the workspace), focused element none (-25212) (asked system-wide), window yes",
+          "model": "large-v3-turbo-q5_0",
+          "expected": "The quarterly numbers look better than we expected this morning.",
+          "clipboard_restored": true,
+          "front_samples": 45,
+          "front": "com.google.Chrome",
+          "press_seconds": 0.148,
+          "sample_delivered_after_seconds": 3.166,
+          "second_tap_after_delivery_seconds": 0.137
+        },
+        "text": "The quarterly numbers look better than we expected this morning.",
+        "modifier_flags": {
+          "before": "hid 0x0 [none]; session 0x0 [none]",
+          "after": "hid 0x20100000 [command]; session 0x20100000 [command]"
+        },
+        "flight": "no flight: the app gave Accessibility no rectangle, so the bar said Added alone",
+        "banners": "0, 0, 1680, 1050"
+      },
+      "outcome": "PASS",
+      "seconds": 24.2
+    },
+    {
+      "step": "accuracy-mid",
+      "outcome": "FAIL",
+      "detail": "dictation.log never said \"accuracy set to\" within 10 s; its tail:\n2026-10-08T17:43:22Z menu bar item at 1438,0 34x24\n2026-10-08T17:43:23Z the flight page is ready\n2026-10-08T17:43:23Z the bar page is ready\n2026-10-08T17:43:23Z the menu page is ready\n2026-10-08T17:45:35Z will-listen 1 sent to 1 app(s); the microphone waits for each one's answer\n2026-10-08T17:45:35Z every app (1) yielded the microphone for will-listen 1\n2026-10-08T17:45:36Z listening (injected wav (/Users/admin/testvm/walk-1e28724389ec/home/dictation-sample.wav))\n2026-10-08T17:45:36Z bar shown: listening at 579,817 523x138\n2026-10-08T17:45:39Z bar shown: writing at 692,817 296x138\n2026-10-08T17:45:45Z dictation: model large-v3-turbo-q5_0, 3.26 s of audio, written in 6206 ms, pasted; into com.google.Chrome (from the workspace), focused element none (-25212) (asked system-wide), window yes\n2026-10-08T17:45:45Z bar shown: added at 732,817 216x138\n2026-10-08T17:45:51Z menu bar item event: enter at 1438,0 34x24\n2026-10-08T17:45:57Z menu bar item event: click Left Down at 1438,0 34x24\n2026-10-08T17:45:57Z menu bar item pressed\n2026-10-08T17:45:57Z menu opened from the menu bar item; the front app is pid Some(2199)\n2026-10-08T17:45:57Z menu shown at 1126,28 346x319\n2026-10-08T17:45:57Z menu key window shown; the tool is active: true; front pid Some(2199)\n2026-10-08T17:45:57Z menu bar item event: click Left Up at 1438,0 34x24\n2026-10-08T17:45:58Z menu shown at 1126,28 346x319\n2026-10-08T17:45:58Z menu key window shown; the tool is active: true; front pid Some(2199)",
+      "seconds": 18.4
+    }
+  ]
+}

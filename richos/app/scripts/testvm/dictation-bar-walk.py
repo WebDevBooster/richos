@@ -465,10 +465,27 @@ class BarWalk(dictation_walk.DictationWalk):
             raise StepFailed('a silent dictation changed TextEdit')
         return {'bar': bar_shown(shown), 'log': line, 'read': read}
 
+    def modifier_flags(self):
+        """The modifier keys the guest's HID system and session believe are held (post_key --flags)."""
+        try:
+            return guest(self.vm, shlex.quote(self.post_key) + ' --flags', 20)
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            return f'(unread: {str(exc)[:120]})'
+
+    def release_command(self):
+        """A Command key-up with no flags posted in the guest (post_key --release-command)."""
+        return guest(self.vm, shlex.quote(self.post_key) + ' --release-command', 20)
+
     def chromium(self):
         self.use_sample(self.spoken)
         since = len(self.dlog_lines())
+        flags_before = self.modifier_flags()
         out = super().chromium()
+        # The words go into Chrome by the paste path (insert.rs post_command: a Command-V
+        # keystroke posted at the HID tap), where TextEdit's go in through Accessibility; what
+        # the HID system believes is held before and after is the measurement for the menu bar
+        # item's press that follows (walk-411cc5b8669f: the item saw a mouse-up alone).
+        out['modifier_flags'] = {'before': flags_before, 'after': self.modifier_flags()}
         flew = [x for x in self.dlog_lines()[since:] if 'the words flew to' in x]
         out['flight'] = flew[-1].split(' ', 1)[-1] if flew else 'no flight: the app gave Accessibility no rectangle, so the bar said Added alone'
         # Chrome's first run posts macOS notification banners at the top right, at the item's own
@@ -504,13 +521,13 @@ class BarWalk(dictation_walk.DictationWalk):
 
     def open_menu_from_item(self, since):
         """The menu opened by a press on the item, as a person presses it: once; and when that press
-        reaches nothing within 5 s, what sat over the item is recorded (the item's own event lines,
-        Notification Center's banner windows, whether the tool's main thread still answers for the
-        item), the banners are dismissed, and the item is pressed once more. Every press that opened
-        nothing so far came after Chrome's first run had posted banners at the item's x
-        (walk-c409831e46f9, walk-8dcad10d445b, walk-3520f87af8f9, walk-e7b42c44d5d8), fresh tool or
-        warm; every press before Chrome opened the menu. Returns the evidence; raises with it when
-        the second press opens nothing either."""
+        reaches nothing within 5 s, what the press met is recorded (the item's own event lines, the
+        modifier keys the HID system believes are held, Notification Center's banner windows, the
+        front app, whether the tool's main thread still answers for the item); then, with Command
+        believed held, a Command key-up is posted (walk-411cc5b8669f: after the paste into Chrome
+        the item saw a mouse-up alone, which is how AppKit delivers a Command-click to a status
+        item: the start of dragging it), else the banners are dismissed; and the item is pressed
+        once more. Returns the evidence; raises with it when the second press opens nothing either."""
         (ix, iy), item = self.item_center()
         tool = self.tool_pids()
         self.click(ix, iy)
@@ -518,13 +535,18 @@ class BarWalk(dictation_walk.DictationWalk):
         try:
             self.wait_dlog('menu bar item pressed', since, 5)
         except StepFailed:
+            flags = self.modifier_flags()
             evidence['first_press'] = {
                 'item_events': [x.split(' ', 1)[-1] for x in self.dlog_lines()[since:] if 'menu bar item event' in x][-6:],
+                'modifier_flags': flags,
                 'banners': self.banners(),
                 'front': self.front_bundle(),
                 'item_answers': self.item_answers(tool[0]['pid']) if len(tool) == 1 else f'tools {tool}',
             }
-            evidence['banners_cleared'] = self.clear_banners()
+            if 'command' in flags.split(';')[0]:
+                evidence['command_released'] = self.release_command()
+            else:
+                evidence['banners_cleared'] = self.clear_banners()
             evidence['presses'] = 2
             self.click(ix, iy)
         try:
@@ -532,12 +554,18 @@ class BarWalk(dictation_walk.DictationWalk):
         except StepFailed:
             evidence['last_press'] = {
                 'item_events': [x.split(' ', 1)[-1] for x in self.dlog_lines()[since:] if 'menu bar item event' in x][-6:],
+                'modifier_flags': self.modifier_flags(),
                 'banners': self.banners(),
                 'front': self.front_bundle(),
                 'item_answers': self.item_answers(tool[0]['pid']) if len(tool) == 1 else f'tools {tool}',
             }
             raise StepFailed(f'no menu after {evidence["presses"]} press(es) on the item: {evidence}')
         self.presses_to_open = evidence['presses']
+        # Kept in facts.json too, so a step that fails after the menu opened still leaves what
+        # the press met (walk-1e28724389ec: the menu opened at the second press and the step
+        # failed later, and the report carried only the later failure).
+        self.facts.setdefault('menu_opens', []).append(evidence)
+        self.save()
         return evidence
 
     def menu_fresh(self):
