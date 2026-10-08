@@ -285,20 +285,41 @@ pub fn app_active() -> bool {
     })
 }
 
-/// `NSApplicationDidBecomeActiveNotification` reached the watcher: say so, with the front app
-/// and the frames that led here, so the log names who activated the tool.
+/// `NSApplicationDidBecomeActiveNotification` reached the watcher: the activation is handed
+/// back at once, and the log says so with the app that was in front.
+///
+/// Where it comes from (walk-8dcad10d445b, bundle 6dcd14dcb): wry activates the application
+/// when it creates a webview (`wry-0.55.1/src/wkwebview/mod.rs:696`, `NSApplication::activate`,
+/// unconditional), and on macOS 14+ that cooperative request is granted about two seconds
+/// later through the run loop, when the app that was active is itself still starting: a tool
+/// started by a freshly launched RichOS became the active app at 16:03:43 and 16:03:55, and
+/// a press on its menu bar item then opened nothing, where the same press with TextEdit active
+/// opened the menu in every other run. The tool is never the front (plan section 6): the front
+/// belongs to the app the words go to.
 extern "C-unwind" fn became_active(_: *mut AnyObject, _: Sel, _: *mut AnyObject) {
-    let trace = std::backtrace::Backtrace::force_capture().to_string();
-    let frames: Vec<&str> = trace.lines().filter(|l| !l.trim_start().starts_with("at ")).take(48).collect();
+    let front = frontmost_pid();
+    deactivate();
     super::log::line(&format!(
-        "the tool became the active app (it never should: the front belongs to the app the words go to); front pid {:?}; from:\n{}",
-        frontmost_pid(),
-        frames.join("\n")
+        "the tool became the active app (front pid {front:?}); activation handed back, the front belongs to the app the words go to"
     ));
 }
 
-/// **Log every activation of this process, with where it came from.** Registered once, in the
-/// tool's `setup` (main thread); the observer lives for the process.
+/// Give activation back to whatever app had it: `[NSApp deactivate]`.
+fn deactivate() {
+    objc2::rc::autoreleasepool(|_| {
+        if let Some(class) = AnyClass::get(c"NSApplication") {
+            // SAFETY: documented class method and instance method; main thread (the observer
+            // runs on the notification's thread, which is the main thread for AppKit).
+            unsafe {
+                let app: *mut AnyObject = msg_send![class, sharedApplication];
+                let _: () = msg_send![app, deactivate];
+            }
+        }
+    });
+}
+
+/// **Hand back every activation of this process.** Registered once, in the tool's `setup`
+/// (main thread); the observer lives for the process.
 pub fn watch_activation() -> Result<(), String> {
     static WATCH: OnceLock<Result<(), String>> = OnceLock::new();
     WATCH
@@ -450,11 +471,14 @@ mod tests {
     use super::*;
 
     /// INVARIANT: the activation watch registers once and answers the same the second time; a
-    /// test process is never the active app.
+    /// test process is never the active app (and handing back activation while not active is
+    /// harmless: `deactivate` on an inactive app does nothing).
     #[test]
     fn the_activation_watch_registers_once() {
         assert_eq!(watch_activation(), Ok(()));
         assert_eq!(watch_activation(), Ok(()));
+        assert!(!app_active());
+        deactivate();
         assert!(!app_active());
     }
 
