@@ -68,8 +68,13 @@
   // is being asked, Accessibility still says "Asked when you turn it on").
   const mic = () => !view ? "unknown" : waiting(view.mic, micWait, true);
   const ax = () => !view ? "unknown" : waiting(view.ax, axWait, view.mic === "allowed");
-  // On and both allowed (round 19 `ready()`).
-  const ready = () => !!view && view.on && mic() === "allowed" && ax() === "allowed";
+  // On, with another copy's tool holding the key: that tool types, so this copy's own
+  // permissions decide nothing (plan section 7, "Two copies with dictation on": the other copy
+  // says line 1). Seen in walk-7350bc140616: a second copy without its own grants said "Needs a
+  // permission".
+  const elsewhere = () => !!view && view.on && view.owner === "other";
+  // On and both allowed (round 19 `ready()`), or on elsewhere.
+  const ready = () => !!view && view.on && (elsewhere() || (mic() === "allowed" && ax() === "allowed"));
   // Ready, and nothing outside RichOS is stopping the key (more lines `works()`).
   const works = () => ready() && !view.secure;
   const secureApp = () => view && view.secure && view.secure.app ? view.secure.app : null;
@@ -113,7 +118,7 @@
   // Round 19 `dictSub`, with the more lines.
   function rowLine() {
     if (!view.on) return ["Off", false];
-    if (mic() !== "allowed" || ax() !== "allowed") return [mic() === "asking" || ax() === "asking" ? "Waiting for macOS" : "Needs a permission", true];
+    if (!elsewhere() && (mic() !== "allowed" || ax() !== "allowed")) return [mic() === "asking" || ax() === "asking" ? "Waiting for macOS" : "Needs a permission", true];
     if (view.secure) return [secureApp() ? `Paused: ${secureApp()} is hiding your keys` : "Paused: an app is hiding your keys", true];
     if (view.owner === "other") return ["On even when RichOS is closed", false];
     return [`On. Tap ${keyName()} to talk`, false];
@@ -205,22 +210,22 @@
     const k = keyName();
     let st, cls = "";
     if (!view.on) st = "Off. Turn it on to type with your voice in Mail, Slack, your browser, anywhere.";
-    else if (mic() === "asking" || mic() === "unknown") st = "Waiting for you to allow the microphone&hellip;";
-    else if (mic() === "denied") { st = "Not working yet: macOS has not allowed the microphone."; cls = " is-attention"; }
-    else if (ax() === "asking" || ax() === "unknown") st = "Waiting for you to allow Accessibility&hellip;";
-    else if (ax() === "denied") { st = "Not working yet: macOS has not let me type into other apps."; cls = " is-attention"; }
+    else if (!elsewhere() && (mic() === "asking" || mic() === "unknown")) st = "Waiting for you to allow the microphone&hellip;";
+    else if (!elsewhere() && mic() === "denied") { st = "Not working yet: macOS has not allowed the microphone."; cls = " is-attention"; }
+    else if (!elsewhere() && (ax() === "asking" || ax() === "unknown")) st = "Waiting for you to allow Accessibility&hellip;";
+    else if (!elsewhere() && ax() === "denied") { st = "Not working yet: macOS has not let me type into other apps."; cls = " is-attention"; }
     // line 4: another app left Secure Event Input on
     else if (view.secure) { st = `Paused: ${secureHead(k)} <span class="dict-fix">${secureFix()}</span>`; cls = " is-attention"; }
     // line 1: on even when RichOS is closed
     else if (view.owner === "other") { st = `On even when RichOS is closed. Tap ${kcap(k)} in any app and talk.`; cls = " is-on"; }
     else { st = `On. Tap ${kcap(k)} in any app, talk, and tap it again.`; cls = " is-on"; }
-    const warn = view.on && (mic() === "denied" || ax() === "denied" || (ready() && !!view.secure));
+    const warn = view.on && ((!elsewhere() && (mic() === "denied" || ax() === "denied")) || (ready() && !!view.secure));
     let html = `<div class="dict-card${view.on && !warn ? " is-on" : ""}${warn ? " is-warn" : ""}"><span class="dict-spine"></span>
       <div class="dict-card-main"><h3 class="dict-card-title">Dictate in any app</h3><p class="dict-card-sub${cls}" id="dict-state">${st}</p></div>
       <button class="dict-switch" id="dict-switch" type="button" role="switch" data-act="toggle-on" aria-checked="${view.on}" aria-label="Dictate in any app"></button></div>`;
     // line 2: dictation works only while RichOS is open, so it says so, on or off
-    if (view.copy === "open-only") html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> When you close RichOS, dictation stops until you open it again.</span></p>`;
-    else if (view.copy === "old-macos") html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> To keep dictation on with RichOS closed, your Mac needs macOS 13 or later.</span></p>`;
+    if (!elsewhere() && view.copy === "open-only") html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> When you close RichOS, dictation stops until you open it again.</span></p>`;
+    else if (!elsewhere() && view.copy === "old-macos") html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> To keep dictation on with RichOS closed, your Mac needs macOS 13 or later.</span></p>`;
     if (feedback === "on" && works()) html += `<p class="dict-feedback" id="dict-feedback" role="status">${ICON.check}<span>Dictation is on. Try it in the box on the right, or in any app.</span></p>`;
     // the key
     html += `<section class="dict-sec"><div class="dict-sec-h"><h4 class="dict-sec-t">Your key</h4><span class="dict-sec-note">Tap once to start, once more to stop. Nothing to hold down.</span></div>`;
@@ -318,6 +323,8 @@
     flow = true;
     paint();
     if (!view || !view.on) return settle();
+    // Another copy has the key: nothing here to ask macOS for.
+    if (elsewhere()) return becameReady();
     if (view.mic === "unknown") {
       const v = await call("dictation_ask_microphone");
       if (v) view = v;

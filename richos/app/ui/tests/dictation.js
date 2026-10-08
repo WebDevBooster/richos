@@ -263,6 +263,21 @@ async function main() {
     await waitText(page, "#dict-state", "On even when RichOS is closed. Tap F1 in any app and talk.");
     assertEqual(await page.locator(".dict-card.is-on").count(), 1, "the gold on card: dictation does work");
     await page.close();
+    // The other copy's tool types, so this copy's own permissions decide nothing (plan section 7,
+    // "Two copies with dictation on"): seen in walk-7350bc140616, where a second copy without
+    // its own grants said "Needs a permission". It says line 1, without line 2's "Works only
+    // while RichOS is open", and asks macOS for nothing.
+    page = await open("light", { on: true, owner: "other", mic: "denied", ax: "unknown" });
+    await menu(page);
+    await waitText(page, "#set-dictation-state", "On even when RichOS is closed");
+    assertEqual(await page.locator("#set-dictation-state.is-attention").count(), 0, "row: no attention");
+    await page.click("#set-dictation-open");
+    await waitText(page, "#dict-state", "On even when RichOS is closed. Tap F1 in any app and talk.");
+    assertEqual(await page.locator("#dict-copy-note").count(), 0, "no line 2 beside line 1");
+    assertEqual(await page.locator(".dict-card.is-warn").count(), 0, "no warning spine");
+    const asked = (await calls(page)).filter(c => /ask_(microphone|accessibility)/.test(c));
+    assertEqual(asked.join(","), "", "macOS is asked for nothing");
+    await page.close();
     page = await open("dark", { ...ALLOWED, secure: { app: "1Password" } });
     await sheet(page);
     await waitText(page, "#dict-state", "Paused: 1Password is hiding your keys from other apps, so F1 can't reach me. Quitting 1Password fixes it.");
