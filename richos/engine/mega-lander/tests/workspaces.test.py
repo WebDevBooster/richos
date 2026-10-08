@@ -49,8 +49,15 @@ class Env(object):
         os.makedirs(self.home)
         self.saved = {k: os.environ.get(k) for k in ("HOME", "CLAUDE_CONFIG_DIR", "RICHOS_WORKSPACES_DIR",
                                                      "RICHOS_SESSION_PID", "RICHOS_SESSIONS_DIR",
-                                                     "RICHOS_SESSION_ID", "GIT_CONFIG_GLOBAL")}
+                                                     "RICHOS_SESSION_ID", "GIT_CONFIG_GLOBAL",
+                                                     "SCRATCH_BUILD_CACHE_ROOT",
+                                                     "SCRATCH_CARGO_TARGET_ROOTS")}
         os.environ["HOME"] = self.home
+        # A land removes the workspace's build caches (build_caches.py). Here they live in the
+        # sandbox, so no test ever reads or moves the operator's real cache folders.
+        self.caches = os.path.join(self.root, "caches")
+        os.environ["SCRATCH_BUILD_CACHE_ROOT"] = self.caches
+        os.environ["SCRATCH_CARGO_TARGET_ROOTS"] = os.path.join(self.caches, "cargo-target")
         os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(self.home, ".claude")
         os.environ.pop("RICHOS_WORKSPACES_DIR", None)
         os.environ.pop("RICHOS_SESSION_ID", None)
@@ -1005,6 +1012,38 @@ class Point06_Native(Base):
         self.assertEqual(self.names(), [])                  # produced nothing: landed, deleted
         self.assertFalse(os.path.exists(npath))
         self.assertNotIn("worktree-agent-" + aid, branches(self.entity))
+
+    def test_point_06_a_landed_workspaces_build_caches_go_with_it(self):
+        # CEO 2026-10-08: "Doesn't that cache clean-up belong to the Mega Lander then?" A
+        # workspace's own Cargo, iOS and Android folders on the external drive are removed
+        # at the moment it is deleted; a live neighbor's folders are not touched.
+        import hashlib
+        aid, npath = self.spawn("zach-opus-c6")
+        neighbor = os.path.join(self.env.root, "another-checkout")
+
+        def folders(checkout):
+            ios = os.path.join(checkout, "richos", "mobile", "native-ios")
+            android = os.path.join(checkout, "richos", "mobile", "native-android")
+            return [
+                os.path.join(self.env.caches, "cargo-target", "workspaces",
+                             hashlib.sha256(checkout.encode()).hexdigest()[:24]),
+                os.path.join(self.env.caches, "richos-native-ios",
+                             hashlib.sha256(ios.encode()).hexdigest()[:10]),
+                os.path.join(self.env.caches, "richos-native-android",
+                             hashlib.sha1(android.encode()).hexdigest()[:10]),
+            ]
+        mine, theirs = folders(npath), folders(neighbor)
+        for f in mine + theirs:
+            os.makedirs(os.path.join(f, "debug"))
+            with open(os.path.join(f, "debug", "artifact"), "w") as fh:
+                fh.write("x" * 4096)
+        self.finish(aid)
+        self.assertEqual(self.names(), [])                  # produced nothing: landed, deleted
+        self.assertFalse(os.path.exists(npath))
+        for f in mine:
+            self.assertFalse(os.path.exists(f), f)
+        for f in theirs:
+            self.assertTrue(os.path.exists(f), f)
 
     def test_point_06_subagentstart_before_the_agent_result(self):
         payload = {"session_id": self.sid, "tool_use_id": "tu-s", "tool_name": "Agent",

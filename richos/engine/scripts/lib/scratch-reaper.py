@@ -891,6 +891,22 @@ def measure(path):
     return total, newest, has_git
 
 
+_BUILD_CACHES = []
+
+
+def build_caches():
+    """lib/build_caches.py, loaded by path: the lander loads the same file, so the two can
+    never disagree about which folder belongs to which checkout."""
+    if not _BUILD_CACHES:
+        spec = importlib.util.spec_from_file_location(
+            "richos_build_caches",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "build_caches.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _BUILD_CACHES.append(mod)
+    return _BUILD_CACHES[0]
+
+
 def human(n):
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if n < 1024 or unit == "TB":
@@ -963,6 +979,9 @@ class Reaper(object):
         # scan_deferred_unknown.
         self.skip_unknown_arm = False
         self.unknown_not_scanned = 0
+        # Set by --notice too: the build-cache arm walks the external drive's caches,
+        # which a session-start banner must not pay for.
+        self.skip_build_caches = False
         # A LAND'S SCOPED SWEEP (--agent). None for every other run. When set,
         # scan_agent() replaces scan(), and apply() collects nothing it did not
         # plan: no test devices, no Docker. See scan_agent.
@@ -2359,6 +2378,112 @@ class Reaper(object):
                      "kept by a land %d d ago, past the declared retention of %d d"
                      % (age // 86400, retention // 86400))
 
+    def scan_build_caches(self, walls):
+        """BUILD OUTPUT ON THE EXTERNAL DRIVE (2026-10-08, §54). The drive was 98% full
+        three weeks after it was added, 824 GB of it build caches nothing ever removed:
+        every checkout's own Cargo and native-app folders after the checkout was gone,
+        and every Cargo dependency unit after no build used it any more. The rules and
+        their measurements are in lib/build_caches.py; this arm only plans them.
+
+          build-cache        a folder keyed to a checkout that no longer exists
+          build-cache-trash  what the lander moved aside and its own deletion left
+          cargo-units        one row per Cargo profile directory: its units no build
+                             has read for SCRATCH_BUILD_CACHE_IDLE_HOURS, deleted
+                             under Cargo's lock in apply()
+        """
+        root = self.cfg.get("build_cache_root") or ""
+        if not root or not os.path.isdir(root) or self.skip_build_caches:
+            return
+        bc = build_caches()
+        self.roots.append(root)
+        cargo_roots = [r for r in self.cfg["cargo_target_roots"] if os.path.isdir(r)]
+        floor_h = self.cfg["age_floor_minutes"] / 60.0
+        orphan_s = self.cfg["build_cache_orphan_hours"] * 3600
+        idle_s = self.cfg["build_cache_idle_hours"] * 3600
+
+        trash = bc.trash_dir(root)
+        planned = [trash]
+        for name in (sorted(os.listdir(trash)) if os.path.isdir(trash) else []):
+            path = os.path.join(trash, name)
+            size, _newest, has_git = bc.walk(path)
+            try:
+                moved = calendar.timegm(time.strptime(name[:16], "%Y%m%dT%H%M%SZ"))
+            except ValueError:
+                moved = 0
+            if self.now - moved < self.floor:
+                self.add(path, "build-cache-trash", size, KEEP,
+                         "moved aside by a land under %.0f h ago; its own deletion may "
+                         "still be running" % floor_h)
+                continue
+            refused = walls.check(path, has_git)
+            if refused:
+                self.add(path, "build-cache-trash", size, INDETERMINATE, refused)
+                continue
+            self.add(path, "build-cache-trash", size, DELETE,
+                     "moved aside by a land; its detached deletion did not finish")
+
+        checkouts, unreadable = bc.live_checkouts(self.cfg["checkout_parents"],
+                                                  extra=walls.registered)
+        live = set()
+        for c in checkouts:
+            check_deadline()
+            live |= bc.keys_for(bc.anchors(c))
+        for family, path, key in bc.keyed_folders(root, cargo_roots):
+            check_deadline()
+            if key in live:
+                self.add(path, "build-cache", 0, KEEP,
+                         "%s cache of a checkout that exists" % family)
+                continue
+            if unreadable:
+                self.add(path, "build-cache", 0, INDETERMINATE,
+                         "no checkout I could read has key %s, but the worktree list of "
+                         "%s could not be read" % (key, unreadable[0]))
+                continue
+            size, newest, has_git = bc.walk(path)
+            if self.now - newest < orphan_s:
+                self.add(path, "build-cache", size, KEEP,
+                         "no live checkout has key %s, but something wrote or read it "
+                         "%d min ago (declared idle time %d h)"
+                         % (key, (self.now - newest) // 60,
+                            self.cfg["build_cache_orphan_hours"]))
+                continue
+            busy = bc.busy_profiles(path)
+            if busy:
+                self.add(path, "build-cache", size, KEEP,
+                         "a running Cargo build holds %s/.cargo-lock" % busy[0])
+                continue
+            refused = walls.check(path, has_git)
+            if refused:
+                self.add(path, "build-cache", size, INDETERMINATE, refused)
+                continue
+            self.add(path, "build-cache", size, DELETE,
+                     "%s cache whose checkout is gone: no live checkout has key %s, and "
+                     "nothing has written or read it for %d h"
+                     % (family, key, (self.now - newest) // 3600))
+            planned.append(path)
+
+        for profile in bc.profile_dirs(cargo_roots, skip=planned):
+            check_deadline()
+            refused = walls.check(profile, False)
+            if refused:
+                self.add(profile, "cargo-units", 0, INDETERMINATE, refused)
+                continue
+            with bc.CargoLock(profile) as lock:
+                if not lock.held:
+                    self.add(profile, "cargo-units", 0, KEEP,
+                             "a running Cargo build holds its lock; its units are "
+                             "decided by the next pass")
+                    continue
+            idle = bc.idle_units(profile, idle_s, now=self.now)
+            if not idle:
+                continue
+            e = Entry(profile, "cargo-units", sum(u["bytes"] for _k, u in idle), DELETE,
+                      "%d Cargo unit(s) no build has read for %d h; deleted under "
+                      "Cargo's lock, and Cargo rebuilds any that is needed again"
+                      % (len(idle), self.cfg["build_cache_idle_hours"]))
+            e.unit_keys = [k for k, _u in idle]
+            self.entries.append(e)
+
     # --- running it ------------------------------------------------------
 
     def scan(self):
@@ -2368,7 +2493,8 @@ class Reaper(object):
                    for s in ("releases", "logs")]
         shared = [r for r in self.cfg["shared_tmp_roots"] if os.path.isdir(r)]
         kept = [self.cfg["kept_dir"]] if self.cfg.get("kept_dir") else []
-        walls = Walls(roots + [tmp] + nightly + shared + kept)
+        caches = [self.cfg["build_cache_root"]] if self.cfg.get("build_cache_root") else []
+        walls = Walls(roots + [tmp] + nightly + shared + kept + caches)
         # FIRST, so the other arms can skip what it has already claimed. A path
         # decided twice would be counted twice in the verdict, and a standing
         # failure is precisely a path another arm would otherwise report as KEEP.
@@ -2381,6 +2507,7 @@ class Reaper(object):
         self.scan_shared_tmp(walls)
         self.scan_nightly(walls)
         self.scan_kept(walls)
+        self.scan_build_caches(walls)
         self.scan_campaign_roots(walls)
         self.scan_docker_containers(walls)
         # LAST, ALWAYS. It is the only expensive arm and the only one that may be
@@ -2999,7 +3126,10 @@ class Reaper(object):
         # Scoped to the planned paths with include_declared=False, so this can
         # only ever quit an instance living inside something this run has already
         # decided to delete. It never reaches a live peer's instance.
-        for line in self.collect_test_instances([e.path for e in order], stamp):
+        # A cargo-units row names a profile directory that is NOT deleted, only some of its
+        # units, so an app running from it is not inside anything being removed.
+        for line in self.collect_test_instances([e.path for e in order
+                                                 if e.klass != "cargo-units"], stamp):
             lines.append(line)
             if " FAILED test-instance " in line:
                 failures.append(line.split("error=", 1)[-1])
@@ -3016,6 +3146,24 @@ class Reaper(object):
         if self.scope is None:
             lines.extend(self.collect_test_devices(stamp))
         for e in order:
+            if e.klass == "cargo-units":
+                # UNITS, NOT THE DIRECTORY. Re-measured and deleted under Cargo's own
+                # lock (lib/build_caches.py), so a build that started since the plan
+                # keeps every unit, and a unit it read since the plan is kept.
+                n, got, bad, why_not = build_caches().delete_units(
+                    e.path, e.unit_keys, self.cfg["build_cache_idle_hours"] * 3600)
+                if why_not:
+                    lines.append("%s KEPT %s class=%s why=%s" % (stamp, e.path, e.klass, why_not))
+                    continue
+                if n:
+                    deleted += 1
+                    freed += got
+                    lines.append("%s DELETED %s bytes=%d class=%s units=%d why=%s"
+                                 % (stamp, e.path, got, e.klass, n, e.why))
+                for f in bad:
+                    failures.append(f)
+                    lines.append("%s FAILED %s class=%s error=%s" % (stamp, e.path, e.klass, f))
+                continue
             try:
                 # A DIRECTORY IS THE ONLY THING rmtree CAN TAKE. THE TEST USED TO
                 # BE ITS COMPLEMENT AND THAT IS 200 OF THE 218 PERMANENT ALERTS.
@@ -3380,7 +3528,10 @@ _UNSTICKABLE_CLASSES = frozenset((
     # bit on a tree that old, in a temp root, is a harness's leftover and not a
     # person's protection — and every failure here becomes a MASSIVE ALERT, so an
     # avoidable one costs the credibility of the unavoidable ones.
-    "tmp-unknown"))
+    "tmp-unknown",
+    # Build caches join them 2026-10-08: Swift Package Manager leaves its checkouts
+    # read-only inside an iOS build folder, and the folder is already proven orphaned.
+    "build-cache", "build-cache-trash"))
 
 UF_IMMUTABLE = 0x00000002       # uchg. stat.UF_IMMUTABLE, named here so the
                                 # constant is readable beside its use.
@@ -3588,6 +3739,16 @@ def config_from_env():
         "kept_dir": os.path.realpath(os.path.expanduser(opt("SCRATCH_KEPT_DIR", "")))
                     if opt("SCRATCH_KEPT_DIR", "") else "",
         "kept_retention_days": opt_number("SCRATCH_KEPT_RETENTION_DAYS", 7),
+        # Build caches on the external drive (2026-10-08, lib/build_caches.py). Empty
+        # fallbacks: an engine whose config predates these keys deletes no build cache.
+        "build_cache_root": os.path.realpath(opt("SCRATCH_BUILD_CACHE_ROOT", ""))
+                            if opt("SCRATCH_BUILD_CACHE_ROOT", "") else "",
+        "cargo_target_roots": [os.path.realpath(p) for p in
+                               opt("SCRATCH_CARGO_TARGET_ROOTS", "").split()],
+        "checkout_parents": [os.path.expanduser(p) for p in
+                             opt("SCRATCH_BUILD_CACHE_CHECKOUT_PARENTS", "").split()],
+        "build_cache_orphan_hours": opt_number("SCRATCH_BUILD_CACHE_ORPHAN_HOURS", 6),
+        "build_cache_idle_hours": opt_number("SCRATCH_BUILD_CACHE_IDLE_HOURS", 72),
     }
 
 
@@ -3658,6 +3819,7 @@ def main(argv=None):
         # The banner never pays for the expensive arm. Its garbage numbers come
         # from the last full pass, which the scheduled job publishes.
         reaper.skip_unknown_arm = bool(args.notice)
+        reaper.skip_build_caches = bool(args.notice)
         if args.agent is not None:
             reaper.scan_agent({"name": args.agent, "session": args.session,
                                "workspaces": args.workspace,
