@@ -31,6 +31,7 @@
 
 import { exportBufferedArchive } from './buffered-export.mjs';
 import { trackChrome, stopChrome, stopAllChrome } from './chrome-process.mjs';
+import { removableVolumeRefusal } from './native-host-privacy.mjs';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { createServer } from 'node:https';
 import fs from 'node:fs';
@@ -543,6 +544,12 @@ async function investigateTabArming(workDir) {
 async function main() {
   if (!CHROME) throw new Error('no Chrome for Testing found; set CHROME_PATH');
   if (!fs.existsSync(HOST_JS)) throw new Error(`native host not found at ${HOST_JS}`);
+  // The host Chrome launches answers to macOS as itself; on a removable volume it would ask.
+  const refusal = removableVolumeRefusal({
+    paths: [SERVICE_DIR, EXT_DIR, os.tmpdir(), MODEL],
+    subjects: [process.execPath, process.env.RICHOS_NATIVE_LAUNCHER_PYTHON],
+  });
+  if (refusal) { console.error(refusal); process.exit(1); }
   if (!canSay || !haveWhisper || !MODEL) {
     console.error(`native-transport-e2e needs: say=${canSay} whisper=${haveWhisper} model=${MODEL || 'MISSING'} — all required for the speech-content proof.`);
     process.exit(1);

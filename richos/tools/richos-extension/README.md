@@ -301,6 +301,10 @@ On macOS with an external SSD, native helpers have their own privacy identity. S
 `RICHOS_NATIVE_LAUNCHER_PYTHON` to the absolute path of a Python interpreter already permitted
 to access that SSD. The fixture uses it to execute the real Node host directly, preserving
 stdio and avoiding a broad disk-access grant to `/bin/sh`. The default launcher remains a shell.
+When the checkout, TMPDIR or the model is under `/Volumes` and the host's executable (node, and
+the launcher interpreter if set) has no Removable Volumes permission in the user's TCC database,
+the harness refuses before Chrome starts and says how to grant it once, instead of leaving a
+macOS dialog on screen (`tests/native-host-privacy.mjs`, 2026-10-08).
 Use the service's pinned model and matching Whisper toolchain; a small-model override under
 the shipping tier is correctly refused by the pipeline. `--leg=native` or `--leg=fallback`
 retries one leg; the default invocation verifies both.
