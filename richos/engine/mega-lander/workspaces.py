@@ -2047,17 +2047,67 @@ def _record_for_agent(session_id, agent_id, name=""):
 def _running_calls(session_id, agent_id):
     """This agent's Bash calls whose shell is still running, from agent_hold's own record (the
     shell recorded itself at spawn: pid, parent, start time; a reused pid never matches), as
-    [(tool call id, command)]. Its wait command is not work. Any failure to read is [] (the
+    [(tool call id, command)], plus the ended ones whose result the platform has still to
+    deliver (_undelivered_calls). Its wait command is not work. Any failure to read is [] (the
     end is then recorded as it always was)."""
     try:
         ah = _agent_hold()
         if not ah._valid_ids(session_id, agent_id):
             return []
         table = ah.snapshot()
-        return [(c["tid"], c["command"]) for c in ah.calls(session_id, agent_id, table)
-                if c["mode"] != "exempt" and not table[c["pid"]]["stat"].startswith("Z")]
+        running = [(c["tid"], c["command"]) for c in ah.calls(session_id, agent_id, table)
+                   if c["mode"] != "exempt" and not table[c["pid"]]["stat"].startswith("Z")]
+        return running + _undelivered_calls(session_id, agent_id, ah, {tid for tid, _c in running})
     except Exception:
         return []
+
+
+def _agent_transcript(session_id, agent_id):
+    """The platform's own transcript of this agent, beside its meta.json (platform_agent_record)."""
+    if "/" in session_id:
+        return ""
+    hits = sorted(glob.glob(os.path.join(_platform_projects_dir(), "*", session_id, "subagents",
+                                         "agent-%s.jsonl" % agent_id)))
+    return hits[0] if hits else ""
+
+
+def _undelivered_calls(session_id, agent_id, ah, running):
+    """This agent's background calls whose shell has already ended but whose completion the
+    platform has not yet delivered, as [(tool call id, command)]: its transcript holds the call's
+    background receipt (a tool result carrying a backgroundTaskId) and no task notification naming
+    it yet. The platform wakes the agent with that notification, so a stop before it arrives is not
+    its end either (2026-10-08: echo-fable-dict5's test run ended at 16:55:45, its turn ended at
+    16:55:46.18 with no shell left running, the end was recorded, and the notification woke it at
+    16:55:46.76 into the lock-out). A call whose result came back directly has no receipt, and a
+    delivered one names itself, so neither ever defers an end. No transcript is []."""
+    directory = ah._shell_dir(session_id, agent_id)
+    candidates = {}
+    for name in os.listdir(directory) if os.path.isdir(directory) else []:
+        tid = name[:-5]
+        if name.endswith(".json") and tid not in running and ah._valid_ids(tid):
+            meta = read_json(os.path.join(directory, name)) or {}
+            if meta.get("mode") != "exempt":
+                candidates[tid] = str(meta.get("command") or "")
+    path = _agent_transcript(session_id, agent_id) if candidates else ""
+    if not path:
+        return []
+    receipts, delivered = set(), set()
+    with open(path, "rb") as f:
+        for line in f:
+            for m in re.finditer(rb"<tool-use-id>([A-Za-z0-9_.-]+)</tool-use-id>", line):
+                delivered.add(m.group(1).decode())
+            if b"backgroundTaskId" not in line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            result = row.get("toolUseResult") if isinstance(row, dict) else None
+            content = (row.get("message") or {}).get("content") if isinstance(row, dict) else None
+            if isinstance(result, dict) and result.get("backgroundTaskId") and isinstance(content, list):
+                receipts.update(i.get("tool_use_id") for i in content
+                                if isinstance(i, dict) and i.get("type") == "tool_result")
+    return [(tid, cmd) for tid, cmd in sorted(candidates.items()) if tid in receipts and tid not in delivered]
 
 
 def record_end(session_id, agent_id, signal_name, detail=""):
@@ -2068,7 +2118,10 @@ def record_end(session_id, agent_id, signal_name, detail=""):
     background timer, was recorded finished, and was sealed out of its workspace
     when the timer woke it; its evidence was left uncommitted). The platform
     wakes the agent again when that command ends, so nothing is recorded here
-    and the end is taken from the SubagentStop that ends that next turn. A stop
+    and the end is taken from the SubagentStop that ends that next turn. The
+    same holds for a background command that has just ended but whose completion
+    notification has not reached the agent yet (2026-10-08, echo-fable-dict5):
+    that notification is the wake. A stop
     (TaskStop, stoppedByUser) and its session's end still end it at once. A
     PAUSED agent's end is recorded as before: its commands are frozen, not
     running, and a pause already keeps it unsealed (finished_state)."""
@@ -2080,7 +2133,7 @@ def record_end(session_id, agent_id, signal_name, detail=""):
                 rec = _record_for_agent(session_id, agent_id)
                 if rec and not (rec.get("disposition") or rec.get("end") or rec.get("pause")):
                     rec.setdefault("history", []).append({
-                        "at": iso(), "fact": "SubagentStop while its own command(s) still run: not its end",
+                        "at": iso(), "fact": "SubagentStop while its own command(s) still run or still owe it their result: not its end",
                         "calls": [tid for tid, _c in running]})
                     save_agent(rec)
                     deferred = rec
