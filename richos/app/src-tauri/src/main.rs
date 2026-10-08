@@ -4379,8 +4379,10 @@ const DICTATION_OPEN_SHEET: &str = "dictation-open-sheet";
 /// hears the event, so a request made before the page existed still opens the sheet.
 static DICTATION_SHEET_REQUEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// `true` once per request: the page takes the pending Dictation sheet request.
-#[tauri::command]
+/// `true` once per request: the page takes the pending Dictation sheet request. Async dispatch
+/// like every command here (`ipc_responsiveness_tests`): one atomic swap never needs the native
+/// event loop, and a synchronous command is the one shape that could hold it.
+#[tauri::command(async)]
 fn dictation_take_sheet_request() -> bool {
     DICTATION_SHEET_REQUEST.swap(false, std::sync::atomic::Ordering::SeqCst)
 }
