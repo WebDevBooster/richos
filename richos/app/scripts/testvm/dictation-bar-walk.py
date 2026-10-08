@@ -137,13 +137,28 @@ class BarWalk(dictation_walk.DictationWalk):
               shlex.quote(f'{self.frames_dir}/{name}.png'))
         return name
 
-    def read(self, name):
+    def read(self, name, box=None):
+        """The frame's text by the guest's tesseract; with `box` (a bar's logged frame, x, y, w, h
+        in points, which are this guest's pixels), that region too, cut out and enlarged 3x:
+        walk-5028f74bc8b6's added.png showed "Added" plainly and the whole-screen read missed the
+        short word on the light pill."""
         path = f'{self.frames_dir}/{name}.png'
         command([HERE / 'guest.sh', self.vm, '--pull', path, str(self.out / f'{name}.png')], 120)
-        return guest(self.vm, '/opt/homebrew/bin/tesseract ' + shlex.quote(path) + ' - 2>/dev/null || true', 120)
+        text = guest(self.vm, '/opt/homebrew/bin/tesseract ' + shlex.quote(path) + ' - 2>/dev/null || true', 120)
+        if box:
+            # The pill's words only: right of its orb (the page's 40 px of room, 9 px of padding,
+            # the 40 px orb and its gap), the pill's own 58 px height below the 24 px of room
+            # (ui/dictation-bar.js PAD_X, PAD_TOP; dictation-overlay.css .dh). With the orb in the
+            # crop, tesseract read nothing of "Added"; without it, "Added" (walk-5028f74bc8b6).
+            x, y, w, h = box[0] + 96, box[1] + 24, max(60, box[2] - 136), 58
+            crop = f'{self.frames_dir}/{name}-bar.png'
+            guest(self.vm, f'sips --cropOffset {int(y)} {int(x)} -c {int(h)} {int(w)} {shlex.quote(path)} --out {shlex.quote(crop)} '
+                           f'>/dev/null && sips -z {int(h) * 3} {int(w) * 3} {shlex.quote(crop)} >/dev/null', 60)
+            text += '\n' + guest(self.vm, '/opt/homebrew/bin/tesseract ' + shlex.quote(crop) + ' - 2>/dev/null || true', 120)
+        return text
 
-    def expect_read(self, name, fragment):
-        text = self.read(name)
+    def expect_read(self, name, fragment, box=None):
+        text = self.read(name, box)
         if not read_contains(text, fragment):
             raise StepFailed(f'frame {name}.png does not read "{fragment}"; it reads: {text[:400]!r}')
         return f'{name}.png reads "{fragment}"'
@@ -318,8 +333,9 @@ class BarWalk(dictation_walk.DictationWalk):
         others = sorted(set(f for f in fronts if f != TEXTEDIT))
         if not fronts or others:
             raise StepFailed(f'lsappinfo front was not TextEdit throughout: {len(fronts)} samples, others {others}')
-        reads = [self.expect_read('listening', READ['listening']), self.expect_read('writing', READ['writing']),
-                 self.expect_read('added', READ['added'])]
+        reads = [self.expect_read('listening', READ['listening'], listening and listening['frame']),
+                 self.expect_read('writing', READ['writing'], writing and writing['frame']),
+                 self.expect_read('added', READ['added'], added and added['frame'])]
         text = self.textedit_text()
         if not words_of(text):
             raise StepFailed('TextEdit received no words')
@@ -348,7 +364,7 @@ class BarWalk(dictation_walk.DictationWalk):
         line = self.wait_dlog('dictation: model ', since, dictation_walk.DICTATION_WITHIN)
         front = self.front_bundle()
         still = self.osa(IS_FULLSCREEN) == 'true'
-        read = self.expect_read('fullscreen-listening', READ['listening'])
+        read = self.expect_read('fullscreen-listening', READ['listening'], shown and shown['frame'])
         self.osa(FULLSCREEN.format(on='false'))
         time.sleep(4)
         if 'pasted' not in line or front != TEXTEDIT or not still:
@@ -401,7 +417,7 @@ class BarWalk(dictation_walk.DictationWalk):
         shown = self.wait_dlog('bar shown: problem no-text-box', since, dictation_walk.DICTATION_WITHIN)
         self.grab('no-text-box')
         line = self.wait_dlog('dictation: model ', since, 30)
-        read = self.expect_read('no-text-box', READ['no-text-box'])
+        read = self.expect_read('no-text-box', READ['no-text-box'], (bar_shown(shown) or {}).get('frame'))
         if 'copied (no text box)' not in line:
             raise StepFailed(f'with the desktop in front the words were not copied: {line}')
         return {'front': front, 'bar': bar_shown(shown), 'log': line, 'read': read}
@@ -416,7 +432,7 @@ class BarWalk(dictation_walk.DictationWalk):
         shown = self.wait_dlog('bar shown: problem no-sound', since, 20)
         self.grab('no-sound')
         line = self.wait_dlog('nothing written, no-sound', since, 10)
-        read = self.expect_read('no-sound', READ['no-sound'])
+        read = self.expect_read('no-sound', READ['no-sound'], (bar_shown(shown) or {}).get('frame'))
         if self.textedit_text() != before:
             raise StepFailed('a silent dictation changed TextEdit')
         return {'bar': bar_shown(shown), 'log': line, 'read': read}
