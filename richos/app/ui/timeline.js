@@ -2274,8 +2274,37 @@
     const body = elem("p", "tl-notice-body");
     body.id = "prose:" + item.id;
     renderMarkdownInto(body, item.text);
+    inlineTalkIcon(body);
     card.appendChild(body);
     return card;
+  }
+
+  /// **THE OLD CIRCLE GLYPH STANDS FOR THE TALK BUTTON; THE BUTTON IS NOW THE CEO'S VOICE ICON
+  /// (2026-10-08), SO A SENTENCE THAT SAYS "tap ◉" SHOWS THAT ICON.** Every ◉ in the text under
+  /// `root` becomes a small copy of `#talk-toggle`'s own `<svg>`, sized to the text. The copy
+  /// carries the same `talk-icon-*` classes, so it takes the same theme tokens as the button in
+  /// light and dark. Without the button in the page (a bare fixture) the glyph is left alone.
+  function inlineTalkIcon(root) {
+    const src = document.querySelector("#talk-toggle .talk-icon");
+    if (!src) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const hits = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (n.nodeValue.indexOf("\u25C9") !== -1) hits.push(n);
+    }
+    for (const node of hits) {
+      const parts = node.nodeValue.split("\u25C9");
+      const frag = document.createDocumentFragment();
+      parts.forEach((part, i) => {
+        if (i > 0) {
+          const icon = src.cloneNode(true);
+          icon.classList.add("talk-icon-inline");
+          frag.appendChild(icon);
+        }
+        if (part) frag.appendChild(document.createTextNode(part));
+      });
+      node.parentNode.replaceChild(frag, node);
+    }
   }
 
   /// **WHO A LINE ON THE OPERATOR LANE IS FROM, AND WHAT KIND OF LINE IT IS** — one entry
@@ -3343,6 +3372,7 @@
     markSendRejected,
     markStopping,
     addLocalNotice,
+    inlineTalkIcon,
     attributeLocalNotice,
     teamAttribution,
     onTurnStatus,

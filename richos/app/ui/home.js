@@ -979,6 +979,14 @@ window.RichHome = (function () {
   /// `hidden`. A sheet that focuses something else after its own `await` still wins, because
   /// it runs later; nothing here overrules a sheet that is awake.
   function firstFocusable(sheet) {
+    // D19 (nightly 46): a sheet can carry a link ahead of its buttons (the setup sheet's
+    // pricing link, which Return would open in the browser). The sheet's own rule is a BUTTON,
+    // so buttons are asked first; the link stays reachable by Tab. Any other visible
+    // focusable is the fallback for a sheet with no visible button.
+    var buttons = sheet.querySelectorAll("button:not([disabled])");
+    for (var b = 0; b < buttons.length; b++) {
+      if (buttons[b].offsetParent !== null) return buttons[b];
+    }
     var all = sheet.querySelectorAll(FOCUSABLE);
     for (var i = 0; i < all.length; i++) {
       // `offsetParent === null` is "no box" — `hidden`, `display: none`, or inside something
