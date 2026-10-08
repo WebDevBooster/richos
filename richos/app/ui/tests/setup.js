@@ -354,9 +354,9 @@ async function main() {
     const LINK = "sign up there first and pick the Max/Max 20x tier";
     assertEqual((await page.textContent("#setup-account")).trim(), ROUND_ACCOUNT_NOTE, "the sheet's sentence is not his");
     const links = await page.evaluate(() => [...document.querySelectorAll("#setup-account a")].map((a) => ({
-      text: a.textContent, href: a.href, underline: getComputedStyle(a).textDecorationLine,
+      text: a.textContent, href: a.getAttribute("href"), title: a.title, underline: getComputedStyle(a).textDecorationLine,
     })));
-    assertEqual(JSON.stringify(links), JSON.stringify([{ text: LINK, href: "https://claude.com/pricing", underline: "underline" }]), "exactly one underlined link, to the pricing page");
+    assertEqual(JSON.stringify(links), JSON.stringify([{ text: LINK, href: "#", title: "claude.com/pricing", underline: "underline" }]), "exactly one underlined link, to the pricing page");
     await page.click("#setup-account a");
     const opened = await page.evaluate(() => window.__RICHOS_OPENED__ || []);
     assertEqual(JSON.stringify(opened), JSON.stringify(["claude.com/pricing"]), "the link asks the opener for the pricing page, once");
