@@ -220,6 +220,21 @@ name = "output_files_probe"
 path = "examples/output_files_probe.rs"
 test = true
 
+# THE DICTATION WALK'S TWO HELPERS (dictation plan section 9, slice 1), run in the test guest only:
+# `post_key` posts the Apple top row's brightness-down as the system-defined event a physical
+# Apple keyboard sends, which System Events cannot post; `key_probe` is a listen-only tap standing
+# in for open-wispr's passive observer, so the walk can prove the tool swallows the key.
+# `test = true`: each carries a test that runs with `cargo test --examples` and opens nothing.
+[[example]]
+name = "post_key"
+path = "examples/post_key.rs"
+test = true
+
+[[example]]
+name = "key_probe"
+path = "examples/key_probe.rs"
+test = true
+
 [dev-dependencies]
 # `examples/verify_update_signature.rs` — the pre-publication check that a produced
 # `.app.tar.gz` and its `.sig` actually agree under the key `tauri.conf.json` ships.
