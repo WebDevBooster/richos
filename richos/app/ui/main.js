@@ -135,6 +135,8 @@ const voiceNoAudioEl = el("voice-state-no-audio");
 const voiceSpeakingEl = el("voice-state-speaking");
 const bargeInBtn = el("voice-barge-in");
 const voiceRetryBtn = el("voice-retry");
+// D17: the voice row's "tap ◉ to end voice" shows the Talk-to-Rich icon, not the old glyph.
+document.querySelectorAll(".voice-footnote-glyph").forEach((n) => window.RichTimeline.inlineTalkIcon(n));
 // Getting the speech model (2026-09-17). Four rows in the SAME panel — the CEO pressed  to
 // talk, and answering "not yet" on a different screen answers a different question.
 const voiceModelOfferEl = el("voice-state-model-offer");
@@ -1723,6 +1725,8 @@ function renderFirstRun() {
   // button exists at all. Where voice is off, nothing here mentions it: a stranger cannot
   // miss a feature he was never offered, and he can very much notice one that pretends.
   body.textContent = voiceAvailable ? GREETING + " " + GREETING_VOICE_INVITE : GREETING;
+  // The ◉ in the invitation is drawn as the Talk-to-Rich button's own icon (D17).
+  window.RichTimeline.inlineTalkIcon(body);
   art.appendChild(body);
   messagesEl.appendChild(art);
   sessionAvatarShown = true;

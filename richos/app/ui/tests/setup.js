@@ -366,6 +366,20 @@ async function main() {
     return "his sentence word for word; one underlined link; a click asks for claude.com/pricing";
   });
 
+  await run.check("3b the setup sheet opens with focus on Set it up, not on the pricing link (D19)", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    const active = await page.evaluate(() => (document.activeElement ? document.activeElement.id + "|" + document.activeElement.tagName : "none"));
+    assertEqual(active, "setup-go|BUTTON", "focus must open on Set it up");
+    const reachable = await page.evaluate(() => {
+      const a = document.querySelector("#setup-account a");
+      return !!a && a.tabIndex >= 0;
+    });
+    assert(reachable, "the pricing link must stay reachable by Tab");
+    await page.close();
+    return "first focus is Set it up; the link is still in the Tab order";
+  });
+
   await run.check("4  each missing piece is named and explained, in his language", async () => {
     const page = await openApp(browser, { setup: "missing-both" });
     await page.waitForSelector("#setup-sheet:not([hidden])");
@@ -708,7 +722,27 @@ async function main() {
       const n = document.querySelector("#messages .tl-prose");
       return n ? n.textContent : "";
     });
-    assert(/tap ◉ to talk to me/.test(greeting), "the invitation is missing: " + greeting);
+    assert(/tap\s+to talk to me/.test(greeting) && !greeting.includes("◉"), "the invitation is missing or still shows the old glyph: " + greeting);
+    // D17: the glyph's place is a small copy of the Talk-to-Rich button's icon, in its theme tokens.
+    const inline = await page.evaluate(() => {
+      const i = document.querySelector("#messages .tl-prose svg.talk-icon-inline");
+      if (!i) return null;
+      return {
+        h: i.getBoundingClientRect().height,
+        font: parseFloat(getComputedStyle(i.parentNode).fontSize),
+        disc: getComputedStyle(i.querySelector(".talk-icon-disc")).fill,
+        btnDisc: getComputedStyle(document.querySelector("#talk-toggle .talk-icon-disc")).fill,
+      };
+    });
+    assert(inline, "the greeting shows no inline copy of the talk icon");
+    assert(inline.h > inline.font * 0.9 && inline.h < inline.font * 1.5, "the inline icon is not sized to the text: " + JSON.stringify(inline));
+    assertEqual(inline.disc, inline.btnDisc, "the inline icon must take the button's theme color");
+    // ... and the voice row's footnote says the same thing the same way.
+    const foot = await page.evaluate(() => {
+      const f = document.querySelector(".voice-footnote");
+      return { text: f.textContent, svg: !!f.querySelector("svg.talk-icon-inline") };
+    });
+    assert(foot.svg && !foot.text.includes("◉") && /tap\s+to end voice/.test(foot.text), "the voice footnote still shows the old glyph: " + JSON.stringify(foot));
     bump(2);
     assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
     await page.close();
