@@ -12,7 +12,9 @@
 //
 // - THE ROW, behind DICTATION_READY: "Dictation" after Claude accounts, with its state line (Off,
 //   On. Tap F1 to talk, Needs a permission, Waiting for macOS, On even when RichOS is closed,
-//   Paused: <app> is hiding your keys).
+//   Switched off in Login Items, Paused: <app> is hiding your keys).
+// - LINE 3 (slice 5, more lines): an installed copy whose background item macOS has switched
+//   off in Login Items says so on the switch, with the fix and Open System Settings under it.
 // - THE SHEET: the switch, Your key (the strip, Press a different key), What macOS asks you for,
 //   Accuracy, and on the right Try it here, the three bar states, the difference from talking to
 //   Rich, and privacy.
@@ -75,8 +77,12 @@
   const elsewhere = () => !!view && view.on && view.owner === "other";
   // On and both allowed (round 19 `ready()`), or on elsewhere.
   const ready = () => !!view && view.on && (elsewhere() || (mic() === "allowed" && ax() === "allowed"));
+  // Line 3 (more lines): macOS has RichOS's background item switched off in Login Items, so
+  // the tool that catches the key is not running. Only an installed copy with dictation on
+  // can be in this state (`dictation_app.rs` `View::login`).
+  const loginOff = () => !!view && view.on && !elsewhere() && view.login === "needs-approval";
   // Ready, and nothing outside RichOS is stopping the key (more lines `works()`).
-  const works = () => ready() && !view.secure;
+  const works = () => ready() && !view.secure && !loginOff();
   const secureApp = () => view && view.secure && view.secure.app ? view.secure.app : null;
   const kcap = k => `<span class="dict-kcap">${esc(k)}</span>`;
   // Line 4, said the same way in the row's sheet and (slice 3) in the menu bar menu.
@@ -119,6 +125,7 @@
   function rowLine() {
     if (!view.on) return ["Off", false];
     if (!elsewhere() && (mic() !== "allowed" || ax() !== "allowed")) return [mic() === "asking" || ax() === "asking" ? "Waiting for macOS" : "Needs a permission", true];
+    if (loginOff()) return ["Switched off in Login Items", true];
     if (view.secure) return [secureApp() ? `Paused: ${secureApp()} is hiding your keys` : "Paused: an app is hiding your keys", true];
     if (view.owner === "other") return ["On even when RichOS is closed", false];
     return [`On. Tap ${keyName()} to talk`, false];
@@ -214,15 +221,19 @@
     else if (!elsewhere() && mic() === "denied") { st = "Not working yet: macOS has not allowed the microphone."; cls = " is-attention"; }
     else if (!elsewhere() && (ax() === "asking" || ax() === "unknown")) st = "Waiting for you to allow Accessibility&hellip;";
     else if (!elsewhere() && ax() === "denied") { st = "Not working yet: macOS has not let me type into other apps."; cls = " is-attention"; }
+    // line 3: macOS has the background item switched off in Login Items
+    else if (loginOff()) { st = "Not working: RichOS is switched off in your Mac's Login Items."; cls = " is-attention"; }
     // line 4: another app left Secure Event Input on
     else if (view.secure) { st = `Paused: ${secureHead(k)} <span class="dict-fix">${secureFix()}</span>`; cls = " is-attention"; }
     // line 1: on even when RichOS is closed
     else if (view.owner === "other") { st = `On even when RichOS is closed. Tap ${kcap(k)} in any app and talk.`; cls = " is-on"; }
     else { st = `On. Tap ${kcap(k)} in any app, talk, and tap it again.`; cls = " is-on"; }
-    const warn = view.on && ((!elsewhere() && (mic() === "denied" || ax() === "denied")) || (ready() && !!view.secure));
+    const warn = view.on && ((!elsewhere() && (mic() === "denied" || ax() === "denied")) || loginOff() || (ready() && !!view.secure));
     let html = `<div class="dict-card${view.on && !warn ? " is-on" : ""}${warn ? " is-warn" : ""}"><span class="dict-spine"></span>
       <div class="dict-card-main"><h3 class="dict-card-title">Dictate in any app</h3><p class="dict-card-sub${cls}" id="dict-state">${st}</p></div>
       <button class="dict-switch" id="dict-switch" type="button" role="switch" data-act="toggle-on" aria-checked="${view.on}" aria-label="Dictate in any app"></button></div>`;
+    // line 3's fix, under the switch, with Open System Settings on Login Items
+    if (loginOff()) html += `<p class="dict-copy-note dict-login-note" id="dict-login-note">${ICON.info}<span>Turn on <b>RichOS</b> under <b>Allow in the Background</b>, and dictation starts again.</span><button class="dict-btn" type="button" data-act="open-sys" data-pane="login-items">Open System Settings</button></p>`;
     // line 2: dictation works only while RichOS is open, so it says so, on or off
     if (!elsewhere() && view.copy === "open-only") html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> When you close RichOS, dictation stops until you open it again.</span></p>`;
     else if (!elsewhere() && view.copy === "old-macos") html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> To keep dictation on with RichOS closed, your Mac needs macOS 13 or later.</span></p>`;
@@ -264,6 +275,7 @@
       }
     }
     tryBox.dataset.ph = works() ? `Click here, tap ${keyName()} and say something.`
+      : loginOff() ? "You can try it here once RichOS is on in Login Items."
       : ready() && view.secure ? "You can try it here once your keys are back."
       : view.on ? "Allow both permissions on the left to try it here." : "Turn dictation on to try it here.";
     tryNote.textContent = works() ? "This box is only for trying. Your words go wherever your cursor is." : "";
@@ -441,7 +453,10 @@
         break;
       }
       case "open-sys": {
-        if (b.dataset.pane === "accessibility") axWait = { blurred: false }; else micWait = { blurred: false };
+        // Login Items: the state is read again every 2 s while the sheet shows (below), and
+        // the row's line turns back to On when he turns the switch on; nothing waits here.
+        if (b.dataset.pane === "accessibility") axWait = { blurred: false };
+        else if (b.dataset.pane === "microphone") micWait = { blurred: false };
         paint(); watch();
         await call("dictation_open_settings", { pane: b.dataset.pane });
         break;

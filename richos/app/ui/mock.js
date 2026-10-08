@@ -1435,7 +1435,7 @@
   // and the tool answer later (a prompt allowed, System Settings, a captured key, another app
   // hiding keys) is driven through `__RICHOS_MOCK__.dictationSet` and `dictationKey`.
   const dictationView = Object.assign({ ready: setupDictationOn, on: false, key: preset.dictationKey || 1, accuracy: "accurate",
-    mic: "unknown", ax: "unknown", owner: "none", keyTap: false, secure: null, copy: "open-only" }, preset.dictationView || {});
+    mic: "unknown", ax: "unknown", owner: "none", keyTap: false, secure: null, copy: "open-only", login: "none" }, preset.dictationView || {});
   let dictationAxAsked = !!preset.dictationAxAsked;
   const dictationCalls = [];
 
@@ -2905,7 +2905,7 @@
           return null;
         case "dictation_open_settings":
           dictationCalls.push({ cmd, pane: args.pane });
-          if (args.pane !== "microphone" && args.pane !== "accessibility") throw `${args.pane} is not a pane dictation opens`;
+          if (args.pane !== "microphone" && args.pane !== "accessibility" && args.pane !== "login-items") throw `${args.pane} is not a pane dictation opens`;
           return null;
         case "dictation_capture_key":
           dictationCalls.push({ cmd, on: !!args.on });

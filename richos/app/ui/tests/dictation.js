@@ -294,6 +294,29 @@ async function main() {
     return "line 1, line 4 named and unnamed, and back to On";
   });
 
+  // ---- 8b. line 3 (slice 5): switched off in Login Items ----------------------------------------
+  await run.check("line 3: an installed copy switched off in Login Items says so in the row and on the switch, with the fix and Open System Settings on Login Items; back to On once it is approved", async () => {
+    const page = await open("dark", { ...ALLOWED, copy: "installed", login: "needs-approval" });
+    await menu(page);
+    await waitText(page, "#set-dictation-state", "Switched off in Login Items");
+    assertEqual(await page.locator("#set-dictation-state.is-attention").count(), 1, "row: attention");
+    await page.click("#set-dictation-open");
+    await waitText(page, "#dict-state", "Not working: RichOS is switched off in your Mac's Login Items.");
+    assertEqual(await page.locator(".dict-card.is-warn").count(), 1, "the warning spine");
+    assertEqual(await text(page, "#dict-login-note span"), "Turn on RichOS under Allow in the Background, and dictation starts again.");
+    assertEqual(await page.locator("#dict-copy-note").count(), 0, "an installed copy carries no line 2");
+    assertEqual(await page.getAttribute("#dict-try", "data-ph"), "You can try it here once RichOS is on in Login Items.");
+    assert(await page.locator("#dictation-composer-note").count() === 0 || await page.locator("#dictation-composer-note").isHidden(), "the composer drops its line");
+    await page.click('#dict-login-note [data-act="open-sys"]');
+    await page.waitForFunction(() => window.__RICHOS_MOCK__.dictationCalls().some(c => c.cmd === "dictation_open_settings"));
+    assert((await calls(page)).includes("dictation_open_settings:login-items"), "opens System Settings on Login Items");
+    await set(page, { login: "approved" });
+    await waitText(page, "#dict-state", "On. Tap F1 in any app, talk, and tap it again.");
+    assertEqual(await page.locator("#dict-login-note").count(), 0, "the fix line goes with the problem");
+    await page.close();
+    return "line 3 in the row and the sheet, Open System Settings on Login Items, and back to On";
+  });
+
   // ---- 9. the off notice ---------------------------------------------------------------------
   await run.check("the off notice: the key pressed in RichOS's window while dictation is off says where to turn it on", async () => {
     const page = await open("dark", {});
@@ -356,6 +379,9 @@ async function main() {
     ["secure", { ...ALLOWED, secure: { app: "1Password" } }, sheet],
     ["secure-anon", { ...ALLOWED, secure: { app: null } }, sheet],
     ["old-macos", { copy: "old-macos" }, sheet],
+    ["row-login", { ...ALLOWED, copy: "installed", login: "needs-approval" }, menu],
+    ["login-off", { ...ALLOWED, copy: "installed", login: "needs-approval" }, sheet],
+    ["installed", { ...ALLOWED, copy: "installed", login: "approved" }, sheet],
     ["composer", ALLOWED, async p => { await p.waitForSelector("#dictation-composer-note:not([hidden])"); }],
   ];
   const ROOTS = "#dictation-sheet:not([hidden]) .dict-panel, #set-dictation-open, #dictation-composer-note";
