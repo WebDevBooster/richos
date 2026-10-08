@@ -1084,6 +1084,7 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         return (["--cap", str(CHECK_CAP_SECONDS), "--run-cap", str(run_cap), "--admission-wait",
                  str(GATE_CAP_SECONDS), "--slot-wait", str(GATE_CAP_SECONDS)] if capped else [])
     rounds = 1
+    alone = {}   # each check retried alone this gate run (retry_failed_alone)
     try:
         say(f"autocheck: {what}: mutation passes are off in the merge ("
             + " ".join(f"{k}={v}" for k, v in MUTATION_SWITCH.items()) + "); the nightlies run them")
@@ -1095,8 +1096,10 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
             pending.write_text(json.dumps({"directory": str(directory), "identity": identity}))
             os.replace(pending, prior)
         blocking, not_run, why_not = land_verdict(result.returncode, summary_path, directory)
-        blocking, not_run, why_not, rounds = more_rounds(repo, what, root, prior, identity, directory, caps,
-                                                         blocking, not_run, why_not)
+        blocking, not_run, current = retry_failed_alone(repo, what, root, prior, identity, directory, caps,
+                                                        blocking, not_run, alone)
+        blocking, not_run, why_not, rounds = more_rounds(repo, what, root, prior, identity, current, caps,
+                                                         blocking, not_run, why_not, alone)
         not_run = nightly + not_run
     finally:
         os.unlink(plan)
@@ -1106,7 +1109,8 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         banner(f"{what.upper()} REFUSED: a check it owns " + ("failed" if failed else "has no verdict"), [
             "proof-run.py's summary above names the check, its state and its log.",
             *([why_not] if why_not else []),
-            *(row.get("message") or f"FAILED: {row['check']} ({row['result']})" for row in blocking or []),
+            *(line for row in blocking or [] for line in
+              [row.get("message") or f"FAILED: {row['check']} ({row['result']})", *alone_lines(alone.get(row["check"]))]),
             # The gate's environment is not a shell's (LC_ALL=C from the merge, TZ, the nightly's
             # conditions): this file reruns the check exactly as it ran here (proof-run.py write_rerun).
             *(f"  rerun {row['check']} as the gate ran it: sh {shlex.quote(row['rerun'])}"
@@ -1117,11 +1121,19 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
         ])
         return 1
     tree = repo.index_tree()
+    flaky = [record for record in alone.values() if record["alone"]["result"] == "passed"]
     if receipt:
         repo.write_land_receipt(tree, dict(what=what, commands=commands, seconds=round(seconds, 1), not_run=not_run,
-                                           rounds=rounds))
+                                           rounds=rounds, failed_under_load_passed_alone=flaky))
     else:
         tree = "(none: a measurement is not a land)"
+    if flaky:
+        banner(f"{what.upper()}: {len(flaky)} CHECK(S) FAILED UNDER THE GATE'S LOAD AND PASSED ALONE", [
+            *(line for record in flaky for line in [f"FAILED UNDER LOAD, PASSED ALONE: {record['check']}",
+                                                    *alone_lines(record)]),
+            "Each ran again alone, once, after the rest had finished; it passed, so it does not refuse",
+            "the merge. Both logs are kept, and the receipt names them.",
+        ])
     if not_run:
         names = ", ".join(f"{row['check']} ({row['why']})" for row in not_run)
         banner(f"{what.upper()} ALLOWED WITH {len(not_run)} CHECK(S) NOT RUN, WHICH IS NOT A PASS", [
@@ -1133,9 +1145,10 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
             "See autocheck/README.md.",
         ])
         say(f"autocheck: {what}: passed with {len(not_run)} NOT RUN: {names}; "
-            f"{seconds:.1f}s; receipt for tree {tree[:12]}")
+            f"{seconds:.1f}s; receipt for tree {tree[:12]}{passed_alone_note(flaky)}")
         return 0
-    say(f"autocheck: {what}: every selected check passed in {seconds:.1f}s; receipt for tree {tree[:12]}")
+    say(f"autocheck: {what}: every selected check passed in {seconds:.1f}s; receipt for tree {tree[:12]}"
+        f"{passed_alone_note(flaky)}")
     return 0
 
 
@@ -1165,7 +1178,98 @@ def left_out(row):
                  or str(row.get("why", "")).startswith("not selected for this retry")))
 
 
-def more_rounds(repo, what, root, prior, identity, directory, caps, blocking, not_run, why_not):
+# A CHECK THAT FAILS UNDER THE GATE'S OWN LOAD RUNS AGAIN ALONE, ONCE (2026-10-08). Twice that day
+# the gate refused a merge on one timing check while its own parallel checks held the Mac at 97-99%
+# CPU, and the same check passed when Rich reran it alone on the same tree: setup.js case 24
+# ("page.waitForFunction: Timeout 30000ms exceeded", attempt-alpn3mjn/28-setup.js.log) and
+# splash.js case 10b (the shutter's window moved 236 ms to 358 ms, attempt-pk8d8y3c/45-splash.js.log).
+# His manual step was the first step of docs/development/verification-retries.md: retry the failed
+# unit alone, with normal parallelism and admission. The gate now does it: after a round has
+# finished, each check that FAILED runs again in a run of its own (--resume, --only-check: every
+# other check is NOT RUN there and every validated pass is carried), under the same caps and
+# admission as any round. Passed alone: it no longer refuses, and the banner, the final line and the
+# receipt (`failed_under_load_passed_alone`) say it failed under load and passed alone, with both
+# logs. Failed alone, or no verdict alone: the gate refuses as before, naming both logs. Once per
+# check per gate run, never a loop; the first check that fails alone ends the retries, because the
+# gate refuses whatever the others would do. Only `failed`: `blocked` is a failure the runner
+# refuses to repeat, `invalid` is a check that could not show it ran, and the no-verdict states
+# have their own rounds (more_rounds).
+ALONE_REASON = "merge gate: failed while the gate ran its checks together; one retry alone before the gate decides"
+
+
+def alone_lines(record):
+    """The two logs of a check retried alone, for a banner; [] for a check that was not."""
+    if not record:
+        return []
+    return [f"  under the gate's load: {record['under_load']['result']}, log {record['under_load']['log'] or '(none)'}",
+            f"  alone: {record['alone']['result']}, log {record['alone']['log'] or '(none)'}"]
+
+
+def passed_alone_note(flaky):
+    if not flaky:
+        return ""
+    return "; failed under load and passed alone: " + ", ".join(record["check"] for record in flaky)
+
+
+def summary_rows(path):
+    try:
+        with open(path) as stream:
+            return {row.get("check"): row for row in json.load(stream)["checks"]}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def retry_failed_alone(repo, what, root, prior, identity, current, caps, blocking, not_run, alone):
+    """Each failed check not yet retried runs again alone, once (see ALONE_REASON above).
+    Returns (blocking, not_run, the run directory the next round resumes)."""
+    if not blocking or not knows(repo, PROOF_RUN, "--only-check"):
+        return blocking, not_run, current
+    for row in list(blocking):
+        name = row["check"]
+        if row.get("result") != "failed" or row.get("message") or name in alone:
+            continue
+        say(f"autocheck: {what}: {name} failed while the gate ran its checks together; "
+            "it runs again alone, once, before the gate decides")
+        again = Path(tempfile.mkdtemp(prefix="attempt-", dir=root))
+        again_summary = str(root / (again.name + "-summary.json"))
+        result = repo.run(["python3", PROOF_RUN, "--resume", str(current), "--only-check", name,
+                           "--retry-reason", ALONE_REASON, *caps(GATE_CAP_SECONDS), "--log-dir", str(again),
+                           "--summary-out", again_summary], env={**repo.env, **MUTATION_SWITCH})
+        if (again / "plan.json").is_file():
+            pending = root / "last-attempt.pending"
+            pending.write_text(json.dumps({"directory": str(again), "identity": identity}))
+            os.replace(pending, prior)
+            current = again
+        rows = summary_rows(again_summary)
+        mine = rows.get(name) or {}
+        alone[name] = {"check": name, "under_load": {"result": row["result"], "log": row.get("log")},
+                       "alone": {"result": mine.get("result") or "no verdict", "log": mine.get("log")}}
+        if mine.get("result") != "passed":
+            say(f"autocheck: {what}: {name} did not pass alone either ({alone[name]['alone']['result']}); "
+                "the gate refuses")
+            break
+        say(f"autocheck: {what}: {name} FAILED UNDER LOAD AND PASSED ALONE; "
+            f"under load: {row.get('log')}; alone: {mine.get('log')}")
+        blocking.remove(row)
+        # What else ran in that run (the engine receipts proof, after a unit) takes its new verdict;
+        # a check that run left out keeps the row it had, and one that had passed and whose pass
+        # could not be carried has no verdict, so the next round runs it (as in more_rounds).
+        latest_blocking, latest_not_run, _ = land_verdict(result.returncode, again_summary, again)
+        known = {r["check"] for r in blocking} | {r["check"] for r in not_run}
+        left = {check for check, other in rows.items() if left_out(
+            {"state": other.get("result"), "why": (other.get("not_run") or {}).get("why", ""),
+             "suites": (other.get("not_run") or {}).get("suites")})}
+        reran = set(rows) - left - {name}
+        blocking = [r for r in blocking if r["check"] not in reran] + [
+            r for r in latest_blocking or [] if r["check"] in reran]
+        not_run = [r for r in not_run if r["check"] not in reran] + [
+            r for r in latest_not_run if r["check"] in reran] + [
+            {"check": check, "why": "its earlier pass could not be carried over", "state": ENDED, "suites": []}
+            for check in sorted(left - known)]
+    return blocking, not_run, current
+
+
+def more_rounds(repo, what, root, prior, identity, directory, caps, blocking, not_run, why_not, alone=None):
     """A LARGE LAND RUNS IN ROUNDS (see GATE_MAX_ROUNDS). After the first round: while nothing
     failed and some check has no verdict (timed out at its cap, or ended at the round's cap), run
     another round that resumes the last one (every validated pass kept, its receipt carried) and
@@ -1232,6 +1336,10 @@ def more_rounds(repo, what, root, prior, identity, directory, caps, blocking, no
                 # It passed earlier and its pass was not carried into this round: no verdict.
                 not_run.append(dict(row, state=ENDED, why="its earlier pass could not be carried over"))
         before, current = set(names), again
+        if alone is not None:
+            # A check that failed in this round, under its load, runs again alone first (ALONE_REASON).
+            blocking, not_run, current = retry_failed_alone(repo, what, root, prior, identity, current, caps,
+                                                            blocking, not_run, alone)
     return blocking, not_run, why_not, rounds
 
 
@@ -1276,7 +1384,7 @@ def land_verdict(rc, summary_path, directory):
         else:
             why = NOT_RUN_WHY.get(state, state)
         if why is None:
-            blocking.append({"check": name, "result": state, "rerun": row.get("rerun")})
+            blocking.append({"check": name, "result": state, "rerun": row.get("rerun"), "log": row.get("log")})
         else:
             not_run.append({"check": name, "why": why, "state": state,
                             "suites": (row.get("not_run") or {}).get("suites", [])})
