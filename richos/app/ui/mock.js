@@ -1420,6 +1420,16 @@
   let setupEnginePresent = setupPreset === "ready" || setupPreset === "missing-claude";
   const setupPinned = setupPreset !== "unpinned";
   const setupFails = preset.setupFails || null;
+  // ROUND 19 (dictation plan slice 4). `preset.dictation: true` is a build where dictation is
+  // there (`ask.dictation`, `richos_core::dictation_ready`): the sheet is round 19's and Rich
+  // offers dictation after Start. `preset.videoTools` is the voice and video tools' state:
+  // undefined / "present" (every other fixture's), "downloading" (the launch's background
+  // download is running, as on a customer's first launch) or "missing" (not running).
+  const setupDictationOn = !!preset.dictation;
+  let setupVideoTools = preset.videoTools || "present";
+  // Rich's one offer: whether it was made already (a relaunch), and every call the window made.
+  let dictationOffered = !!preset.dictationOffered;
+  const dictationOfferCalls = [];
 
   // The strings are the BACKEND'S, copied verbatim from `Component::why` and
   // `SETUP_ACCOUNT_NOTE`. A mock that paraphrased them would rehearse the surface against
@@ -1430,6 +1440,16 @@
     engine: "the part of me that knows how I work: my instructions and my team.",
   };
   const SETUP_NAME = { "claude-code": "Claude Code", engine: "the RichOS engine" };
+  // The video tools' copy, verbatim from `setup.rs` (`MEDIA_TOOLS_NAME`, `MEDIA_TOOLS_WHY` once
+  // dictation is there; the media-tools plan's line before), and his download line from
+  // `setup_view.rs` (`SETUP_DOWNLOAD_LINE`). `setup.js` case 23 holds the mock to the Rust.
+  const SETUP_TOOLS_NAME = { on: "my voice and video tools", off: "my video tools" };
+  const SETUP_TOOLS_WHY = {
+    on: "the tools I use to watch and download videos for you. Plus, it gives you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year\u{1F44D} and allows you to talk instead of typing anywhere on this computer.",
+    off: "the tools I use to watch, hear and download videos for you, which I keep up to date myself.",
+  };
+  const SETUP_DOWNLOAD_LINE =
+    "Sit tight, we need to download about 1 GB of local voice AI so that you can just talk to Rich instead of typing. This will save you $140+/year\u{1F44D} because you won't need Wispr Flow with this setup.";
   const SETUP_ACCOUNT_NOTE =
     "You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.";
   // WHAT A SEND IS REFUSED WITH WHEN THE SETTING UP WAS NEVER DONE. Verbatim from
@@ -1459,7 +1479,24 @@
     const out = [];
     if (!setupClaudePresent) out.push("claude-code");
     if (!setupEnginePresent) out.push("engine");
+    // `setup_view::sheet_needs`: the video tools only when missing and not downloading.
+    if (setupVideoTools === "missing") out.push("media-tools");
     return out;
+  }
+
+  /// `setup_view::ask_for_gated`'s list: the sheet's needs, plus the video tools while they
+  /// download once dictation is there, on a sheet that asks for something else.
+  function setupListed(needs) {
+    if (setupDictationOn && needs.length && setupVideoTools === "downloading") return [...needs, "media-tools"];
+    return needs;
+  }
+
+  function setupItem(c) {
+    if (c === "media-tools") {
+      const k = setupDictationOn ? "on" : "off";
+      return { component: c, name: SETUP_TOOLS_NAME[k], why: SETUP_TOOLS_WHY[k] };
+    }
+    return { component: c, name: SETUP_NAME[c], why: SETUP_WHY[c] };
   }
 
   function setupStatusOf() {
@@ -1487,23 +1524,36 @@
                 "/Users/you/Library/Application Support/RichOS/engine",
               ],
         },
+        media_tools: {
+          component: "media-tools",
+          present: setupVideoTools === "present",
+          at: setupVideoTools === "present" ? "/Users/you/Library/Application Support/RichOS/tools" : null,
+          detail: null,
+          looked_in: [],
+        },
         engine_installable: setupPinned,
         engine_pin_version: setupPinned ? "1.0.0" : null,
         installed_now: false,
       },
       ask: {
-        items: needs.map((c) => ({ component: c, name: SETUP_NAME[c], why: SETUP_WHY[c] })),
+        items: setupListed(needs).map(setupItem),
         account_note: SETUP_ACCOUNT_NOTE,
         can_install: needs.length > 0 && !blocked,
         cannot_install_reason: blocked ? SETUP_UNPINNED : null,
+        dictation: setupDictationOn,
+        download_line: setupDictationOn ? SETUP_DOWNLOAD_LINE : null,
       },
       complete: needs.length === 0,
+      downloading: setupVideoTools === "downloading",
     };
   }
 
   const setupSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function runSetupMock() {
+    // `setup_view::run`: missing video tools are never a step a press waits for; the press
+    // starts their background download instead (`foreground_steps`).
+    if (setupVideoTools === "missing") setupVideoTools = "downloading";
     const needs = setupNeeds();
     const total = needs.length;
     // The same channel and the same shape the real command emits on, so the surface under
@@ -2805,6 +2855,15 @@
         // a surface gets wrong.
         case "run_setup":
           return runSetupMock();
+        // RICH'S ONE OFFER OF DICTATION (`dictation_offer.rs`): whether dictation is there,
+        // whether the offer was made, and the key; and the record that it was shown.
+        case "dictation_offer":
+          dictationOfferCalls.push("dictation_offer");
+          return { ready: setupDictationOn, offered: dictationOffered, key: preset.dictationKey || 1 };
+        case "dictation_offer_shown":
+          dictationOfferCalls.push("dictation_offer_shown");
+          dictationOffered = true;
+          return null;
         // The answer. It provisions nothing here — the point of the mock is the SURFACE —
         // but it returns the shape the real command returns, including the honest
         // `no-compiler` outcome, which is what a machine with no compiler actually gets.
@@ -4403,9 +4462,17 @@
     /// background download (`setup_view::start_video_tools_download`) is
     /// `{state, component: "media-tools", what, ...}` with state started | done | failed.
     setupEmit(payload) {
+      // The status follows the download, as `setup_status` re-read from disk would.
+      if (payload && payload.component === "media-tools") {
+        if (payload.state === "done") setupVideoTools = "present";
+        else if (payload.state === "failed") setupVideoTools = "missing";
+        else if (payload.state === "started" && setupVideoTools === "missing") setupVideoTools = "downloading";
+      }
       emit("richos://setup", { ...payload });
       return { ...payload };
     },
+    /// Rich's offer of dictation: every `dictation_offer` / `dictation_offer_shown` call, in order.
+    dictationOfferCalls() { return dictationOfferCalls.slice(); },
     /// Which provisioning commands the surface issued, in order.
     voiceModelCalls() { return mockVoiceModel.calls.slice(); },
     /// Make `provision_speech_model` reject with a sentence, the way the real command does

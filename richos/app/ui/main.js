@@ -111,6 +111,11 @@ const setupErrorEl = el("setup-error");
 const setupGoEl = el("setup-go");
 const setupLaterEl = el("setup-later");
 const setupCloseEl = el("setup-close");
+const setupPanelEl = el("setup-panel");
+const setupRichLineEl = el("setup-rich-line");
+const setupRichTextEl = el("setup-rich-text");
+const setupStepsEl = el("setup-steps");
+const setupStartEl = el("setup-start");
 const threadMenuEl = el("thread-menu");
 const messagesEl = el("messages");
 const conversationEl = el("conversation");
@@ -1572,6 +1577,8 @@ function flushRender() {
       renderFirstRun();
     }
   }
+  // Rich's one offer of dictation, a local note after whatever the conversation shows.
+  if (mainView === "conversation") renderDictationOffer();
 
   if (focusId) {
     const again = messagesEl.querySelector('[id="' + focusId.replace(/(["\\])/g, "\\$1") + '"]');
@@ -1718,6 +1725,127 @@ function renderFirstRun() {
   art.appendChild(body);
   messagesEl.appendChild(art);
   sessionAvatarShown = true;
+}
+
+// ---------------------------------------------------------------------------------------
+// RICH OFFERS DICTATION, ONCE (round 19, state 4; dictation plan revision 2, section 2 row 4)
+//
+// A LOCAL NOTE in the conversation, drawn here: not a model turn, never written to the ledger.
+// Shown once, after Start on the setup sheet, and only once voice is ready, because its first
+// sentence says so. `offered: true` goes into `<data dir>/dictation.json` the moment it is shown
+// (`dictation_offer_shown`), so a relaunch never shows it again. Off entirely until dictation is
+// there (`dictation_offer`'s `ready`, `richos_core::dictation_ready`).
+//
+// **Turn on dictation** hands over to the Dictation sheet's own turn-on (slice 2 registers
+// `window.RichDictation.turnOn`, which opens the sheet and runs the permission flow and answers
+// `{on}`); the note then says the drawn "Dictation is on. Tap F1 in any app." when it is on,
+// otherwise the drawn "It's in Settings, under Dictation." **Not now** says the drawn "Okay. It's
+// in Settings, under Dictation, whenever you want it."
+// ---------------------------------------------------------------------------------------
+
+const DICTATION_OFFER_VOICE = "Voice is ready. Press the round button beside the message box and just talk to me.";
+const DICTATION_OFFER_NOT_NOW = "Okay. It's in Settings, under Dictation, whenever you want it.";
+const DICTATION_OFFER_LATER = "It's in Settings, under Dictation.";
+
+/// The note's state: null (not shown), or `{phase, key}` with phase "open", "no", "on" or
+/// "later", and the key's name ("F1").
+let dictationOffer = null;
+/// Set by Start; the offer waits for voice to be ready.
+let dictationOfferWanted = false;
+
+/// Show the offer if Start asked for it, voice is ready and it was never made.
+async function maybeOfferDictation() {
+  if (!dictationOfferWanted || dictationOffer || !voiceAvailable) return;
+  dictationOfferWanted = false;
+  const view = await invokeQuiet("dictation_offer");
+  if (!view || !view.ready || view.offered) return;
+  dictationOffer = { phase: "open", key: "F" + (Number(view.key) || 1) };
+  invokeQuiet("dictation_offer_shown");
+  followBottom = true;
+  scheduleRender();
+}
+
+async function answerDictationOffer(yes) {
+  if (!dictationOffer || dictationOffer.phase !== "open") return;
+  if (!yes) {
+    dictationOffer.phase = "no";
+  } else {
+    const dictation = window.RichDictation;
+    let answer = null;
+    if (dictation && typeof dictation.turnOn === "function") {
+      try { answer = await dictation.turnOn(); } catch (_) { answer = null; }
+    }
+    dictationOffer.phase = answer && answer.on ? "on" : "later";
+  }
+  scheduleRender();
+  inputEl.focus();
+}
+
+/// The note, appended after whatever the conversation shows (`flushRender` rebuilds the list).
+function renderDictationOffer() {
+  if (!dictationOffer) return;
+  const art = document.createElement("article");
+  art.className = "tl-rich dictation-offer";
+  art.id = "dictation-offer";
+  const sr = document.createElement("span");
+  sr.className = "sr-only";
+  sr.textContent = "Rich said";
+  art.appendChild(sr);
+  const meta = document.createElement("div");
+  meta.className = "tl-rich-meta";
+  const avatar = document.createElement("img");
+  avatar.className = "tl-avatar";
+  avatar.src = "assets/rich-hand.png";
+  avatar.alt = "";
+  meta.appendChild(avatar);
+  const who = document.createElement("span");
+  who.className = "tl-who";
+  who.textContent = "Rich";
+  meta.appendChild(who);
+  art.appendChild(meta);
+  const first = document.createElement("p");
+  first.className = "tl-prose";
+  first.textContent = DICTATION_OFFER_VOICE;
+  const second = document.createElement("p");
+  second.className = "tl-prose";
+  const key = document.createElement("kbd");
+  key.className = "dictation-offer-key";
+  key.textContent = dictationOffer.key;
+  second.append(
+    "I can also type for you in any other app on your Mac, like Mail, Slack or your browser. Tap ",
+    key,
+    ", say what you want written, then tap it again. Your words appear where your cursor is."
+  );
+  art.append(first, second);
+  if (dictationOffer.phase === "open") {
+    const acts = document.createElement("div");
+    acts.className = "dictation-offer-actions";
+    const yes = document.createElement("button");
+    yes.type = "button";
+    yes.id = "dictation-offer-yes";
+    yes.className = "desk-btn desk-btn--confirm";
+    yes.textContent = "Turn on dictation";
+    yes.addEventListener("click", () => answerDictationOffer(true));
+    const no = document.createElement("button");
+    no.type = "button";
+    no.id = "dictation-offer-no";
+    no.className = "desk-btn";
+    no.textContent = "Not now";
+    no.addEventListener("click", () => answerDictationOffer(false));
+    acts.append(yes, no);
+    art.append(acts);
+  } else {
+    const after = document.createElement("p");
+    after.className = "tl-prose dictation-offer-after";
+    after.id = "dictation-offer-after";
+    after.textContent = dictationOffer.phase === "no"
+      ? DICTATION_OFFER_NOT_NOW
+      : dictationOffer.phase === "on"
+        ? "Dictation is on. Tap " + dictationOffer.key + " in any app."
+        : DICTATION_OFFER_LATER;
+    art.append(after);
+  }
+  messagesEl.appendChild(art);
 }
 
 /// The reload path. Fails closed exactly like `get_messages` did: an unbound thread refuses
@@ -4225,6 +4353,8 @@ async function refreshVoiceReadiness() {
   const note = (r && typeof r.reason === "string") ? r.reason : "";
   voiceUnavailableEl.textContent = refused ? note : "";
   voiceUnavailableEl.hidden = !(refused && note);
+  // Rich's offer of dictation waits for exactly this: voice ready, after Start.
+  if (voiceAvailable) maybeOfferDictation();
 }
 
 /// Which of the four model rows is on screen, if any. Exactly one, or none.
@@ -5425,6 +5555,167 @@ let videoToolsHeard = null;
 /// True while a finished press waits for the video tools: the heading carries their progress
 /// line, and becomes "Setup is done." only when they are in (the CEO, 2026-10-07).
 let setupDoneWaitsForVideoTools = false;
+
+// ---------------------------------------------------------------------------------------
+// ROUND 19'S SHEET, STATES 1 TO 3 (dictation plan revision 2, slice 4, section 2 rows 1-3),
+// drawn only when the backend says dictation is there (`ask.dictation`, from
+// `richos_core::dictation_ready`); with it off, every line below is skipped and the sheet is
+// exactly as it was.
+//
+//   1  "There's a bit of setting up to do first." and one sentence per item, his name and
+//      line for the voice and video tools among them, even while they download.
+//   2  "Setting things up": Rich's line (his download line, only while BOTH speech models are
+//      fetched, minor 10), then a row per item, Installed / Installing… / Waiting, the voice and
+//      video tools' row counting the whole download ("490 MB of 1.06 GB") on a moving bar.
+//   3  "You're all set.", Rich's "Voice is ready. You can just talk to me now instead of
+//      typing.", and Start.
+//
+// THE ONE PLACE THE BUILD DIFFERS FROM THE DRAWING, by his 2026-10-07 instruction: the voice and
+// video tools download in the background from launch and nothing waits for them, so Start is on
+// the sheet as soon as Claude Code and the engine are in, while the voice row still counts.
+// ---------------------------------------------------------------------------------------
+
+/// The rows of state 2, one per item on the sheet, or null when the sheet is not in state 2 or 3.
+/// Each is `{component, name, state}` with state "wait", "now" or "done".
+let setupRows = null;
+/// True once a finished press shows Start (state 3, or state 2 with the voice row counting).
+let setupStartShown = false;
+/// The voice and video tools download's last summed reading: `{received, of, counter, both}`.
+let videoToolsCount = null;
+
+const SETUP_R19_TITLE_ASK = "There's a bit of setting up to do first.";
+const SETUP_R19_TITLE_RUN = "Setting things up";
+const SETUP_R19_TITLE_DONE = "You're all set.";
+const SETUP_R19_VOICE_READY = "Voice is ready. You can just talk to me now instead of typing.";
+
+const capitalizedName = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+function setupDictation() {
+  return !!(setupState && setupState.ask && setupState.ask.dictation);
+}
+
+/// Every row in, the voice and video tools included: state 3.
+function setupAllIn() {
+  return !!setupRows && setupRows.every((r) => r.state === "done");
+}
+
+/// Rich's line: "Voice is ready." once everything is in and the press is done; his download line
+/// while the voice row counts a download of both speech models; otherwise nothing.
+function renderSetupRichLine() {
+  const ask = setupState && setupState.ask;
+  const voice = setupRows && setupRows.find((r) => r.component === "media-tools");
+  let line = "";
+  if (setupStartShown && setupAllIn()) line = SETUP_R19_VOICE_READY;
+  else if (voice && voice.state === "now" && videoToolsCount && videoToolsCount.both && ask && ask.download_line)
+    line = ask.download_line;
+  setupRichTextEl.textContent = line;
+  setupRichLineEl.hidden = !line;
+}
+
+/// The rows, from `setupRows` and the download's last reading.
+function renderSetupSteps() {
+  setupStepsEl.replaceChildren();
+  setupStepsEl.hidden = !setupRows;
+  if (!setupRows) return;
+  for (const row of setupRows) {
+    const li = document.createElement("li");
+    li.className = "setup-step is-" + row.state;
+    li.dataset.component = row.component;
+    const mark = document.createElement("span");
+    mark.className = "setup-step-mark";
+    mark.setAttribute("aria-hidden", "true");
+    if (row.state === "done") mark.textContent = "✓";
+    const name = document.createElement("span");
+    name.className = "setup-step-name";
+    name.textContent = row.name;
+    const state = document.createElement("span");
+    state.className = "setup-step-state";
+    const counting = row.component === "media-tools" && row.state === "now" && videoToolsCount && videoToolsCount.counter;
+    if (row.state === "done") state.textContent = "Installed";
+    else if (counting) {
+      state.textContent = videoToolsCount.counter;
+      // The one element whose words carry digits and a decimal point (setup.js case 2's
+      // declared exemption names it by this attribute).
+      state.dataset.counter = "";
+    } else state.textContent = row.state === "now" ? "Installing…" : "Waiting";
+    li.append(mark, name, state);
+    if (counting && videoToolsCount.of > 0) {
+      const bar = document.createElement("span");
+      bar.className = "setup-step-bar";
+      bar.setAttribute("aria-hidden", "true");
+      const fill = document.createElement("b");
+      fill.style.width = Math.min(100, (100 * videoToolsCount.received) / videoToolsCount.of).toFixed(1) + "%";
+      bar.append(fill);
+      li.append(bar);
+    }
+    setupStepsEl.append(li);
+  }
+  renderSetupRichLine();
+}
+
+function setSetupRow(component, state) {
+  const row = setupRows && setupRows.find((r) => r.component === component);
+  if (row) row.state = state;
+}
+
+/// State 2 begins: the press. One row per item on the sheet; the voice and video tools' row is
+/// counting already when their background download is running.
+function beginSetupRows(ask) {
+  const tools = setupState && setupState.status && setupState.status.media_tools;
+  setupRows = ask.items.map((i) => ({
+    component: i.component,
+    name: capitalizedName(i.name),
+    state: i.component === "media-tools"
+      ? (videoToolsHeard === "done" || (tools && tools.present) ? "done" : (videoToolsLine || setupState.downloading ? "now" : "wait"))
+      : "wait",
+  }));
+  setupStartShown = false;
+  setupTitleEl.textContent = SETUP_R19_TITLE_RUN;
+  setupItemsEl.hidden = true;
+  setupNoteEl.hidden = true;
+  setupProgressEl.hidden = true;
+  renderSetupSteps();
+}
+
+/// **START DOES NOT MOVE UNDER HIS HAND** (case 17's rule, for round 19's Start). When the
+/// download finishes, the sheet goes from his three-line download line and a counting row with a
+/// bar to "Voice is ready." and Installed, and a centered panel that shrank by that much moved
+/// Start up 81 px, measured (setup.js case 25). So the moment Start appears, the panel is held at
+/// the taller of the sheet as it is now and the finished sheet (drawn and measured in the same
+/// task, so no frame of it is painted), and Start sits at the panel's foot.
+function lockSetupHeight() {
+  // Measured in the held layout itself, so its margins are the ones being measured.
+  setupPanelEl.style.minHeight = "";
+  setupPanelEl.classList.add("is-held");
+  const now = setupPanelEl.getBoundingClientRect().height;
+  const states = (setupRows || []).map((r) => r.state);
+  const title = setupTitleEl.textContent;
+  (setupRows || []).forEach((r) => { r.state = "done"; });
+  setupTitleEl.textContent = SETUP_R19_TITLE_DONE;
+  renderSetupSteps();
+  const done = setupPanelEl.getBoundingClientRect().height;
+  (setupRows || []).forEach((r, i) => { r.state = states[i]; });
+  setupTitleEl.textContent = title;
+  renderSetupSteps();
+  setupPanelEl.style.minHeight = Math.ceil(Math.max(now, done)) + "px";
+}
+
+function releaseSetupHeight() {
+  setupPanelEl.style.minHeight = "";
+  setupPanelEl.classList.remove("is-held");
+}
+
+/// The heading of a finished press: "You're all set." once the voice and video tools are in too,
+/// "Setting things up" while they still count, and the existing failure heading if they failed.
+function paintSetupR19Outcome() {
+  if (videoToolsHeard === "failed") {
+    setupTitleEl.textContent = "I couldn't finish the setup.";
+  } else {
+    setupTitleEl.textContent = setupAllIn() ? SETUP_R19_TITLE_DONE : SETUP_R19_TITLE_RUN;
+  }
+  renderSetupSteps();
+}
+
 let providerAuth = null;
 let providerPoll = null;
 const providerConnectEl = el("provider-connect");
@@ -5442,7 +5733,9 @@ function renderProviderAuth(view) {
   providerConnectEl.disabled = false;
   providerCancelEl.hidden = !connecting;
   providerKindEl.hidden = !canConnect || connecting;
-  setupCloseEl.hidden = connecting;
+  // Round 19's finished sheet has Start where the sheet had Close; sign-in holds either.
+  if (setupStartShown) setupStartEl.hidden = connecting;
+  else setupCloseEl.hidden = connecting;
   if (providerPoll) { clearTimeout(providerPoll); providerPoll = null; }
   if (connecting) providerPoll = setTimeout(async () => {
     try { renderProviderAuth(await Bridge.invoke("provider_auth_poll")); }
@@ -5504,17 +5797,31 @@ function openSetupSheet(ask, opts) {
   providerConnectEl.hidden = true;
   providerCancelEl.hidden = true;
   providerKindEl.hidden = true;
+  // ROUND 19 (state 1) once dictation is there; the sheet as it was otherwise.
+  const r19 = !!ask.dictation;
+  setupPanelEl.classList.toggle("overlay-panel--setup", r19);
+  setupItemsEl.classList.toggle("setup-items--r19", r19);
+  setupItemsEl.hidden = false;
+  setupRows = null;
+  setupStartShown = false;
+  setupStartEl.hidden = true;
+  releaseSetupHeight();
+  renderSetupSteps();
+  setupRichLineEl.hidden = true;
   // THE TITLE COUNTS WHAT IS MISSING, in words, because "1 item" is a package manager's
   // sentence and this is a conversation.
   const several = ask.items.length > 1;
-  setupTitleEl.textContent = several
-    ? "There are a couple of things I need on this Mac."
-    : "There's one thing I need on this Mac.";
+  setupTitleEl.textContent = r19
+    ? SETUP_R19_TITLE_ASK
+    : several
+      ? "There are a couple of things I need on this Mac."
+      : "There's one thing I need on this Mac.";
   // AND THE SENTENCE UNDER IT COUNTS THE SAME WAY. It said "I can get them myself" under
   // both titles, so a machine missing only the engine read "There's one thing I need on this
   // Mac. I can get them myself" — the first screen a customer ever sees, disagreeing with
-  // itself in the second sentence (ray-opus-a1, finding 7, 2026-09-04).
-  setupNoteEl.textContent = opts.canInstall
+  // itself in the second sentence (ray-opus-a1, finding 7, 2026-09-04). Round 19 draws no
+  // such sentence: its title says it.
+  setupNoteEl.textContent = opts.canInstall && !r19
     ? several
       ? "I can get them myself. You just have to say so."
       : "I can get it myself. You just have to say so."
@@ -5526,11 +5833,23 @@ function openSetupSheet(ask, opts) {
     const li = document.createElement("li");
     const name = document.createElement("span");
     name.className = "setup-item-name";
-    name.textContent = item.name;
     const why = document.createElement("span");
     why.className = "setup-item-why";
-    why.textContent = item.why;
-    li.append(name, why);
+    if (r19) {
+      // ONE SENTENCE PER ITEM, as round 19 draws them: "My voice and video tools: the tools
+      // I use…". For the video tools that is his sentence, word for word (setup.rs
+      // MEDIA_TOOLS_NAME and MEDIA_TOOLS_WHY).
+      name.textContent = capitalizedName(item.name) + ":";
+      const text = document.createElement("span");
+      text.append(name, " ", why);
+      why.textContent = item.why;
+      li.append(text);
+    } else {
+      name.textContent = item.name;
+      why.textContent = item.why;
+      li.append(name, why);
+    }
+    li.dataset.component = item.component;
     setupItemsEl.append(li);
   }
 
@@ -5543,8 +5862,9 @@ function openSetupSheet(ask, opts) {
   // backend's own sentence, verbatim — it names the party who can fix it, which he cannot.
   setupErrorEl.textContent = opts.canInstall ? "" : ask.cannot_install_reason || "";
   setupErrorEl.hidden = !setupErrorEl.textContent;
-  setupProgressEl.hidden = !videoToolsLine;
-  setupProgressEl.textContent = videoToolsLine || "";
+  // Round 19 says how far the video tools are in the voice row, once he presses.
+  setupProgressEl.hidden = r19 || !videoToolsLine;
+  setupProgressEl.textContent = r19 ? "" : videoToolsLine || "";
 
   setupGoEl.hidden = !opts.canInstall;
   setupGoEl.disabled = false;
@@ -5558,6 +5878,9 @@ function closeSetupSheet() {
   if (providerAuth?.state === "connecting") return;
   if (providerPoll) { clearTimeout(providerPoll); providerPoll = null; }
   setupDoneWaitsForVideoTools = false;
+  setupRows = null;
+  setupStartShown = false;
+  releaseSetupHeight();
   setupSheetEl.hidden = true;
   // The question that was held back, asked now rather than never — the same handoff
   // `closeMemorySetup` performs for the company question. Without this line a fresh install
@@ -5581,8 +5904,14 @@ async function runSetup() {
   setupLaterEl.hidden = true;
   setupErrorEl.hidden = true;
   setupErrorEl.textContent = "";
-  setupProgressEl.hidden = false;
-  setupProgressEl.textContent = "Starting.";
+  const r19 = setupDictation();
+  if (r19) {
+    // ROUND 19, STATE 2: the rows say what is happening, so there is no progress line.
+    beginSetupRows(setupState.ask);
+  } else {
+    setupProgressEl.hidden = false;
+    setupProgressEl.textContent = "Starting.";
+  }
   let next;
   videoToolsHeard = null;
   setupRunning = true;
@@ -5630,6 +5959,28 @@ async function runSetup() {
   // it read as a second dialog was this re-render.
   // -------------------------------------------------------------------------------------
   const providerView = next && next.complete ? await invokeQuiet("provider_auth_status") : null;
+  if (r19 && next && next.complete) {
+    // ROUND 19, STATE 3, or state 2 with Start: Claude Code and the engine are in, so Start is
+    // on the sheet now, whether or not the voice row is still counting (his 2026-10-07 words:
+    // nothing in setup waits for the video tools). The heading becomes "You're all set." when
+    // they are in too, here or in the listener below. The account rows stay where they are,
+    // between the steps and Start.
+    for (const row of setupRows || []) {
+      if (row.component !== "media-tools") row.state = "done";
+      else if (next.status?.media_tools?.present !== false || videoToolsHeard === "done") row.state = "done";
+    }
+    setupStartShown = true;
+    setupGoEl.hidden = true;
+    setupLaterEl.hidden = true;
+    setupCloseEl.hidden = true;
+    setupStartEl.hidden = false;
+    paintSetupR19Outcome();
+    setupAccountEl.hidden = false;
+    if (providerView) renderProviderAuth(providerView);
+    lockSetupHeight();
+    if (!setupStartEl.hidden) setupStartEl.focus();
+    return;
+  }
   const lastLine = setupProgressEl.textContent;
   // The video tools still arriving keep their line, so it does not appear later under his cursor.
   setupProgressEl.hidden = !videoToolsLine;
@@ -5688,6 +6039,15 @@ function paintSetupOutcome(complete) {
 setupGoEl.addEventListener("click", runSetup);
 setupLaterEl.addEventListener("click", closeSetupSheet);
 setupCloseEl.addEventListener("click", closeSetupSheet);
+// START (round 19, state 3): the sheet's way out once Claude Code and the engine are in. It
+// closes the sheet exactly as Close did, and Rich's one offer of dictation comes after it
+// (state 4) once voice is ready.
+setupStartEl.addEventListener("click", () => {
+  closeSetupSheet();
+  if (!setupSheetEl.hidden) return;
+  dictationOfferWanted = true;
+  maybeOfferDictation();
+});
 // THE BACKDROP DOES NOT DISMISS THIS ONE, and it is the only overlay in the window that
 // refuses to. Every other sheet here closes on a click outside it, which is the right
 // default for a search box or a picker: nothing is lost by closing one.
@@ -5734,7 +6094,25 @@ Bridge.listen("richos://setup", (payload) => {
   if (p.component === "media-tools") {
     videoToolsLine = p.state === "started" ? p.what : null;
     videoToolsHeard = p.state;
+    if (p.state === "started" && typeof p.received === "number" && typeof p.of === "number") {
+      videoToolsCount = { received: p.received, of: p.of, counter: p.counter || "", both: !!p.both_models };
+    } else if (p.state !== "started") {
+      videoToolsCount = null;
+    }
     if (p.state === "done") refreshVoiceReadiness();
+    // ROUND 19: the voice row counts, and turns Installed; the heading follows once Start is up.
+    if (setupRows) {
+      setSetupRow("media-tools", p.state === "done" ? "done" : p.state === "started" ? "now" : "wait");
+      if (setupStartShown) paintSetupR19Outcome();
+      else renderSetupSteps();
+      if (p.state === "failed") {
+        setupErrorEl.textContent = p.detail || p.what;
+        setupErrorEl.hidden = false;
+      }
+      return;
+    }
+    // Round 19's first state draws no progress line.
+    if (setupDictation() && !setupSheetEl.hidden && p.state !== "failed") return;
     if (setupRunning && p.state !== "failed") return;
     // A finished press waiting for them: the heading moves with their line, and says
     // "Setup is done." only once they are installed.
@@ -5752,6 +6130,14 @@ Bridge.listen("richos://setup", (payload) => {
     setupProgressEl.hidden = true;
     setupErrorEl.textContent = p.detail || p.what;
     setupErrorEl.hidden = false;
+    return;
+  }
+  // ROUND 19: a press's own steps move their rows; the rows are the progress.
+  if (setupRows) {
+    if (p.component && (p.state === "started" || p.state === "done")) {
+      setSetupRow(p.component, p.state === "done" ? "done" : "now");
+      renderSetupSteps();
+    }
     return;
   }
   setupProgressEl.hidden = false;

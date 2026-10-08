@@ -70,7 +70,7 @@ pub const SETUP_ACCOUNT_NOTE: &str =
 /// untrue, so the rows and the counter show without it ([`DownloadTally::both_models`]). And
 /// only once dictation is there (`richos_core::dictation_ready`), because it promises Wispr Flow
 /// is no longer needed.
-pub const SETUP_DOWNLOAD_LINE: &str = "Sit tight, we need to download about 1 GB of local voice AI so that you can just talk to Rich instead of typing. This will save you $140+/year\u{1F44D} because you won't need Wispr Flow with this setup.";
+pub const SETUP_DOWNLOAD_LINE: &str = "Sit tight, we need to download about 1 GB of local voice AI so that you can just talk to Rich instead of typing. This will save you $140+/year👍 because you won't need Wispr Flow with this setup.";
 
 /// The voice row while the downloaded files are hashed against their pins (round 19, state 2).
 pub const COUNTER_CHECKING: &str = "Checking\u{2026}";

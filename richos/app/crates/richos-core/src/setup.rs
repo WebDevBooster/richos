@@ -604,7 +604,7 @@ pub const MEDIA_TOOLS_NAME: &str = "my voice and video tools";
 /// option A). His line drops it, and his text is used exactly as he wrote it. The refreshes are
 /// unchanged (`media_tools.rs` still keeps yt-dlp current by itself, as Q1 decided); the sheet
 /// just no longer says so.
-pub const MEDIA_TOOLS_WHY: &str = "the tools I use to watch and download videos for you. Plus, it gives you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year\u{1F44D} and allows you to talk instead of typing anywhere on this computer.";
+pub const MEDIA_TOOLS_WHY: &str = "the tools I use to watch and download videos for you. Plus, it gives you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year👍 and allows you to talk instead of typing anywhere on this computer.";
 
 impl Component {
     /// The name the CEO sees. Plain text, no mark — the license's fourth condition. The video

@@ -2999,6 +2999,243 @@ body.bp-narrow .first-run {
   color: var(--danger);
 }
 
+/* ROUND 19'S SETUP SHEET, states 1 to 3 (dictation plan slice 4), drawn only once dictation is
+   there (`ask.dictation`): the wider panel and serif title, the items as one sentence each
+   behind a gold bullet, Rich's line in a gold box, and the steps with their marks, states and
+   the voice and video tools' bar. Round 19's layout in this file's tokens; no new token, no new
+   hue. Every ratio COMPUTED (`scripts/qa/contrast.py`), both themes, on `--surface` (#182440
+   dark, #fdfcf8 light); the gold box composites `--gold-soft` over it (#2e3544 dark, #f1ede0
+   light), the bar's track `--line` over it (#26344f dark, #cfd0d3 light):
+
+     text                                   dark      light
+     .setup-rich-line p        --ink        9.64:1   15.84:1   (on the gold box)
+     .setup-rich-who           --gold-text  5.08:1    5.83:1   (on the gold box, 16px 600)
+     .setup-items--r19 li      --ink       12.06:1   18.07:1
+     .setup-step-name          --ink       12.06:1   18.07:1
+     .setup-step-state         --ink-soft   5.78:1    6.36:1   (composited)
+     .is-done .setup-step-state --gold-text 6.36:1    6.65:1
+
+     indicators (3:1)
+     .is-done .setup-step-mark fill --gold  6.36:1    3.83:1   (its check, --on-gold: 7.68 / 4.72)
+     .is-wait .setup-step-mark ring --line-control 3.79:1 4.06:1
+     .is-now  spinner arc       --live-mark 6.36:1    6.65:1
+     .setup-step-bar fill on its track --live-mark 5.15:1 4.43:1  (--gold would be 2.55:1 light)
+
+   The bullet before each item is decoration, not an indicator: the item's text says what it is.
+   Nothing here is exempt from the text floor except his two sentences and the counter, which
+   are exempt from the NO-DIGIT, NO-SLASH, NO-DOLLAR copy rule only (setup.js case 2), never
+   from contrast. */
+.overlay-panel--setup {
+  width: min(620px, 92vw);
+  padding: 24px 28px 22px;
+}
+
+/* Held at the finished sheet's height once Start is up (`lockSetupHeight` in main.js), with
+   the buttons at its foot, so Start does not move as the download finishes. */
+.overlay-panel--setup.is-held {
+  display: flex;
+  flex-direction: column;
+}
+
+.overlay-panel--setup.is-held > .memory-setup-actions {
+  margin-top: auto;
+}
+
+.overlay-panel--setup .overlay-title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 2rem;
+  line-height: 1.15;
+  color: var(--ink);
+  margin-bottom: 16px;
+}
+
+.setup-items--r19 {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.setup-items--r19 li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.setup-items--r19 li::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  margin: 9px 0 0 6px;
+}
+
+.setup-items--r19 .setup-item-name,
+.setup-items--r19 .setup-item-why {
+  display: inline;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--ink);
+  margin: 0;
+}
+
+.setup-rich-line {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 14px;
+  align-items: start;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--gold);
+  border-radius: 14px;
+  background: var(--gold-soft);
+}
+
+.setup-rich-line[hidden] {
+  display: none;
+}
+
+.setup-rich-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.setup-rich-line p {
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.setup-rich-who {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gold-text);
+  margin-bottom: 2px;
+}
+
+.setup-steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setup-step {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.setup-step:last-child {
+  border-bottom: 0;
+}
+
+.setup-step-name {
+  font-size: 1.0625rem;
+  color: var(--ink);
+}
+
+.setup-step-state {
+  font-size: 1rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.setup-step.is-done .setup-step-state {
+  color: var(--gold-text);
+  font-weight: 600;
+}
+
+.setup-step-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+}
+
+.setup-step.is-done .setup-step-mark {
+  background: var(--gold);
+  color: var(--on-gold);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.setup-step.is-wait .setup-step-mark {
+  border: 2px solid var(--line-control);
+}
+
+.setup-step.is-now .setup-step-mark {
+  border: 2px solid transparent;
+  border-top-color: var(--live-mark);
+  animation: setup-step-spin 0.9s linear infinite;
+}
+
+@keyframes setup-step-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.setup-step-bar {
+  grid-column: 2 / 4;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+  margin: 4px 0 2px;
+}
+
+.setup-step-bar b {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--live-mark);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setup-step.is-now .setup-step-mark {
+    animation: none;
+  }
+}
+
+/* RICH'S ONE OFFER OF DICTATION, round 19 state 4: a local note in the conversation with the
+   timeline's own Rich styles (`.tl-rich`, `.tl-prose`, already measured), the key as a key cap
+   in `--ink`, and the two answers as the desk's own buttons. The cap's border is decoration;
+   its letters say which key. */
+.dictation-offer .tl-prose + .tl-prose {
+  margin-top: 10px;
+}
+
+.dictation-offer-key {
+  display: inline-block;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  border: 1px solid var(--line-control);
+  border-radius: 6px;
+  padding: 0 6px;
+  line-height: 1.35;
+}
+
+.dictation-offer-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .picker-list {
   display: flex;
   flex-direction: column;

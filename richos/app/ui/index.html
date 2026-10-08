@@ -1021,14 +1021,24 @@
            AND IT DOES NOT IMPLY ZERO-TOUCH. `#setup-account` carries row 3.14's second
            condition — he still needs his own Anthropic account and one sign-in, and RichOS
            cannot do that part. It sits above the button, not in a footnote after it. -->
-      <div id="setup-sheet" class="overlay" data-dismiss="control:#setup-later,#setup-close" hidden role="dialog" aria-modal="true" aria-labelledby="setup-title">
-        <div class="overlay-panel overlay-panel--compact">
+      <div id="setup-sheet" class="overlay" data-dismiss="control:#setup-later,#setup-close,#setup-start" hidden role="dialog" aria-modal="true" aria-labelledby="setup-title">
+        <div id="setup-panel" class="overlay-panel overlay-panel--compact">
           <p id="setup-title" class="overlay-title">There's a bit of setting up to do first.</p>
           <p id="setup-note" class="overlay-note"></p>
+          <!-- RICH'S LINE, round 19 states 2 and 3 (dictation plan slice 4), drawn only once
+               dictation is there (`ask.dictation`): his download line while both speech models
+               are fetched, then "Voice is ready." when everything is in. -->
+          <div id="setup-rich-line" class="setup-rich-line" hidden>
+            <img class="setup-rich-avatar" src="assets/rich-hand.png" alt="">
+            <p><span class="setup-rich-who">Rich</span><span id="setup-rich-text"></span></p>
+          </div>
           <!-- ONE ROW PER MISSING PIECE: its name, and what it is for. Not a checklist of
                packages — a sentence each, because "the program I think with" is what the
                thing is and "claude-code@2.1.257" is what it is called. -->
           <ul id="setup-items" class="setup-items"></ul>
+          <!-- THE STEPS AS THEY RUN, round 19 state 2: Installed, Installing…, Waiting, and the
+               voice and video tools' counter on a moving bar. -->
+          <ol id="setup-steps" class="setup-steps" hidden></ol>
           <p id="setup-account" class="setup-account" role="status"></p>
           <label id="provider-account-kind" hidden>Account type
             <!-- Custom chevron (audit D7, 2026-09-17): a real text glyph in its own span,
@@ -1057,6 +1067,7 @@
             <button id="setup-go" class="desk-btn desk-btn--confirm" type="button">Set it up</button>
             <button id="setup-later" class="desk-btn" type="button">Not now</button>
             <button id="setup-close" class="desk-btn" type="button" hidden>Close</button>
+            <button id="setup-start" class="desk-btn desk-btn--confirm" type="button" hidden>Start</button>
           </div>
         </div>
       </div>
