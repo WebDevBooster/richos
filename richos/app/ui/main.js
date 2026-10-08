@@ -5801,15 +5801,19 @@ function maybeAskAboutSetup() {
 
 /// His account sentence (CEO, 2026-10-08) ends in a call to action that is a link: the words
 /// below, underlined, open the Claude pricing page in his browser. `claude.com/pricing` is a KEY
-/// into the allowlist in `src-tauri/src/opener.rs`, not a URL the shell acts on. The `href` is
-/// the same address written out, so the destination is visible on hover and by a screen reader.
+/// into the allowlist in `src-tauri/src/opener.rs`, not a URL the shell acts on. The `title` is
+/// the same key, so the destination is visible on hover.
 const SETUP_ACCOUNT_LINK_TEXT = "sign up there first and pick the Max/Max 20x tier";
 const SETUP_ACCOUNT_LINK_KEY = "claude.com/pricing";
 function renderSetupAccountNote(note) {
   const at = note.indexOf(SETUP_ACCOUNT_LINK_TEXT);
   if (at < 0) { setupAccountEl.textContent = note; return; }
   const a = document.createElement("a");
-  a.href = "https://" + SETUP_ACCOUNT_LINK_KEY;
+  // A real `href` keeps it a link (underline, focusable, announced). No scheme is written
+  // here: the web layer carries no network address, so the destination is disclosed in the
+  // `title` as the key, and the click goes to the opener by that key.
+  a.href = "#";
+  a.title = SETUP_ACCOUNT_LINK_KEY;
   a.textContent = SETUP_ACCOUNT_LINK_TEXT;
   a.addEventListener("click", (event) => {
     event.preventDefault();

@@ -612,6 +612,29 @@ while IFS= read -r p; do
     done < <(awk -F"$TAB" -v q="$p" 'index(q, $1) == 1 { print $2 }' "$WORK/ui-dir-index" 2>/dev/null)
   fi
 
+  # ---- Rust tests that READ a non-Rust file with include_str! ----
+  # A test that scans a shipped file as text (feedback_no_outbound_tests.rs reads ui/main.js,
+  # timeline.js, index.html, theme-boot.js and settings-button.js) is invisible to the module
+  # rules below, which only look at `.rs` paths: the land of 47ee47308 changed ui/main.js and
+  # never ran it, so only the nightly's whole-crate run saw it fail. The relation IS
+  # greppable here (the test names the file), so it is derived, not declared: every
+  # `include_str!("../../../<path>")` in a crates/*/tests/*.rs, with the leading `../`
+  # stripped, is a path relative to app/; a change to that path selects that test target.
+  case "$p" in
+    "$APP_REL"/crates/*|"$APP_REL"/src-tauri/*) ;;
+    "$APP_REL"/*)
+      rel="${p#"$APP_REL"/}"
+      for t in "$APP"/crates/*/tests/*.rs; do
+        [ -f "$t" ] || continue
+        if grep -E 'include_str!\("(\.\./)+' "$t" 2>/dev/null \
+             | sed -E 's/.*include_str!\("(\.\.\/)+([^"]*)".*/\2/' | grep -qxF -- "$rel"; then
+          c="$(basename "$(dirname "$(dirname "$t")")")"
+          printf '%s\t%s\t--test %s\n' "$c" "integration" "$(basename "$t" .rs)" >> "$WORK/rust"
+          MATCHED=1; note "text-scanned by $(basename "$t") (include_str!)"
+        fi
+      done ;;
+  esac
+
   # ---- Rust ----
   case "$p" in
     "$APP_REL"/crates/*/tests/*.rs)
