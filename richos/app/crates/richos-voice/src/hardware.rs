@@ -293,6 +293,10 @@ impl Costs {
 pub enum Basis {
     /// An engineer named the model outright. The resolver did not run.
     Override,
+    /// The person chose this model himself, in Dictation's Accuracy setting (More accurate or
+    /// Faster). The resolver did not run: dictation is not bound by voice mode's one-second live
+    /// ceiling, and he picks speed against accuracy himself (dictation plan section 2).
+    Chosen,
     /// This machine decoded the top rung in time and had the memory for it.
     TopRung,
     /// A better rung exists and this machine decodes it too slowly.
@@ -322,6 +326,7 @@ impl Resolution {
     pub fn provenance(&self) -> String {
         let how = match self.basis {
             Basis::Override => "env-override".to_string(),
+            Basis::Chosen => "chosen in Dictation settings".to_string(),
             Basis::TopRung => match self.measured_secs {
                 Some(s) => format!("hw-resolved top rung, {s:.3}s/utt <= {:.3}s", self.ceiling_secs),
                 None => "hw-resolved top rung".to_string(),
@@ -367,7 +372,7 @@ impl Resolution {
     /// wearing better manners.
     pub fn ceo_message(&self) -> Option<String> {
         match self.basis {
-            Basis::Override | Basis::TopRung => None,
+            Basis::Override | Basis::Chosen | Basis::TopRung => None,
             Basis::TooSlow => Some(
                 "I'm using my faster hearing on this machine. The more accurate one takes long \
                  enough here that you'd be waiting after every sentence, and a conversation with \
