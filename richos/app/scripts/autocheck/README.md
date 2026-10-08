@@ -9,7 +9,7 @@ Git runs these itself. Nobody runs them by hand and nobody has to be told to (CE
 | `git commit` | every branch but `main`, in every worktree | `lint.sh --changed --strict`: the lint ratchets for what differs from `HEAD` (static and load rules; Clippy for a Rust set whose inputs changed), and no count may grow, whatever room a ceiling has | refuses the commit, with the lint's reason |
 | `git commit` | every branch but `main`, in every worktree | a branch-changed file that a reviewed check pins by SHA-256 in `docs/development/verification-input-qualifications.json` must have its pin renewed in the same change (the merge would refuse it with `UnqualifiedReader`); read only when a changed path is named there | refuses the commit, naming the file, the unit and the fix |
 | `git merge` into a branch | every branch but `main` | `lint.sh --changed` (ceilings; what main brings was held to its land) | refuses the merge |
-| `git merge` into `main`, a commit on `main` | the main checkout | the suites that own the changed files (`proof-for.sh --gate`), run by `proof-run.py`, plus `lint.sh --changed` when the land changes something under `richos/app` and that selection does not already include `lint.test.sh`; each check capped at 600 s, the gate run in rounds of at most 900 s that keep every pass (at most six) | a failing check refuses the merge before main moves; nothing else does |
+| `git merge` into `main`, a commit on `main` | the main checkout | the suites that own the changed files (`proof-for.sh --gate`), run by `proof-run.py`, plus `lint.sh --changed` when the land changes something under `richos/app` and that selection does not already include `lint.test.sh`; each check capped at 600 s, the gate run in rounds of at most 900 s that keep every pass (at most six) | a failing check refuses the merge before main moves, unless it passes when run again alone, once; nothing else does |
 | `git push` of `main` | wherever main is pushed from | the same land checks (the lint as `--all`: HEAD is already the land), only when main's tip has no land receipt (a fast-forward, a cherry-pick, a `--no-verify` merge) | refuses the push |
 | main moved (post-merge, post-commit) | the operator's main checkout | `richos/mobile/perf/watch.py trigger`: when the land changed `richos/mobile/`, a detached run measures each wired phone's cold start and return against the benchmarks (`richos/mobile/perf/README.md`, "It runs by itself"); it also reports any earlier run that never finished | never refuses (main has moved); a slower, refused or unmeasured run, a missed run and a trigger that could not run are escalations in the lead's ledger |
 
@@ -107,6 +107,30 @@ every job capped at 10 minutes. A merge into main runs exactly:
 4. **Rounds (since 2026-10-02)**: a round that ends with checks that have no verdict (timed
    out at their cap, or ended at the round's cap) is followed by another that resumes it,
    keeps every pass, and runs only those checks. See "A large land runs in rounds" below.
+5. **A failure is retried alone, once (since 2026-10-08)**: see the next section.
+
+## A check that fails under the gate's own load runs again alone, once (2026-10-08)
+
+Twice on 2026-10-08 the gate refused a merge on one timing check while its own parallel checks
+held the Mac at 97-99% CPU, and the same check passed when Rich reran it alone on the same tree:
+`setup.js` case 24 (`page.waitForFunction: Timeout 30000ms exceeded`) and `splash.js` case 10b
+(the shutter's window moved from 236 ms to 358 ms). His step each time was the first step of
+`docs/development/verification-retries.md`: retry the failed unit alone, with normal parallelism
+and admission. The gate now takes that step itself:
+
+1. After a round has finished, each check that **failed** runs again in a run of its own:
+   `proof-run.py --resume <that round> --only-check <the check> --retry-reason ...`, the same caps,
+   admission and proof-run slot as any round, every validated pass carried, nothing else run.
+2. **Passed alone**: it no longer refuses the merge. The gate prints
+   `FAILED UNDER LOAD, PASSED ALONE: <check>` with the log of each run, the final line names it, and
+   the land receipt lists it under `failed_under_load_passed_alone` with both logs. Any check that
+   still has no verdict then gets its rounds as before.
+3. **Failed alone, or no verdict alone**: the gate refuses as before, and the refusal names both
+   logs. The first check that fails alone ends the retries; the gate refuses whatever the others
+   would do.
+4. Once per check per gate run: never a second retry, never a loop. Only `failed` is retried:
+   `blocked` is a failure the runner refuses to repeat on unchanged inputs, `invalid` is a check
+   that could not show it ran, and the no-verdict states have their rounds.
 
 ## A large land runs in rounds (2026-10-02)
 
