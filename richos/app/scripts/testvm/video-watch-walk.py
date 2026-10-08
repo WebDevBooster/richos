@@ -27,7 +27,7 @@ WHAT IT DOES, in the guest, never on the host's screen (CEO ruling §65):
   setup        the video tools (yt-dlp and BOTH speech models, each checked against its pin) are
                installed: on a build that downloads them in the background from launch
                (a4facb643, boot line "video tools: downloading in the background") nothing is
-               pressed and the step waits for the app's own "My video tools are installed.";
+               pressed and the step waits for the app's own "... video tools are installed.";
                on an earlier build "Set it up" on the setup sheet that lists them is pressed,
                then "Close"
   first-run    adopt-walk.py's: memory setup declined, company "Acme" registered, questions declined
@@ -231,12 +231,13 @@ class VideoWatchWalk(command_walk.CommandWalk):
 
     # --- steps -----------------------------------------------------------------------------
     def sheet_lists_tools(self):
-        """The setup sheet is up and lists "my video tools" (a build before a4facb643). The memory
+        """The setup sheet is up and lists the video tools (a build before a4facb643; the step is
+        "my video tools", or "my voice and video tools" once dictation is there). The memory
         question has a "Set it up" too, so the button alone says nothing."""
         if not self.present('Set it up'):
             return False
         try:
-            return bool(self.ax('find', '--value', 'my video tools', '--contains', '--first'))
+            return bool(self.ax('find', '--value', setup_walk.TOOLS_ON_SHEET, '--contains', '--first'))
         except StepFailed:
             return False
 

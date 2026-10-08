@@ -1708,6 +1708,84 @@ module.exports = [
     why:
       "The installation heading confirms that software setup completed. Account connection is reported separately below it.",
   },
+  // ---- ROUND 19, STATES 1 TO 4 (dictation plan slice 4), drawn only once dictation is there
+  // (`ask.dictation`, off until slice 5). `tests/setup.js` cases 2a and 23 to 26 render each one.
+  {
+    s: "Setting things up",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why: "Round 19's heading while the press runs (state 2). The rows under it say each step's state; nothing asks him to act.",
+  },
+  {
+    s: "You're all set.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why: "Round 19's heading once Claude Code, the engine and the voice and video tools are all in (state 3). Start, beside it, is the way on.",
+  },
+  {
+    s: "Voice is ready. You can just talk to me now instead of typing.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why: "Rich's line on the finished sheet (state 3): voice works now. It names no control; the talk button beside the message box is the offer's subject, and Start closes the sheet.",
+  },
+  {
+    s:
+      "Sit tight, we need to download about 1 GB of local voice AI so that you can just talk to Rich instead of typing. " +
+      "This will save you $140+/year👍 because you won't need Wispr Flow with this setup.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why:
+      "His download line, word for word (`setup_view::SETUP_DOWNLOAD_LINE`), shown as Rich's line only while both speech models are " +
+      "fetched. It says what is happening and why; the download needs nothing from him.",
+  },
+  {
+    s: "Voice is ready. Press the round button beside the message box and just talk to me.",
+    c: "ACTIONABLE",
+    control: "#talk-toggle",
+    fixture: null,
+    why:
+      "The first paragraph of Rich's one offer of dictation (state 4), shown only once voice is ready, which is when the talk " +
+      "button beside the message box exists and works. The control it names is that button.",
+  },
+  {
+    s: "I can also type for you in any other app on your Mac, like Mail, Slack or your browser. Tap",
+    c: "FRAGMENT",
+    why: "The offer's second paragraph, up to the key's name (`F1`, a key cap). ACTIONABLE as a whole through Turn on dictation beside it.",
+  },
+  {
+    s: ", say what you want written, then tap it again. Your words appear where your cursor is.",
+    c: "FRAGMENT",
+    why: "The offer's second paragraph after the key's name.",
+  },
+  {s: "Turn on dictation", c: "CONTROL", why: "The offer's first answer: hands over to the Dictation sheet's turn-on (slice 2)."},
+  {
+    s: "Okay. It's in Settings, under Dictation, whenever you want it.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why: "What the offer says after Not now: where dictation lives. Nothing is asked of him.",
+  },
+  {
+    s: "It's in Settings, under Dictation.",
+    c: "INFORMATIONAL",
+    fixture: null,
+    why: "What the offer says after Turn on dictation when dictation did not end up on: where it lives. Nothing is asked of him.",
+  },
+  {s: "Dictation is on. Tap", c: "FRAGMENT", why: "Followed by the key's name and \" in any app.\"; INFORMATIONAL as a whole, after the offer's Turn on dictation."},
+  {
+    s: "{FILE_NAME} is not a JSON object",
+    c: "NOT-RENDERED",
+    why: "`dictation_offer.rs`: why the offer was not made, printed to the log; the window shows no offer and no sentence.",
+  },
+  {
+    s: "{FILE_NAME} is not readable: {e}",
+    c: "NOT-RENDERED",
+    why: "`dictation_offer.rs`: why the offer was not made or not recorded, printed to the log; never on screen.",
+  },
+  {
+    s: "{FILE_NAME} could not be read: {e}",
+    c: "NOT-RENDERED",
+    why: "`dictation_offer.rs`: the same, for a file that could not be opened; printed to the log, never on screen.",
+  },
   {
     s: "That's everything I could do. Something is still missing. That part is for whoever set RichOS up to look at.",
     c: "NEEDS-SOMEONE-ELSE",

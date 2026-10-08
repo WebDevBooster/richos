@@ -87,6 +87,94 @@ const sheetText = (page) =>
     (document.getElementById("setup-sheet").innerText || "").replace(/\s+/g, " ").trim()
   );
 
+// ---------------------------------------------------------------------------------------
+// HIS TWO SENTENCES AND THE COUNTER: THE FLOOR'S ONE DECLARED EXEMPTION (dictation plan
+// revision 2, slice 4). Once dictation is there, the sheet carries the CEO's own setup line for
+// the voice and video tools ("private/local", "$140+/year") and his download line
+// ("$140+/year"), and the voice row counts "490 MB of 1.06 GB". Each would trip case 2's floor
+// (a slash, a dollar sign, a version-shaped number), and each is meant to be read. So exactly
+// those three are removed before the floor is checked:
+//   - his two sentences, compared against the RUST CONSTANTS they are rendered from
+//     (`setup.rs` MEDIA_TOOLS_WHY, `setup_view.rs` SETUP_DOWNLOAD_LINE), so a changed word is
+//     not exempt; and each constant is asserted to be his text, word for word;
+//   - the counter element's own text (`[data-counter]`), and only when it is a counter.
+// Every other word on the sheet keeps the full floor; case 2b proves a path on another line
+// still fails.
+// ---------------------------------------------------------------------------------------
+
+function rustConst(file, name) {
+  const src = fs.readFileSync(path.join(UI_DIR, "..", file), "utf8");
+  const m = src.match(new RegExp("pub const " + name + ': &str = "((?:[^"\\\\]|\\\\.)*)";'));
+  if (!m) throw new Error(name + " is not a one-line string constant in " + file);
+  return m[1]
+    .replace(/\\u\{([0-9A-Fa-f]+)\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/\\(["\\])/g, "$1");
+}
+const HIS_TOOLS_LINE = rustConst("crates/richos-core/src/setup.rs", "MEDIA_TOOLS_WHY");
+const HIS_DOWNLOAD_LINE = rustConst("src-tauri/src/setup_view.rs", "SETUP_DOWNLOAD_LINE");
+/// His setup sentence (2026-10-08) and round 19's download line, as he approved them.
+const HIS_SETUP_SENTENCE =
+  "My voice and video tools: the tools I use to watch and download videos for you. Plus, it gives you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year👍 and allows you to talk instead of typing anywhere on this computer.";
+const ROUND_19_DOWNLOAD_LINE =
+  "Sit tight, we need to download about 1 GB of local voice AI so that you can just talk to Rich instead of typing. This will save you $140+/year👍 because you won't need Wispr Flow with this setup.";
+const COUNTER_WORDS = /^(\d+ MB of (\d+\.\d\d GB|\d+ MB)|Checking…)$/;
+
+/// Case 2's floor, as a list of what it found, so a fixture can prove it fails.
+function floorViolations(text) {
+  const out = [];
+  if (/\//.test(text)) out.push("a path");
+  if (/~/.test(text)) out.push("a home-relative path");
+  if (/\$/.test(text)) out.push("a shell variable");
+  if (/[Tt]erminal/.test(text)) out.push("the Terminal");
+  if (/\d+\.\d+/.test(text)) out.push("a version number");
+  return out;
+}
+
+/// The sheet's text with exactly the declared exemptions removed, and which were.
+async function sheetTextExempt(page) {
+  const { text, counters } = await page.evaluate(() => ({
+    text: (document.getElementById("setup-sheet").innerText || "").replace(/\s+/g, " ").trim(),
+    counters: [...document.querySelectorAll("#setup-sheet [data-counter]")]
+      .filter((e) => e.getClientRects().length > 0)
+      .map((e) => e.textContent.trim()),
+  }));
+  let rest = text;
+  const removed = [];
+  for (const s of [HIS_TOOLS_LINE, HIS_DOWNLOAD_LINE]) {
+    if (rest.includes(s)) {
+      rest = rest.split(s).join(" ");
+      removed.push(s);
+    }
+  }
+  for (const c of counters) {
+    assert(COUNTER_WORDS.test(c), "the exemption covers the counter's own words, not this: " + c);
+    rest = rest.replace(c, " ");
+    removed.push(c);
+  }
+  return { text, rest, removed };
+}
+
+/// Round 19's sheet: dictation there, Claude Code and the engine missing, the voice and video
+/// tools downloading in the background from launch (a customer's first launch).
+const R19 = { setup: "missing-both", dictation: true, videoTools: "downloading", memory: "ready" };
+
+/// Two animation frames: whatever the last answer rendered is on screen.
+const settledFrames = (page) =>
+  page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+/// One background-download line as `setup_view::model_progress` emits it.
+const toolsLine = (received, of, both, counter) => ({
+  state: "started",
+  component: "media-tools",
+  what: "Getting my voice and video tools. " + Math.floor((100 * received) / of) + "%",
+  index: 1,
+  total: 1,
+  received,
+  of,
+  counter,
+  both_models: both,
+});
+
 async function main() {
   const run = createRun(
     "first-run setup — the consent step a customer's Mac gets, and what happens when it fails"
@@ -1474,6 +1562,319 @@ async function main() {
     await page.close();
     return "at the answer " + JSON.stringify(atAnswer) + ", mid-download " + JSON.stringify(during) +
       ", installed " + JSON.stringify(after) + "; Close held y=" + top0;
+  });
+
+  // =======================================================================================
+  // ROUND 19, STATES 1 TO 4 (dictation plan revision 2, slice 4), behind `ask.dictation`.
+  // =======================================================================================
+
+  await run.check("2a his two sentences and the counter are the floor's only exemption", async () => {
+    // EACH EXEMPT STRING IS HIS, WORD FOR WORD: the constants the sheet renders from.
+    assertEqual(HIS_TOOLS_LINE, HIS_SETUP_SENTENCE.slice("My voice and video tools: ".length), "MEDIA_TOOLS_WHY is not his line");
+    assertEqual(HIS_DOWNLOAD_LINE, ROUND_19_DOWNLOAD_LINE, "SETUP_DOWNLOAD_LINE is not round 19's line");
+    const page = await openApp(browser, R19);
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    // State 1: his item line is on the sheet, and is the only thing exempt.
+    const ask = await sheetTextExempt(page);
+    assertEqual(ask.removed.join(" | "), HIS_TOOLS_LINE, "state 1 exempts his item line and nothing else");
+    assertEqual(floorViolations(ask.rest).join(", "), "", "outside his line the floor holds: " + ask.rest);
+    // State 2: his download line and the counter, and nothing else.
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-steps:not([hidden])");
+    await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(489_999_396, 1_061_655_396, true, "490 MB of 1.06 GB"));
+    await page.waitForSelector("#setup-rich-line:not([hidden])");
+    const run2 = await sheetTextExempt(page);
+    assertEqual(run2.removed.join(" | "), HIS_DOWNLOAD_LINE + " | 490 MB of 1.06 GB", "state 2 exempts his download line and the counter");
+    assertEqual(floorViolations(run2.rest).join(", "), "", "outside them the floor holds: " + run2.rest);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    bump(6);
+    await page.close();
+    return "exempt: his item line in state 1; his download line and \"490 MB of 1.06 GB\" in state 2; the rest holds the floor";
+  });
+
+  await run.check("2b NEGATIVE CONTROL: a path on another line, or his line with one word changed, still fails", async () => {
+    const page = await openApp(browser, R19);
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    // A path and a version on the account line: not his sentences, so not exempt.
+    await page.evaluate(() => {
+      document.getElementById("setup-account").textContent += " See ~/Library/RichOS 1.2.3 first.";
+    });
+    const pathed = await sheetTextExempt(page);
+    assertEqual(floorViolations(pathed.rest).join(", "), "a path, a home-relative path, a version number", "a path on another line passed the floor");
+    // His line with one word changed is not his line: the dollar sign and the slash fail.
+    await page.evaluate(() => {
+      const why = document.querySelector('#setup-items li[data-component="media-tools"] .setup-item-why');
+      why.textContent = why.textContent.replace("free", "cheap");
+    });
+    const changed = await sheetTextExempt(page);
+    assertEqual(changed.removed.length, 0, "a changed line was exempted");
+    assert(floorViolations(changed.rest).includes("a shell variable"), "a changed line's dollar sign passed the floor");
+    // A counter element carrying anything but a counter is refused, not exempted.
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-steps:not([hidden])");
+    await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(1, 1_061_655_396, true, "see /tmp/x"));
+    let refused = false;
+    try { await sheetTextExempt(page); } catch (_) { refused = true; }
+    assert(refused, "a counter element carrying a path was exempted");
+    bump(4);
+    await page.close();
+    return "a path on the account line, a changed word in his line and a path in the counter element all fail";
+  });
+
+  await run.check("23  round 19, state 1: the setup sheet as drawn, his sentence word for word", async () => {
+    const page = await openApp(browser, R19);
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    assertEqual((await page.textContent("#setup-title")).trim(), "There's a bit of setting up to do first.", "the drawn title");
+    const items = await page.evaluate(() =>
+      [...document.querySelectorAll("#setup-items li")].map((li) => [li.dataset.component, li.innerText.replace(/\s+/g, " ").trim()])
+    );
+    assertEqual(items.map((i) => i[0]).join(","), "claude-code,engine,media-tools", "three items, the video tools listed while they download");
+    assertEqual(items[2][1], HIS_SETUP_SENTENCE, "the voice and video tools' item is his sentence, word for word");
+    assertEqual(items[0][1], "Claude Code: the program I think with. It comes from Anthropic and installs itself; I only ask it to.", "Claude Code's item");
+    assertEqual(items[1][1], "The RichOS engine: the part of me that knows how I work: my instructions and my team.", "the engine's item");
+    assert(await page.isHidden("#setup-note"), "round 19 draws no note under the title");
+    assert(await page.isVisible("#setup-go") && await page.isVisible("#setup-later"), "Set it up and Not now");
+    assert(await page.isHidden("#setup-progress"), "no progress line in state 1");
+    // GATE OFF: the same Mac on a build where dictation is not there sees the sheet as it was.
+    const off = await openApp(browser, { ...R19, dictation: false });
+    await off.waitForSelector("#setup-sheet:not([hidden])");
+    assertEqual((await off.textContent("#setup-title")).trim(), "There are a couple of things I need on this Mac.", "gate off keeps the old title");
+    const offItems = await off.evaluate(() => [...document.querySelectorAll("#setup-items li")].map((li) => li.dataset.component));
+    assertEqual(offItems.join(","), "claude-code,engine", "gate off does not list the downloading video tools");
+    assert(!(await sheetText(off)).includes("Wispr"), "gate off says nothing about dictation");
+    assert(page.__errors.length === 0 && off.__errors.length === 0, "the shell logged errors");
+    bump(10);
+    await page.close();
+    await off.close();
+    return "title, three items with his sentence verbatim; gate off is the old sheet";
+  });
+
+  await run.check("24  round 19, state 2: the rows, the summed counter, and his line only for both models", async () => {
+    const page = await openApp(browser, R19);
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    // RICH'S AVATAR IS NOT FETCHED BEFORE HIS LINE IS DRAWN. Loaded at boot, the hidden 40px copy
+    // changed how WebKit drew the same picture at 18px beside every "Rich" in the conversation:
+    // 67 to 253 pixels of it, in about fifty reference pictures across eight suites.
+    assertEqual(await page.getAttribute("#setup-rich-avatar", "src"), null, "the avatar is fetched before his line is drawn");
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-steps:not([hidden])");
+    const rows = () => page.evaluate(() =>
+      [...document.querySelectorAll("#setup-steps .setup-step")].map((li) => ({
+        c: li.dataset.component,
+        cls: li.className,
+        text: li.innerText.replace(/\s+/g, " ").trim(),
+        bar: (li.querySelector(".setup-step-bar b") || {}).style?.width || null,
+      }))
+    );
+    assertEqual((await page.textContent("#setup-title")).trim(), "Setting things up", "the drawn title");
+    let r = await rows();
+    assertEqual(r.map((x) => x.c).join(","), "claude-code,engine,media-tools", "a row per item");
+    assert(/Claude Code/.test(r[0].text) && /The RichOS engine/.test(r[1].text) && /My voice and video tools/.test(r[2].text), "the drawn names: " + JSON.stringify(r));
+    // The mock's first step event: Claude Code is installing, the engine waits.
+    await page.waitForFunction(() => /Installing/.test(document.querySelector('#setup-steps [data-component="claude-code"]').innerText));
+    r = await rows();
+    assert(/Waiting/.test(r[1].text) || /Installing/.test(r[1].text), "the engine row: " + r[1].text);
+    // Two counter readings that increase, on a moving bar.
+    await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(489_999_396, 1_061_655_396, true, "490 MB of 1.06 GB"));
+    r = await rows();
+    assert(r[2].text.endsWith("490 MB of 1.06 GB"), "the first reading: " + r[2].text);
+    const first = parseFloat(r[2].bar);
+    assertEqual((await page.textContent("#setup-rich-text")).trim(), HIS_DOWNLOAD_LINE, "his line while both models download");
+    // ...and once it is drawn, the avatar beside it is there.
+    await page.waitForFunction(() => {
+      const a = document.getElementById("setup-rich-avatar");
+      return a.getAttribute("src") === "assets/rich-hand.png" && a.complete && a.naturalWidth > 0;
+    });
+    await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(700_000_000, 1_061_655_396, true, "700 MB of 1.06 GB"));
+    r = await rows();
+    assert(r[2].text.endsWith("700 MB of 1.06 GB") && parseFloat(r[2].bar) > first, "the second reading moves on: " + JSON.stringify(r[2]));
+    // MINOR 10: one model missing, so "about 1 GB" is untrue; the row counts without his line.
+    await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(100_000_000, 574_041_195, false, "100 MB of 574 MB"));
+    assert(await page.isHidden("#setup-rich-line"), "his line shows while only one model is fetched");
+    r = await rows();
+    assert(r[2].text.endsWith("100 MB of 574 MB"), "the one-model counter: " + r[2].text);
+    // Checking… while the file is hashed.
+    await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(574_041_195, 574_041_195, false, "Checking…"));
+    r = await rows();
+    assert(r[2].text.endsWith("Checking…"), "the hash: " + r[2].text);
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    bump(12);
+    await page.close();
+    return "rows Claude Code / The RichOS engine / My voice and video tools; 490 then 700 MB of 1.06 GB on a moving bar; his line only for both models; Checking…";
+  });
+
+  await run.check("25  round 19, state 3: Start while the voice row counts, then \"You're all set.\"", async () => {
+    const page = await openApp(browser, R19);
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(300_000_000, 1_061_655_396, true, "300 MB of 1.06 GB"));
+    await page.click("#setup-go");
+    // CLAUDE CODE AND THE ENGINE ARE IN: Start is on the sheet while the voice row still counts
+    // (his 2026-10-07 words: nothing in setup waits for the video tools).
+    await page.waitForSelector("#setup-start:not([hidden])");
+    assertEqual((await page.textContent("#setup-title")).trim(), "Setting things up", "not all set while the voice row counts");
+    const voiceRow = () => page.evaluate(() => document.querySelector('#setup-steps [data-component="media-tools"]').innerText.replace(/\s+/g, " ").trim());
+    assert((await voiceRow()).endsWith("300 MB of 1.06 GB"), "the voice row still counts: " + (await voiceRow()));
+    const states = await page.evaluate(() => [...document.querySelectorAll("#setup-steps .setup-step")].map((li) => li.className));
+    assert(/is-done/.test(states[0]) && /is-done/.test(states[1]), "Claude Code and the engine are Installed: " + states);
+    assert(await page.isHidden("#setup-close"), "Start, not Close");
+    const startTop = () => page.evaluate(() => Math.round(document.getElementById("setup-start").getBoundingClientRect().top));
+    const top0 = await startTop();
+    await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(900_000_000, 1_061_655_396, true, "900 MB of 1.06 GB"));
+    await page.evaluate(() => window.__RICHOS_MOCK__.setupEmit({ state: "done", component: "media-tools", what: "My voice and video tools are installed.", index: 1, total: 1 }));
+    assertEqual((await page.textContent("#setup-title")).trim(), "You're all set.", "all three in");
+    assertEqual((await page.textContent("#setup-rich-text")).trim(), "Voice is ready. You can just talk to me now instead of typing.", "Rich's done line");
+    assert((await voiceRow()).endsWith("Installed"), "the voice row: " + (await voiceRow()));
+    const top1 = await startTop();
+    // START DOES NOT MOVE UNDER HIS HAND (case 17's rule). Before `lockSetupHeight` it moved up
+    // 81 px here, measured, as the three-line download line became "Voice is ready.".
+    assert(Math.abs(top1 - top0) <= 1, "Start jumped " + (top1 - top0) + "px as the download finished");
+    // Escape is Start, the named way out.
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("#setup-sheet", { state: "hidden" });
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    bump(8);
+    await page.close();
+    return "Start at y=" + top0 + " while counting, \"You're all set.\" with \"Voice is ready.\" when the download finished, Start at y=" + top1 + "; Escape presses it";
+  });
+
+  await run.check("26  round 19, state 4: Rich offers dictation once, after Start, and each answer says the drawn line", async () => {
+    // Everything installed during the press (the models were already there), voice ready.
+    const finish = async (preset, answer, before) => {
+      const page = await openApp(browser, { ...R19, videoTools: "present", ...preset });
+      await page.waitForSelector("#setup-sheet:not([hidden])");
+      if (before) await page.evaluate(before);
+      await page.click("#setup-go");
+      await page.waitForSelector("#setup-start:not([hidden])");
+      assertEqual((await page.textContent("#setup-title")).trim(), "You're all set.", "all set when the models were already there");
+      await page.click("#setup-start");
+      await page.waitForSelector("#setup-sheet", { state: "hidden" });
+      return page;
+    };
+    const page = await finish({});
+    await page.waitForSelector("#dictation-offer");
+    const said = await page.evaluate(() => [...document.querySelectorAll("#dictation-offer .tl-prose")].map((p) => p.innerText.replace(/\s+/g, " ").trim()));
+    assertEqual(said[0], "Voice is ready. Press the round button beside the message box and just talk to me.", "the drawn first paragraph");
+    assertEqual(said[1], "I can also type for you in any other app on your Mac, like Mail, Slack or your browser. Tap F1, say what you want written, then tap it again. Your words appear where your cursor is.", "the drawn second paragraph, the key filled in");
+    // NO BLANK LINE UNDER "Rich" (seen on the guest, 2026-10-08): the first sentence sits where
+    // the greeting's does, right under the name.
+    assertEqual(
+      await page.evaluate(() => getComputedStyle(document.querySelector("#dictation-offer .tl-prose")).marginTop),
+      "0px",
+      "the offer's first sentence starts a line below Rich's name"
+    );
+    assertEqual((await page.textContent("#dictation-offer-yes")).trim(), "Turn on dictation", "the first button");
+    assertEqual((await page.textContent("#dictation-offer-no")).trim(), "Not now", "the second button");
+    assertEqual((await page.evaluate(() => window.__RICHOS_MOCK__.dictationOfferCalls())).join(","), "dictation_offer,dictation_offer_shown", "asked once and recorded as shown");
+    await page.click("#dictation-offer-no");
+    await page.waitForSelector("#dictation-offer-after");
+    assertEqual((await page.textContent("#dictation-offer-after")).trim(), "Okay. It's in Settings, under Dictation, whenever you want it.", "Not now's line");
+    assert(await page.isHidden("#dictation-offer-yes"), "answered, the buttons go");
+    await page.close();
+
+    // Turn on dictation, handed to the Dictation sheet's turn-on: on, then off.
+    const on = await finish({}, null, () => { window.RichDictation = { turnOn: async () => ({ on: true }) }; });
+    await on.waitForSelector("#dictation-offer-yes");
+    await on.click("#dictation-offer-yes");
+    await on.waitForSelector("#dictation-offer-after");
+    assertEqual((await on.textContent("#dictation-offer-after")).trim(), "Dictation is on. Tap F1 in any app.", "on, both allowed");
+    await on.close();
+    const later = await finish({ dictationKey: 5 });
+    await later.waitForSelector("#dictation-offer-yes");
+    assert((await later.textContent("#dictation-offer")).includes("Tap F5,"), "the chosen key is named");
+    await later.click("#dictation-offer-yes");
+    await later.waitForSelector("#dictation-offer-after");
+    assertEqual((await later.textContent("#dictation-offer-after")).trim(), "It's in Settings, under Dictation.", "not on");
+    await later.close();
+
+    // NEVER AGAIN: the offer was made in an earlier run (a relaunch reads `offered`).
+    const again = await finish({ dictationOffered: true });
+    await again.waitForFunction(() => window.__RICHOS_MOCK__.dictationOfferCalls().length > 0);
+    // The answer was in hand when the call returned; two frames are its render, if it had one.
+    await settledFrames(again);
+    assertEqual(await again.locator("#dictation-offer").count(), 0, "the offer came back after it was made");
+    assertEqual((await again.evaluate(() => window.__RICHOS_MOCK__.dictationOfferCalls())).join(","), "dictation_offer", "asked, and not shown");
+    await again.close();
+
+    // ONLY ONCE VOICE IS READY: with the model still missing there is no offer, and it comes
+    // when the model arrives.
+    const waits = await finish({ voice: "model-missing" });
+    // The fact the offer waits on: voice was asked again after the press, and said not ready.
+    await waits.waitForFunction(() => {
+      const cmds = window.__calls.map((c) => c.cmd);
+      return cmds.lastIndexOf("voice_readiness") > cmds.indexOf("run_setup");
+    });
+    await settledFrames(waits);
+    assertEqual(await waits.locator("#dictation-offer").count(), 0, "offered before voice is ready");
+    assertEqual((await waits.evaluate(() => window.__RICHOS_MOCK__.dictationOfferCalls())).length, 0, "asked before voice is ready");
+    await waits.evaluate(() => window.__RICHOS_MOCK__.voiceModelEmit({ phase: "installed", modelId: "small.en", received: 1, total: 1 }));
+    await waits.waitForSelector("#dictation-offer");
+    await waits.close();
+
+    // GATE OFF: no Start, no offer, and the window never asks.
+    const off = await openApp(browser, { setup: "missing-both", memory: "ready" });
+    await off.waitForSelector("#setup-sheet:not([hidden])");
+    await off.click("#setup-go");
+    await off.waitForSelector("#setup-close:not([hidden])");
+    assert(await off.isHidden("#setup-start"), "gate off draws Start");
+    await off.click("#setup-close");
+    await off.waitForSelector("#setup-sheet", { state: "hidden" });
+    await settledFrames(off);
+    assertEqual(await off.locator("#dictation-offer").count(), 0, "gate off offers dictation");
+    assertEqual((await off.evaluate(() => window.__RICHOS_MOCK__.dictationOfferCalls())).length, 0, "gate off asked about the offer");
+    assert(off.__errors.length === 0, "the shell logged errors: " + off.__errors.join(" | "));
+    await off.close();
+    bump(16);
+    return "both paragraphs and buttons as drawn; Not now, on and not-on lines; once only; after voice is ready; nothing with the gate off";
+  });
+
+  await run.check("27  round 19: a step that failed stops saying it is installing", async () => {
+    // FOUND ON THE GUEST, 2026-10-08: the engine's download was refused (a 404), the failure's
+    // sentence came up, and the engine's row kept "Installing…" with its spinner turning.
+    const sentence = "The download didn't arrive. Nothing has been changed on your Mac.";
+    const page = await openApp(browser, { ...R19, setupFails: sentence });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-error:not([hidden])");
+    const rows = await page.evaluate(() =>
+      [...document.querySelectorAll("#setup-steps .setup-step")].map((li) => ({
+        c: li.dataset.component,
+        cls: li.className,
+        state: li.querySelector(".setup-step-state").textContent,
+      }))
+    );
+    const failed = rows.find((r) => r.c === "claude-code");
+    assert(/is-failed/.test(failed.cls), "the failed step's row: " + JSON.stringify(failed));
+    assertEqual(failed.state, "", "a failed row says nothing of its own; the sentence beneath it does");
+    assert(!rows.some((r) => r.c !== "media-tools" && /is-now/.test(r.cls)), "a row still spins after the failure: " + JSON.stringify(rows));
+    assertEqual((await page.textContent("#setup-error")).trim(), sentence, "the failure's own sentence");
+    assertEqual((await page.textContent("#setup-go")).trim(), "Try again", "the way on");
+    assert(await page.isHidden("#setup-start"), "no Start after a failed press");
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    bump(6);
+    await page.close();
+    return "the failed row is still and silent, the sentence is verbatim, Try again is up, no Start";
+  });
+
+  await run.check("28  round 19, state 2 draws no button while the press runs", async () => {
+    // SEEN ON THE GUEST, 2026-10-08: a disabled "Set it up" sat under the counting rows, where
+    // round 19 draws no button at all. The press is held open here so the running state is the
+    // one measured, not the finished one.
+    const page = await openApp(browser, R19);
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.evaluate(() => {
+      const inv = window.RichBridge.invoke.bind(window.RichBridge);
+      window.RichBridge.invoke = (cmd, args) => (cmd === "run_setup" ? new Promise(() => {}) : inv(cmd, args));
+    });
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-steps:not([hidden])");
+    const visible = await page.evaluate(() =>
+      ["setup-go", "setup-later", "setup-close", "setup-start"].filter((id) => !document.getElementById(id).hidden)
+    );
+    assertEqual(visible.join(","), "", "a button is drawn while the press runs");
+    assertEqual((await page.textContent("#setup-title")).trim(), "Setting things up", "state 2's heading");
+    bump(2);
+    await page.close();
+    return "no button while the press runs; Try again (case 27) or Start (case 25) when it ends";
   });
 
   await run.check("11  this suite actually checked something", async () => {

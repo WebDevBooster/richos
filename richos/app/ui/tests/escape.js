@@ -528,7 +528,11 @@ async function main() {
   // remembered.
   //
   // THE SURFACE UNDER IT IS THE ONE THIS COST THE CEO: `#setup-sheet`, declared
-  // `control:#setup-later,#setup-close`. "Pressed a control nobody could see" is not an
+  // `control:#setup-later,#setup-close,#setup-start` (round 19, dictation plan slice 4, added
+  // Start: once Claude Code and the engine are in, Start replaces Not now and Close as the
+  // sheet's only way out, so Escape must be able to reach it there). On `missing-engine`
+  // Start is hidden and the first control on screen is still "Not now". "Pressed a control
+  // nobody could see" is not an
   // abstraction here — it is "Not now" on the one step that puts an engine on a Mac, answered
   // by a hand that was pointed at something else entirely.
   //
@@ -555,7 +559,7 @@ async function main() {
     }));
     assertEqual(
       before.declared,
-      "control:#setup-later,#setup-close",
+      "control:#setup-later,#setup-close,#setup-start",
       "the offer no longer names its way out, so this check is measuring something else"
     );
     assert(!before.home && !before.curtain, "a surface with its own Escape guard is still up");

@@ -1007,6 +1007,79 @@ const SURFACES = [
     },
     preset: { setup: "unpinned" },
   },
+  // ROUND 19'S SETUP SHEET AND RICH'S OFFER (dictation plan slice 4), drawn only once dictation
+  // is there (`ask.dictation`), so no surface above reaches them. Four states, because each
+  // paints what the others do not: state 1 the gold bullets and the serif title; state 2 the
+  // gold box with Rich's line, the step marks (done, now, waiting), the counter and the bar on
+  // its track; state 3 "Voice is ready." and Start; state 4 the offer in the conversation with
+  // its key cap and both buttons.
+  {
+    name: "setup-r19-ask",
+    what: "round 19, state 1: the setup sheet with his sentence for the voice and video tools",
+    drive: async (p) => {
+      await p.waitForSelector("#setup-sheet:not([hidden])");
+      await overlaySettled(p, "#setup-sheet");
+    },
+    preset: { setup: "missing-both", dictation: true, videoTools: "downloading", memory: "ready" },
+  },
+  {
+    name: "setup-r19-progress",
+    what: "round 19, state 2: Rich's download line, the rows Installed / Installing / Waiting, the counter and its bar",
+    drive: async (p) => {
+      await p.waitForSelector("#setup-sheet:not([hidden])");
+      await p.evaluate(() => window.__RICHOS_MOCK__.setupEmit({
+        state: "started", component: "media-tools", what: "Getting my voice and video tools. 0%", index: 1, total: 1,
+        received: 489999396, of: 1061655396, counter: "490 MB of 1.06 GB", both_models: true,
+      }));
+      // The mock's press finishes in a few frames, so once it has, Claude Code is shown done and
+      // the engine installing: all three marks (done, now, waiting ring on none) and the
+      // counting row are painted at once.
+      await p.click("#setup-go");
+      await p.waitForSelector("#setup-start:not([hidden])");
+      await p.evaluate(() => {
+        const rows = document.querySelectorAll("#setup-steps .setup-step");
+        rows[0].className = "setup-step is-done";
+        rows[1].className = "setup-step is-now";
+      });
+      // NOT `overlaySettled`: the installing row's spinner turns for as long as the step runs
+      // (an infinite animation), and waiting for every animation to finish would wait forever
+      // (measured: this walk hung on it). The finite ones, the sheet's own entrance, are waited
+      // out; the spinner is measured where it is, by its arc's color, which does not change.
+      await p.waitForSelector("#setup-sheet", { state: "visible" });
+      await p.evaluate(async () => {
+        const el = document.getElementById("setup-sheet");
+        const finite = el.getAnimations({ subtree: true }).filter((a) => a.effect && a.effect.getComputedTiming().iterations !== Infinity);
+        await Promise.all(finite.map((a) => a.finished.catch(() => {})));
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      });
+    },
+    preset: { setup: "missing-both", dictation: true, videoTools: "downloading", memory: "ready" },
+  },
+  {
+    name: "setup-r19-done",
+    what: "round 19, state 3: \"You're all set.\", Rich's \"Voice is ready.\" and Start",
+    drive: async (p) => {
+      await p.waitForSelector("#setup-sheet:not([hidden])");
+      await p.click("#setup-go");
+      await p.waitForSelector("#setup-start:not([hidden])");
+      await p.waitForSelector("#setup-rich-line:not([hidden])");
+      await overlaySettled(p, "#setup-sheet");
+    },
+    preset: { setup: "missing-both", dictation: true, memory: "ready" },
+  },
+  {
+    name: "dictation-offer",
+    what: "round 19, state 4: Rich's one offer of dictation in the conversation, its key and both buttons",
+    drive: async (p) => {
+      await p.waitForSelector("#setup-sheet:not([hidden])");
+      await p.click("#setup-go");
+      await p.waitForSelector("#setup-start:not([hidden])");
+      await p.click("#setup-start");
+      await p.waitForSelector("#dictation-offer-yes");
+      await pageSettled(p);
+    },
+    preset: { setup: "missing-both", dictation: true, memory: "ready" },
+  },
   // THE UPDATE ROW, IN THREE STATES, because one state cannot paint the colours the others
   // do (RICH-TODOs row 12, `app/ui/updates.js`). It lives in the UNIVERSAL settings menu —
   // which the `settings` surface above does NOT reach, since that one drives the rail's

@@ -79,8 +79,9 @@
     },
     "feedback": {
       "//": "RE-DERIVED 2026-10-04 (fill-first), and the reason is not this surface: the Claude Code quota sheet's markup (`quota.js`) is appended to the always-present shell, and fill-first added eight hidden text-bearing elements to it (Add account, Claude accounts, the new-account label, Add and sign in, Cancel, the at-threshold legend and its two choices), so EVERY surface's `considered` rose by 16 (8 per theme) and no `checked` moved. Measured: contrast.js on main 11cc84ff6 gives the bare shell 98 of 646 and this surface 22 of 656, 9z green; on the fill-first branch the shell is 98 of 662 and this surface 22 of 672, and 9z went red because the bare shell came within the three-node tolerance of the old floor. The floor is the branch measurement itself, restoring the margin over the bare shell it had on main; nothing this surface renders changed. RE-DERIVED AGAIN 2026-10-04 (round 16), for the same kind of reason: the quota sheet rebuilt to round 16 (`quota.js`, the CEO's chosen design) keeps more hidden text-bearing markup in the always-present shell (the inline add form, the verbs inside the one sentence, the sentence tail, the multi-account boundary), so EVERY surface's `considered` rose by 14 (7 per theme) and no `checked` moved. Measured: contrast.js on HEAD 34c54f9f4 + this branch gives the bare shell 98 of 676 (it was 98 of 662) and this surface 22 of 686. The floor is that measurement, keeping its margin over the bare shell; nothing this surface renders changed.",
+      "// 2026-10-08": "RE-DERIVED 2026-10-08 (dictation plan slice 4, round 19 setup sheet), and the reason is not this surface: the setup sheet in the always-present shell gained two hidden text-bearing elements (Rich's name in #setup-rich-line and the Start button), so EVERY surface's `considered` rose by 4 (2 per theme) and the bare shell went to 102 of 690, level with this floor. The floor is this run's measurement; nothing this surface renders changed.",
       "checked": 22,
-      "considered": 690
+      "considered": 700
     },
     "search": {
       "checked": 92,
@@ -95,8 +96,9 @@
       "considered": 702
     },
     "unbound": {
+      "// 2026-10-08": "RE-DERIVED 2026-10-08 (dictation plan slice 4, round 19 setup sheet), and the reason is not this surface: the setup sheet in the always-present shell gained two hidden text-bearing elements (Rich's name in #setup-rich-line and the Start button), so EVERY surface's `considered` rose by 4 (2 per theme) and the bare shell went to 102 of 690, level with this floor. The floor is this run's measurement; nothing this surface renders changed.",
       "checked": 102,
-      "considered": 690,
+      "considered": 694,
       "//": "RE-DERIVED 2026-10-05 (Output panel S4): the two Output buttons added 4 MEASURED nodes to the bare shell (98 -> 102 of 678), and this floor's `checked` margin over the shell was under the three-node tolerance, so 9z reported that a driver which never reached this state would pass. The floor is that run's measurement, which restores a margin over the bare shell; nothing this surface renders changed. RE-DERIVED 2026-10-06 (round 18, Claude accounts for everyone, the CEO's feedback item 9), and the reason is not this surface: the accounts sheet's scaffold (`accounts.js`: the Settings breadcrumb, the Claude accounts title, the lede and Close) is appended to the always-present shell, so the bare shell's `considered` rose from 678 to 686 and no `checked` moved. Measured in the same run on the branch (merged with main bb1221339): the bare shell 102 of 686 and this surface 102 of 690. The floor is that measurement, restoring the margin over the bare shell; nothing this surface renders changed.",
       "// 2026-10-06": "RE-DERIVED 2026-10-06 (feedback item 7, the splash switch back in the gear popover): the popover ships in the always-present shell, so its two restored text nodes (Splash screen, Show it when RichOS starts) raised the bare shell from 102 of 678 to 102 of 682 across both themes, within the three-node tolerance of this floor, and 9z reported that a driver which never reached this state would pass. The floor is this run's measurement of the surface; nothing it renders changed.",
       "// 2026-10-06 merge": "RE-DERIVED 2026-10-06 at the merge of feedback item 9 (Claude accounts) with items 3-7: measured on the merged tree in one contrast.js run, the bare shell is 102 of 686 and this surface 102 of 690. The floor is that measurement; nothing this surface renders changed."
@@ -129,8 +131,9 @@
     },
     "updates-waiting": {
       "//": "RE-DERIVED 2026-09-20, and the reason is not this surface at all: the phone sheet's markup lives in the always-present shell, so adding the screen the phone's `They do not match` leaves behind (Ray's nightly `.8` defect 1) raised EVERY surface's `considered` by four — the bare shell from 558 to 562 and this surface from 562 to 566. This row's margin over the shell was the minimum four, so the bare shell drew level with its floor and check 9z correctly reported that a driver which never reached this state would now pass. The floor is re-derived from that run and is the measurement itself, 566, which restores the margin over the bare shell; nothing about what this surface renders changed. RE-DERIVED AGAIN 2026-10-04 (fill-first), for the same kind of reason: the Claude Code quota sheet's markup (`quota.js`) is appended to the always-present shell, and fill-first added eight hidden text-bearing elements to it (Add account, Claude accounts, the new-account label, Add and sign in, Cancel, the at-threshold legend and its two choices), so EVERY surface's `considered` rose by 16 (8 per theme) and no `checked` moved. Measured: contrast.js on main 11cc84ff6 gives the bare shell 98 of 646 and this surface 100 of 650, 9z green; on the fill-first branch the shell is 98 of 662 and this surface 100 of 666. The floor is that branch measurement, keeping its four-node margin over the bare shell. RE-DERIVED AGAIN 2026-10-04 (round 16), for the same kind of reason: the quota sheet rebuilt to round 16 (`quota.js`, the CEO's chosen design) keeps more hidden text-bearing markup in the always-present shell (the inline add form, the verbs inside the one sentence, the sentence tail, the multi-account boundary), so EVERY surface's `considered` rose by 14 (7 per theme) and no `checked` moved. Measured: contrast.js on HEAD 34c54f9f4 + this branch gives the bare shell 98 of 676 (it was 98 of 662) and this surface 100 of 680. The floor is that measurement, keeping its margin over the bare shell; nothing this surface renders changed. RE-DERIVED 2026-10-06 (round 18, Claude accounts for everyone, the CEO's feedback item 9), and the reason is not this surface: the accounts sheet's scaffold (`accounts.js`: the Settings breadcrumb, the Claude accounts title, the lede and Close) is appended to the always-present shell, so the bare shell's `considered` rose from 678 to 686 and no `checked` moved. Measured in the same run on the branch (merged with main bb1221339): the bare shell 102 of 686 and this surface 104 of 690. The floor is that measurement, restoring the margin over the bare shell; nothing this surface renders changed.",
+      "// 2026-10-08": "RE-DERIVED 2026-10-08 (dictation plan slice 4, round 19 setup sheet), and the reason is not this surface: the setup sheet in the always-present shell gained two hidden text-bearing elements (Rich's name in #setup-rich-line and the Start button), so EVERY surface's `considered` rose by 4 (2 per theme) and the bare shell went to 102 of 690, level with this floor. The floor is this run's measurement; nothing this surface renders changed.",
       "checked": 104,
-      "considered": 690,
+      "considered": 694,
       "// 2026-10-06": "RE-DERIVED 2026-10-06 (feedback item 7, the splash switch back in the gear popover): the popover ships in the always-present shell, so its two restored text nodes (Splash screen, Show it when RichOS starts) raised the bare shell from 102 of 678 to 102 of 682 across both themes, within the three-node tolerance of this floor, and 9z reported that a driver which never reached this state would pass. The floor is this run's measurement of the surface; nothing it renders changed.",
       "// 2026-10-06 merge": "RE-DERIVED 2026-10-06 at the merge of feedback item 9 (Claude accounts) with items 3-7: measured on the merged tree in one contrast.js run, the bare shell is 102 of 686 and this surface 104 of 690. The floor is that measurement; nothing this surface renders changed."
     },
@@ -169,6 +172,26 @@
     "setup-blocked": {
       "checked": 114,
       "considered": 662
+    },
+    "setup-r19-ask": {
+      "//": "round 19, state 1 (dictation plan slice 4, ADDED 2026-10-08): the floor is the first run's measurement on this branch, both themes.",
+      "checked": 122,
+      "considered": 704
+    },
+    "setup-r19-progress": {
+      "//": "round 19, state 2: Rich's download line, the three row states, the counter and its bar. First run's measurement, 2026-10-08.",
+      "checked": 128,
+      "considered": 722
+    },
+    "setup-r19-done": {
+      "//": "round 19, state 3: You're all set, Voice is ready and Start. First run's measurement, 2026-10-08.",
+      "checked": 124,
+      "considered": 714
+    },
+    "dictation-offer": {
+      "//": "round 19, state 4: Rich's one offer of dictation in the conversation, its key cap and both buttons. First run's measurement, 2026-10-08.",
+      "checked": 116,
+      "considered": 728
     },
     "voice-model-offer": {
       "//": "the offer row: the sentence, the attention dot and the download control. ADDED 2026-09-17 with the speech-model provisioning work; walked with NO audio device open, which is why this panel is measurable where the listening row is not. RE-DERIVED 2026-10-05 (Output panel S4): the two Output buttons added 4 MEASURED nodes to the bare shell (98 -> 102 of 678), and this floor's `checked` margin over the shell was under the three-node tolerance, so 9z reported that a driver which never reached this state would pass. The floor is that run's measurement, which restores a margin over the bare shell; nothing this surface renders changed.",
