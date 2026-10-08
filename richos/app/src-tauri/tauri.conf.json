@@ -39,11 +39,6 @@
     "resources": {
       "../../../docs/legal/THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
     },
-    "macOS": {
-      "files": {
-        "Library/LaunchAgents/com.richos.app.dictation.plist": "launchd/com.richos.app.dictation.plist"
-      }
-    },
     "category": "Productivity",
     "shortDescription": "Talk to Rich.",
     "longDescription": "RichOS — the executive operating interface. One conversation with Rich.",

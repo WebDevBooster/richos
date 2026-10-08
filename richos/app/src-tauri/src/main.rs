@@ -3587,7 +3587,6 @@ fn main() {
                     link,
                     attachments_home.clone(),
                     app.package_info().version.to_string(),
-                    &app.config().identifier,
                     Arc::new(AppVoice { app: app.handle().clone() }),
                 );
                 app.manage(host.clone());

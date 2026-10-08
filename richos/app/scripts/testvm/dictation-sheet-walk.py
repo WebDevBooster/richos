@@ -108,11 +108,18 @@ AX_PROMPT = 'control this computer'
 # with the key's cap in it is read by the text run after the cap.
 ON_RUN = 'in any app, talk, and tap it again.'
 DENIED_LINE = 'Not working yet: macOS has not let me type into other apps.'
-OTHER_ROW = 'On even when RichOS is closed'
+# The second copy's row and sheet say round 19's On line, through the first copy's tool (the CEO,
+# 2026-10-08: dictation runs only while RichOS runs, so "On even when RichOS is closed" is drawn
+# nowhere); the sheet's line is the row's line completed with ON_RUN.
+OTHER_ROW = 'On. Tap F1 to talk'
+OTHER_SHEET = 'On. Tap F1 in any app, talk, and tap it again.'
 # The second copy's executable, renamed so its process is told apart from the first's.
 SECOND_EXE = 'richos-second'
 # The processes macOS has put its privacy prompts in, across releases; the first that answers wins.
 PROMPT_PROCESSES = ('UserNotificationCenter', 'universalAccessAuthWarn', 'CoreServicesUIAgent', 'tccd')
+# The processes that can host the "Privacy & Security is trying to modify your system settings"
+# password sheet beside System Settings itself (walk-15d68ef48fc5).
+PASSWORD_PROCESSES = ('SecurityAgent', 'UserNotificationCenter', 'CoreServicesUIAgent', 'loginwindow')
 USER_DB = '"$HOME/Library/Application Support/com.apple.TCC/TCC.db"'
 SYS_DB = '"/Library/Application Support/com.apple.TCC/TCC.db"'
 # tccd writes these databases too; a read or write that meets its lock waits up to 10 s instead
@@ -507,27 +514,42 @@ class SheetWalk(dictation_walk.DictationWalk):
                 return []
             raise
 
+    def password_sheet_process(self):
+        """The process whose tree holds the password sheet's secure field, or None. The sheet
+        "Privacy & Security is trying to modify your system settings" is not in System Settings'
+        own tree (walk-15d68ef48fc5: the press landed, the sheet was up, and a search of System
+        Settings saw no secure field), so every process that can host it is asked."""
+        for process in (SYSTEM_SETTINGS,) + PASSWORD_PROCESSES:
+            try:
+                nodes = [n for n in self.ax('find', '--role', 'AXSecureTextField', app=process, timeout=30) if not n.get('meta')]
+            except StepFailed:
+                continue
+            if nodes:
+                return process
+        return None
+
     def password_sheet_up(self):
-        return bool(self.settings_find('AXSecureTextField'))
+        return self.password_sheet_process() is not None
 
     def enter_password(self):
         """The admin password into the secure field of the sheet macOS put up, then its button.
-        Typed with System Events (sshd-session's own grant), to the frontmost System Settings."""
-        self.bring_front_app(SYSTEM_SETTINGS)
+        Typed with System Events (sshd-session's own grant), to the process that holds the sheet."""
+        process = self.password_sheet_process() or SYSTEM_SETTINGS
+        self.bring_front_app(process)
         try:
-            self.ax('click', '--role', 'AXSecureTextField', '--first', app=SYSTEM_SETTINGS)
+            self.ax('click', '--role', 'AXSecureTextField', '--first', app=process)
         except StepFailed:
             pass
         self.osa(f'tell application "System Events" to keystroke "{GUEST_PASS}"')
         time.sleep(0.5)
         for title in ('Modify Settings', 'Unlock', 'OK'):
             try:
-                self.ax('click', '--title', title, '--role', 'AXButton', '--first', app=SYSTEM_SETTINGS)
-                return title
+                self.ax('click', '--title', title, '--role', 'AXButton', '--first', app=process)
+                return f'{title} in {process}'
             except StepFailed:
                 continue
         self.osa('tell application "System Events" to key code 36')  # return
-        return 'return'
+        return f'return in {process}'
 
     def bring_front_app(self, name):
         guest(self.vm, 'osascript -e ' + shlex.quote(f'tell application "System Events" to set frontmost of process "{name}" to true'))
@@ -790,10 +812,10 @@ class SheetWalk(dictation_walk.DictationWalk):
             self.until(lambda: self.by_id('dict-switch') is not None, 30, 'the second copy\'s sheet did not open')
             time.sleep(1)
             self.shot('second-copy-sheet.png')
-            sheet_ax = self.shows_text(OTHER_ROW + '.')
-            sheet_ocr = self.frame_says('second-copy-sheet.png', OTHER_ROW)
+            sheet_ax = self.shows_text(OTHER_SHEET)
+            sheet_ocr = self.frame_says('second-copy-sheet.png', 'talk, and tap it again')
             if not sheet_ax and not sheet_ocr:
-                raise StepFailed(f'the second copy\'s sheet does not say "{OTHER_ROW}." (second-copy-sheet.png)')
+                raise StepFailed(f'the second copy\'s sheet does not say "{OTHER_SHEET}" (second-copy-sheet.png)')
             seen = {'row_text': row_text.strip(), 'row_ocr': row_ocr, 'sheet_ax': sheet_ax, 'sheet_ocr': sheet_ocr}
         finally:
             state.write_text(f'{first_pid}\n')
@@ -804,7 +826,7 @@ class SheetWalk(dictation_walk.DictationWalk):
         gone = guest(self.vm, f'kill -0 {int(pid2)} 2>/dev/null && echo alive || true') != 'alive'
         if not gone:
             raise StepFailed(f'the second copy (pid {pid2}) did not quit')
-        return {'second_pid': pid2, 'second_tool_exit': 3, 'row': OTHER_ROW, 'sheet': OTHER_ROW + '.', 'second_quit': True,
+        return {'second_pid': pid2, 'second_tool_exit': 3, 'row': OTHER_ROW, 'sheet': OTHER_SHEET, 'second_quit': True,
                 'first_pid': first_pid, **seen}
 
 

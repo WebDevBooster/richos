@@ -21,7 +21,7 @@ use super::appkit::{self, Kind};
 use super::bar::{self, Bar, Menu, MenuMessage, UiEvent, UiTx, MENU};
 use super::ipc::{self, AppMessage, Hub, ToolMessage};
 use super::keytap::{self, KeyTap, TapEvent};
-use super::{insert, log, login, menubar, scratch::Scratch, store};
+use super::{insert, log, menubar, scratch::Scratch, store};
 use richos_voice::capture::{self, AudioSource, Capture};
 use richos_voice::dictation::{
     decode_bound, judge_recording, judge_transcript, pick_model, Insert, ModelPick, Phase, Problem, Recording, Session,
@@ -130,17 +130,6 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
 /// so it resolves the engine exactly as the app does at boot (`engine.rs`, the same seven
 /// candidates) and verifies its runtime (`runtime::verify_engine`, the same hashes). The line
 /// this returns goes in the log, so "which whisper-cli" is never a guess.
-/// The note a start that fails before it knows its data folder leaves. launchd keeps no stderr,
-/// so a launchd-started tool that failed there left nothing anywhere (walk-a2de78a678d9).
-pub const START_FAILURE_NOTE: &str = "dictation-tool-start.err";
-
-/// Say why the tool could not start, on stderr and in the runtime folder's note.
-fn early_failure_note(why: &str) {
-    let dir = ipc::runtime_dir();
-    std::fs::create_dir_all(&dir).ok();
-    log::line_to(&dir.join(START_FAILURE_NOTE), why);
-}
-
 fn resolve_runtime_bin_alone() -> String {
     let resolution = crate::engine::resolve_engine_dir(&crate::engine::LaunchPaths::from_process());
     let Some(dir) = resolution.dir.clone() else {
@@ -183,9 +172,6 @@ enum Control {
     BarExpired(u64),
     FlightDone(u64),
     Secure(Option<Option<String>>),
-    /// LaunchServices handed this process a Dock, Finder, Spotlight or `open -a` open, or made it
-    /// active for no reason of its own (plan section 6, "Opening RichOS while only the tool runs").
-    Reopen,
     /// The app that started this child tool has ended, or SIGTERM arrived: end here, where the
     /// writing worker is stopped and joined (review finding 1).
     Quit(&'static str),
@@ -279,20 +265,13 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
         }
     };
     let own_version = context.package_info().version.to_string();
-    let identifier = context.config().identifier.clone();
-    // A launchd start names no data folder: the installed one for the account (login.rs).
-    let (data_dir, launched_by) = match &args.data_dir {
-        Some(dir) => (dir.clone(), if args.parent.is_some() { "as the app's child" } else { "on its own" }),
-        None => match login::launchd_data_dir(&identifier) {
-            Ok(dir) => (dir, "by launchd at login"),
-            Err(why) => {
-                // launchd keeps no stderr: the one place this can be read later.
-                early_failure_note(&format!("no --data-dir, and the installed data folder cannot be used: {why}"));
-                return 2;
-            }
-        },
+    // The tool runs only while RichOS runs (the CEO, 2026-10-08: no start at login in this
+    // release): its data folder is always named by the app that started it.
+    let Some(data_dir) = args.data_dir.clone() else {
+        eprintln!("[richos-dictation] no --data-dir: the dictation tool is started by RichOS, never on its own");
+        return 2;
     };
-    let args = Args { data_dir: Some(data_dir.clone()), parent: args.parent };
+    let launched_by = if args.parent.is_some() { "as the app's child" } else { "on its own" };
     log::init(&data_dir);
     let runtime_note = match std::env::var_os("RICHOS_DICTATION_RUNTIME_BIN").filter(|d| !d.is_empty()) {
         Some(dir) => {
@@ -443,7 +422,6 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
         preview.map(|p| format!("; PREVIEW of the {} bar (window check only)", p.tag())).unwrap_or_default(),
     ));
     log::line(&runtime_note);
-    let reopen_tx = tx.clone();
 
     let builder = tauri::Builder::default()
         .manage(UiTx(Mutex::new(ui_tx.clone())))
@@ -492,14 +470,7 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
         });
     match builder.build(context) {
         Ok(app) => {
-            app.run(move |_, event| {
-                // The one event the tool answers for the app: LaunchServices "opened" RichOS and
-                // reached this process, because it is the running instance of the bundle. The
-                // control loop decides (an app connected comes forward; none, the app is started).
-                if let tauri::RunEvent::Reopen { .. } = event {
-                    reopen_tx.send(Control::Reopen).ok();
-                }
-            });
+            app.run(|_, _| {});
             0
         }
         Err(e) => {
@@ -534,12 +505,8 @@ struct Tool {
     flights: u64,
     /// **Turn dictation off** was chosen: the tool ends once the bar has said so.
     ending: bool,
-    /// This tool's compiled version, compared with each app's `hello`.
+    /// This tool's compiled version, logged with each app's `hello`.
     version: String,
-    /// An app of another version said hello: this tool ends, with
-    /// [`login::RESTART_EXIT`], as soon as no dictation is in progress, and launchd starts the
-    /// executable now at the bundle path (plan section 6).
-    restart_wanted: bool,
     /// The dictation being written down, owned (finding 1).
     writing: Option<Writing>,
     /// `will-listen` is out and the microphone waits for the answers (finding 2).
@@ -587,7 +554,6 @@ impl Tool {
             flights: 0,
             ending: false,
             version: String::new(),
-            restart_wanted: false,
             writing: None,
             handover: None,
             handovers: 0,
@@ -595,36 +561,15 @@ impl Tool {
         }
     }
 
-    /// A restart that was waiting for the dictation in progress: now, if the session is idle.
-    /// `Some(code)` ends the tool.
-    fn restart_if_due(&mut self) -> Option<i32> {
-        if !self.restart_wanted || self.session.phase() != Phase::Idle {
-            return None;
-        }
-        log::line("restarting for the new version: this tool ends and launchd starts the one at the bundle path");
-        self.end();
-        Some(login::RESTART_EXIT)
-    }
-
-    /// LaunchServices opened RichOS and reached this tool (a Dock, Finder, Spotlight or `open -a`
-    /// open): an app that is connected comes forward; with none, the app is started as its own
-    /// LaunchServices launch, so it gets an ordinary start, counted, with the splash as the
-    /// switch says. The same path **Open RichOS**, **Dictation settings…** and **Fix it** take.
+    /// **Open RichOS**, **Dictation settings…** and **Fix it**: the connected app comes forward,
+    /// on the Dictation sheet when `sheet`. The tool is a running app's child, so an app is
+    /// connected except in the moment it is starting or ending; with none, nothing is started.
     fn bring_app(&mut self, sheet: bool) {
         let heard = self.hub.broadcast(&ToolMessage::ComeForward { sheet });
         if heard > 0 {
             log::line(&format!("RichOS asked for: {heard} connected app(s) told to come forward"));
-            return;
-        }
-        let bundle = PathBuf::from(own_bundle());
-        if bundle.as_os_str().is_empty() {
-            log::line("RichOS asked for, but this tool is not inside a bundle, so there is no app to start");
-            return;
-        }
-        if login::mac::open_app(&bundle) {
-            log::line(&format!("RichOS asked for with no app connected: starting {} as its own launch", bundle.display()));
         } else {
-            log::line(&format!("RichOS asked for with no app connected, and {} could not be started", bundle.display()));
+            log::line("RichOS asked for, but no app is connected to this tool");
         }
     }
 
@@ -807,6 +752,8 @@ impl Tool {
                         Ok(s) => {
                             self.settings = s;
                             log::line("another copy of RichOS changed the settings; applied");
+                            // on=false reaches every copy before the tool ends (recheck finding 2).
+                            self.publish();
                             self.hub.broadcast(&ToolMessage::SettingsChanged);
                         }
                         Err(why) => log::line(&format!("another copy's change could not be saved: {why}")),
@@ -821,21 +768,10 @@ impl Tool {
                     self.publish();
                 }
                 Control::App(AppMessage::Hello { version, bundle, data_dir }) => {
-                    log::line(&format!("an app connected: version {version}, {bundle}, data folder {data_dir}"));
-                    if login::restart_for(&self.version, &version) {
-                        log::line(&format!(
-                            "the app is version {version} and this tool is {}: the tool restarts once no dictation is in progress",
-                            self.version
-                        ));
-                        self.restart_wanted = true;
-                        if let Some(code) = self.restart_if_due() {
-                            return code;
-                        }
-                    }
-                }
-                Control::Reopen => {
-                    log::line("LaunchServices opened RichOS and reached the tool");
-                    self.bring_app(false);
+                    log::line(&format!(
+                        "an app connected: version {version}, {bundle}, data folder {data_dir} (this tool is {})",
+                        self.version
+                    ));
                 }
                 Control::App(AppMessage::SettingsChanged) | Control::App(AppMessage::PermissionsChanged) => {
                     match store::read(&self.data_dir) {
@@ -844,6 +780,9 @@ impl Tool {
                     }
                     if !self.settings.on {
                         log::line("dictation was turned off; the tool stops");
+                        // on=false reaches every connected copy before the tool ends (recheck
+                        // finding 2): a second copy's recovery never reverses this Off.
+                        self.publish();
                         return self.end();
                     }
                     if let Some(tap) = &self.tap {
@@ -884,9 +823,6 @@ impl Tool {
                         if matches!(self.session.phase(), Phase::Done | Phase::Problem(_)) {
                             self.session.reset();
                             self.publish();
-                            if let Some(code) = self.restart_if_due() {
-                                return code;
-                            }
                         }
                     }
                 }
@@ -1033,6 +969,9 @@ impl Tool {
                     Ok(s) => {
                         self.settings = s;
                         log::line("Turn dictation off chosen in the menu bar; the tool ends once the bar has said so");
+                        // Every connected copy hears on=false before the tool ends, so none
+                        // starts a tool again that would undo this Off (recheck finding 2).
+                        self.publish();
                         self.hub.broadcast(&ToolMessage::SettingsChanged);
                         self.capture = None;
                         self.tap = None;

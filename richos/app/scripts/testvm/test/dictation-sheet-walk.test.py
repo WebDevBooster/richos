@@ -27,8 +27,10 @@ class TheWordsItReads(unittest.TestCase):
         source = (APP / 'ui/dictation.js').read_text()
         self.assertIn('On. Tap ${kcap(k)} ' + walk.ON_RUN, source)
         self.assertIn(walk.DENIED_LINE, source)
-        self.assertIn('["' + walk.OTHER_ROW + '", false]', source)
-        self.assertIn(walk.OTHER_ROW + '. Tap ${kcap(k)} in any app and talk.', source)
+        # The second copy says round 19's On line (the key's name is a template in the source).
+        self.assertIn('[`On. Tap ${keyName()} to talk`, false]', source)
+        self.assertEqual(walk.OTHER_SHEET, 'On. Tap F1 ' + walk.ON_RUN)
+        self.assertNotIn('On even when RichOS is closed.', source, 'line 1 is drawn nowhere (the CEO, 2026-10-08)')
 
 
 class TheSteps(unittest.TestCase):

@@ -568,7 +568,7 @@ class BarWalk(dictation_walk.DictationWalk):
         if quits_on and (on['tool_gone_after_seconds'] is None or on['tool_gone_after_seconds'] - on['app_gone_after_seconds'] > 1.5):
             raise StepFailed(f'the tool did not end with its app: {on}')
         return {'off': off, 'on': on, 'the_app_quits': quits_on,
-                'note': 'child mode (slices 1 to 4): the tool ends with its app; outliving it is slice 5'}
+                'note': 'the tool is the app\'s child and ends with it (the CEO, 2026-10-08: no start at login in this release)'}
 
 
 def main():

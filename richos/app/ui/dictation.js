@@ -1,8 +1,10 @@
 "use strict";
 // DICTATION: THE SETTINGS ROW AND THE DICTATION SHEET. Round 19 (richos-hq
 // design/mockups/rounds/round-19/dictation.html, states 5 to 12) and its more lines
-// (dictation-more-lines.html: line 1, "On even when RichOS is closed"; line 2, "Works only while
-// RichOS is open"; line 4, another app hiding keys), built to slice 2 of the dictation plan
+// (dictation-more-lines.html: line 2, "Works only while RichOS is open", now for every copy, the
+// CEO's 2026-10-08 decision that dictation runs only while RichOS runs; line 4, another app
+// hiding keys; line 1, "On even when RichOS is closed", is no longer true anywhere and is not
+// drawn), built to slice 2 of the dictation plan
 // (richos-hq docs/plans/2026-10-08-dictation-anywhere.md revision 2, section 9; section 2 rows 5
 // to 12; section 4). Measured against the CEO's words: "it all looks awesome. ... yes, also keep
 // the sentence Iris wrote for when macOS shows when RichOS asks for the microphone." (2026-10-08)
@@ -11,10 +13,11 @@
 // view." (2026-10-08): no line here names a copy of RichOS or anything running in the background.
 //
 // - THE ROW, behind DICTATION_READY: "Dictation" after Claude accounts, with its state line (Off,
-//   On. Tap F1 to talk, Needs a permission, Waiting for macOS, On even when RichOS is closed,
-//   Switched off in Login Items, Paused: <app> is hiding your keys).
-// - LINE 3 (slice 5, more lines): an installed copy whose background item macOS has switched
-//   off in Login Items says so on the switch, with the fix and Open System Settings under it.
+//   On. Tap F1 to talk, Needs a permission, Waiting for macOS, Starting, Not working yet,
+//   Paused: <app> is hiding your keys).
+// - NEVER "ON" WITHOUT A WORKING TOOL (recheck finding 6): with no tool holding the key the
+//   sheet says "Starting dictation…", and with a tool that watches no key "Not working yet: the
+//   key is not being watched. Turn the switch off and on again." Both lines are new here.
 // - THE SHEET: the switch, Your key (the strip, Press a different key), What macOS asks you for,
 //   Accuracy, and on the right Try it here, the three bar states, the difference from talking to
 //   Rich, and privacy.
@@ -77,12 +80,10 @@
   const elsewhere = () => !!view && view.on && view.owner === "other";
   // On and both allowed (round 19 `ready()`), or on elsewhere.
   const ready = () => !!view && view.on && (elsewhere() || (mic() === "allowed" && ax() === "allowed"));
-  // Line 3 (more lines): macOS has RichOS's background item switched off in Login Items, so
-  // the tool that catches the key is not running. Only an installed copy with dictation on
-  // can be in this state (`dictation_app.rs` `View::login`).
-  const loginOff = () => !!view && view.on && !elsewhere() && view.login === "needs-approval";
-  // Ready, and nothing outside RichOS is stopping the key (more lines `works()`).
-  const works = () => ready() && !view.secure && !loginOff();
+  // A tool holds the key and watches it: the sheet never says On without one (recheck finding 6).
+  const toolWorking = () => !!view && view.owner !== "none" && !!view.keyTap;
+  // Ready, a working tool, and nothing outside RichOS is stopping the key (more lines `works()`).
+  const works = () => ready() && toolWorking() && !view.secure;
   const secureApp = () => view && view.secure && view.secure.app ? view.secure.app : null;
   const kcap = k => `<span class="dict-kcap">${esc(k)}</span>`;
   // Line 4, said the same way in the row's sheet and (slice 3) in the menu bar menu.
@@ -125,9 +126,9 @@
   function rowLine() {
     if (!view.on) return ["Off", false];
     if (!elsewhere() && (mic() !== "allowed" || ax() !== "allowed")) return [mic() === "asking" || ax() === "asking" ? "Waiting for macOS" : "Needs a permission", true];
-    if (loginOff()) return ["Switched off in Login Items", true];
     if (view.secure) return [secureApp() ? `Paused: ${secureApp()} is hiding your keys` : "Paused: an app is hiding your keys", true];
-    if (view.owner === "other") return ["On even when RichOS is closed", false];
+    if (view.owner === "none") return ["Starting", false];
+    if (!view.keyTap) return ["Not working yet", true];
     return [`On. Tap ${keyName()} to talk`, false];
   }
   function paintRow() {
@@ -221,22 +222,21 @@
     else if (!elsewhere() && mic() === "denied") { st = "Not working yet: macOS has not allowed the microphone."; cls = " is-attention"; }
     else if (!elsewhere() && (ax() === "asking" || ax() === "unknown")) st = "Waiting for you to allow Accessibility&hellip;";
     else if (!elsewhere() && ax() === "denied") { st = "Not working yet: macOS has not let me type into other apps."; cls = " is-attention"; }
-    // line 3: macOS has the background item switched off in Login Items
-    else if (loginOff()) { st = "Not working: RichOS is switched off in your Mac's Login Items."; cls = " is-attention"; }
     // line 4: another app left Secure Event Input on
     else if (view.secure) { st = `Paused: ${secureHead(k)} <span class="dict-fix">${secureFix()}</span>`; cls = " is-attention"; }
-    // line 1: on even when RichOS is closed
-    else if (view.owner === "other") { st = `On even when RichOS is closed. Tap ${kcap(k)} in any app and talk.`; cls = " is-on"; }
+    // no tool holds the key yet (it is starting, or it could not start): never "On"
+    else if (view.owner === "none") { st = "Starting dictation&hellip;"; }
+    // the tool runs but watches no key: never "On" (recheck finding 6)
+    else if (!view.keyTap) { st = "Not working yet: the key is not being watched. Turn the switch off and on again."; cls = " is-attention"; }
+    // On, whichever copy's tool holds the key: round 19's line, true for both
     else { st = `On. Tap ${kcap(k)} in any app, talk, and tap it again.`; cls = " is-on"; }
-    const warn = view.on && ((!elsewhere() && (mic() === "denied" || ax() === "denied")) || loginOff() || (ready() && !!view.secure));
-    let html = `<div class="dict-card${view.on && !warn ? " is-on" : ""}${warn ? " is-warn" : ""}"><span class="dict-spine"></span>
+    const warn = view.on && ((!elsewhere() && (mic() === "denied" || ax() === "denied")) || (ready() && !!view.secure) || (ready() && view.owner !== "none" && !view.keyTap));
+    // The gold card only with a tool that holds the key and watches it (recheck finding 6).
+    let html = `<div class="dict-card${view.on && !warn && toolWorking() ? " is-on" : ""}${warn ? " is-warn" : ""}"><span class="dict-spine"></span>
       <div class="dict-card-main"><h3 class="dict-card-title">Dictate in any app</h3><p class="dict-card-sub${cls}" id="dict-state">${st}</p></div>
       <button class="dict-switch" id="dict-switch" type="button" role="switch" data-act="toggle-on" aria-checked="${view.on}" aria-label="Dictate in any app"></button></div>`;
-    // line 3's fix, under the switch, with Open System Settings on Login Items
-    if (loginOff()) html += `<p class="dict-copy-note dict-login-note" id="dict-login-note">${ICON.info}<span>Turn on <b>RichOS</b> under <b>Allow in the Background</b>, and dictation starts again.</span><button class="dict-btn" type="button" data-act="open-sys" data-pane="login-items">Open System Settings</button></p>`;
-    // line 2: dictation works only while RichOS is open, so it says so, on or off
-    if (!elsewhere() && view.copy === "open-only") html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> When you close RichOS, dictation stops until you open it again.</span></p>`;
-    else if (!elsewhere() && view.copy === "old-macos") html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> To keep dictation on with RichOS closed, your Mac needs macOS 13 or later.</span></p>`;
+    // line 2: dictation works only while RichOS is open (every copy; the CEO, 2026-10-08), on or off
+    html += `<p class="dict-copy-note" id="dict-copy-note">${ICON.info}<span><b>Works only while RichOS is open.</b> When you close RichOS, dictation stops until you open it again.</span></p>`;
     if (feedback === "on" && works()) html += `<p class="dict-feedback" id="dict-feedback" role="status">${ICON.check}<span>Dictation is on. Try it in the box on the right, or in any app.</span></p>`;
     // the key
     html += `<section class="dict-sec"><div class="dict-sec-h"><h4 class="dict-sec-t">Your key</h4><span class="dict-sec-note">Tap once to start, once more to stop. Nothing to hold down.</span></div>`;
@@ -275,8 +275,8 @@
       }
     }
     tryBox.dataset.ph = works() ? `Click here, tap ${keyName()} and say something.`
-      : loginOff() ? "You can try it here once RichOS is on in Login Items."
       : ready() && view.secure ? "You can try it here once your keys are back."
+      : ready() && !toolWorking() ? "You can try it here once dictation has started."
       : view.on ? "Allow both permissions on the left to try it here." : "Turn dictation on to try it here.";
     tryNote.textContent = works() ? "This box is only for trying. Your words go wherever your cursor is." : "";
     tryNote.hidden = !works();
@@ -453,8 +453,6 @@
         break;
       }
       case "open-sys": {
-        // Login Items: the state is read again every 2 s while the sheet shows (below), and
-        // the row's line turns back to On when he turns the switch on; nothing waits here.
         if (b.dataset.pane === "accessibility") axWait = { blurred: false };
         else if (b.dataset.pane === "microphone") micWait = { blurred: false };
         paint(); watch();

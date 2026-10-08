@@ -25,16 +25,6 @@ pub fn line(message: &str) {
     }
 }
 
-/// One stamped line into `path`, whatever `init` was given: for a note written before the data
-/// folder is known (tool.rs `early_failure_note`).
-pub fn line_to(path: &Path, message: &str) {
-    eprintln!("[richos-dictation] {message}");
-    let stamp = crate::startup_alert::utc_stamp(
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
-    );
-    append(path, &stamp, message);
-}
-
 fn append(path: &Path, stamp: &str, message: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         writeln!(f, "{stamp} {message}").ok();
@@ -55,22 +45,6 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert_eq!(text.lines().count(), 2);
         assert!(text.starts_with("2026-10-08T10:00:00.000Z dictation: model small.en"));
-        std::fs::remove_file(&path).unwrap();
-    }
-
-    /// INVARIANT: a line to a named file is stamped and appended there, whatever `init` holds:
-    /// the start-failure note a launchd-started tool leaves before it knows its data folder.
-    #[test]
-    fn a_line_to_a_named_file_is_stamped_and_appended() {
-        let path = std::env::temp_dir().join(format!("richos-dictation-note-{}", std::process::id()));
-        std::fs::remove_file(&path).ok();
-        line_to(&path, "no --data-dir, and the installed data folder cannot be used: HOME is /x");
-        line_to(&path, "second");
-        let text = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].ends_with("Z no --data-dir, and the installed data folder cannot be used: HOME is /x"), "{text}");
-        assert!(lines[0].starts_with("20"), "stamped: {text}");
         std::fs::remove_file(&path).unwrap();
     }
 }

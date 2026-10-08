@@ -1,0 +1,86 @@
+{
+  "vm": "walk-15d68ef48fc5",
+  "expect_sha": "7eed1de96",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "7eed1de96f54e818b6c643dfe9bcda72f0bcc53d-dirty"
+      },
+      "outcome": "PASS",
+      "seconds": 0.2
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [],
+          "system": []
+        },
+        "no_grants": true,
+        "dictation_json": "absent",
+        "wav": "/Users/admin/testvm/walk-15d68ef48fc5/home/dictation-sample.wav",
+        "model": "/Users/admin/testvm/walk-15d68ef48fc5/home/.config/richos/models/ggml-small.en.bin"
+      },
+      "outcome": "PASS",
+      "seconds": 3.0
+    },
+    {
+      "step": "relaunch",
+      "evidence": {
+        "app_pid": 1317,
+        "first_run_sheets_declined": 0
+      },
+      "outcome": "PASS",
+      "seconds": 63.9
+    },
+    {
+      "step": "switch-on",
+      "evidence": {
+        "sheet_said_off_first": true
+      },
+      "outcome": "PASS",
+      "seconds": 35.4
+    },
+    {
+      "step": "mic-prompt",
+      "evidence": {
+        "frame": "mic-prompt-1.png",
+        "iris_sentence_ocr": {
+          "talk instead of typing": true,
+          "only after you tap": true,
+          "press the talk": true
+        },
+        "allow_pressed_in": "UserNotificationCenter",
+        "fallback": null
+      },
+      "outcome": "PASS",
+      "seconds": 11.1
+    },
+    {
+      "step": "ax-prompt",
+      "evidence": {
+        "frame": "ax-prompt-0.png",
+        "mic_answer_in_log": [
+          "[richos] dictation: the microphone was allowed"
+        ],
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone=2"
+          ],
+          "system": [
+            "kTCCServiceAccessibility=0"
+          ]
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 2.4
+    },
+    {
+      "step": "granted-settings",
+      "outcome": "FAIL",
+      "detail": "the tool made no key tap within 15 s of the switch in System Settings ({'pane_opened': True, 'row': {'d': 11, 'role': 'AXCheckBox', 'sub': 'AXSwitch', 'title': '', 'desc': 'switch', 'value': '0', 'enabled': True, 'current': None, 'selected': None, 'x': 1140, 'y': 274, 'w': 26, 'h': 15, 'help': ''}, 'switch_before': '0', 'password_asked': False, 'password_button': None, 'switch_after': None, 'matched_by': 'the only switch off in the list', 'way_in': \"the sheet's Open System Settings\"}; TCC {'user': ['kTCCServiceMicrophone=2'], 'system': ['kTCCServiceAccessibility=0']})",
+      "seconds": 324.6
+    }
+  ]
+}

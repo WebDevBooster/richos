@@ -34,7 +34,7 @@
 //! app's environment writes `on` into `dictation.json` at start.
 
 use crate::dictation::ipc::{self, AppMessage, ToolMessage};
-use crate::dictation::{login, store};
+use crate::dictation::store;
 use serde::Serialize;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -186,6 +186,12 @@ impl Link {
         }
     }
 
+    /// The last thing the tool said was that dictation is off: it ended because a switch or the
+    /// menu bar turned dictation off, in whichever copy (recheck finding 2).
+    pub fn tool_said_off(&self) -> bool {
+        matches!(*self.last.lock().unwrap_or_else(|p| p.into_inner()), Some(ToolMessage::State { on: false, .. }))
+    }
+
     /// Say `message` to the tool. `false` when no tool is connected.
     pub fn tell(&self, message: &AppMessage) -> bool {
         self.send(message)
@@ -327,8 +333,6 @@ pub struct Host {
     writing: Mutex<()>,
     /// One tool start at a time (the boot, the switch and the sheet can each ask).
     starting: Mutex<()>,
-    /// Whether this copy may register the login start (`login::decide`), decided once.
-    installed: Result<(), login::Refusal>,
     /// When a tool that went away was started again (finding 5's bound).
     restarts: Mutex<Vec<Instant>>,
     /// This host, for the link's closed callback.
@@ -336,14 +340,9 @@ pub struct Host {
 }
 
 impl Host {
-    /// `identifier` is this build's bundle identifier; `installed` is decided from it, the data
-    /// folder and the process's environment (`login::gather`).
-    pub fn new(link: Arc<Link>, data_dir: PathBuf, version: String, identifier: &str, voice: Arc<dyn VoiceMode>) -> Arc<Host> {
-        let installed = login::decide(&login::gather(&data_dir, identifier, mac::macos_major()));
-        match &installed {
-            Ok(()) => eprintln!("[richos] dictation: an installed copy; dictation keeps working with RichOS closed (a LaunchAgent)"),
-            Err(why) => eprintln!("[richos] dictation: works only while RichOS is open: {}", why.describe()),
-        }
+    /// The tool is this app's child and runs only while RichOS runs (the CEO, 2026-10-08: no
+    /// start at login in this release).
+    pub fn new(link: Arc<Link>, data_dir: PathBuf, version: String, voice: Arc<dyn VoiceMode>) -> Arc<Host> {
         let host = Arc::new_cyclic(|me| Host {
             link: link.clone(),
             data_dir,
@@ -352,7 +351,6 @@ impl Host {
             mic_asking: Arc::new(AtomicBool::new(false)),
             writing: Mutex::new(()),
             starting: Mutex::new(()),
-            installed,
             restarts: Mutex::new(Vec::new()),
             me: me.clone(),
         });
@@ -363,11 +361,6 @@ impl Host {
             }
         }));
         host
-    }
-
-    /// This copy may register the login start.
-    pub fn installed(&self) -> bool {
-        self.installed.is_ok()
     }
 
     /// The settings on disk.
@@ -400,6 +393,16 @@ impl Host {
     /// after a moment, at most [`RESTART_LIMIT`] times in [`RESTART_WINDOW`]; in an installed
     /// copy launchd restarts it and this only reconnects.
     pub fn tool_gone(&self) {
+        // Off is never undone (recheck finding 2): a tool that said "off" before it ended was
+        // turned off by a switch or the menu bar, in this copy or another; this copy's own
+        // switch follows, so its recovery never starts a tool that reverses that Off.
+        if self.link.tool_said_off() {
+            match self.update(|s| s.on = false) {
+                Ok(_) => eprintln!("[richos] dictation: the tool ended because dictation was turned off; this copy's switch follows it"),
+                Err(why) => eprintln!("[richos] dictation: the tool ended because dictation was turned off, and this copy's switch could not follow: {why}"),
+            }
+            return;
+        }
         let on = self.settings().map(|s| s.on).unwrap_or(false);
         let now = Instant::now();
         let allowed = {
@@ -460,22 +463,7 @@ impl Host {
                 return;
             }
         };
-        let registered = self.installed()
-            && match login::mac::register() {
-                Ok(status) => {
-                    eprintln!(
-                        "[richos] dictation: the login start is registered ({status:?}, {} from Contents/{}); launchd runs the tool",
-                        login::AGENT_LABEL,
-                        login::AGENT_PLIST_IN_BUNDLE
-                    );
-                    true
-                }
-                Err(why) => {
-                    eprintln!("[richos] dictation: the login start could not be registered ({why}); the tool runs as this app's child instead");
-                    false
-                }
-            };
-        if !registered {
+        {
             let mut command = std::process::Command::new(&exe);
             command.args(child_args(&self.data_dir, std::process::id())).stdin(std::process::Stdio::null());
             if let Some(bin) = richos_voice::stt::delivered_runtime_bin_dir() {
@@ -527,11 +515,6 @@ impl Host {
         let own = std::env::current_exe().map(|e| bundle_of(&e).display().to_string()).unwrap_or_default();
         let tool = self.link.owner_and_tap();
         let tool_settings = self.link.tool_settings();
-        let login = if self.installed() && settings.on {
-            login::mac::status().map(login::Status::login_word).unwrap_or("none")
-        } else {
-            "none"
-        };
         Ok(view_of(&Facts {
             ready: richos_core::dictation_ready(),
             settings: &settings,
@@ -542,8 +525,6 @@ impl Host {
             own_bundle: &own,
             key_tap: tool.as_ref().map(|(_, tap)| *tap).unwrap_or(false),
             secure: mac::secure_input(),
-            copy: copy_word(&self.installed),
-            login,
             tool_key: tool_settings.as_ref().map(|(k, _)| *k),
             tool_model: tool_settings.as_ref().map(|(_, m)| m.as_str()),
         }))
@@ -557,8 +538,7 @@ impl Host {
 
     /// **The switch.** On: the setting is written and the tool started (it asks for nothing; the
     /// window asks for the two permissions next, in the drawn order). Off: the tool is told, and
-    /// it stops (whichever copy's tool it is: one switch, one dictation on this Mac); in an
-    /// installed copy the login start is unregistered too, so launchd never starts it again.
+    /// it stops (whichever copy's tool it is: one switch, one dictation on this Mac).
     pub fn set_on(&self, on: bool) -> Result<View, String> {
         self.update(|s| s.on = on)?;
         if on {
@@ -567,14 +547,6 @@ impl Host {
             self.link.tell(&AppMessage::Change { on: Some(false), key: None, model: None });
         } else {
             self.link.tell(&AppMessage::SettingsChanged);
-        }
-        match login::follow_switch(on, self.installed()) {
-            login::Follow::Register => {} // done by ensure_tool above
-            login::Follow::Unregister => match login::mac::unregister() {
-                Ok(()) => eprintln!("[richos] dictation: the login start is unregistered"),
-                Err(why) => eprintln!("[richos] dictation: the login start could not be unregistered: {why}"),
-            },
-            login::Follow::Nothing => {}
         }
         self.view()
     }
@@ -690,12 +662,6 @@ pub struct View {
     pub key_tap: bool,
     /// Another app is hiding keys, or `None`.
     pub secure: Option<Secure>,
-    /// `installed` (works with RichOS closed), `open-only` or `old-macos` (works only while
-    /// RichOS is open; Iris's line 2 and its two wordings).
-    pub copy: &'static str,
-    /// The login start as macOS reports it, in an installed copy with dictation on: `approved`,
-    /// `needs-approval` (switched off in Login Items: Iris's line 3) or `none`.
-    pub login: &'static str,
 }
 
 /// Everything [`view_of`] reads.
@@ -709,8 +675,6 @@ pub struct Facts<'a> {
     pub own_bundle: &'a str,
     pub key_tap: bool,
     pub secure: Option<Option<String>>,
-    pub copy: &'static str,
-    pub login: &'static str,
     /// The key and model the tool reports (finding 4): shown instead of this copy's own file
     /// when another copy's tool holds the key.
     pub tool_key: Option<u8>,
@@ -736,17 +700,6 @@ pub fn view_of(f: &Facts) -> View {
         owner,
         key_tap: f.key_tap,
         secure: f.secure.clone().map(|app| Secure { app }),
-        copy: f.copy,
-        login: f.login,
-    }
-}
-
-/// Whether dictation keeps working with RichOS closed, and if not, which of Iris's two
-/// wordings says why: from the registration decision (`login::decide`).
-pub fn copy_word(installed: &Result<(), login::Refusal>) -> &'static str {
-    match installed {
-        Ok(()) => "installed",
-        Err(why) => why.copy_word(),
     }
 }
 
@@ -814,7 +767,6 @@ pub mod mac {
     use core_foundation::string::{CFString, CFStringRef};
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject, Bool};
-    use std::ffi::CStr;
     use std::sync::Mutex;
 
     /// `AVAuthorizationStatusNotDetermined`.
@@ -877,21 +829,6 @@ pub mod mac {
     /// macOS symbol has one declaration (two clashed at the merge with main).
     pub fn secure_input() -> Option<Option<String>> {
         crate::dictation::appkit::secure_input()
-    }
-
-    /// The macOS major version (`kern.osproductversion`: "14.6.1" is 14).
-    pub fn macos_major() -> Option<u32> {
-        let mut buf = [0u8; 64];
-        let mut len = buf.len();
-        // SAFETY: a fixed name and a buffer we own, with its length.
-        let rc = unsafe {
-            libc::sysctlbyname(c"kern.osproductversion".as_ptr(), buf.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0)
-        };
-        if rc != 0 {
-            return None;
-        }
-        let text = CStr::from_bytes_until_nul(&buf[..len.min(buf.len())]).ok()?.to_str().ok()?;
-        text.split('.').next()?.parse().ok()
     }
 }
 
@@ -976,13 +913,9 @@ pub fn dictation_permissions_changed(app: tauri::AppHandle, forward: Option<bool
     Ok(())
 }
 
-/// **Open System Settings** on the pane a refusal names: `microphone`, `accessibility`, or
-/// `login-items` (General, Login Items & Extensions, for Iris's line 3).
+/// **Open System Settings** on the pane a refusal names: `microphone` or `accessibility`.
 #[tauri::command(async)]
 pub fn dictation_open_settings(pane: String) -> Result<(), String> {
-    if pane == "login-items" {
-        return if login::mac::open_login_items() { Ok(()) } else { Err("System Settings could not be opened on Login Items".into()) };
-    }
     let url = privacy_pane(&pane).ok_or_else(|| format!("{pane} is not a pane dictation opens"))?;
     let status = std::process::Command::new("/usr/bin/open").arg(url).status().map_err(|e| e.to_string())?;
     if status.success() {
@@ -1159,6 +1092,33 @@ mod tests {
         assert_eq!(heard, vec![AppMessage::Finish]);
     }
 
+    /// INVARIANT (recheck finding 2): a tool that said "off" before it ended was turned off by a
+    /// switch or the menu bar, in whichever copy; a copy whose own file still says on follows
+    /// that Off and starts no tool, so Off is never undone by another copy's recovery.
+    #[test]
+    fn off_is_never_undone_by_another_copys_recovery() {
+        let r = rig("off-follows");
+        r.host.update(|s| s.on = true).unwrap();
+        let off = ToolMessage::State {
+            owner: "/other/RichOS.app".into(),
+            on: false,
+            listening: false,
+            writing: false,
+            problem: None,
+            key_tap: false,
+            secure_input: false,
+            secure_app: None,
+            key: 1,
+            model: "small.en".into(),
+        };
+        r.host.link.observe(off);
+        *r.host.link.writer.lock().unwrap() = None;
+        r.host.tool_gone();
+        assert!(!r.host.settings().unwrap().on, "this copy's switch follows the Off");
+        assert!(r.host.restarts.lock().unwrap().is_empty(), "no restart was counted");
+        std::fs::remove_dir_all(&r.dir).ok();
+    }
+
     /// INVARIANT (finding 5): a tool that went away is started again while dictation is on, at
     /// most RESTART_LIMIT times in RESTART_WINDOW, and never while it is off.
     #[test]
@@ -1218,16 +1178,6 @@ mod tests {
         assert_eq!(owner_word(Some("/Users/a/myrichos-nightly-a/RichOS.app"), "/Applications/RichOS.app"), "other");
     }
 
-    /// INVARIANT (line 2): an installed copy keeps dictation on with RichOS closed; any other
-    /// copy works only while RichOS is open, and a Mac older than macOS 13 says so in its own
-    /// wording (`login::decide` is where the facts are judged; this is the sheet's word for it).
-    #[test]
-    fn the_copy_word_follows_the_registration_decision() {
-        assert_eq!(copy_word(&Ok(())), "installed");
-        assert_eq!(copy_word(&Err(login::Refusal::NotInstalled(vec!["a folder copy".into()]))), "open-only");
-        assert_eq!(copy_word(&Err(login::Refusal::OldMacos(12))), "old-macos");
-    }
-
     /// INVARIANT: the accuracy label is derived from the model id, and each label stores the
     /// model the next dictation uses.
     #[test]
@@ -1266,15 +1216,13 @@ mod tests {
             own_bundle: "/Applications/RichOS.app",
             key_tap: false,
             secure: None,
-            copy: "open-only",
-            login: "none",
             tool_key: None,
             tool_model: None,
         });
         assert_eq!(
             serde_json::to_value(&v).unwrap(),
             serde_json::json!({"ready": false, "on": false, "key": 1, "accuracy": "accurate", "mic": "unknown", "ax": "unknown",
-                "owner": "none", "keyTap": false, "secure": null, "copy": "open-only", "login": "none"})
+                "owner": "none", "keyTap": false, "secure": null})
         );
         let on = store::Settings { on: true, key: 5, model: "small.en".into(), mic_asked: true, ax_asked: true, offered: false };
         let v = view_of(&Facts {
@@ -1287,15 +1235,13 @@ mod tests {
             own_bundle: "/Applications/RichOS.app",
             key_tap: true,
             secure: Some(Some("1Password".into())),
-            copy: "old-macos",
-            login: "none",
             tool_key: Some(9),
             tool_model: Some("large-v3-turbo-q5_0"),
         });
         assert_eq!(
             serde_json::to_value(&v).unwrap(),
             serde_json::json!({"ready": true, "on": true, "key": 9, "accuracy": "accurate", "mic": "allowed", "ax": "denied",
-                "owner": "other", "keyTap": true, "secure": {"app": "1Password"}, "copy": "old-macos", "login": "none"})
+                "owner": "other", "keyTap": true, "secure": {"app": "1Password"}})
         );
         let own = view_of(&Facts {
             ready: true,
@@ -1307,12 +1253,10 @@ mod tests {
             own_bundle: "/Applications/RichOS.app",
             key_tap: true,
             secure: None,
-            copy: "installed",
-            login: "needs-approval",
             tool_key: Some(9),
             tool_model: Some("large-v3-turbo-q5_0"),
         });
-        assert_eq!((own.key, own.accuracy, own.copy, own.login), (5, "fast", "installed", "needs-approval"), "its own file when it owns the key");
+        assert_eq!((own.key, own.accuracy), (5, "fast"), "its own file when it owns the key");
     }
 
     /// INVARIANT: the window hears a captured key as `{"key": n}` and anything else as a change.
@@ -1347,8 +1291,7 @@ mod tests {
         let (app_end, tool_end) = UnixStream::pair().unwrap();
         *link.writer.lock().unwrap() = Some(app_end);
         let voice: Arc<dyn VoiceMode> = Arc::new(FakeVoice { on: AtomicBool::new(false), gate: TurnGate::new() });
-        let host = Host::new(link, dir.clone(), "1.2.0".into(), "com.richos.app", voice);
-        assert!(!host.installed(), "a test's data folder is never the installed one, so nothing here touches launchd");
+        let host = Host::new(link, dir.clone(), "1.2.0".into(), voice);
         Rig { host, dir, tool: tool_end }
     }
 

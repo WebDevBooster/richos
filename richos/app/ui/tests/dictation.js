@@ -25,11 +25,14 @@ async function main() {
     const page = await browser.newPage({ viewport: opts.viewport || { width: 1440, height: 900 }, locale: "en-US" });
     page.setDefaultTimeout(30000); // load-bound: a hang guard only; every wait below waits for a fact
     page.on("pageerror", e => errors.push(String(e)));
-    await page.addInitScript(({ theme, view, ready, axAsked }) => {
+    await page.addInitScript(({ theme, view, ready, axAsked, tapNever }) => {
       localStorage.setItem("richos-theme", theme);
       localStorage.setItem("richos-mock-config", JSON.stringify({ theme, font_scale: 100 }));
-      window.__RICHOS_MOCK_PRESET__ = { dictation: ready, dictationView: view, dictationAxAsked: axAsked };
-    }, { theme, view: view || {}, ready: opts.ready !== false, axAsked: !!opts.axAsked });
+      window.__RICHOS_MOCK_PRESET__ = { dictation: ready, dictationView: view, dictationAxAsked: axAsked, dictationTapNever: tapNever };
+    }, { theme, view: view || {}, ready: opts.ready !== false, axAsked: !!opts.axAsked,
+         // A fixture that says keyTap false with its own tool and Accessibility allowed is a tool
+         // whose tap never comes (the sheet pokes it once; recheck finding 6), unless opts says.
+         tapNever: opts.tapNever !== undefined ? !!opts.tapNever : !!(view && view.keyTap === false && view.owner === "self" && view.ax === "allowed") });
     await page.goto("file://" + path.join(UI_DIR, "index.html"));
     await page.waitForSelector("#set-btn");
     await page.evaluate(() => window.RichSplash.yieldNow("dictation-test"));
@@ -77,7 +80,9 @@ async function main() {
       [{ ...ALLOWED, key: 5 }, "On. Tap F5 to talk", false],
       [{ on: true, mic: "denied", ax: "unknown" }, "Needs a permission", true],
       [{ on: true, mic: "asking", ax: "unknown" }, "Waiting for macOS", true],
-      [{ ...ALLOWED, owner: "other" }, "On even when RichOS is closed", false],
+      [{ ...ALLOWED, owner: "other" }, "On. Tap F1 to talk", false],
+      [{ ...ALLOWED, owner: "none", keyTap: false }, "Starting", false],
+      [{ ...ALLOWED, keyTap: false }, "Not working yet", true],
       [{ ...ALLOWED, secure: { app: "1Password" } }, "Paused: 1Password is hiding your keys", true],
       [{ ...ALLOWED, secure: { app: null } }, "Paused: an app is hiding your keys", true],
     ];
@@ -117,15 +122,17 @@ async function main() {
     assert(await page.locator("#dict-try-note").isHidden(), "the try note waits for dictation to work");
     assertEqual(await text(page, ".dict-priv"), "Your voice stays on this Mac. Nothing you say is sent anywhere.");
     await page.close();
-    const old = await open("dark", { copy: "old-macos" });
-    await sheet(old);
-    assertEqual(await text(old, "#dict-copy-note"), "Works only while RichOS is open. To keep dictation on with RichOS closed, your Mac needs macOS 13 or later.");
-    await old.close();
-    const installed = await open("dark", { copy: "installed" });
-    await sheet(installed);
-    assertEqual(await installed.locator("#dict-copy-note").count(), 0, "a copy that keeps working says nothing");
-    await installed.close();
-    return "off, and line 2 in both wordings";
+    // Line 2 for every copy (the CEO, 2026-10-08: dictation runs only while RichOS runs), on or
+    // off, and for a copy whose key another copy holds.
+    const on = await open("dark", ALLOWED);
+    await sheet(on);
+    assertEqual(await text(on, "#dict-copy-note"), "Works only while RichOS is open. When you close RichOS, dictation stops until you open it again.");
+    await on.close();
+    const other = await open("dark", { ...ALLOWED, owner: "other" });
+    await sheet(other);
+    assertEqual(await text(other, "#dict-copy-note"), "Works only while RichOS is open. When you close RichOS, dictation stops until you open it again.");
+    await other.close();
+    return "off, and line 2 for every copy";
   });
 
   // ---- 4. turning it on ------------------------------------------------------------------------
@@ -257,26 +264,41 @@ async function main() {
   });
 
   // ---- 8. the more lines ------------------------------------------------------------------
-  await run.check("lines 1 and 4 on the sheet: On even when RichOS is closed; another app hiding keys, named and unnamed", async () => {
+  await run.check("the second copy and line 4 on the sheet: On through another copy's tool (round 19's On line, never 'even when closed'); another app hiding keys, named and unnamed", async () => {
     let page = await open("dark", { ...ALLOWED, owner: "other" });
     await sheet(page);
-    await waitText(page, "#dict-state", "On even when RichOS is closed. Tap F1 in any app and talk.");
+    await waitText(page, "#dict-state", "On. Tap F1 in any app, talk, and tap it again.");
     assertEqual(await page.locator(".dict-card.is-on").count(), 1, "the gold on card: dictation does work");
     await page.close();
     // The other copy's tool types, so this copy's own permissions decide nothing (plan section 7,
     // "Two copies with dictation on"): seen in walk-7350bc140616, where a second copy without
-    // its own grants said "Needs a permission". It says line 1, without line 2's "Works only
-    // while RichOS is open", and asks macOS for nothing.
-    page = await open("light", { on: true, owner: "other", mic: "denied", ax: "unknown" });
+    // its own grants said "Needs a permission". It says round 19's On line, with line 2 (every
+    // copy works only while RichOS is open), and asks macOS for nothing.
+    page = await open("light", { on: true, owner: "other", keyTap: true, mic: "denied", ax: "unknown" });
     await menu(page);
-    await waitText(page, "#set-dictation-state", "On even when RichOS is closed");
+    await waitText(page, "#set-dictation-state", "On. Tap F1 to talk");
     assertEqual(await page.locator("#set-dictation-state.is-attention").count(), 0, "row: no attention");
     await page.click("#set-dictation-open");
-    await waitText(page, "#dict-state", "On even when RichOS is closed. Tap F1 in any app and talk.");
-    assertEqual(await page.locator("#dict-copy-note").count(), 0, "no line 2 beside line 1");
+    await waitText(page, "#dict-state", "On. Tap F1 in any app, talk, and tap it again.");
+    assertEqual(await page.locator("#dict-copy-note").count(), 1, "line 2 for the second copy too");
     assertEqual(await page.locator(".dict-card.is-warn").count(), 0, "no warning spine");
     const asked = (await calls(page)).filter(c => /ask_(microphone|accessibility)/.test(c));
     assertEqual(asked.join(","), "", "macOS is asked for nothing");
+    await page.close();
+    // Never On without a working tool (recheck finding 6): no tool yet, and a tool with no tap.
+    page = await open("dark", { ...ALLOWED, owner: "none", keyTap: false });
+    await sheet(page);
+    await waitText(page, "#dict-state", "Starting dictation…");
+    assertEqual(await page.locator(".dict-card.is-on").count(), 0, "not the gold on card");
+    assertEqual(await page.getAttribute("#dict-try", "data-ph"), "You can try it here once dictation has started.");
+    await page.close();
+    // The sheet pokes the tool once for a tap (dictation_permissions_changed); here the tool's
+    // tap never comes, which is the case this line is for.
+    page = await open("dark", { ...ALLOWED, keyTap: false }, { tapNever: true });
+    await sheet(page);
+    await waitText(page, "#dict-state", "Not working yet: the key is not being watched. Turn the switch off and on again.");
+    assertEqual(await page.locator(".dict-card.is-warn").count(), 1, "the warning spine");
+    assertEqual(await page.locator("#dict-feedback").count(), 0, "no 'Dictation is on' feedback");
     await page.close();
     page = await open("dark", { ...ALLOWED, secure: { app: "1Password" } });
     await sheet(page);
@@ -292,29 +314,6 @@ async function main() {
     await waitText(page, "#dict-state", "Paused: Another app is hiding your keys, so F1 can't reach me. Quitting the app where you last typed a password usually fixes it.");
     await page.close();
     return "line 1, line 4 named and unnamed, and back to On";
-  });
-
-  // ---- 8b. line 3 (slice 5): switched off in Login Items ----------------------------------------
-  await run.check("line 3: an installed copy switched off in Login Items says so in the row and on the switch, with the fix and Open System Settings on Login Items; back to On once it is approved", async () => {
-    const page = await open("dark", { ...ALLOWED, copy: "installed", login: "needs-approval" });
-    await menu(page);
-    await waitText(page, "#set-dictation-state", "Switched off in Login Items");
-    assertEqual(await page.locator("#set-dictation-state.is-attention").count(), 1, "row: attention");
-    await page.click("#set-dictation-open");
-    await waitText(page, "#dict-state", "Not working: RichOS is switched off in your Mac's Login Items.");
-    assertEqual(await page.locator(".dict-card.is-warn").count(), 1, "the warning spine");
-    assertEqual(await text(page, "#dict-login-note span"), "Turn on RichOS under Allow in the Background, and dictation starts again.");
-    assertEqual(await page.locator("#dict-copy-note").count(), 0, "an installed copy carries no line 2");
-    assertEqual(await page.getAttribute("#dict-try", "data-ph"), "You can try it here once RichOS is on in Login Items.");
-    assert(await page.locator("#dictation-composer-note").count() === 0 || await page.locator("#dictation-composer-note").isHidden(), "the composer drops its line");
-    await page.click('#dict-login-note [data-act="open-sys"]');
-    await page.waitForFunction(() => window.__RICHOS_MOCK__.dictationCalls().some(c => c.cmd === "dictation_open_settings"));
-    assert((await calls(page)).includes("dictation_open_settings:login-items"), "opens System Settings on Login Items");
-    await set(page, { login: "approved" });
-    await waitText(page, "#dict-state", "On. Tap F1 in any app, talk, and tap it again.");
-    assertEqual(await page.locator("#dict-login-note").count(), 0, "the fix line goes with the problem");
-    await page.close();
-    return "line 3 in the row and the sheet, Open System Settings on Login Items, and back to On";
   });
 
   // ---- 9. the off notice ---------------------------------------------------------------------
@@ -378,10 +377,9 @@ async function main() {
     ["other", { ...ALLOWED, owner: "other" }, sheet],
     ["secure", { ...ALLOWED, secure: { app: "1Password" } }, sheet],
     ["secure-anon", { ...ALLOWED, secure: { app: null } }, sheet],
-    ["old-macos", { copy: "old-macos" }, sheet],
-    ["row-login", { ...ALLOWED, copy: "installed", login: "needs-approval" }, menu],
-    ["login-off", { ...ALLOWED, copy: "installed", login: "needs-approval" }, sheet],
-    ["installed", { ...ALLOWED, copy: "installed", login: "approved" }, sheet],
+    ["starting", { ...ALLOWED, owner: "none", keyTap: false }, sheet],
+    ["no-tap", { ...ALLOWED, keyTap: false }, sheet],
+    ["row-no-tap", { ...ALLOWED, keyTap: false }, menu],
     ["composer", ALLOWED, async p => { await p.waitForSelector("#dictation-composer-note:not([hidden])"); }],
   ];
   const ROOTS = "#dictation-sheet:not([hidden]) .dict-panel, #set-dictation-open, #dictation-composer-note";

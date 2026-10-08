@@ -26,7 +26,6 @@ pub mod insert;
 pub mod ipc;
 pub mod keytap;
 pub mod log;
-pub mod login;
 pub mod menubar;
 pub mod scratch;
 pub mod store;
