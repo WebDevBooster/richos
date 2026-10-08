@@ -107,6 +107,9 @@ AX_PROMPT = 'control this computer'
 # The sheet's drawn words (round 19 and its more lines), read from the accessibility tree. A line
 # with the key's cap in it is read by the text run after the cap.
 ON_RUN = 'in any app, talk, and tap it again.'
+# Round 19 state 10's line under the card, drawn by the turn-on once the tool holds the key (D18,
+# the candidate 46 walk: it never showed, because the window decided it before the tool's tap).
+FEEDBACK_LINE = 'Dictation is on. Try it in the box on the right, or in any app.'
 DENIED_LINE = 'Not working yet: macOS has not let me type into other apps.'
 # The second copy's row and sheet say round 19's On line, through the first copy's tool (the CEO,
 # 2026-10-08: dictation runs only while RichOS runs, so "On even when RichOS is closed" is drawn
@@ -460,6 +463,7 @@ class SheetWalk(dictation_walk.DictationWalk):
             seen, clock_from = tap_within(time.monotonic(), 5), 'tccutil reset, then the row'
         if seen is not None:
             on = self.until(lambda: self.shows_text(ON_RUN), 15, 'the sheet did not say On')
+            line = self.shows_text(FEEDBACK_LINE)
             dismissed_in = self.press_in_prompt('Deny')  # the prompt macOS left up
             self.grant('kTCCServiceAccessibility', True)  # whatever the prompt's button wrote
             pid_now = guest(self.vm, f'kill -0 {int(pid_before)} 2>/dev/null && echo alive || true')
@@ -468,7 +472,9 @@ class SheetWalk(dictation_walk.DictationWalk):
             self.shot('sheet-on.png')
             if not grant_seconds_ok(seen):
                 raise StepFailed(f'the key tap came {seen} s after the Accessibility row, not within {GRANTED_WITHIN} s')
-            return {'key_tap_after_row_seconds': seen, 'clock_from': clock_from, 'sheet_says_on': on, 'same_app_pid': pid_before,
+            if not line:
+                raise StepFailed(f'the sheet says On but not round 19\'s line under the card: {FEEDBACK_LINE!r} (D18)')
+            return {'key_tap_after_row_seconds': seen, 'clock_from': clock_from, 'sheet_says_on': on, 'sheet_says_feedback': line, 'same_app_pid': pid_before,
                     'notice': noticed, 'row_after_write': row_after_write, 'prompt_dismissed_in': dismissed_in,
                     'tcc': self.tcc_rows()}
 
@@ -668,6 +674,8 @@ class SheetWalk(dictation_walk.DictationWalk):
             on = self.until(lambda: self.shows_text(ON_RUN), 20, 'the sheet did not say On')
         except StepFailed:
             pass
+        # The line under the card is in the same paint as On (D18), so it is read right after.
+        line = on and self.shows_text(FEEDBACK_LINE)
         self.shot('granted-settings-sheet.png')
         alive = guest(self.vm, f'kill -0 {int(pid_before)} 2>/dev/null && echo alive || true') == 'alive'
         rows = self.tcc_rows()
@@ -677,8 +685,11 @@ class SheetWalk(dictation_walk.DictationWalk):
             raise StepFailed(f'the tool made no key tap within 15 s of the switch in System Settings ({seen}; TCC {rows})')
         if not on:
             raise StepFailed(f'the sheet did not say On after the switch in System Settings, with the app still running ({seen})')
+        if not line:
+            raise StepFailed(f'the sheet says On but not round 19\'s line under the card: {FEEDBACK_LINE!r} (D18)')
         return {'app_pid': pid_before, 'first_run_sheets_declined': presses, 'prompt_frame': frame, 'prompt_dismissed_in': dismissed,
-                'system_settings': seen, 'key_tap_after_switch_seconds': tap, 'sheet_says_on': on, 'same_app_pid': alive, 'tcc': rows}
+                'system_settings': seen, 'key_tap_after_switch_seconds': tap, 'sheet_says_on': on, 'sheet_says_feedback': line,
+                'same_app_pid': alive, 'tcc': rows}
 
     def try_it(self):
         pid = self.facts['app_pid']
