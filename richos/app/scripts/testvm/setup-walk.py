@@ -133,7 +133,9 @@ def meanwhile_verdict(timeline):
 
 def boot_setup(text):
     """The first-run setup verdict a boot log states (main.rs's boot block): `None` if it has not
-    printed one yet, else {'nothing_missing': bool, 'missing': [display names]}."""
+    printed one yet, else {'nothing_missing': bool, 'missing': [names]}. The names are the machine
+    names the boot line prints (`Component::as_str`: claude-code, engine, media-tools); a build
+    before the dictation plan's M8 printed the on-screen names instead."""
     missing = re.findall(r'^\[richos\] first-run setup: (.+?) is NOT installed', text, re.M)
     nothing = bool(re.search(r'^\[richos\] first-run setup: nothing missing\.$', text, re.M))
     if not missing and not nothing:

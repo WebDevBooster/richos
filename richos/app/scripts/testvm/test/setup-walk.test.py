@@ -15,9 +15,9 @@ class BootSetup(unittest.TestCase):
         self.assertIsNone(walk.boot_setup('[richos] this app: built from abc\n'))
 
     def test_the_video_tools_alone_missing(self):
-        text = ('[richos] first-run setup: my video tools is NOT installed — 2 place(s) looked:\n'
+        text = ('[richos] first-run setup: media-tools is NOT installed — 2 place(s) looked:\n'
                 '[richos]   looked in /h/Library/Application Support/RichOS/tools/yt-dlp — no yt-dlp\n')
-        self.assertEqual(walk.boot_setup(text), {'nothing_missing': False, 'missing': ['my video tools']})
+        self.assertEqual(walk.boot_setup(text), {'nothing_missing': False, 'missing': ['media-tools']})
 
     def test_nothing_missing(self):
         self.assertEqual(walk.boot_setup('[richos] first-run setup: nothing missing.\n'),

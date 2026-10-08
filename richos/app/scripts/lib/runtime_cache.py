@@ -26,7 +26,7 @@ def cache_path(state, recipe):
 # paths joined by ":"). Since 2026-10-07 the video tools are a setup essential (media-tools plan,
 # slice 3), present only when BOTH pinned speech models verify (the one voice resolves, and the
 # transcription model; the CEO: "Both, in this nightly, yes."), so a fixture without them boots to
-# "my video tools is NOT installed" instead of "nothing missing". These are the pinned small.en
+# "media-tools is NOT installed" instead of "nothing missing". These are the pinned small.en
 # (487,614,201 B) and large-v3-turbo-q5_0 (574,041,195 B) already on the Mac the nightlies run on
 # (engine/voice/models/model-pins.json); nothing is downloaded for them. Read by
 # `nightly-local.py` (`Runner.runtime`) and `proof-run.py` (`supply_speech_models`), so the

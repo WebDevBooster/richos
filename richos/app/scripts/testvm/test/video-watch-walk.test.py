@@ -18,12 +18,12 @@ spec.loader.exec_module(walk)
 
 class BackgroundDownload(unittest.TestCase):
     def test_the_boot_line_is_read(self):
-        text = ('[richos] first-run setup: my video tools is NOT installed\n'
+        text = ('[richos] first-run setup: media-tools is NOT installed\n'
                 '[richos] video tools: downloading in the background\n')
         self.assertTrue(walk.background_download(text))
 
     def test_a_build_without_it_is_not_background(self):
-        self.assertFalse(walk.background_download('[richos] first-run setup: my video tools is NOT installed\n'))
+        self.assertFalse(walk.background_download('[richos] first-run setup: media-tools is NOT installed\n'))
         self.assertFalse(walk.background_download('[richos] video tools in the background 1/1 started: Getting my video tools.\n'))
 
 
