@@ -675,6 +675,67 @@ else
     bad "W12g scheduled recovery did not clear the alert: $OUT"
 fi
 
+# W12h — THE WATCHDOG NEVER HOLDS THE DEVICE REGISTRY LOCK ACROSS A HANG.
+# 2026-10-07 23:45Z the scheduled pass blocked inside a filesystem open() while
+# holding test-devices/.lock, and every device lease cleanup and test run on the
+# machine failed "registry lock busy" for 35 minutes. Here the hang is an
+# emulator.json that is a FIFO with no writer: open() blocks in the kernel, as
+# the real one did, and the pass's 8-second budget does not reach it. The lock
+# must be free within the collector's hard limit, the watchdog must finish its
+# disk check, and the failure must be recorded.
+world device-hang
+write_cfg 1 999999 1 1
+touch "$W_LA/com.richos.disk-watchdog.plist"
+cat > "$W_BIN/fake-simctl" <<'FAKE'
+#!/bin/sh
+printf '%s\n' '{"devices":{}}'
+FAKE
+chmod +x "$W_BIN/fake-simctl"
+mkdir -p "$W_DIR/caches/hung" "$W_DIR/claude/state/test-devices"
+mkfifo "$W_DIR/caches/hung/emulator.json"
+CLAUDE_CONFIG_DIR="$W_DIR/claude" RICHOS_SIMCTL="$W_BIN/fake-simctl" \
+    RICHOS_ANDROID_CACHES_ROOT="$W_DIR/caches" RICHOS_DEVICE_COLLECT_SECONDS=2 \
+    run_wd --check >"$W_DIR/out.txt" 2>&1 &
+W12H_PID=$!
+W12H_DONE=0
+for _ in $(seq 1 40); do
+    if ! kill -0 "$W12H_PID" 2>/dev/null; then W12H_DONE=1; break; fi
+    sleep 0.25
+done
+W12H_LOCK="$(python3 - "$W_DIR/claude/state/test-devices/.lock" <<'PY'
+import fcntl, sys
+try:
+    with open(sys.argv[1], "a") as h:
+        try:
+            fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("HELD"); raise SystemExit
+        fcntl.flock(h, fcntl.LOCK_UN)
+        print("FREE")
+except OSError as e:
+    print("UNKNOWN %s" % e)
+PY
+)"
+# Release a reader still blocked on the FIFO (the unfixed program) so the case
+# ends; with no reader the non-blocking open fails and nothing waits.
+python3 - "$W_DIR/caches/hung/emulator.json" <<'PY'
+import os, sys
+try:
+    fd = os.open(sys.argv[1], os.O_WRONLY | os.O_NONBLOCK)
+    os.write(fd, b"{}")
+    os.close(fd)
+except OSError:
+    pass
+PY
+wait "$W12H_PID" 2>/dev/null
+if [ "$W12H_DONE" = "1" ] && [ "$W12H_LOCK" = "FREE" ] \
+   && grep -q 'registry lock' "$W_DIR/test-device-failures.json" 2>/dev/null; then
+    ok "W12h a hung device cleanup is stopped at its limit: the registry lock is free and the failure is recorded"
+else
+    bad "W12h a hung device cleanup kept the watchdog and the registry lock (finished=$W12H_DONE lock=$W12H_LOCK)"
+    sed 's/^/        /' "$W_DIR/out.txt" | head -8
+fi
+
 # ===========================================================================
 # W13 — the classification (CEO addendum 2)
 # ===========================================================================

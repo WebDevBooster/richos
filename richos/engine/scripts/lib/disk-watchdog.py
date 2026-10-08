@@ -311,16 +311,44 @@ def collect_devices_for_scheduled_check():
 
     Read-only alert/status requests never launch this collector. A sandbox
     without explicit fake device tools never inspects the account's registry.
+
+    THE COLLECTION RUNS IN ITS OWN PROCESS WITH A HARD LIMIT. It holds the
+    test-device registry lock for its whole pass, and its 8-second budget bounds
+    only its subprocesses and removals, never a filesystem call. On 2026-10-07
+    an open() inside that pass blocked in the kernel and the watchdog held the
+    lock for 35 minutes, failing every lease cleanup and test run on the
+    machine. A child is killed at the limit, and its lock dies with it.
     """
     try:
         import testdevices
         if not testdevices.machine_devices_allowed() and not (
                 env("RICHOS_SIMCTL") or env("RICHOS_ANDROID_CACHES_ROOT")):
             return
-        testdevices.collect(apply=True, deadline=time.time() + 8)
     except Exception as exc:
         from testdevice_alerts import record_failure
         record_failure("scheduled device cleanup unavailable: %s" % exc)
+        return
+    limit = env_num("RICHOS_DEVICE_COLLECT_SECONDS", 30)
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdevices.py")
+    try:
+        child = subprocess.Popen([sys.executable, script, "collect", "--apply", "--budget", "8"],
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as exc:
+        from testdevice_alerts import record_failure
+        record_failure("scheduled device cleanup unavailable: %s" % exc)
+        return
+    try:
+        child.wait(timeout=limit)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(child.pid, 9)
+        except OSError:
+            pass
+        child.wait()
+        from testdevice_alerts import record_failure
+        record_failure("scheduled device cleanup stopped after %g s so it would not keep "
+                       "the test-device registry lock; the next pass retries" % limit)
 
 
 def main():
