@@ -182,7 +182,9 @@ class SheetWalk(dictation_walk.DictationWalk):
         return None
 
     def tcc_rows(self):
-        query = "SELECT service FROM access WHERE client='com.richos.app' ORDER BY service;"
+        # Each row with its auth_value (0 denied, 2 allowed): macOS itself records an app it has
+        # checked as a denied row, which is no grant (walk of ee92df2c4, stage).
+        query = "SELECT service || '=' || auth_value FROM access WHERE client='com.richos.app' ORDER BY service;"
         return {'user': guest(self.vm, f'sqlite3 {USER_DB} ' + shlex.quote(query)).splitlines(),
                 'system': guest(self.vm, f'sudo -n sqlite3 {SYS_DB} ' + shlex.quote(query)).splitlines()}
 
@@ -217,8 +219,9 @@ class SheetWalk(dictation_walk.DictationWalk):
                                 ('kTCCServiceListenEvent', True), ('kTCCServicePostEvent', True)):
             self.revoke(service, system)
         rows = self.tcc_rows()
-        if rows['user'] or rows['system']:
-            raise StepFailed(f'com.richos.app still has TCC rows: {rows}')
+        allowed = [r for r in rows['user'] + rows['system'] if r.endswith('=2')]
+        if allowed:
+            raise StepFailed(f'com.richos.app is still allowed something: {rows}')
         guest(self.vm, 'rm -f ' + shlex.quote(self.data + '/dictation.json'))
         command([HERE / 'guest.sh', self.vm, '--push', self.a.wav, self.wav], 120)
         models = self.home + '/.config/richos/models'
