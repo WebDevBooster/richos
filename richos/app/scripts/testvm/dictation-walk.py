@@ -382,9 +382,15 @@ class DictationWalk(adopt_walk.Walk):
         guest(self.vm, 'open -a Terminal')
         time.sleep(4)
         row = self.dictate('122', 'com.apple.Terminal', 'clipboard-before-terminal')
-        # The whole buffer, through System Events: it begins with "Last login", and ax.js keeps
-        # only a value's first 203 characters, which can end before the prompt.
-        text = self.osa(TERMINAL_TEXT)
+        # Terminal's text area through ax.js (a fresh window's buffer is one login line and the
+        # prompt, well inside the 203 characters ax.js keeps of a value). walk-157817a0a60e read
+        # an empty string through System Events' entire contents while the words sat at the
+        # prompt (terminal-failed.png); that read stays only as the fallback.
+        nodes = [n for n in self.ax('find', '--role', 'AXTextArea', '--first', app='Terminal')
+                 if n.get('role') == 'AXTextArea']
+        text = nodes[0].get('value', '') if nodes else ''
+        if not text.strip():
+            text = self.osa(TERMINAL_TEXT)
         want = words_of(row['expected'])
         if words_of(text)[-len(want):] != want:
             raise StepFailed(f'Terminal does not show the words at its prompt: {text[-200:]!r}')
