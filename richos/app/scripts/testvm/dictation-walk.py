@@ -84,6 +84,18 @@ CHROME_DMG = 'https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrom
 TOOL_ARG = '--richos-dictation'
 DICTATED = 'dictation: model '  # dictation.log's line for words put in place (tool.rs write)
 NO_TAP_EVENTS = ('"type":"key"', '"type":"system"')
+# Terminal's text, read through System Events (sshd-session's own grant), never by asking
+# Terminal itself for it: that needs an automation grant the guest does not give, and its prompt
+# would sit on the screen.
+TERMINAL_TEXT = '''tell application "System Events" to tell process "Terminal"
+  repeat with e in (entire contents of front window)
+    try
+      if role of e is "AXTextArea" then return value of e
+    end try
+  end repeat
+end tell
+return ""'''
+CHROME_FLAGS = ['--no-first-run', '--no-default-browser-check', '--use-mock-keychain', '--disable-sync']
 
 
 def strip_annotations(text):
@@ -160,11 +172,14 @@ class DictationWalk(adopt_walk.Walk):
         return self.osa('get the clipboard as text')
 
     def press(self, key):
-        """One press of the dictation key in one of its three shapes."""
+        """One press of the dictation key in one of its three shapes, by one ssh round trip: System
+        Events posts a key code (sshd-session's own grant), post_key the top row's event. Not
+        through ax.sh, whose preflight costs seconds a press cannot spend (minor 9: the second
+        tap comes within 1 s of the sample's end). Returns when the event has been posted."""
         if key == 'brightness':
             guest(self.vm, shlex.quote(self.post_key) + ' --brightness-down')
         else:
-            self.osa(f'tell application "System Events" to key code {int(key)}')
+            guest(self.vm, 'osascript -e ' + shlex.quote(f'tell application "System Events" to key code {int(key)}'))
 
     def sample_front(self, seconds):
         """`lsappinfo front` every 250 ms in the guest, for `seconds`, to a file (activation.rs's
@@ -189,9 +204,15 @@ class DictationWalk(adopt_walk.Walk):
         if self.front_bundle() != bundle:
             raise StepFailed(f'{bundle} is not in front before the dictation: {self.front_bundle()}')
         sampler = self.sample_front(self.seconds + 12)
+        began = time.monotonic()
         self.press(key)
-        time.sleep(self.seconds + 0.5)
+        posted = time.monotonic()
+        # The sample starts playing when the first press lands, just before `press` returns. The
+        # second call starts early by one press's own cost, so it lands about 0.6 s after the
+        # sample's end: inside minor 9's 1 s, and far inside the 3.008 s a dead input takes.
+        time.sleep(max(0.0, self.seconds + 0.6 - (posted - began)))
         self.press(key)
+        second = time.monotonic()
         end = time.monotonic() + 90
         line = None
         while time.monotonic() < end:
@@ -216,7 +237,8 @@ class DictationWalk(adopt_walk.Walk):
         if not fronts or others:
             raise StepFailed(f'lsappinfo front was not {bundle} throughout: {len(fronts)} samples, others {others}')
         return {'key': key, 'log': line, 'model': model, 'expected': self.expected(model), 'clipboard_restored': True,
-                'front_samples': len(fronts), 'front': bundle}
+                'front_samples': len(fronts), 'front': bundle, 'press_seconds': round(posted - began, 3),
+                'second_tap_after_sample_end_seconds': round(second - posted - self.seconds, 3)}
 
     def expected(self, model_id):
         """This guest's decode of the sample with `model_id`, as the tool decodes it."""
@@ -248,7 +270,7 @@ class DictationWalk(adopt_walk.Walk):
         if not found and not electron:
             dmg = self.payload + '/googlechrome.dmg'
             guest(self.vm, f'curl -fsSL -o {shlex.quote(dmg)} {CHROME_DMG}', 600)
-            mount = guest(self.vm, f'hdiutil attach -nobrowse -readonly {shlex.quote(dmg)} | tail -1', 120).split('\t')[-1]
+            mount = guest(self.vm, f'hdiutil attach -nobrowse -readonly {shlex.quote(dmg)} | tail -1', 120).split('\t')[-1].strip()
             guest(self.vm, f'cp -R {shlex.quote(mount)}/"Google Chrome.app" /Applications/ && hdiutil detach {shlex.quote(mount)}', 300)
             found = ['Google Chrome.app']
             installed = True
@@ -344,8 +366,9 @@ class DictationWalk(adopt_walk.Walk):
         guest(self.vm, 'open -a Terminal')
         time.sleep(4)
         row = self.dictate('122', 'com.apple.Terminal', 'clipboard-before-terminal')
-        nodes = self.ax('find', '--role', 'AXTextArea', '--first', app='Terminal')
-        text = nodes[0].get('value', '') if nodes else ''
+        # The whole buffer, through System Events: it begins with "Last login", and ax.js keeps
+        # only a value's first 203 characters, which can end before the prompt.
+        text = self.osa(TERMINAL_TEXT)
         want = words_of(row['expected'])
         if words_of(text)[-len(want):] != want:
             raise StepFailed(f'Terminal does not show the words at its prompt: {text[-200:]!r}')
@@ -374,7 +397,7 @@ class DictationWalk(adopt_walk.Walk):
         bundle = guest(self.vm, f'defaults read /Applications/{shlex.quote(app)}/Contents/Info CFBundleIdentifier')
         extra = ''
         if app == 'Google Chrome.app':
-            extra = '--args --no-first-run --no-default-browser-check --user-data-dir=' + shlex.quote(self.payload + '/chrome')
+            extra = '--args ' + ' '.join(CHROME_FLAGS) + ' --user-data-dir=' + shlex.quote(self.payload + '/chrome')
             # `open -na App --args ... URL`: the page is an argument too.
             guest(self.vm, f'open -na "Google Chrome" {extra} {shlex.quote("file://" + self.page)}')
             time.sleep(8)
