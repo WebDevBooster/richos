@@ -531,7 +531,17 @@ class SheetWalk(dictation_walk.DictationWalk):
                 self.declined_late_sheet()
                 return False
 
-            self.until(drawn, 180, 'the second copy drew no Settings button')
+            # Its window first, in front: walk-9f62f33077fc, this step's first run, waited
+            # 180 s with the first copy's window over it and kept no frame of its own.
+            self.bring_front(pid2)
+            try:
+                self.until(drawn, 180, 'the second copy drew no Settings button')
+            except StepFailed:
+                self.shot('second-copy-unseen.png')
+                r = subprocess.run([str(HERE / 'ax.sh'), self.vm, 'tree'], capture_output=True, text=True, timeout=120)
+                (self.out / 'second-copy-tree.txt').write_text(r.stdout + r.stderr)
+                (self.out / 'second-copy.log').write_text(guest(self.vm, 'cat ' + shlex.quote(log2) + ' 2>/dev/null || true', 30))
+                raise
             self.decline_first_run_sheets(seconds=20)
             self.bring_front(pid2)
             self.open_settings_panel()
