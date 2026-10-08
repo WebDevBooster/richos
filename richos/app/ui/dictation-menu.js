@@ -69,7 +69,9 @@ window.RichDictationMenu = (function () {
       item("onoff", msg.on ? "Turn dictation off" : "Turn dictation on") +
       '<div class="sb-hr" role="separator"></div>' +
       item("open", "Open RichOS");
-    requestAnimationFrame(report);
+    // At once, never from an animation frame: this window is hidden until the report arrives,
+    // and a hidden window gets no animation frames (see dictation-bar.js).
+    report();
     return size();
   }
 

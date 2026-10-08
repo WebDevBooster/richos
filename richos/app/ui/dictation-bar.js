@@ -114,7 +114,10 @@ window.RichDictationBar = (function () {
     }
     cancelAnimationFrame(D.raf);
     if (msg.view === "listening") D.raf = requestAnimationFrame(tick);
-    if (html) requestAnimationFrame(report);
+    // AT ONCE, never from an animation frame: the tool shows this window only after the report,
+    // and WebKit runs no animation frame in a window that is not on screen (walk-d25aed81eaa1:
+    // the bar never appeared). `layout()` reads offsets, which lay the page out synchronously.
+    if (html) report();
     return layout();
   }
 

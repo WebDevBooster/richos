@@ -201,6 +201,28 @@ async function main() {
     return `window ${l.w}x${l.h}, orb at ${l.orbX.toFixed(1)},${l.orbY.toFixed(1)}, Fix it at ${fix.x.toFixed(0)},${fix.y.toFixed(0)}`;
   });
 
+  await run.check("a hidden window still reports its layout: no animation frame is needed (walk-d25aed81eaa1)", async () => {
+    // The tool shows the bar's and the menu's windows only once their page has reported the
+    // size it needs, and WebKit runs no animation frame in a window that is not on screen. A
+    // report made from requestAnimationFrame therefore never came, and the bar never appeared
+    // (walk-d25aed81eaa1, check-window: "never said bar shown"). Frames are frozen here, as in a
+    // hidden window, and the report must still arrive.
+    const freeze = () => { window.requestAnimationFrame = () => 0; };
+    const page = await open(browser, BAR);
+    await page.evaluate(freeze);
+    await page.evaluate(([n, p]) => window.__say(n, p), ["dictation-bar", bar("problem", { problem: "no-microphone", seq: 21 })]);
+    const bars = await page.evaluate(() => window.__calls.filter((c) => c[0] === "dictation_bar_laid_out").map((c) => c[1].seq));
+    assert(bars.includes(21), "the bar reported nothing without an animation frame: " + JSON.stringify(bars));
+    await page.close();
+    const menu = await open(browser, MENU);
+    await menu.evaluate(freeze);
+    await menu.evaluate(([n, p]) => window.__say(n, p), ["dictation-menu", { seq: 22, on: true, key: "F1", choice: "accurate", paused: false, secureApp: null, theme: "dark", fontScale: 100 }]);
+    const menus = await menu.evaluate(() => window.__calls.filter((c) => c[0] === "dictation_menu_laid_out").map((c) => c[1].seq));
+    assert(menus.includes(22), "the menu reported nothing without an animation frame: " + JSON.stringify(menus));
+    await menu.close();
+    return "with animation frames frozen, the bar reported view 21 and the menu view 22 at once";
+  });
+
   await run.check("the meter follows the tool's level and rests at its floor", async () => {
     const page = await open(browser, BAR);
     await say(page, "dictation-bar", bar("listening", { startedMs: Date.now() }));
