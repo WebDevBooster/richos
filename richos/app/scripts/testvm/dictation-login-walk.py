@@ -239,13 +239,19 @@ class LoginWalk(bar_walk.BarWalk):
         self.record_app(app['pid'])
         return app, log
 
+    def click_button(self, title, role='AXButton', app=None):
+        """A button by its title through the accessibility tree (adopt-walk's press()). Not the
+        inherited click: BarWalk's click(x, y) posts a mouse click at a point, and a title given
+        to it died on the missing y (walk-974ea2706058, step install, 'Not now')."""
+        return dictation_walk.adopt_walk.Walk.press(self, title, role, app)
+
     def decline_sheets(self, pid):
         """The first-run sheets an installed copy on a fresh home puts up, declined."""
         self.record_app(pid)
         for _ in range(4):
             try:
                 if self.present('Not now'):
-                    self.click('Not now')
+                    self.click_button('Not now')
                     time.sleep(3)
                     continue
             except StepFailed:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """dictation-login-walk.py's verdicts, offline. The live walk is its own proof."""
 import importlib.util
+import re
 from pathlib import Path
 import unittest
 
@@ -67,6 +68,12 @@ class TheSteps(unittest.TestCase):
         for step in steps:
             self.assertTrue(hasattr(walk.LoginWalk, step.replace('-', '_')), step)
         self.assertEqual(walk.WAYS, ['open-a', 'finder', 'dock', 'menu'])
+
+    def test_a_button_is_clicked_by_click_button_never_by_click_with_one_argument(self):
+        # walk-974ea2706058: BarWalk.click(x, y) is a point click; self.click('Not now') crashed.
+        source = (HERE / 'dictation-login-walk.py').read_text()
+        self.assertEqual(re.findall(r"self\.click\(\s*['\"]", source), [])
+        self.assertTrue(hasattr(walk.LoginWalk, 'click_button'))
 
     def test_finder_is_never_sent_an_apple_event(self):
         # walk-d94269c3a41c: 'tell application "Finder"' put up a consent prompt nobody answers;
