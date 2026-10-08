@@ -115,7 +115,18 @@ class SheetWalk(dictation_walk.DictationWalk):
         try:
             return bool(self.ax('find', '--value', text, '--contains', '--first'))
         except StepFailed as exc:
-            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc) or 'guest_deadline' in str(exc):
+                return False
+            raise
+
+    def present(self, title, role='AXButton', app=None):
+        """adopt-walk's present(), with a read that hit ax.sh's deadline counted as not there yet:
+        a relaunched app still building its tree answers nothing in 20 s (walk-918256bab6a4,
+        the first run of this walk, failed its relaunch on exactly that)."""
+        try:
+            return super().present(title, role, app)
+        except StepFailed as exc:
+            if 'guest_deadline' in str(exc):
                 return False
             raise
 
@@ -193,6 +204,8 @@ class SheetWalk(dictation_walk.DictationWalk):
         self.log = launched['log']
         self.facts.update({'log': self.log, 'app_pid': launched['pid']})
         self.save()
+        # The window's tree first: the Settings button is on every screen, sheets or not.
+        self.until(lambda: self.by_id('set-btn') is not None, 180, 'the relaunched app drew no Settings button')
         presses = self.decline_first_run_sheets(seconds=30)
         return launched, presses
 
