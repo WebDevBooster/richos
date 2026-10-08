@@ -153,10 +153,10 @@ impl ProviderAuth {
         self.view = status_in(bin, self.folder.as_deref());
         self.view.clone()
     }
-    pub fn start(&mut self, bin: &Path, console: bool) -> AuthView {
+    pub fn start(&mut self, bin: &Path) -> AuthView {
         if self.login.is_some() { return self.view.clone(); }
         let mut command = Command::new(bin);
-        command.args(["auth", "login", if console { "--console" } else { "--claudeai" }])
+        command.args(["auth", "login", "--claudeai"])
             .env_remove("CLAUDECODE").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         if let Some(folder) = &self.folder { command.env("CLAUDE_CONFIG_DIR", folder); }
         OwnedChild::configure(&mut command);

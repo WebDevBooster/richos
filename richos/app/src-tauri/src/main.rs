@@ -5478,10 +5478,10 @@ fn provider_auth_status(state: State<AppState>) -> richos_core::provider_auth::A
     view
 }
 #[tauri::command(async)]
-fn provider_auth_start(state: State<AppState>, console: bool) -> richos_core::provider_auth::AuthView {
+fn provider_auth_start(state: State<AppState>) -> richos_core::provider_auth::AuthView {
     state.quota.set_connecting(true);
     let bin = resolve_claude_bin();
-    let view = state.provider_auth.lock().unwrap().start(&bin, console);
+    let view = state.provider_auth.lock().unwrap().start(&bin);
     state.quota.set_connecting(view.state == richos_core::provider_auth::AuthState::Connecting);
     view
 }
@@ -5555,7 +5555,7 @@ fn claude_account_add(state: State<AppState>, label: String, current_label: Opti
         if let Some(folder) = added.folder {
             let bin = resolve_claude_bin();
             let mut auth = richos_core::provider_auth::ProviderAuth::for_folder(folder);
-            auth.start(&bin, false);
+            auth.start(&bin);
             *state.account_auth.lock().unwrap() = Some((added.id, auth));
         }
     }
@@ -5568,7 +5568,7 @@ fn claude_account_sign_in(state: State<AppState>, id: String) -> Result<richos_c
     let folder = state.quota.accounts.folder(&id).ok_or("Account 1 signs in from the main sign-in.")?;
     let bin = resolve_claude_bin();
     let mut auth = richos_core::provider_auth::ProviderAuth::for_folder(folder);
-    let view = auth.start(&bin, false);
+    let view = auth.start(&bin);
     *state.account_auth.lock().unwrap() = Some((id, auth));
     Ok(view)
 }
