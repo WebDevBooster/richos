@@ -431,13 +431,20 @@ pub enum Insert {
     CopyOnly,
 }
 
-/// **Is there nothing to type into?** Only when Accessibility reports no focused element, or
-/// Finder is in front with no Finder window focused (the desktop). Every other case pastes,
-/// whether or not Accessibility can describe what is focused: Chromium and Electron apps often
-/// build their accessibility tree only for an assistive client, and Terminal may not report a
-/// settable value (Frank's M7, taken as he wrote it).
-pub fn insert_plan(focused_element: bool, finder_in_front: bool, finder_window_focused: bool) -> Insert {
-    if !focused_element || (finder_in_front && !finder_window_focused) {
+/// **Is there nothing to type into?** Only when Accessibility reports no focused element AND the
+/// app in front has no focused window, or Finder is in front with no Finder window focused (the
+/// desktop). Every other case pastes, whether or not Accessibility can describe what is focused:
+/// Chromium and Electron apps often build their accessibility tree only for an assistive client,
+/// and Terminal may not report a settable value (Frank's M7, taken as he wrote it).
+///
+/// The window half is measured, not assumed: in walk-326edd632dac Chrome was in front with its
+/// text box focused and the system-wide `AXFocusedUIElement` answered nothing, so a rule on the
+/// focused element alone copied instead of pasting in every Chromium app. Chrome's windows are
+/// ordinary windows, and Accessibility reports them without an assistive client.
+pub fn insert_plan(focused_element: bool, window_focused: bool, finder_in_front: bool) -> Insert {
+    let nothing_focused = !focused_element && !window_focused;
+    let the_desktop = finder_in_front && !window_focused;
+    if nothing_focused || the_desktop {
         Insert::CopyOnly
     } else {
         Insert::Paste
@@ -687,14 +694,23 @@ mod tests {
 
     // ---- the words at the cursor ----------------------------------------------------------
 
-    /// INVARIANT (M7): only no focused element, or Finder's desktop, keeps the words on the
-    /// clipboard. Finder with a window focused, and every other app, pastes.
+    /// INVARIANT (M7): only nothing focused at all (no element and no window), or Finder's
+    /// desktop, keeps the words on the clipboard. Finder with a window focused, and every other
+    /// app, pastes.
     #[test]
     fn only_no_focus_or_the_desktop_is_nothing_to_type_into() {
-        assert_eq!(insert_plan(false, false, false), Insert::CopyOnly);
-        assert_eq!(insert_plan(true, true, false), Insert::CopyOnly, "the desktop");
+        assert_eq!(insert_plan(false, false, false), Insert::CopyOnly, "nothing focused");
+        assert_eq!(insert_plan(true, false, true), Insert::CopyOnly, "the desktop");
         assert_eq!(insert_plan(true, true, true), Insert::Paste, "a Finder window's rename field");
         assert_eq!(insert_plan(true, false, false), Insert::Paste, "any other app, described or not");
+        assert_eq!(insert_plan(true, true, false), Insert::Paste, "an app that describes its focus");
+    }
+
+    /// INVARIANT (M7, measured in walk-326edd632dac): an app whose window is focused but which
+    /// reports no focused element without an assistive client (Chrome, Electron) still pastes.
+    #[test]
+    fn a_focused_window_without_a_described_element_pastes() {
+        assert_eq!(insert_plan(false, true, false), Insert::Paste);
     }
 
     /// INVARIANT: round 19's spacing (`insertAt`): a space before unless at the start or after

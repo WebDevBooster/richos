@@ -5,8 +5,8 @@
 //! translated into Rust: save every clipboard item, write the words, post Command-V with V's key
 //! code resolved from the current keyboard layout, and put the clipboard back after 1.0 s only if
 //! nothing else wrote to it. Added around it, as the plan states: the no-focused-element check,
-//! so a missing text box is said instead of silent (only no focused element, or Finder's desktop,
-//! Frank's M7), the spacing rule where Accessibility can read the text, and the
+//! so a missing text box is said instead of silent (only nothing focused, element or window, or
+//! Finder's desktop, Frank's M7), the spacing rule where Accessibility can read the text, and the
 //! `org.nspasteboard.TransientType` marker. Every decision is in `richos_voice::dictation`.
 
 use core_foundation::base::{CFType, TCFType};
@@ -104,8 +104,10 @@ fn attribute(element: AXUIElementRef, name: &'static str) -> Option<Owned> {
 #[derive(Debug, Default)]
 pub struct Focus {
     pub focused_element: bool,
+    /// The app in front reports a focused window (`AXFocusedWindow`). Chrome does without an
+    /// assistive client even when it reports no focused element.
+    pub window_focused: bool,
     pub finder_in_front: bool,
-    pub finder_window_focused: bool,
     /// The characters on either side of the cursor, where Accessibility can read them.
     pub around: Option<(Option<char>, Option<char>)>,
     /// The front app's bundle identifier, for the log's "into" field.
@@ -124,9 +126,7 @@ pub fn focus() -> Focus {
             out.front_bundle = bundle_of(pid);
         }
         out.finder_in_front = out.front_bundle.as_deref() == Some("com.apple.finder");
-        if out.finder_in_front {
-            out.finder_window_focused = attribute(app.0, "AXFocusedWindow").is_some();
-        }
+        out.window_focused = attribute(app.0, "AXFocusedWindow").is_some();
     }
     if let Some(element) = attribute(system.0, "AXFocusedUIElement") {
         out.focused_element = true;
@@ -366,7 +366,7 @@ pub fn insert(words: &str, v_code: u16) -> Result<Inserted, String> {
         previous.join().ok();
     }
     let f = focus();
-    let how = insert_plan(f.focused_element, f.finder_in_front, f.finder_window_focused);
+    let how = insert_plan(f.focused_element, f.window_focused, f.finder_in_front);
     let pb = general().ok_or("no general pasteboard")?;
     let text = match (how, f.around) {
         (Insert::Paste, Some((before, after))) => spaced(words, before, after),
