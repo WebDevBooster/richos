@@ -94,6 +94,8 @@ AX_PROMPT = 'control this computer'
 ON_RUN = 'in any app, talk, and tap it again.'
 DENIED_LINE = 'Not working yet: macOS has not let me type into other apps.'
 OTHER_ROW = 'On even when RichOS is closed'
+# The second copy's executable, renamed so its process is told apart from the first's.
+SECOND_EXE = 'richos-second'
 # The processes macOS has put its privacy prompts in, across releases; the first that answers wins.
 PROMPT_PROCESSES = ('UserNotificationCenter', 'universalAccessAuthWarn', 'CoreServicesUIAgent', 'tccd')
 USER_DB = '"$HOME/Library/Application Support/com.apple.TCC/TCC.db"'
@@ -492,6 +494,14 @@ class SheetWalk(dictation_walk.DictationWalk):
         second = second_dir + '/' + Path(app).name
         guest(self.vm, f'rm -rf {shlex.quote(second_dir)} {shlex.quote(home2)} && mkdir -p {shlex.quote(second_dir)} '
                        f'&& cp -Rc {shlex.quote(app)} {shlex.quote(second)} && cp -Rc {shlex.quote(self.home)} {shlex.quote(home2)}', 300)
+        # Its own process name: ax.sh reached the first copy's window for the second copy's pid
+        # while both ran as "richos-tauri" (walk-2301826d94c2: the two trees were the same, the
+        # frame showed the second copy's company question). The executable is renamed and the
+        # copy signed ad hoc; it needs no permission of its own, only the key's owner.
+        macos = second + '/Contents/MacOS'
+        guest(self.vm, f'mv {shlex.quote(macos)}/richos-tauri {shlex.quote(macos)}/{SECOND_EXE} '
+                       f'&& /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable {SECOND_EXE}" {shlex.quote(second)}/Contents/Info.plist '
+                       f'&& codesign --force --deep -s - {shlex.quote(second)} 2>&1', 300)
         env = {'HOME': home2, 'CLAUDE_CONFIG_DIR': home2 + '/.claude', 'RICHOS_ACTIVATION': 'regular',
                'RICHOS_CLAUDE_BIN': '/Users/admin/.local/bin/claude', 'DISABLE_AUTOUPDATER': '1',
                'RICHOS_ENGINE_DIR': self.payload + '/engine', 'RICHOS_DICTATION_TEST_ON': '1', **self.env()}
@@ -505,7 +515,7 @@ class SheetWalk(dictation_walk.DictationWalk):
         for _ in range(100):
             for line in guest(self.vm, 'ps -axo pid=,ppid=,comm=').splitlines():
                 parts = line.split(None, 2)
-                if len(parts) == 3 and parts[1] == '1' and parts[2].startswith(second_dir) and parts[2].endswith('/richos-tauri'):
+                if len(parts) == 3 and parts[1] == '1' and parts[2].startswith(second_dir) and parts[2].endswith('/' + SECOND_EXE):
                     pid2 = int(parts[0])
             if pid2:
                 break
@@ -540,7 +550,7 @@ class SheetWalk(dictation_walk.DictationWalk):
                 # Whose window is whose (walk-bdcaf2edd24e: the frame showed a company question and
                 # ax.sh's tree an open Dictation sheet): every RichOS process, and each copy's tree.
                 self.shot('second-copy-unseen.png')
-                procs = guest(self.vm, 'ps -axo pid=,ppid=,lstart=,command= | grep -F richos-tauri | grep -v -F "grep -F" || true')
+                procs = guest(self.vm, 'ps -axo pid=,ppid=,lstart=,command= | grep -E "richos-(tauri|second)" | grep -v -F "grep -E" || true')
                 trees = [f'first copy {first_pid}, second copy {pid2}, app.pid now {state.read_text().strip()}', procs]
                 for who, pid in (('first', first_pid), ('second', pid2)):
                     state.write_text(f'{pid}\n')
