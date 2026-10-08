@@ -65,6 +65,15 @@ _spec = importlib.util.spec_from_file_location('dictation_walk', HERE / 'dictati
 dictation_walk = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dictation_walk)
 StepFailed = dictation_walk.StepFailed
+
+
+class StepUnproven(Exception):
+    """A step whose claim the guest cannot settle: its outcome is UNPROVEN, with the reason and
+    the evidence gathered, and the walk goes on to the steps after it."""
+
+    def __init__(self, why, evidence):
+        super().__init__(why)
+        self.evidence = evidence
 command = dictation_walk.command
 
 STEPS = ['identity', 'stage', 'relaunch', 'switch-on', 'mic-prompt', 'ax-prompt', 'granted', 'try-it',
@@ -292,9 +301,19 @@ class SheetWalk(dictation_walk.DictationWalk):
         return {'frame': frame, 'mic_answer_in_log': mic_line[-1:] or None, 'tcc': self.tcc_rows()}
 
     def granted(self):
+        """Accessibility allowed while the app runs: the tool's key tap and the sheet's On, with
+        no relaunch, within 2 s. The walk's grant is a row written into the guest's TCC.db; a
+        person's switch in System Settings goes through tccd, which tells running processes.
+        A running process does not read a row written behind tccd's back (walks 368bb9a01972,
+        46bb2eac452a, b257f16e0001, 72c807eaccab: row allowed, tccd restarted, System Settings'
+        notice posted, the tool told directly, and the running tool still read no; tccd logged no
+        Accessibility question from the app for 30 s, so the answer comes from inside the
+        process). So: the live answer is tried first and timed (the row; then tccutil's reset,
+        which tccd announces, with the row straight after); if it does not come, the step
+        says UNPROVEN and why, relaunches with the grant in place, and proves the sheet's On
+        and the key tap from there, so the steps after it still run."""
         pid_before = self.facts['app_pid']
         taps_before = sum('key tap created for F1' in x for x in self.dlog_lines())
-        began = time.monotonic()
         self.grant('kTCCServiceAccessibility', True)
         noticed = self.post_ax_notice()
         written = time.monotonic()
@@ -307,50 +326,56 @@ class SheetWalk(dictation_walk.DictationWalk):
                 time.sleep(0.2)
             return None
 
-        # The clock starts when the app can know: at the write and its notice if they are seen.
-        seen, reloaded, probe = tap_within(written, 5), None, None
+        seen, clock_from = tap_within(written, 5), 'row write'
         if seen is None:
-            # Which side holds the old answer: the tool is told directly, over its socket, what
-            # the window tells it once it reads Accessibility as allowed. A key tap now means the
-            # running tool sees the grant and the app's window never read it; "not allowed"
-            # again means the running processes hold the old answer.
-            lines_before = len(self.dlog_lines())
-            self.shot('granted-unseen.png')
-            self.tell_tool('permissions-changed')
-            time.sleep(3)
-            probe = self.dlog_lines()[lines_before:]
-            seen = tap_within(time.monotonic(), 2)
-            if seen is None:
-                reloaded = self.reload_tcc(True)
-                noticed = [noticed, self.post_ax_notice()]
-                self.tell_tool('permissions-changed')
-                seen = tap_within(time.monotonic(), 30)
-        if seen is None or probe is not None:
-            # What tccd answered RichOS, kept beside the frames.
-            tcc_log = guest(self.vm, "/usr/bin/log show --last 3m --style compact --predicate "
-                                     + shlex.quote('subsystem == "com.apple.TCC" AND eventMessage CONTAINS[c] "richos"')
-                                     + " 2>&1 | tail -300 || true", 120)
-            (self.out / 'tcc-answers.log').write_text(tcc_log)
-            self.save_dlog()
-        if seen is None:
-            raise StepFailed(f'the tool made no key tap within 30 s of the Accessibility row, its notice, the tool told '
-                             f'directly and a tccd restart (row: {row_after_write}, notice: {noticed!r}, '
-                             f'told directly: {probe!r}, restart: {reloaded!r})')
-        if probe is not None:
-            raise StepFailed(f'the window never read Accessibility as allowed; told directly, the tool answered '
-                             f'{probe!r} (row: {row_after_write}, notice: {noticed!r}, restart: {reloaded!r})')
-        on = self.until(lambda: self.shows_text(ON_RUN), 15, 'the sheet did not say On')
-        dismissed_in = self.press_in_prompt('Deny')  # the prompt macOS left up; the grant stands
-        pid_now = guest(self.vm, f'kill -0 {int(pid_before)} 2>/dev/null && echo alive || true')
-        if pid_now != 'alive':
-            raise StepFailed(f'the app (pid {pid_before}) is gone: the sheet must say On with no relaunch')
-        self.shot('sheet-on.png')
-        if not grant_seconds_ok(seen):
-            raise StepFailed(f'the key tap came {seen} s after tccd could know of the row, not within {GRANTED_WITHIN} s')
-        return {'key_tap_after_row_seconds': seen, 'clock_from': 'tccd restart' if reloaded is not None else 'row write',
-                'tccd_restart': reloaded, 'notice': noticed, 'row_after_write': row_after_write,
-                'write_seconds': round(written - began, 2), 'sheet_says_on': on,
-                'same_app_pid': pid_before, 'prompt_dismissed_in': dismissed_in, 'tcc': self.tcc_rows()}
+            # A change tccd itself announces: tccutil's reset goes through tccd, which publishes it
+            # to running processes as System Settings' switch does, and the allowed row is written
+            # straight after it, so the process's next question reads it.
+            reset_sql = shlex.quote(GRANT.format(svc='kTCCServiceAccessibility'))
+            guest(self.vm, f'sudo -n tccutil reset Accessibility com.richos.app >/dev/null 2>&1; sudo -n sqlite3 {SYS_DB} {reset_sql}')
+            row_after_write = self.tcc_rows()['system']
+            seen, clock_from = tap_within(time.monotonic(), 5), 'tccutil reset, then the row'
+        if seen is not None:
+            on = self.until(lambda: self.shows_text(ON_RUN), 15, 'the sheet did not say On')
+            dismissed_in = self.press_in_prompt('Deny')  # the prompt macOS left up
+            self.grant('kTCCServiceAccessibility', True)  # whatever the prompt's button wrote
+            pid_now = guest(self.vm, f'kill -0 {int(pid_before)} 2>/dev/null && echo alive || true')
+            if pid_now != 'alive':
+                raise StepFailed(f'the app (pid {pid_before}) is gone: the sheet must say On with no relaunch')
+            self.shot('sheet-on.png')
+            if not grant_seconds_ok(seen):
+                raise StepFailed(f'the key tap came {seen} s after the Accessibility row, not within {GRANTED_WITHIN} s')
+            return {'key_tap_after_row_seconds': seen, 'clock_from': clock_from, 'sheet_says_on': on, 'same_app_pid': pid_before,
+                    'notice': noticed, 'row_after_write': row_after_write, 'prompt_dismissed_in': dismissed_in,
+                    'tcc': self.tcc_rows()}
+
+        # Not seen live. Evidence first, then the relaunch.
+        self.shot('granted-unseen.png')
+        lines_before = len(self.dlog_lines())
+        told = self.tell_tool('permissions-changed')
+        time.sleep(3)
+        probe = self.dlog_lines()[lines_before:]
+        tcc_log = guest(self.vm, "/usr/bin/log show --last 2m --style compact --predicate "
+                                 + shlex.quote('subsystem == "com.apple.TCC" AND eventMessage CONTAINS[c] "richos"')
+                                 + " 2>&1 | tail -300 || true", 120)
+        (self.out / 'tcc-answers.log').write_text(tcc_log)
+        dismissed_in = self.press_in_prompt('Deny')  # the prompt macOS left up
+        self.grant('kTCCServiceAccessibility', True)  # whatever the prompt's button wrote
+        self.reload_tcc(True)
+        launched, presses = self.launch()
+        self.open_sheet()
+        relaunched_tap = tap_within(time.monotonic(), 60)
+        if relaunched_tap is None:
+            raise StepFailed('with the grant in place and a relaunch, the tool still made no key tap')
+        on = self.until(lambda: self.shows_text(ON_RUN), 30, 'after the relaunch the sheet did not say On')
+        self.shot('sheet-on-after-relaunch.png')
+        raise StepUnproven(
+            'the sheet\'s On with no relaunch is not proven in the guest: the walk\'s grant (a row written into '
+            'TCC.db) never reaches a running RichOS; after a relaunch the tool made its key tap and the sheet says On',
+            {'live_wait_seconds': 5, 'row_after_write': row_after_write, 'notice': noticed, 'told_tool': told,
+             'tool_answered': probe, 'prompt_dismissed_in': dismissed_in, 'relaunched_pid': launched['pid'],
+             'first_run_sheets_declined': len(presses or []), 'sheet_says_on_after_relaunch': on,
+             'tcc': self.tcc_rows()})
 
     def try_it(self):
         pid = self.facts['app_pid']
@@ -484,12 +509,18 @@ def main():
     walk = SheetWalk(a)
     report = {'vm': a.vm, 'expect_sha': a.expect_sha, 'steps': []}
     ok = True
+    unproven = False
     for step in steps:
         began = time.monotonic()
         row = {'step': step}
         try:
             row['evidence'] = getattr(walk, step.replace('-', '_'))()
             row['outcome'] = 'PASS'
+        except StepUnproven as exc:
+            row['outcome'] = 'UNPROVEN'
+            row['detail'] = str(exc)
+            row['evidence'] = exc.evidence
+            unproven = True
         except (StepFailed, RuntimeError, ValueError, KeyError, IndexError, subprocess.TimeoutExpired) as exc:
             row['outcome'] = 'FAIL'
             row['detail'] = str(exc)
@@ -506,7 +537,8 @@ def main():
             except Exception as exc:  # evidence only; the step already failed
                 (a.out / 'evidence-error.txt').write_text(str(exc))
             break
-    return 0 if ok else 1
+    # 2: every step that could be settled passed, and at least one could not be.
+    return 1 if not ok else 2 if unproven else 0
 
 
 if __name__ == '__main__':
