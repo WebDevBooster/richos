@@ -79,7 +79,7 @@ try:
     its = items_from(lines, tmp)
     labels = sorted(i.label for i in its)
     cargo = [i for i in its if i.lane == "cargo"]
-    check(sorted(i.label for i in cargo) == ["cargo phone::", "cargo sessions::"],
+    check(sorted(i.label for i in cargo) == ["cargo --bin richos-tauri phone::", "cargo -p richos-core --lib sessions::"],
           "P1a cargo: phone::rows:: is dropped only because phone:: on the same target runs it; sessions:: stays",
           [i.label for i in cargo])
     suites = [i for i in its if i.argv[:1] == ["scripts/run-tests.sh"]]
@@ -113,6 +113,23 @@ try:
     got = sorted(i.label for i in its)
     check(got == ["operator-probes", "run-tests", "testvm"],
           "P1g a dir/test/run-tests.sh is labeled by its directory and never collides with the run-tests suite", got)
+    # P1h: two crates with a same-named module are two checks under two labels. Both were
+    # "cargo dictation::" (the filter alone), so the evidence record refused the plan as one
+    # obligation twice and the merge of cc/echo-opus-dict1 crashed before running anything
+    # (2026-10-08). The label carries the target, so the record accepts the plan.
+    its = items_from([
+        "cd richos/app && cargo test -p richos-voice --lib dictation::",
+        "cd richos/app/src-tauri && cargo test --bin richos-tauri dictation::",
+    ], tmp)
+    got = sorted(i.label for i in its)
+    try:
+        pr.proof_evidence.refuse_duplicates(its)
+        refused = ""
+    except ValueError as error:
+        refused = str(error)
+    check(len(its) == 2 and len(set(got)) == 2 and not refused,
+          "P1h one module name in two crates is two checks with two labels, and the plan is accepted",
+          "%s %s" % (got, refused))
 
     # P2 — concurrency: four checks run together, not one after another. Proved by a rendezvous,
     # never by a wall-clock bound a loaded host can miss: each check announces itself and waits

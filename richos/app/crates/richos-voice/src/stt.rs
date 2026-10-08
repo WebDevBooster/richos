@@ -163,6 +163,12 @@ fn delivered_runtime_bin() -> Option<PathBuf> {
     DELIVERED_RUNTIME_BIN.read().ok().and_then(|held| held.clone())
 }
 
+/// The directory [`set_delivered_runtime_bin`] last recorded, for a caller that hands it on to a
+/// process of its own: the dictation tool is started by the app and hears with the same decoder.
+pub fn delivered_runtime_bin_dir() -> Option<PathBuf> {
+    delivered_runtime_bin()
+}
+
 /// Where a DEVELOPER's own `whisper-cli` may be (Homebrew on Apple silicon, then Intel, then the
 /// system). Reached only when this launch has no delivered runtime, which a user's install always
 /// has once first-run setup has installed the engine.
@@ -457,6 +463,12 @@ fn overridden(model_id: String, machine: crate::hardware::Machine) -> crate::har
         ceiling_secs: crate::hardware::Costs::load().live_ceiling_secs,
         machine,
     }
+}
+
+/// The shape a person's own choice takes ([`Recognizer::for_model`]): like [`overridden`], a
+/// resolution that records the machine without pretending a rule chose anything.
+fn chosen(model_id: String, machine: crate::hardware::Machine) -> crate::hardware::Resolution {
+    crate::hardware::Resolution { basis: crate::hardware::Basis::Chosen, ..overridden(model_id, machine) }
 }
 
 /// Render the probe sentence to a 16 kHz mono WAV with macOS `say`. `None` if it cannot be done.
@@ -764,6 +776,35 @@ impl Recognizer {
         }
     }
 
+    /// **The recognizer for ONE NAMED model**, for dictation, where the person picks More
+    /// accurate or Faster himself (dictation plan section 2, "Which model runs").
+    ///
+    /// The same binary resolution and the same toolchain check as [`Recognizer::resolve`], for
+    /// `model_id`, WITHOUT [`choose_model`]: voice mode times decodes on this machine to stay
+    /// under its one-second live ceiling, and dictation must not, because the speed he trades
+    /// for accuracy is his choice and not this machine's. Weights that are not the pinned weights
+    /// refuse exactly as they do for voice. No prompt is taken from the environment: the decode
+    /// flags are `decode_args(None)`, the measured settings.
+    pub fn for_model(model_id: &str) -> Result<Recognizer, SttError> {
+        let bin = resolve_whisper_bin()?;
+        let model = resolve_model(model_id)?;
+        let toolchain = crate::toolchain::check(&bin, &model, model_id);
+        for w in toolchain.warnings() {
+            eprintln!("richos-voice: {w}");
+        }
+        if toolchain.verdict() == crate::toolchain::Severity::Refuse {
+            return Err(SttError::ToolchainRefused(toolchain.refusals().join(" ")));
+        }
+        Ok(Recognizer {
+            bin,
+            model,
+            model_id: model_id.to_string(),
+            prompt: None,
+            toolchain,
+            resolution: chosen(model_id.to_string(), crate::hardware::Machine::read()),
+        })
+    }
+
     /// One line naming the binary and the weights that heard this conversation. The answer to
     /// "which binary and which weights produced this?" for every turn this recognizer serves.
     ///
@@ -847,7 +888,9 @@ impl Recognizer {
 
 // Spool bounded decoder output to owned scratch rather than blocking on full pipes.
 // Drop always kills/reaps only this child. No process-name or USB resets are involved.
-pub(crate) fn bounded_decoder(command:&mut Command,dir:&Path,timeout:std::time::Duration)->std::io::Result<std::process::Output> {
+// `pub` since dictation: its scratch-folder tests run the real decoder handling twice in a row and
+// past its deadline (`src-tauri/src/dictation/scratch.rs`).
+pub fn bounded_decoder(command:&mut Command,dir:&Path,timeout:std::time::Duration)->std::io::Result<std::process::Output> {
     use std::{io,process::{Child,Stdio},os::unix::fs::OpenOptionsExt};
     struct Owned(Child);
     impl Drop for Owned {
@@ -928,7 +971,10 @@ pub fn is_meaningful(transcript: &str) -> bool {
 }
 
 /// Remove `[BLANK_AUDIO]`, `(upbeat music)` and friends — whisper's non-speech annotations.
-fn strip_annotations(s: &str) -> String {
+///
+/// `pub(crate)` since dictation: words it pastes into another app pass through this first
+/// (`dictation.rs`), because [`clean_transcript`] leaves the annotations in the text.
+pub(crate) fn strip_annotations(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut depth_sq = 0i32;
     let mut depth_par = 0i32;
@@ -1164,6 +1210,35 @@ mod tests {
         assert_eq!(r.model_id, "large-v3-turbo");
         assert_eq!(r.ceo_message(), None, "an engineer's own choice is not explained back to him");
         assert!(r.provenance().contains("env-override"), "{}", r.provenance());
+    }
+
+    /// INVARIANT: a model he chose is recorded as his choice, not as an engineer's override and
+    /// not as a rung the resolver took, and it is never explained back to him.
+    #[test]
+    fn a_model_he_chose_is_recorded_as_his_choice() {
+        let r = chosen("small.en".into(), crate::hardware::Machine::read());
+        assert_eq!(r.basis, crate::hardware::Basis::Chosen);
+        assert_eq!(r.model_id, "small.en");
+        assert_eq!(r.ceo_message(), None);
+        assert!(r.provenance().contains("chosen in Dictation settings"), "{}", r.provenance());
+        assert!(!r.provenance().contains("env-override"), "{}", r.provenance());
+    }
+
+    /// INVARIANT: `for_model` resolves the NAMED weights and no others. Asked for a model that
+    /// is not on this machine it says which file it looked for, rather than falling back to a
+    /// rung of its own choosing (the fallback between More accurate and Faster is dictation's
+    /// decision, in `dictation.rs`, where it is logged).
+    #[test]
+    fn for_model_refuses_a_model_that_is_not_here_by_name() {
+        let id = "no-such-model-for-dictation";
+        match Recognizer::for_model(id) {
+            Ok(_) => panic!("a model that does not exist resolved"),
+            Err(SttError::ModelNotFound(detail)) => assert!(detail.contains(&format!("ggml-{id}.bin")), "{detail}"),
+            // A machine with no whisper-cli at all refuses one step earlier, which is the same
+            // property: nothing was substituted.
+            Err(SttError::BinaryNotFound(_)) => {}
+            Err(other) => panic!("unexpected refusal: {other}"),
+        }
     }
 
     /// INVARIANT: a missing recognizer reaches the CEO as a calm line with no path in it,

@@ -1790,6 +1790,10 @@ t "video-watch-walk: a background download is read from the boot line, every set
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/video-watch-walk.test.py" >"$TMP/video-watch-walk.log" 2>&1; ok $? "$(cat "$TMP/video-watch-walk.log")"
 t_done
 
+t "dictation-walk: the expected words use stt.rs's own decode flags and annotation rule, only this payload's tool is the tool, and every step is a method"
+  PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/dictation-walk.test.py" >"$TMP/dictation-walk.log" 2>&1; ok $? "$(cat "$TMP/dictation-walk.log")"
+t_done
+
 t "permission-provider: only the exact native decision releases a request; interruption never approves"
   PYTHONDONTWRITEBYTECODE=1 python3 "$HERE/permission-provider.test.py" >"$TMP/permission-provider.log" 2>&1; ok $? "$(cat "$TMP/permission-provider.log")"
 t_done

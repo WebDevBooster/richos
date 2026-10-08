@@ -494,7 +494,11 @@ def plan(lines, args, logdir, hist):
                 k is not None and k != key and c == cwd and k[0] == key[0] and k[1] and k[1] in key[1]
                 for c, _a, k in keyed):
             continue
-        label = "cargo " + (key[1] if key and key[1] else " ".join(argv[2:]))
+        # Labeled by its target AND filter: the filter alone named `-p richos-voice --lib
+        # dictation::` and `--bin richos-tauri dictation::` both "cargo dictation::", one
+        # obligation twice, and the evidence record refused the plan (merge of cc/echo-opus-dict1,
+        # 2026-10-08). A module name is unique only inside its crate; the target names the crate.
+        label = "cargo " + " ".join(argv[2:])
         items.append(Item(label, cwd, argv, "cargo", default_weight("cargo", hist)))
     # engine: one units file, packed by the engine's planner, then the coverage proof
     if units:

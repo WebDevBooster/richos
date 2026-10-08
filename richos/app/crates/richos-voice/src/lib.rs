@@ -68,6 +68,10 @@
 pub mod aec;
 pub mod bargein;
 pub mod chunk;
+// Dictation in any app: every rule the dictation tool decides by (the key, the session, the
+// evidence gate, the decode bound, the model, the paste), pure and unit-tested; the tool's macOS
+// edges live in the Tauri shell (`src-tauri/src/dictation/`).
+pub mod dictation;
 pub mod fft;
 pub mod endpoint;
 pub mod event;

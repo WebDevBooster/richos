@@ -195,6 +195,13 @@ tauri-plugin-dialog = "2.7.1"
 # framework.
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
+# DICTATION IN ANY APP (src/dictation/, dictation plan rev 2 section 1): NSEvent's system-defined
+# data word for the Apple top row, NSPasteboard for the paste and its restore, NSProcessInfo's
+# activity against App Nap, NSRunningApplication for Finder's desktop. Reached through objc2's
+# runtime and `msg_send!` only, no framework crate and no feature: objc2 0.6.4 is already in the
+# lock beneath tauri, tao and wry (`cargo tree -i objc2`), so this is a direct edge onto an
+# existing node and the Cargo.lock diff adds no [[package]].
+objc2 = "0.6"
 
 # THE REAL DOWNLOAD, WITHOUT A WINDOW. Compiles src/voice_provision.rs by path, exactly as
 # examples/window_placement.rs compiles src/window_geometry.rs, and substitutes only the observer.
@@ -211,6 +218,21 @@ path = "examples/provision_model.rs"
 [[example]]
 name = "output_files_probe"
 path = "examples/output_files_probe.rs"
+test = true
+
+# THE DICTATION WALK'S TWO HELPERS (dictation plan section 9, slice 1), run in the test guest only:
+# `post_key` posts the Apple top row's brightness-down as the system-defined event a physical
+# Apple keyboard sends, which System Events cannot post; `key_probe` is a listen-only tap standing
+# in for open-wispr's passive observer, so the walk can prove the tool swallows the key.
+# `test = true`: each carries a test that runs with `cargo test --examples` and opens nothing.
+[[example]]
+name = "post_key"
+path = "examples/post_key.rs"
+test = true
+
+[[example]]
+name = "key_probe"
+path = "examples/key_probe.rs"
 test = true
 
 [dev-dependencies]

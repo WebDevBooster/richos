@@ -2938,6 +2938,7 @@ dependencies = [
  "libc",
  "minisign-verify",
  "notify",
+ "objc2",
  "reqwest",
  "richos-core",
  "richos-user-update",

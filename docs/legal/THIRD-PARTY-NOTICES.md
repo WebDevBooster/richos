@@ -412,6 +412,7 @@ reasoning was ours.
 | What we took | Upstream | Revision | License | Copyright | Where it landed |
 |---|---|---|---|---|---|
 | The phone outbox's retry policy and its compare-and-set write revisions, and the rule that the send path owns its own retry clock rather than borrowing the transport's | `pingdotgg/t3code` | `8ebb6112377a110afb956ac01fb44fee68f5709c` | MIT | T3 Tools Inc. | `richos/web/web-app/lib/queue.js`, `richos/web/web-app/app.js` |
+| Dictation's paste: save every clipboard item, write the words, post Command-V with V's key code found by `UCKeyTranslate` over key codes 0 to 127 on the current layout, and put the clipboard back after 1.0 s only if its change count is still the one the write produced | `human37/open-wispr`, `Sources/OpenWisprLib/TextInserter.swift` | `7ab4e62e8f182f3ecc2116e1094a1eb4416a248f` (v0.43.0) | MIT | human37 | `richos/app/src-tauri/src/dictation/insert.rs`, `richos/app/crates/richos-voice/src/dictation.rs` |
 
 **What was and was not taken, precisely.** The two numbers — double from one
 second, cap at sixteen — and the reasoning, from
@@ -423,6 +424,25 @@ theirs is React with Jotai atoms and Effect schemas, and the two share no
 shape. Each adopting site names the upstream file it was read from, in the
 comment beside the code. MIT would permit copying with attribution; we did not
 need to.
+
+**open-wispr's paste, translated rather than copied.** Its `TextInserter` is Swift; dictation's
+is Rust, reaching the same AppKit, CoreGraphics and Carbon calls through FFI, so no line of theirs
+is in this repository. The logic is theirs, translated, and its MIT notice is: *Copyright (c) 2026
+human37. Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions: The above copyright notice
+and this permission notice shall be included in all copies or substantial portions of the
+Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE
+AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.* Added around
+it, and ours: the no-text-box check, the spacing rule and the `org.nspasteboard.TransientType`
+marker (dictation plan, `richos-hq/docs/plans/2026-10-08-dictation-anywhere.md`, section 5 and
+section 7). The file at that commit was compared with the audited checkout on 2026-10-08 and is
+the same.
 
 Read for RichOS by Reed on 2026-09-18 and 2026-09-19 —
 `richos-hq/docs/research/t3code-mobile-vs-richos-phone-2026-09-18.md` §1 item 6
