@@ -55,7 +55,12 @@ serde_json = "1"
 
 [dependencies]
 notify = "8.2"
-tauri = { version = "2", features = [] }
+# DICTATION'S BAR AND MENU BAR ITEM (dictation plan rev 2, slice 3, Frank's minor 4): `tray-icon` for
+# the menu bar item, `macos-private-api` for the bar's and the flight's transparent windows, which
+# `tauri-build` checks against `"macOSPrivateApi": true` under `app` in tauri.conf.json. Both
+# switch on code inside packages already in Cargo.lock (tray-icon 0.24.2, muda 0.19.3); the
+# Cargo.lock diff of this change adds no [[package]].
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 richos-core = { path = "../crates/richos-core" }
