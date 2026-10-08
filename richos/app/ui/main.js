@@ -6087,8 +6087,8 @@ setupStartEl.addEventListener("click", () => {
 // ruled that "the user must always be able to close any popup of any kind by simply tapping
 // the escape key", and this sheet is a popup. What keeps the paragraph above true is the FORM
 // of the declaration rather than an exception to his rule: `data-dismiss` on the element names
-// "Not now" and "Close", so Escape presses whichever of them is on screen and does NOTHING
-// when neither is. That is the named way out, reached by the keyboard — never a second,
+// "Not now", "Close" and round 19's "Start", so Escape presses whichever of them is on screen
+// and does NOTHING when none is. That is the named way out, reached by the keyboard — never a second,
 // quieter way out that the buttons do not have. During the install itself both buttons are
 // hidden, so Escape is inert exactly then, which is the moment the defect above was about.
 // `setup.js` case 14 holds all of it: the backdrop, the panel body, Escape mid-install, and
