@@ -108,7 +108,10 @@ def fetch_pinned(url, wanted, label):
 # bytes for the 34 listed in the recipe), more than twice today's whole engine asset, so it is not
 # copied into every user's runtime the way git's one tarball is. The runtime carries the license
 # text and these directions instead: every archive, pinned by SHA-256, at the exact version the
-# build used (GPLv3 section 6(d), source on a different server with clear directions).
+# build used (GPLv3 section 6(d), source on a different server with clear directions). The
+# nightly publish step (`nightly.py` `attach_gpl_sources`) attaches every one of them to each
+# RichOS release whose engine carries ffmpeg, under the row's `asset` name, which these
+# directions print; `nightly.test.py` keeps the recipe's names equal to the ones it uploads.
 def ffmpeg_source_directions(source):
     lines = [
         "bin/ffmpeg and bin/ffprobe are the unmodified static macOS arm64 build of FFmpeg "
@@ -124,9 +127,17 @@ def ffmpeg_source_directions(source):
         "its archive. x264 was built from its master branch; the commit listed is master at the build "
         "time (2026-09-20 19:18 UTC), unchanged since 2025-09-10.",
         "",
+        "Where to get it: RichOS publishes a byte-identical copy of every archive below as an asset "
+        "of each RichOS release whose engine carries these programs, under the name shown as "
+        "\"RichOS copy\", at https://github.com/WebDevBooster/richos/releases/download/<release>/<name>. "
+        "<release> is \"v\" followed by the RichOS version that installed this engine, for example "
+        "v1.2.0-nightly.20261007.45; https://github.com/WebDevBooster/richos/releases/tag/<release> "
+        "lists them. The upstream URL is where each archive was first published.",
+        "",
     ]
     for row in source["corresponding_source"]:
-        lines += [f"{row['name']} {row['version']}", f"  {row['url']}", f"  sha256 {row['sha256']}"]
+        lines += [f"{row['name']} {row['version']}", f"  RichOS copy {row['asset']}",
+                  f"  upstream {row['url']}", f"  sha256 {row['sha256']}"]
     return "\n".join(lines) + "\n"
 
 

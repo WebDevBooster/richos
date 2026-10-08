@@ -467,7 +467,7 @@ SHA-256 pins are in `richos/app/scripts/runtime-sources.json`. The delivered
 | Git | 2.55.0 | `runtime/sources/GIT-COPYING` and exact corresponding source `git-2.55.0.tar.xz` |
 | GNU libiconv, statically linked into Git | 1.18 | `runtime/sources/ICONV-COPYING.LIB` and exact corresponding source `libiconv-1.18.tar.gz` |
 | whisper.cpp (`whisper-cli`, with the ggml it vendors statically linked), MIT | 1.9.1 | `runtime/sources/WHISPER-CPP-LICENSE`; built from the pinned upstream source archive |
-| FFmpeg (`ffmpeg`, `ffprobe`), static macOS arm64 build by Martin Riedl, GPL-3.0-or-later | 9.0.2 | `runtime/sources/FFMPEG-COPYING.GPLv3`; directions to the exact corresponding source in `runtime/sources/FFMPEG-SOURCE.txt` |
+| FFmpeg (`ffmpeg`, `ffprobe`), static macOS arm64 build by Martin Riedl, GPL-3.0-or-later | 9.0.2 | `runtime/sources/FFMPEG-COPYING.GPLv3`; directions to the exact corresponding source in `runtime/sources/FFMPEG-SOURCE.txt`, and a copy of every archive attached to the RichOS release |
 
 ### FFmpeg: a third party's static build, and where its source is
 
@@ -499,12 +499,24 @@ the `master` branch, so the listed commit is `0480cb05`, which was master at
 the build time and still is. rav1e's Rust dependencies are fixed by the
 `Cargo.lock` inside its archive.
 
-**What is still open.** Those archives are hosted by their upstream projects,
-not by RichOS. GPLv3 6(d) leaves the distributor responsible for keeping the
-source available as long as the programs are distributed, so the durable step
-is to publish the 34 archives (and the ffmpeg zips, which today come from one
-person's site) beside the engine asset on the RichOS release. That is a
-release-publishing step and is not done yet.
+**The RichOS release carries a copy of every archive.** GPLv3 6(d) leaves the
+distributor responsible for keeping the source available as long as the
+programs are distributed, so RichOS does not rely on the upstream hosts: every
+RichOS release whose engine carries ffmpeg also carries, beside the engine
+asset, a byte-identical copy of each of the 34 archives, named
+`ffmpeg-source-<name>-<version>.tar.<gz|xz|bz2>` (for example
+`ffmpeg-source-x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.gz`), at
+`https://github.com/WebDevBooster/richos/releases/download/<release>/<name>`.
+`FFMPEG-SOURCE.txt` gives each archive's release name next to its upstream URL
+and SHA-256. The nightly publish step attaches them (`nightly.py`
+`attach_gpl_sources`, run by `finish` before the release is verified and before
+any channel points at it), reading the list from the engine archive being
+published, checking each archive against its SHA-256 and checking every
+uploaded copy against GitHub's digest. The first release to carry ffmpeg,
+`v1.2.0-nightly.20261007.45`, was published before that step existed; the same
+function (`nightly.py attach-gpl-sources`) attached its copies on 2026-10-08.
+Its runtime's `FFMPEG-SOURCE.txt` predates the release names and lists the
+upstream URLs only; the copies on that release carry the same SHA-256s.
 
 The Git, libiconv and whisper.cpp build instructions are the public runtime build script.
 Git is built with a relocatable prefix and system libraries; libiconv is built

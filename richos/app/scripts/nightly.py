@@ -15,9 +15,10 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import tomllib
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[3]
 APP = Path("richos/app")
@@ -955,6 +956,181 @@ def stage_candidate_engine(archive, name, url):
     verify_served_asset(url, archive)
 
 
+# =======================================================================================
+# THE FFMPEG THE ENGINE CARRIES IS PUBLISHED WITH ITS SOURCE
+# =======================================================================================
+#
+# Since richos ec12621f8 the engine runtime carries ffmpeg and ffprobe, an upstream static
+# build distributed under GPLv3 or later (docs/legal/THIRD-PARTY-NOTICES.md). GPLv3 makes
+# the distributor answer for the corresponding source as long as the programs are
+# distributed, so every release whose engine carries them also carries, as assets of its
+# own, every archive the runtime lists under `corresponding_source`, byte for byte.
+#
+# The list is read from INSIDE the engine archive being published, never from the tree,
+# so what is attached is the source of what shipped. Each archive is downloaded once into
+# a cache on /Volumes/E1TB (304,272,357 bytes for the 34 of FFmpeg 9.0.2, measured
+# 2026-10-07) and checked against its SHA-256 on every use. It is uploaded only if the
+# release lacks it, every copy is then checked against GitHub's digest, and an asset that
+# holds other bytes is refused, never clobbered. `finish` runs this before verify-assets,
+# so no channel moves to a release whose source is missing; `attach-gpl-sources` runs the
+# same function for a release that was published before this existed.
+ENGINE_GPL_PROGRAMS = ("engine/runtime/bin/ffmpeg", "engine/runtime/bin/ffprobe")
+ENGINE_RUNTIME_RECIPE = "engine/runtime/runtime-sources.json"
+GPL_SOURCE_CACHE = "/Volumes/E1TB/caches/richos-gpl-sources"
+SOURCE_ARCHIVE_SUFFIX = re.compile(r"\.tar\.(gz|xz|bz2)(?=/|$)")
+
+
+def ffmpeg_source_asset(row):
+    """`ffmpeg-source-<name>-<version>.tar.<gz|xz|bz2>`, the release asset of one archive.
+
+    Not the upstream file name: several are bare tags (`v1.6.0.tar.gz`, `4.2.tar.gz`) and
+    zvbi's is `download`, so they would collide or say nothing.
+    """
+    stem = f"{row['name']}-{row['version']}"
+    suffix = SOURCE_ARCHIVE_SUFFIX.search(urlsplit(row["url"]).path)
+    if not suffix or not re.fullmatch(r"[A-Za-z0-9._-]+", stem):
+        raise ValueError(f"cannot name a release asset for {row['name']} {row['version']} "
+                         f"at {row['url']}")
+    return f"ffmpeg-source-{stem}{suffix.group(0)}"
+
+
+def engine_gpl_sources(archive):
+    """The corresponding-source rows the engine archive's own runtime lists, each with its
+    `asset` name, or [] when the engine carries neither ffmpeg nor ffprobe."""
+    carries, recipe = False, None
+    with tarfile.open(archive, "r:gz") as tar:
+        for member in tar:
+            name = member.name.removeprefix("./")
+            if name in ENGINE_GPL_PROGRAMS:
+                carries = True
+            elif name == ENGINE_RUNTIME_RECIPE and member.isfile():
+                recipe = json.loads(tar.extractfile(member).read())
+    if not carries:
+        return []
+    rows = (recipe or {}).get("sources", {}).get("ffmpeg", {}).get("corresponding_source")
+    if not rows:
+        raise ValueError(f"{Path(archive).name} carries ffmpeg but its runtime lists no "
+                         "corresponding source, and a GPL program is never published without it")
+    named = []
+    for row in rows:
+        asset = ffmpeg_source_asset(row)
+        if row.get("asset", asset) != asset:
+            raise ValueError(f"the runtime names {row['name']}'s release copy {row['asset']}, "
+                             f"but this step publishes it as {asset}")
+        if not re.fullmatch(r"[0-9a-f]{64}", row.get("sha256", "")):
+            raise ValueError(f"{row['name']} has no SHA-256 pin")
+        named.append({**row, "asset": asset})
+    if len({row["asset"] for row in named}) != len(named):
+        raise ValueError("two corresponding-source archives share one release asset name")
+    return named
+
+
+def fetch_source_archive(url, path):
+    # A named User-Agent: some upstreams refuse the default ones (build-runtimes.py's
+    # USER_AGENT note). The pinned sha256 is what is trusted, never the server. A stalled
+    # connection fails in a minute and is retried: measured 2026-10-08, one zlib.net fetch
+    # sat with no byte for minutes while the same URL answered a fresh request in 1.3 s.
+    subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error",
+                    "--retry", "3", "--retry-all-errors", "--connect-timeout", "30",
+                    "--speed-limit", "1024", "--speed-time", "60", "--max-time", "1800",
+                    "--user-agent", "richos-nightly", "--output", str(path), url], check=True)
+
+
+def source_mirrors():
+    """{sha256: [url, ...]}: other places the committed recipe says those exact bytes are.
+
+    Read from this checkout, not the engine, so a release published before a mirror was
+    recorded still gets it. Measured 2026-10-08: code.videolan.org answered the pinned
+    dav1d URL with an Anubis "not a bot" page, while GitHub's mirror archive of the same
+    tag was byte-identical to the pin. The sha256 is what is trusted, never the host.
+    """
+    try:
+        recipe = json.loads((ROOT / APP / "scripts/runtime-sources.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    rows = recipe.get("sources", {}).get("ffmpeg", {}).get("corresponding_source", [])
+    return {row["sha256"]: list(row.get("mirrors", [])) for row in rows}
+
+
+def cached_gpl_source(row, cache, mirrors=()):
+    """`cache/<asset>`, downloaded on first use and checked against its pin on every use."""
+    path = Path(cache) / row["asset"]
+    if path.is_file() and sha256_file(path) == row["sha256"]:
+        return path
+    partial = Path(cache) / f".{row['asset']}.partial"
+    print(f"Fetching the source of {row['name']} {row['version']}...", flush=True)
+    refusals = []
+    try:
+        for url in (row["url"], *mirrors):
+            partial.unlink(missing_ok=True)
+            try:
+                fetch_source_archive(url, partial)
+            except subprocess.CalledProcessError as error:
+                refusals.append(f"{url} failed (curl exit {error.returncode})")
+                continue
+            got = sha256_file(partial)
+            if got == row["sha256"]:
+                partial.replace(path)
+                return path
+            refusals.append(f"{url} served sha256 {got}")
+    finally:
+        partial.unlink(missing_ok=True)
+    raise ValueError("; ".join(refusals) + f", not the pinned {row['sha256']}")
+
+
+def attach_gpl_sources(tag, engine):
+    """Attach the corresponding source of the GPL programs in `engine` to release `tag`."""
+    engine = Path(engine)
+    rows = engine_gpl_sources(engine)
+    if not rows:
+        return []
+    release = get_release(tag)
+    if not release or release.get("draft"):
+        raise ValueError(f"{tag} is not a published release; nothing was attached")
+    cache = Path(os.environ.get("RICHOS_GPL_SOURCE_CACHE") or GPL_SOURCE_CACHE)
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise ValueError(f"cannot create the GPL source cache {cache} ({error}); "
+                         "is /Volumes/E1TB mounted?") from None
+    # Every archive is verified before the first upload, so a bad pin attaches nothing,
+    # and every one is tried, so one run names every archive that could not be had.
+    files, failed, mirrors = [], [], source_mirrors()
+    for row in rows:
+        try:
+            files.append(cached_gpl_source(row, cache, mirrors.get(row["sha256"], ())))
+        except (ValueError, subprocess.CalledProcessError) as error:
+            failed.append(f"{row['name']} {row['version']}: {error}")
+    if failed:
+        raise ValueError(f"{len(failed)} of {len(rows)} corresponding-source archives could not "
+                         f"be had, so nothing was attached to {tag}:\n  " + "\n  ".join(failed))
+
+    def digests():
+        return {asset["name"]: asset.get("digest") for asset in release_assets(release["id"])}
+
+    published = digests()
+    if published.get(engine.name) != f"sha256:{sha256_file(engine)}":
+        raise ValueError(f"{tag} does not carry this {engine.name}; source is attached only "
+                         "beside the engine it belongs to")
+    for row, path in zip(rows, files):
+        if row["asset"] in published:
+            continue
+        try:
+            execute("gh", "release", "upload", tag, "--repo", REPO, str(path))
+        except subprocess.CalledProcessError:
+            if row["asset"] not in digests():
+                raise
+    published = digests()
+    wrong = [row["asset"] for row in rows
+             if published.get(row["asset"]) != f"sha256:{row['sha256']}"]
+    if wrong:
+        raise ValueError(f"{tag}: these source assets are missing or hold other bytes, and are "
+                         f"never overwritten: {', '.join(wrong)}")
+    print(f"{tag}: {len(rows)} corresponding-source archives attached, each matching its "
+          "SHA-256", flush=True)
+    return rows
+
+
 def ensure_version_tag(info):
     ref = f"refs/tags/{info['tag']}"
     current = git("ls-remote", "origin", ref).split()
@@ -1134,6 +1310,8 @@ def finish(info, out):
     else:
         execute("gh", "release", "upload", info["tag"], "--repo", REPO, *assets)
         execute("gh", "release", "upload", info["tag"], "--repo", REPO, str(out / "latest.json"))
+    # GPL: an engine carrying ffmpeg goes out with its source, before anything points here.
+    attach_gpl_sources(info["tag"], out / f"richos-engine-{engine_version}.tar.gz")
     # This validates published bytes and their updater signature before the pointer moves.
     execute("bash", release, "verify-assets", "--out", str(out))
     manifest = json.loads((out / "latest.json").read_text())
@@ -1454,8 +1632,15 @@ def main():
     p = sub.add_parser("run")
     p.add_argument("--plan", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
+    p = sub.add_parser("attach-gpl-sources",
+                       help="attach the FFmpeg corresponding source to an already-published release")
+    p.add_argument("--tag", required=True)
+    p.add_argument("--engine", type=Path, required=True,
+                   help="that release's engine archive, byte-identical to its published asset")
     args = parser.parse_args()
-    if args.command == "release-smoke":
+    if args.command == "attach-gpl-sources":
+        attach_gpl_sources(args.tag, args.engine.resolve())
+    elif args.command == "release-smoke":
         release_smoke(args.out.resolve())
     elif args.command == "stable-plan":
         info = stable_plan(args.from_nightly, (ROOT / PROMOTIONS).read_text()
