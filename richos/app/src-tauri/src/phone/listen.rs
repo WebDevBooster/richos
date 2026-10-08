@@ -1121,6 +1121,9 @@ mod tests {
         let port = listener.bound[0].port();
         assert!(bind_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).is_err(),
                 "reuse of a retired socket must not permit two live listeners");
+        #[cfg(unix)]
+        assert_eq!(listening_fds_in_this_process(port).map(|fds| fds.len()), Ok(1),
+                   "the descriptor scan does not see the running listener, so its empty answer after stop would prove nothing");
         let body = br#"{"client_id":"held-1","text":"hello from the phone"}"#.to_vec();
         let sig = super::super::b64url(&phone.sign(&signing_string(&challenge, "POST", "/api/messages", &body)));
         let authorization = format!("RichOS-Device {}.{challenge}.{sig}", device.id);
@@ -1154,7 +1157,11 @@ mod tests {
         let took = began.elapsed();
         // Use the same socket options as the next real pairing. A default
         // socket also rejects retired accepted connections in TIME_WAIT.
-        let port_free = bind_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).is_ok();
+        let port_free = if returned {
+            port_released_by_stop(port, || bind_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port))))
+        } else {
+            Ok(())
+        };
         {
             let (open, changed) = &*gate;
             *open.lock().unwrap() = true;
@@ -1162,8 +1169,177 @@ mod tests {
         }
         sender.join().unwrap();
         assert!(returned, "stopping the listener was still waiting after {took:?} for a request it was handling");
-        assert!(port_free, "the port was still held when stop returned");
+        if let Err(why) = port_free {
+            panic!("the port was still held when stop returned: {why}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// How long a port may stay bound by a child process that is still being started.
+    ///
+    /// **WHY THERE IS A BOUND AT ALL** (`stopping_the_listener_does_not_wait_for_a_request_still_being_handled`
+    /// failed twice in full `cargo test --bin richos-tauri` merge gates on 2026-10-08, and passed
+    /// alone). Starting a child copies the parent's whole descriptor table into it, and the copy
+    /// lets go of the close-on-exec descriptors only when the child's `exec` completes. A listening
+    /// socket this process closes inside that window stays bound to its port until then, although
+    /// nothing in this process holds it any more. Other tests in the same binary start children
+    /// (`/bin/sleep`, `/bin/kill`, `lsof`, helper scripts), so a test that rebinds the instant
+    /// `stop` returns loses that race now and then. Measured on this Mac (2026-10-08) by
+    /// `a_port_stop_released_can_stay_bound_while_another_thread_starts_a_child`: instant rebinds
+    /// after the real Connect listener's `stop` were refused 0 of 300 times with no child starting
+    /// and 28 of 300 beside four threads starting children, and in every refused round the
+    /// descriptor scan found no socket of this process on the port. A one-off probe timed the
+    /// refusals: every port was free again within 1 ms (the longest 953 µs of 30 refusals).
+    /// macOS gives no way to take a port back from
+    /// that copy: `SHUT_RDWR` on a listening socket returns `ENOTCONN` there. Two seconds is the
+    /// margin for a heavily loaded Mac, and far below how long a socket `stop` really leaked
+    /// would hold the port.
+    const CHILD_START_HOLD_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+    /// **THE PORT IS RELEASED BY `stop`: checked as what `stop` controls, then as what the next
+    /// pairing sees.** First, with no timing in it, no socket left in THIS process listens on
+    /// the port. Then `rebind` must succeed within [`CHILD_START_HOLD_BOUND`], which only a child
+    /// still being started by another thread can stretch past the first try.
+    fn port_released_by_stop(port: u16, rebind: impl Fn() -> std::io::Result<StdTcpListener>) -> Result<(), String> {
+        #[cfg(unix)]
+        {
+            let ours = listening_fds_in_this_process(port)?;
+            if !ours.is_empty() {
+                return Err(format!("this process still has a socket listening on port {port} (descriptors {ours:?})"));
+            }
+        }
+        let began = std::time::Instant::now();
+        loop {
+            match rebind() {
+                Ok(_) => return Ok(()),
+                Err(error) if began.elapsed() >= CHILD_START_HOLD_BOUND => {
+                    return Err(format!(
+                        "no socket in this process listens on port {port}, yet it could not be bound again for {:?}: {error}",
+                        began.elapsed()
+                    ))
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(1)),
+            }
+        }
+    }
+
+    /// The descriptors of this process that are TCP sockets bound to `port` with no peer: a
+    /// listener, or anything else that would refuse the next bind. (`SO_ACCEPTCONN`, the direct
+    /// question, answers `ENOPROTOOPT` on macOS.)
+    #[cfg(unix)]
+    fn listening_fds_in_this_process(port: u16) -> Result<Vec<i32>, String> {
+        let entries = std::fs::read_dir("/dev/fd").map_err(|e| format!("could not list this process's descriptors: {e}"))?;
+        let mut found = Vec::new();
+        for entry in entries.flatten() {
+            let Some(fd) = entry.file_name().to_str().and_then(|n| n.parse::<i32>().ok()) else { continue };
+            // SAFETY: a zeroed sockaddr_storage is valid, and both calls write at most the length
+            // passed. A descriptor closed or reused by another thread meanwhile only fails the
+            // call or describes that other socket.
+            let mut address: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+            let mut length = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+            if unsafe { libc::getsockname(fd, (&mut address as *mut libc::sockaddr_storage).cast(), &mut length) } != 0 {
+                continue;
+            }
+            let bound = match i32::from(address.ss_family) {
+                libc::AF_INET => u16::from_be(unsafe { (*(&address as *const libc::sockaddr_storage).cast::<libc::sockaddr_in>()).sin_port }),
+                libc::AF_INET6 => u16::from_be(unsafe { (*(&address as *const libc::sockaddr_storage).cast::<libc::sockaddr_in6>()).sin6_port }),
+                _ => continue,
+            };
+            if bound != port {
+                continue;
+            }
+            let mut kind: libc::c_int = 0;
+            let mut size = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+            let stream = unsafe {
+                libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_TYPE, (&mut kind as *mut libc::c_int).cast(), &mut size)
+            } == 0 && kind == libc::SOCK_STREAM;
+            // No peer is what makes a bound socket block the bind: a connection on the same port
+            // (one the listener accepted, now in TIME_WAIT) does not.
+            let mut peer: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+            let mut peer_length = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+            let connected = unsafe { libc::getpeername(fd, (&mut peer as *mut libc::sockaddr_storage).cast(), &mut peer_length) } == 0;
+            if stream && !connected {
+                found.push(fd);
+            }
+        }
+        Ok(found)
+    }
+
+    /// **THE RACE ITSELF, ON DEMAND.** Not part of the normal run: it starts hundreds of
+    /// children, which is exactly the disturbance the rest of the binary must not be given.
+    /// Run: `cargo test --bin richos-tauri a_port_stop_released -- --ignored --nocapture`.
+    /// The real Connect listener is started and stopped 300 times alone, then 300 times beside
+    /// four threads that keep starting `/bin/sleep`. It prints how many instant rebinds were
+    /// refused in each (the check the merge gates tripped on), and fails if
+    /// [`port_released_by_stop`] is refused even once.
+    #[test]
+    #[ignore]
+    #[cfg(unix)]
+    fn a_port_stop_released_can_stay_bound_while_another_thread_starts_a_child() {
+        use crate::phone::{api_base::ApiBaseDesk, device::{DeviceDesk, PairedVia}, routes::{Bridge, Accepted, StopSwitch}, stream::PhoneHub};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct Quiet;
+        impl Bridge for Quiet {
+            fn submit_text(&self, _: Option<&str>, _: &str, _client_id: &str) -> Result<Accepted, String> { Err("unused".into()) }
+            fn snapshot(&self, _: Option<&str>) -> Result<serde_json::Value, String> { Ok(serde_json::json!({})) }
+            fn current_thread(&self) -> Option<(String, String)> { None }
+            fn threads(&self) -> Vec<(String, String)> { vec![] }
+        }
+        let dir = std::env::temp_dir().join(format!("stop-spawn-race-{}-{}", std::process::id(), super::super::now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let channel = Arc::new(Channel {
+            devices: Arc::new(DeviceDesk::open(&dir).unwrap()), rejected: StopSwitch::unwired(),
+            api_base: Arc::new(ApiBaseDesk::only("https://example.invalid")), hub: PhoneHub::new(),
+            bridge: Arc::new(Quiet), assets: super::super::assets::PhoneApp::embedded(),
+            vapid_public: String::new(), fingerprint_hex: String::new(),
+            pairing_path: std::sync::Mutex::new(PairedVia::CONNECT),
+        });
+        let rounds = 300;
+        let run = || {
+            let (mut instant_refusals, mut failures) = (0, Vec::new());
+            for _ in 0..rounds {
+                let mut listener = Listener::start_connect(Arc::clone(&channel), 0).expect("the Connect listener did not start");
+                let port = listener.bound[0].port();
+                assert_eq!(listening_fds_in_this_process(port).map(|fds| fds.len()), Ok(1), "the scan does not see the running listener");
+                listener.stop();
+                let rebind = || bind_listener(SocketAddr::from((Ipv4Addr::LOCALHOST, port)));
+                if rebind().is_err() {
+                    instant_refusals += 1;
+                }
+                if let Err(why) = port_released_by_stop(port, rebind) {
+                    failures.push(why);
+                }
+            }
+            (instant_refusals, failures)
+        };
+        // THE CONTROL: the same rounds with no child being started anywhere in the test.
+        let (quiet_refusals, quiet_failures) = run();
+        let done = Arc::new(AtomicBool::new(false));
+        let starters: Vec<_> = (0..4).map(|_| {
+            let done = Arc::clone(&done);
+            std::thread::spawn(move || {
+                let mut children = Vec::new();
+                while !done.load(Ordering::SeqCst) {
+                    if let Ok(child) = std::process::Command::new("/bin/sleep").arg("1")
+                        .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null()).spawn()
+                    {
+                        children.push(child);
+                    }
+                    if children.len() > 40 {
+                        for mut child in children.drain(..20) { child.kill().ok(); child.wait().ok(); }
+                    }
+                }
+                for mut child in children { child.kill().ok(); child.wait().ok(); }
+            })
+        }).collect();
+        let (instant_refusals, failures) = run();
+        done.store(true, Ordering::SeqCst);
+        for starter in starters { starter.join().unwrap(); }
+        std::fs::remove_dir_all(dir).unwrap();
+        println!("no child starting: instant rebind refused in {quiet_refusals} of {rounds}; port_released_by_stop refused in {} of {rounds}", quiet_failures.len());
+        println!("children starting: instant rebind refused in {instant_refusals} of {rounds}; port_released_by_stop refused in {} of {rounds}", failures.len());
+        assert!(quiet_failures.is_empty() && failures.is_empty(), "port_released_by_stop refused: {quiet_failures:?} {failures:?}");
     }
 
     #[test]
@@ -2231,12 +2407,15 @@ mod tests {
         );
 
         // 8. STOPPING THE CHANNEL FREES THE PORT. "Off means no socket, not a closed door" — the
-        //    proof is that the port can be bound again the instant `stop()` returns.
+        //    proof is that no socket of ours listens on it once `stop()` returns, and that it can
+        //    be bound again (past a child another test may be starting: `port_released_by_stop`).
+        #[cfg(unix)]
+        assert_eq!(listening_fds_in_this_process(https_port).map(|fds| fds.len()), Ok(1),
+                   "the descriptor scan does not see the running listener, so its empty answer after stop would prove nothing");
         listener.stop();
-        assert!(
-            std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, https_port)).is_ok(),
-            "the port was still held after stop() returned"
-        );
+        if let Err(why) = port_released_by_stop(https_port, || std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, https_port))) {
+            panic!("the port was still held after stop() returned: {why}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
