@@ -70,7 +70,8 @@ command = dictation_walk.command
 words_of = dictation_walk.words_of
 
 STEPS = ['identity', 'stage', 'check-window', 'check-panel', 'relaunch', 'settle', 'frames', 'fullscreen', 'menu',
-         'nofield', 'nosound', 'apps', 'chromium', 'accuracy-mid', 'window-closed', 'quit-listening', 'quit-writing']
+         'nofield', 'nosound', 'apps', 'chromium', 'accuracy-mid', 'window-closed', 'quit-listening', 'quit-writing',
+         'menu-fresh']
 TEXTEDIT = 'com.apple.TextEdit'
 # The bar's drawn lines as the guest's tesseract should find them (a fragment of each, so a
 # line break or an apostrophe read as a quote does not decide the step).
@@ -131,6 +132,8 @@ class BarWalk(dictation_walk.DictationWalk):
         self.long = self.home + '/dictation-long.wav'
         self.silent = self.home + '/dictation-silent.wav'
         self.frames_dir = self.payload + '/frames'
+        self.opens = []
+        self.presses_to_open = 0
 
     # --- helpers ------------------------------------------------------------------------------
     def dlog_lines(self):
@@ -468,7 +471,95 @@ class BarWalk(dictation_walk.DictationWalk):
         out = super().chromium()
         flew = [x for x in self.dlog_lines()[since:] if 'the words flew to' in x]
         out['flight'] = flew[-1].split(' ', 1)[-1] if flew else 'no flight: the app gave Accessibility no rectangle, so the bar said Added alone'
+        # Chrome's first run posts macOS notification banners at the top right, at the item's own
+        # x (walk-e7b42c44d5d8's frame); recorded here, left in place, so the next step's press
+        # meets what a person's press after Chrome's first run meets (see open_menu_from_item).
+        out['banners'] = self.banners()
         return out
+
+    def banners(self):
+        """Notification Center's banner windows, position and size, as System Events reports them."""
+        try:
+            return self.osa('tell application "System Events" to tell process "NotificationCenter" to get {position, size} of windows', 20)
+        except (StepFailed, RuntimeError, subprocess.TimeoutExpired) as exc:
+            return f'(unread: {str(exc)[:120]})'
+
+    def clear_banners(self):
+        """Notification banners dismissed (NotificationCenter restarted by launchd), with their
+        geometry recorded before and after."""
+        before = self.banners()
+        guest(self.vm, 'killall NotificationCenter 2>/dev/null || true')
+        time.sleep(3)
+        return {'banners_before': before, 'banners_after': self.banners()}
+
+    def item_answers(self, tool_pid):
+        """Whether the tool's main thread answers Accessibility for its menu bar item (System Events
+        reads the item through that thread): its frame, or the refusal, within 20 s."""
+        script = (f'tell application "System Events" to tell (first process whose unix id is {int(tool_pid)}) to '
+                  'get {position, size} of menu bar item 1 of menu bar 2')
+        try:
+            return self.osa(script, 25)
+        except (StepFailed, RuntimeError, subprocess.TimeoutExpired) as exc:
+            return f'(no answer: {str(exc)[:160]})'
+
+    def open_menu_from_item(self, since):
+        """The menu opened by a press on the item, as a person presses it: once; and when that press
+        reaches nothing within 5 s, what sat over the item is recorded (the item's own event lines,
+        Notification Center's banner windows, whether the tool's main thread still answers for the
+        item), the banners are dismissed, and the item is pressed once more. Every press that opened
+        nothing so far came after Chrome's first run had posted banners at the item's x
+        (walk-c409831e46f9, walk-8dcad10d445b, walk-3520f87af8f9, walk-e7b42c44d5d8), fresh tool or
+        warm; every press before Chrome opened the menu. Returns the evidence; raises with it when
+        the second press opens nothing either."""
+        (ix, iy), item = self.item_center()
+        tool = self.tool_pids()
+        self.click(ix, iy)
+        evidence = {'item': item, 'presses': 1}
+        try:
+            self.wait_dlog('menu bar item pressed', since, 5)
+        except StepFailed:
+            evidence['first_press'] = {
+                'item_events': [x.split(' ', 1)[-1] for x in self.dlog_lines()[since:] if 'menu bar item event' in x][-6:],
+                'banners': self.banners(),
+                'front': self.front_bundle(),
+                'item_answers': self.item_answers(tool[0]['pid']) if len(tool) == 1 else f'tools {tool}',
+            }
+            evidence['banners_cleared'] = self.clear_banners()
+            evidence['presses'] = 2
+            self.click(ix, iy)
+        try:
+            evidence['shown'] = self.wait_dlog('menu shown at', since, 10).split(' ', 1)[-1]
+        except StepFailed:
+            evidence['last_press'] = {
+                'item_events': [x.split(' ', 1)[-1] for x in self.dlog_lines()[since:] if 'menu bar item event' in x][-6:],
+                'banners': self.banners(),
+                'front': self.front_bundle(),
+                'item_answers': self.item_answers(tool[0]['pid']) if len(tool) == 1 else f'tools {tool}',
+            }
+            raise StepFailed(f'no menu after {evidence["presses"]} press(es) on the item: {evidence}')
+        self.presses_to_open = evidence['presses']
+        return evidence
+
+    def menu_fresh(self):
+        """The menu opened right after a fresh launch (fourth review, finding 2): RichOS relaunched,
+        its tool fresh, the item pressed as soon as the tool has placed it and its menu page is
+        ready, with the item's own event lines recorded so a press that opens nothing says whether
+        anything reached the item."""
+        self.fresh_runs = getattr(self, 'fresh_runs', 0) + 1
+        since = len(self.dlog_lines())
+        launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
+        self.log = launched['log']
+        self.facts['app_pid'] = launched['pid']
+        self.save()
+        tool = self.wait_tool()
+        self.wait_dlog('the menu page is ready', since, 30)
+        started = time.monotonic()
+        opened = self.open_menu_from_item(since)
+        self.grab(f'menu-fresh-{self.fresh_runs}')
+        self.key(53)
+        self.wait_dlog('menu closed', since, 10)
+        events = [x.split(' ', 1)[-1] for x in self.dlog_lines()[since:] if 'menu bar item event' in x]
+        return {'tool': tool, 'pressed_after_ready_seconds': round(time.monotonic() - started, 2), 'item_events': events[-6:], **opened}
 
     def quit_listening(self):
         return self.quit_during('listening')
@@ -548,20 +639,8 @@ class BarWalk(dictation_walk.DictationWalk):
     def choose_accuracy(self, down_presses):
         """The menu from the item, the focused row moved `down_presses` times from More accurate,
         pressed, then Escape. Returns the tool's line for the choice."""
-        (ix, iy), _ = self.item_center()
         since = len(self.dlog_lines())
-        self.click(ix, iy)
-        try:
-            self.wait_dlog('menu bar item pressed', since, 5)
-        except StepFailed:
-            # walk-c409831e46f9, accuracy-mid: a press 3 s after a fresh tool's start reached no
-            # item (no "pressed" line at all), where the menu step's press two minutes after the
-            # start has passed three times. A person presses again; the count is reported.
-            self.presses_to_open = 2
-            self.click(ix, iy)
-        else:
-            self.presses_to_open = 1
-        self.wait_dlog('menu shown at', since, 10)
+        self.opens.append(self.open_menu_from_item(since))
         time.sleep(0.6)
         for _ in range(down_presses):
             self.key(125)
@@ -574,11 +653,9 @@ class BarWalk(dictation_walk.DictationWalk):
 
     def accuracy_mid(self):
         """Finding 6: the accuracy is pinned when a dictation begins."""
-        # On the app and tool already running (the chromium step's), so the press on the item is
-        # the menu step's press, minutes into a tool's life, which has opened the menu in every
-        # run; a press seconds after a fresh tool's start under a relaunched app opened nothing
-        # in walk-c409831e46f9, walk-8dcad10d445b and walk-3520f87af8f9 (8 s settle, two presses,
-        # the activation handed back: not understood, and not what this step is about).
+        # On the app and tool already running (the chromium step's). The press on the item is
+        # open_menu_from_item's, which records what sat over the item when a press reaches
+        # nothing; the fresh-tool press is menu-fresh's own step.
         if not self.tool_pids():
             launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
             self.log = launched['log']
@@ -587,7 +664,7 @@ class BarWalk(dictation_walk.DictationWalk):
             self.wait_tool()
             time.sleep(FRESH_TOOL_SETTLE)
         # Whatever the file says, this dictation begins on More accurate.
-        self.presses_to_open = 0
+        self.opens = []
         self.choose_accuracy(0)
         presses = [self.presses_to_open]
         self.use_sample(self.long)
@@ -613,7 +690,7 @@ class BarWalk(dictation_walk.DictationWalk):
         restored = self.choose_accuracy(0)
         presses.append(self.presses_to_open)
         return {'changed_while_listening': changed, 'dictation_in_progress': first, 'next_dictation': row, 'restored': restored,
-                'presses_to_open_each_menu': presses}
+                'presses_to_open_each_menu': presses, 'menu_opens': self.opens}
 
     def window_closed(self):
         off = self.close_window_quits(False)

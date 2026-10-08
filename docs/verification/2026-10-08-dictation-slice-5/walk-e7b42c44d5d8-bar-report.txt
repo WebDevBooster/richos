@@ -1,0 +1,255 @@
+{
+  "vm": "walk-e7b42c44d5d8",
+  "expect_sha": "31f787bae",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "31f787baec3e43e166d0506780cb739582b5d537"
+      },
+      "outcome": "PASS",
+      "seconds": 0.1
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone"
+          ],
+          "system": [
+            "kTCCServiceAccessibility"
+          ]
+        },
+        "input_monitoring_row": false,
+        "wav": "/Users/admin/testvm/walk-e7b42c44d5d8/home/dictation-sample.wav",
+        "wav_seconds": 3.042,
+        "model": "/Users/admin/testvm/walk-e7b42c44d5d8/home/.config/richos/models/ggml-small.en.bin",
+        "expected_text": {
+          "small.en": "The quarterly numbers look better than we expected this morning."
+        },
+        "samples": {
+          "spoken": "/Users/admin/testvm/walk-e7b42c44d5d8/home/dictation-spoken.wav",
+          "long": "/Users/admin/testvm/walk-e7b42c44d5d8/home/dictation-long.wav",
+          "silent": "/Users/admin/testvm/walk-e7b42c44d5d8/home/dictation-silent.wav"
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 17.7
+    },
+    {
+      "step": "relaunch",
+      "evidence": {
+        "app_pid": 1415,
+        "tool": {
+          "pid": 1487,
+          "ppid": 1415,
+          "command": "/Users/admin/testvm/walk-e7b42c44d5d8/RichOS.app/Contents/MacOS/richos-tauri --richos-dictation --data-dir /Users/admin/testvm/walk-e7b42c44d5d8/home/Library/Application Support/com.richos.app --parent 1415"
+        },
+        "log": [
+          "[richos] dictation: turned on by the test switch (RICHOS_DICTATION_TEST_ON)",
+          "[richos] dictation: the tool started as this app's child (pid 1487)",
+          "[richos-dictation] dictation tool started: version 1.2.0-dev.31f787bae, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock",
+          "[richos-dictation] whisper-cli from the app's runtime at /Users/admin/testvm/walk-e7b42c44d5d8/engine/runtime/bin",
+          "[richos-dictation] dictation-bar window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] dictation-flight window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] dictation-menu window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] the bar, the flight and the menu windows are built as the panel type",
+          "[richos] dictation: connected to the tool",
+          "[richos-dictation] key tap created for F1",
+          "[richos-dictation] an app connected: version 1.2.0-dev.31f787bae, /Users/admin/testvm/walk-e7b42c44d5d8/RichOS.app, data folder /Users/admin/testvm/walk-e7b42c44d5d8/home/Library/Application Support/com.richos.app (this tool is 1.2.0-dev.31f787bae)",
+          "[richos-dictation] menu bar item at 1438,0 34x24"
+        ]
+      },
+      "outcome": "PASS",
+      "seconds": 4.4
+    },
+    {
+      "step": "settle",
+      "evidence": {
+        "voice_readiness": "[richos] voice: ready on this machine (ready) \u2014 whisper.cpp 1.9.1 bin:fe7b744a4b31 model:small.en@c6138d6d58ec | model:small.en (hw-resolved top rung, 22.057s/utt <= 1.000s) mem:2835431424B/5368709120B pressure:normal",
+        "models": [
+          "ggml-large-v3-turbo-q5_0.bin",
+          "ggml-small.en.bin",
+          "ggml-small.en.bin.part"
+        ],
+        "decoded": {
+          "large-v3-turbo-q5_0": {
+            "text": "The quarterly numbers look better than we expected this morning.",
+            "seconds": 10.2
+          },
+          "small.en": {
+            "text": "The quarterly numbers look better than we expected this morning.",
+            "seconds": 0.0
+          }
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 112.1
+    },
+    {
+      "step": "menu",
+      "evidence": {
+        "item": {
+          "from": "dictation.log",
+          "rect": [
+            1438.0,
+            0.0,
+            34.0,
+            24.0
+          ]
+        },
+        "shown": "menu shown at 1126,28 346x319",
+        "chosen": "accuracy set to small.en from the menu bar; the next dictation uses it",
+        "closed": "menu closed; the front app is pid Some(2148)",
+        "front_while_open": "com.apple.TextEdit",
+        "front_after_close": "com.apple.TextEdit",
+        "reads": [
+          "menu.png reads \"More accurate\"",
+          "menu.png reads \"Open RichOS\""
+        ],
+        "next_dictation": {
+          "key": "122",
+          "log": "2026-10-08T16:49:05Z dictation: model small.en, 3.55 s of audio, written in 28301 ms, pasted, spacing read; into com.apple.TextEdit (from Accessibility), focused element yes (AXTextArea, asked system-wide), window yes",
+          "model": "small.en",
+          "expected": "The quarterly numbers look better than we expected this morning.",
+          "clipboard_restored": true,
+          "front_samples": 122,
+          "front": "com.apple.TextEdit",
+          "press_seconds": 0.199,
+          "sample_delivered_after_seconds": 3.372,
+          "second_tap_after_delivery_seconds": 0.208
+        },
+        "textedit_after": "The quarterly numbers look better than we expected this morning."
+      },
+      "outcome": "PASS",
+      "seconds": 56.7
+    },
+    {
+      "step": "nofield",
+      "evidence": {
+        "front": "com.apple.finder",
+        "bar": {
+          "view": "problem no-text-box",
+          "frame": [
+            468,
+            817,
+            745,
+            138
+          ]
+        },
+        "log": "2026-10-08T16:49:42Z dictation: model small.en, 3.62 s of audio, written in 23904 ms, copied (no text box); into com.apple.finder (from Accessibility), focused element yes (AXGroup, asked system-wide), window yes",
+        "read": "no-text-box.png reads \"No text box was selected\""
+      },
+      "outcome": "PASS",
+      "seconds": 33.0
+    },
+    {
+      "step": "nosound",
+      "evidence": {
+        "bar": {
+          "view": "problem no-sound",
+          "frame": [
+            546,
+            817,
+            589,
+            138
+          ]
+        },
+        "log": "2026-10-08T16:49:54Z dictation of 3.01 s (3017 ms tapped): nothing written, no-sound",
+        "read": "no-sound.png reads \"hear anything\""
+      },
+      "outcome": "PASS",
+      "seconds": 13.9
+    },
+    {
+      "step": "apps",
+      "evidence": {
+        "applications": [
+          "/Applications:",
+          "Safari.app",
+          "Utilities",
+          "",
+          "/System/Applications:",
+          "App Store.app",
+          "Automator.app",
+          "Books.app",
+          "Calculator.app",
+          "Calendar.app",
+          "Chess.app",
+          "Clock.app",
+          "Contacts.app",
+          "Dictionary.app",
+          "FaceTime.app",
+          "FindMy.app",
+          "Font Book.app",
+          "Freeform.app",
+          "Home.app",
+          "Image Capture.app",
+          "Image Playground.app",
+          "iPhone Mirroring.app",
+          "Launchpad.app",
+          "Mail.app",
+          "Maps.app",
+          "Messages.app",
+          "Mission Control.app",
+          "Music.app",
+          "News.app",
+          "Notes.app",
+          "Passwords.app",
+          "Photo Booth.app",
+          "Photos.app",
+          "Podcasts.app",
+          "Preview.app",
+          "QuickTime Player.app",
+          "Reminders.app",
+          "Shortcuts.app",
+          "Siri.app",
+          "Stickies.app",
+          "Stocks.app",
+          "System Settings.app",
+          "TextEdit.app",
+          "Time Machine.app",
+          "Tips.app",
+          "TV.app",
+          "Utilities",
+          "VoiceMemos.app",
+          "Weather.app"
+        ],
+        "chromium_or_electron": "Google Chrome.app",
+        "installed_chrome": true
+      },
+      "outcome": "PASS",
+      "seconds": 31.9
+    },
+    {
+      "step": "chromium",
+      "evidence": {
+        "app": "Google Chrome.app",
+        "bundle": "com.google.Chrome",
+        "dictation": {
+          "key": "122",
+          "log": "2026-10-08T16:50:46Z dictation: model small.en, 3.23 s of audio, written in 3484 ms, pasted; into com.google.Chrome (from the workspace), focused element none (-25212) (asked system-wide), window yes",
+          "model": "small.en",
+          "expected": "The quarterly numbers look better than we expected this morning.",
+          "clipboard_restored": true,
+          "front_samples": 33,
+          "front": "com.google.Chrome",
+          "press_seconds": 0.128,
+          "sample_delivered_after_seconds": 3.084,
+          "second_tap_after_delivery_seconds": 0.155
+        },
+        "text": "The quarterly numbers look better than we expected this morning.",
+        "flight": "no flight: the app gave Accessibility no rectangle, so the bar said Added alone"
+      },
+      "outcome": "PASS",
+      "seconds": 22.3
+    },
+    {
+      "step": "accuracy-mid",
+      "outcome": "FAIL",
+      "detail": "dictation.log never said \"menu shown at\" within 10 s; its tail:\n2026-10-08T16:49:14Z every app (1) yielded the microphone for will-listen 2\n2026-10-08T16:49:14Z listening (injected wav (/Users/admin/testvm/walk-e7b42c44d5d8/home/dictation-sample.wav))\n2026-10-08T16:49:18Z bar shown: writing at 692,817 296x138\n2026-10-08T16:49:42Z dictation: model small.en, 3.62 s of audio, written in 23904 ms, copied (no text box); into com.apple.finder (from Accessibility), focused element yes (AXGroup, asked system-wide), window yes\n2026-10-08T16:49:42Z bar shown: problem no-text-box at 468,817 745x138\n2026-10-08T16:49:51Z will-listen 3 sent to 1 app(s); the microphone waits for each one's answer\n2026-10-08T16:49:51Z bar shown: listening at 579,817 523x138\n2026-10-08T16:49:51Z every app (1) yielded the microphone for will-listen 3\n2026-10-08T16:49:51Z listening (injected wav (/Users/admin/testvm/walk-e7b42c44d5d8/home/dictation-sample.wav))\n2026-10-08T16:49:54Z the microphone delivered nothing for 3.008 s; listening ended\n2026-10-08T16:49:54Z dictation of 3.01 s (3017 ms tapped): nothing written, no-sound\n2026-10-08T16:49:54Z bar shown: writing at 692,817 296x138\n2026-10-08T16:49:54Z bar shown: problem no-sound at 546,817 589x138\n2026-10-08T16:50:39Z will-listen 4 sent to 1 app(s); the microphone waits for each one's answer\n2026-10-08T16:50:39Z every app (1) yielded the microphone for will-listen 4\n2026-10-08T16:50:39Z listening (injected wav (/Users/admin/testvm/walk-e7b42c44d5d8/home/dictation-sample.wav))\n2026-10-08T16:50:39Z bar shown: listening at 579,820 523x138\n2026-10-08T16:50:43Z bar shown: writing at 692,820 296x138\n2026-10-08T16:50:46Z dictation: model small.en, 3.23 s of audio, written in 3484 ms, pasted; into com.google.Chrome (from the workspace), focused element none (-25212) (asked system-wide), window yes\n2026-10-08T16:50:46Z bar shown: added at 732,820 216x138",
+      "seconds": 16.6
+    }
+  ]
+}
