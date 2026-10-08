@@ -636,6 +636,7 @@ impl Tool {
                 self.publish();
             }
             UiEvent::ItemClicked { item } => {
+                log::line("menu bar item pressed");
                 if self.menu.is_open() {
                     self.close_menu();
                 } else if self.menu_closed_at.is_some_and(|t| t.elapsed() < REOPEN_GUARD) {

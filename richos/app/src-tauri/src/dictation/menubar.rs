@@ -34,7 +34,9 @@ pub fn build(app: &AppHandle) -> Result<TrayIcon, String> {
         .tooltip("Dictation")
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { rect, button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+            // On the press, as every menu in the macOS menu bar opens; the release is ignored.
+            // walk-37076638c6dd: a click whose release never reached the item opened nothing.
+            if let TrayIconEvent::Click { rect, button: MouseButton::Left, button_state: MouseButtonState::Down, .. } = event {
                 let app = tray.app_handle();
                 let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(2.0);
                 let p = rect.position.to_logical::<f64>(scale);
