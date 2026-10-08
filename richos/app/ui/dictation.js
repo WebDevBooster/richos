@@ -318,8 +318,16 @@
     const range = document.createRange(); range.selectNodeContents(tryBox); range.collapse(false);
     const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
   }
+  // The line under the card ("Dictation is on. Try it in the box on the right, or in any app.")
+  // is DECIDED here, where the flow reaches On, on round 19's own condition (dictation.html
+  // `turnOn`, `afterGrant`, `ss-tog`: `if (ready()) S.feedback = "on"`), and DRAWN by `sheetHtml`
+  // only once the tool holds the key and watches it (`works()`; never On without a working tool).
+  // D18 (Ray's candidate 46 walk, runs A2 and T3): deciding it on `works()` here left it unset
+  // for good, because the tool reports its key tap after the window has told it the permission
+  // changed (0.09 s after the switch in System Settings, walk-2882d6930ecc), and nothing decided
+  // it again once the tap came.
   function becameReady() {
-    feedback = works() ? "on" : feedback;
+    if (ready()) feedback = "on";
     paint();
     settle();
     placeCaret();
