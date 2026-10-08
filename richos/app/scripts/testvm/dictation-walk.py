@@ -90,6 +90,8 @@ TOOL_ARG = '--richos-dictation'
 OUTCOMES = ('dictation: model ', 'nothing written', 'did not write the words', 'could not be put in place',
             'could not be resolved', 'words copied')
 NO_TAP_EVENTS = ('"type":"key"', '"type":"system"')
+# capture.rs's line when an injected WAV's last frame has gone downstream.
+SAMPLE_ENDED = 'INJECTED INPUT ended'
 # How long one dictation may take to write, from the second tap to its log line: More accurate
 # took 46.2 s for 3.04 s of audio on a guest whose host was busy (walk-15a88cf29d54).
 DICTATION_WITHIN = 240
@@ -158,6 +160,12 @@ class DictationWalk(adopt_walk.Walk):
         answer (walk-15a88cf29d54 read them as the clipboard)."""
         return answer_of(command([HERE / 'ax.sh', self.vm, script], timeout))
 
+    def samples_delivered(self):
+        """How many times the injected sample has been delivered to the end (capture.rs says so
+        once per capture, on the app's log, which the tool shares as the app's child)."""
+        out = guest(self.vm, 'grep -c ' + shlex.quote(SAMPLE_ENDED) + ' ' + shlex.quote(self.log) + ' || true')
+        return int(out.strip() or 0)
+
     def front_bundle(self):
         return guest(self.vm, 'lsappinfo info -only bundleid "$(lsappinfo front)"').split('=')[-1].strip().strip('"')
 
@@ -224,13 +232,20 @@ class DictationWalk(adopt_walk.Walk):
         if self.front_bundle() != bundle:
             raise StepFailed(f'{bundle} is not in front before the dictation: {self.front_bundle()}')
         sampler = self.sample_front()
+        delivered_before = self.samples_delivered()
         began = time.monotonic()
         self.press(key)
         posted = time.monotonic()
-        # The sample starts playing when the first press lands, just before `press` returns. The
-        # second call starts early by one press's own cost, so it lands about 0.6 s after the
-        # sample's end: inside minor 9's 1 s, and far inside the 3.008 s a dead input takes.
-        time.sleep(max(0.0, self.seconds + 0.6 - (posted - began)))
+        # The second tap comes when the sample has been DELIVERED, not when a wall clock says it
+        # should have been: the injected source runs slow on a loaded host and never catches up
+        # (capture.rs), and walk-be1a5b4bc16d's wall-clock tap cut the sentence after 1.52 s of a
+        # 2.74 s sample. The source says when its file ends; each read of the log is one ssh
+        # round trip, so the tap lands well inside minor 9's 1 s of the sample's end.
+        while self.samples_delivered() <= delivered_before:
+            if time.monotonic() - posted > 60:
+                raise StepFailed('the sample was not delivered within 60 s of the first tap')
+            time.sleep(0.2)
+        delivered = time.monotonic()
         self.press(key)
         second = time.monotonic()
         end = time.monotonic() + DICTATION_WITHIN
@@ -259,7 +274,8 @@ class DictationWalk(adopt_walk.Walk):
             raise StepFailed(f'lsappinfo front was not {bundle} throughout: {len(fronts)} samples, others {others}')
         return {'key': key, 'log': line, 'model': model, 'expected': self.expected(model), 'clipboard_restored': True,
                 'front_samples': len(fronts), 'front': bundle, 'press_seconds': round(posted - began, 3),
-                'second_tap_after_sample_end_seconds': round(second - posted - self.seconds, 3)}
+                'sample_delivered_after_seconds': round(delivered - posted, 3),
+                'second_tap_after_delivery_seconds': round(second - delivered, 3)}
 
     def expected(self, model_id):
         """This guest's decode of the sample with `model_id`, as the tool decodes it."""

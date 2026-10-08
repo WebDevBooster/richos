@@ -79,6 +79,14 @@ class ReadingTheGuest(unittest.TestCase):
         self.assertIn('nothing written', lines[1])
         self.assertIn('did not write the words', lines[2])
 
+    def test_the_sample_is_counted_delivered_from_capture_rs_own_line(self):
+        w = self.walk_with(lambda command: '2\n' if 'INJECTED INPUT ended' in command else '')
+        w.log = '/x/app.log'
+        self.assertEqual(w.samples_delivered(), 2)
+        source = (APP / 'crates/richos-voice/src/capture.rs').read_text()
+        self.assertIn('"[richos-voice] INJECTED INPUT ended:', source.replace('\n                        ', ''))
+        self.assertIn(walk.SAMPLE_ENDED, source)
+
     def test_every_step_is_a_method(self):
         for step in walk.STEPS:
             self.assertTrue(callable(getattr(walk.DictationWalk, step.replace('-', '_'), None)), step)
