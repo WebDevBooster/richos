@@ -135,6 +135,9 @@ async function main() {
     await page.click("#dict-switch");
     await waitText(page, '[data-perm="microphone"] .dict-perm-state', "macOS is asking you");
     assertEqual(await text(page, "#dict-state"), "Waiting for you to allow the microphone…");
+    // State 7 as drawn: only the microphone is being asked; Accessibility comes after it (the
+    // first guest walk, walk-63fc2c726051, showed both rows "macOS is asking you").
+    assertEqual(await text(page, '[data-perm="accessibility"] .dict-perm-state'), "Asked when you turn it on");
     assertEqual(await page.evaluate(() => document.getElementById("set-dictation-state").textContent), "Waiting for macOS", "the row says so too");
     assertEqual(await page.getAttribute("#dict-switch", "aria-checked"), "true");
     assertEqual(await calls(page), ["dictation_set_on:true", "dictation_ask_microphone"]);

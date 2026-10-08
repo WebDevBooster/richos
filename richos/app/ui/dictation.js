@@ -59,13 +59,15 @@
   // While the window waits for System Settings, a refused permission reads as being asked; while
   // turning it on, one not asked yet is the one macOS is about to ask for, so the card and the
   // rows never disagree for the moment between two prompts.
-  function waiting(value, wait) {
+  function waiting(value, wait, next) {
     if (value === "allowed") return value;
-    if (wait || (flow && view.on && value === "unknown")) return "asking";
+    if (wait || (flow && next && view.on && value === "unknown")) return "asking";
     return value;
   }
-  const mic = () => !view ? "unknown" : waiting(view.mic, micWait);
-  const ax = () => !view ? "unknown" : waiting(view.ax, axWait);
+  // Accessibility is next only once the microphone is allowed (round 19 state 7: the microphone
+  // is being asked, Accessibility still says "Asked when you turn it on").
+  const mic = () => !view ? "unknown" : waiting(view.mic, micWait, true);
+  const ax = () => !view ? "unknown" : waiting(view.ax, axWait, view.mic === "allowed");
   // On and both allowed (round 19 `ready()`).
   const ready = () => !!view && view.on && mic() === "allowed" && ax() === "allowed";
   // Ready, and nothing outside RichOS is stopping the key (more lines `works()`).
