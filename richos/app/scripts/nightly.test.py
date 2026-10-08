@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import subprocess
 import shutil
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -135,6 +136,10 @@ class GitFixture(unittest.TestCase):
         self.releases = {n.CHANNEL_TAG: {"id": 1, "tag_name": n.CHANNEL_TAG,
                                        "prerelease": True, "draft": False}}
         self.asset_bytes = {}
+        # What the fixture's engine archive holds. A real engine is a gzipped tar, and the
+        # publish step reads it (the FFmpeg source list); a test that needs ffmpeg in the
+        # engine sets more files here before it builds.
+        self.engine_files = {"engine/VERSION": b"1.2.0\n"}
         for name, replacement in (("get_release", lambda tag: self.releases.get(tag)),
                                   ("release_assets", self.fake_release_assets),
                                   ("verify_served_asset", self.fake_verify_asset)):
@@ -145,7 +150,16 @@ class GitFixture(unittest.TestCase):
 
     def fake_release_assets(self, release_id):
         tag = next(tag for tag, release in self.releases.items() if release["id"] == release_id)
-        return [{"name": name} for stored_tag, name in self.asset_bytes if stored_tag == tag]
+        # GitHub reports every asset's digest; the FFmpeg source step compares it.
+        return [{"name": name, "digest": "sha256:" + hashlib.sha256(body).hexdigest()}
+                for (stored_tag, name), body in self.asset_bytes.items() if stored_tag == tag]
+
+    def write_engine(self, path):
+        with tarfile.open(path, "w:gz") as tar:
+            for name, body in self.engine_files.items():
+                member = tarfile.TarInfo(name)
+                member.size = len(body)
+                tar.addfile(member, io.BytesIO(body))
 
     def fake_verify_asset(self, url, path):
         tag, name = url.split("/releases/download/", 1)[1].split("/", 1)
@@ -170,7 +184,7 @@ class GitFixture(unittest.TestCase):
                 self.asset_bytes[tag, path.name] = path.read_bytes()
         elif args[0] == "bash" and args[2] == "engine":
             out = Path(args[args.index("--out") + 1])
-            (out / "richos-engine-1.2.0.tar.gz").write_bytes(b"fixture engine")
+            self.write_engine(out / "richos-engine-1.2.0.tar.gz")
         elif args[0] == "bash" and args[2] == "app":
             out = Path(args[args.index("--out") + 1])
             info = json.loads((out / "build-info.json").read_text())
@@ -638,6 +652,73 @@ class GitTests(GitFixture):
         oid, current = n.channel()
         self.assertEqual(current, info)
         self.assertEqual(json.loads(n.git("show", f"{oid}:latest.json")), self.manifest(info))
+
+    def test_an_engine_carrying_ffmpeg_is_published_with_its_corresponding_source(self):
+        """GPLv3: the release carries every archive the engine's own runtime lists.
+
+        Each is downloaded once into the cache, checked against its sha256, uploaded beside
+        the engine under a name of its own (upstream names are not unique: `v1.6.0.tar.gz`,
+        `download`), and all of it before verify-assets, so the channel never moves to a
+        release whose GPL source is missing.
+        """
+        upstream = {"https://upstream.invalid/ffmpeg-9.0.2.tar.bz2": b"ffmpeg source",
+                    "https://upstream.invalid/zvbi-0.2.35.tar.bz2/download": b"zvbi source"}
+        rows = [{"name": name, "version": version, "url": url,
+                 "sha256": hashlib.sha256(upstream[url]).hexdigest()}
+                for (name, version), url in zip((("ffmpeg", "9.0.2"), ("zvbi", "0.2.35")), upstream)]
+        recipe = {"sources": {"ffmpeg": {"version": "9.0.2", "corresponding_source": rows}}}
+        self.engine_files = {"engine/runtime/bin/ffmpeg": b"a GPL program",
+                             "engine/runtime/runtime-sources.json": json.dumps(recipe).encode()}
+        # zvbi's host answers with a bot-wall page (code.videolan.org did, 2026-10-08); the
+        # checkout's recipe names a mirror holding the pinned bytes, which is what is taken.
+        mirror = "https://mirror.invalid/zvbi-0.2.35.tar.bz2"
+        served = {**upstream, rows[1]["url"]: b"<title>Making sure you're not a bot!</title>",
+                  mirror: b"zvbi source"}
+        fetched = []
+        def fetch(url, path):
+            fetched.append(url)
+            Path(path).write_bytes(served[url])
+        cache = Path(self.temp.name) / "gpl-source-cache"
+        info = self.reserve()
+        out = Path(self.temp.name) / "with-ffmpeg"
+        fake, calls = self.fake_execute(out)
+        with patch.dict(os.environ, {"RICHOS_GPL_SOURCE_CACHE": str(cache)}), \
+                patch.object(n, "fetch_source_archive", side_effect=fetch, create=True), \
+                patch.object(n, "source_mirrors", create=True,
+                             return_value={rows[1]["sha256"]: [mirror]}), \
+                patch.object(n, "execute", side_effect=fake):
+            n.build(info, out)
+            n.finish(info, out)
+            published = {name: body for (tag, name), body in self.asset_bytes.items()
+                         if tag == info["tag"]}
+            self.assertEqual(published.get("ffmpeg-source-ffmpeg-9.0.2.tar.bz2"), b"ffmpeg source")
+            self.assertEqual(published.get("ffmpeg-source-zvbi-0.2.35.tar.bz2"), b"zvbi source")
+            source_uploads = [i for i, c in enumerate(calls) if c[:3] == ("gh", "release", "upload")
+                              and Path(c[-1]).name.startswith("ffmpeg-source-")]
+            verify = next(i for i, c in enumerate(calls) if c[0] == "bash" and c[2] == "verify-assets")
+            self.assertLess(max(source_uploads), verify)
+            self.assertEqual(n.channel()[1], info)
+            # The same step a second time (the backfill of an already-published release):
+            # nothing downloaded again, nothing uploaded again, everything re-verified.
+            uploads_before = len(calls)
+            n.attach_gpl_sources(info["tag"], out / "richos-engine-1.2.0.tar.gz")
+            self.assertEqual(len(calls), uploads_before)
+        self.assertEqual(sorted(fetched), sorted([*upstream, mirror]))
+        # An upstream that serves other bytes than the pin is refused and leaves no cache file.
+        wrong = {**rows[0], "sha256": "0" * 64, "asset": "ffmpeg-source-ffmpeg-9.0.2.tar.bz2"}
+        empty = Path(self.temp.name) / "empty-cache"
+        empty.mkdir()
+        with patch.object(n, "fetch_source_archive", side_effect=fetch), \
+                self.assertRaisesRegex(ValueError, "not the pinned"):
+            n.cached_gpl_source(wrong, empty)
+        self.assertEqual(list(empty.iterdir()), [])
+
+    def test_the_committed_recipe_names_the_assets_the_publish_step_uploads(self):
+        """FFMPEG-SOURCE.txt prints each row's `asset`; the publish step derives the name.
+        They must agree, or the directions inside the runtime point at files nobody uploads."""
+        recipe = json.loads((Path(__file__).with_name("runtime-sources.json")).read_text())
+        for row in recipe["sources"]["ffmpeg"]["corresponding_source"]:
+            self.assertEqual(row.get("asset"), n.ffmpeg_source_asset(row), row["name"])
 
     def test_finish_refuses_when_source_is_no_longer_an_ancestor_of_main(self):
         info = self.reserve()
