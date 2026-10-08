@@ -135,6 +135,11 @@ def center_of(node):
 HALF_ROW = 20.0
 
 
+def names_richos(node):
+    """A static text that says RichOS: by its value (a static text's string) or its title."""
+    return 'richos' in (str(node.get('value') or '') + ' ' + str(node.get('title') or '')).lower()
+
+
 def switch_on_the_row(names, boxes):
     """The checkbox on the same row as one of `names` (static texts): nearest vertical centers,
     within HALF_ROW. The switches in the Accessibility list carry no title (walk-943b91d5720b)."""
@@ -530,8 +535,13 @@ class SheetWalk(dictation_walk.DictationWalk):
         rows = self.settings_find('AXCheckBox', 'RichOS')
         if rows:
             return rows
-        names = [n for n in self.settings_find('AXStaticText', 'RichOS') if str(n.get('title') or '').strip() == 'RichOS']
+        # A static text's string is its AXValue, not its title (walk-350622c946bf: a title search
+        # for RichOS found no text at all): any text whose value or title says RichOS.
+        texts = self.settings_find('AXStaticText')
+        names = [n for n in texts if names_richos(n)]
         boxes = self.settings_find('AXCheckBox')
+        self.pane_seen = {'texts': [(str(n.get('value') or n.get('title') or ''), n.get('y')) for n in texts][:40],
+                          'boxes': [(n.get('x'), n.get('y'), n.get('w'), n.get('h'), n.get('value')) for n in boxes]}
         return switch_on_the_row(names, boxes)
 
     def turn_richos_on_in_accessibility(self):
@@ -552,8 +562,8 @@ class SheetWalk(dictation_walk.DictationWalk):
             raise StepFailed('System Settings did not come to the front')
         self.shot('granted-settings-pane.png')
         if not rows:
-            seen['switches'] = [str(n.get('title') or '') for n in self.settings_find('AXCheckBox')]
-            raise StepFailed(f'no RichOS switch in the Accessibility pane (switches seen: {seen["switches"]})')
+            seen['pane'] = getattr(self, 'pane_seen', None)
+            raise StepFailed(f'no RichOS switch in the Accessibility pane (texts and boxes seen: {seen["pane"]})')
         seen['row'] = rows[0]
         seen['switch_before'] = rows[0].get('value')
         x, y = center_of(rows[0])

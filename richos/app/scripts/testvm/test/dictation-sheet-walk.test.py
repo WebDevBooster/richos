@@ -61,7 +61,10 @@ class TheVerdicts(unittest.TestCase):
         # walk-943b91d5720b: five AXCheckBox nodes with no title; the rows as the frame showed
         # them (osascript 238, RichOS 280, sshd-keygen-wrapper 322, ...).
         boxes = [{'role': 'AXCheckBox', 'x': 1140, 'y': y - 10, 'w': 26, 'h': 20, 'value': i % 2} for i, y in enumerate((238, 280, 322, 364, 406))]
-        name = {'role': 'AXStaticText', 'title': 'RichOS', 'x': 758, 'y': 271, 'w': 44, 'h': 18}
+        name = {'role': 'AXStaticText', 'value': 'RichOS', 'x': 758, 'y': 271, 'w': 44, 'h': 18}
+        self.assertTrue(walk.names_richos(name), 'a static text says its string in AXValue (walk-350622c946bf)')
+        self.assertTrue(walk.names_richos({'role': 'AXStaticText', 'title': 'RichOS'}))
+        self.assertFalse(walk.names_richos({'role': 'AXStaticText', 'value': 'osascript'}))
         self.assertEqual(walk.switch_on_the_row([name], boxes), [boxes[1]])
         self.assertEqual(walk.center_of(boxes[1]), (1153.0, 280.0))
         far = dict(name, y=500)
