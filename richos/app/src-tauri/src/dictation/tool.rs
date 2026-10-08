@@ -332,6 +332,21 @@ impl Tool {
                     self.ensure_tap();
                     self.publish();
                 }
+                // Key capture (slice 2): the window asked for the next F-key; the tap answers
+                // with it instead of acting on it. Which key is never logged.
+                Control::App(AppMessage::CaptureNextKey) => match &self.tap {
+                    Some(tap) => tap.capture_next(true),
+                    None => log::line("key capture was asked for with no key tap; the window's own keys answer"),
+                },
+                Control::App(AppMessage::CancelCapture) => {
+                    if let Some(tap) = &self.tap {
+                        tap.capture_next(false);
+                    }
+                }
+                Control::Tap(TapEvent::Captured(key)) => {
+                    log::line("key capture answered");
+                    self.hub.broadcast(&ToolMessage::Key { key });
+                }
                 Control::Hour => {
                     let longest = self.tap.as_ref().map(|t| t.take_longest_micros()).unwrap_or(0);
                     log::line(&format!("key tap: longest callback {longest} us in the last hour; {} disable(s) so far", self.disables));

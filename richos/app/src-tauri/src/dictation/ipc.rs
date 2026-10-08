@@ -33,6 +33,11 @@ pub enum AppMessage {
     PermissionsChanged,
     /// The talk button was pressed during a dictation: write it as if the key had been tapped.
     Finish,
+    /// "Press a different key" (plan section 2 row 11): the next F-key pressed is reported as
+    /// `key` instead of acting, so an Apple top-row key is captured as the key it is.
+    CaptureNextKey,
+    /// The window stopped waiting for a key (Escape, Cancel, a key chosen on the strip).
+    CancelCapture,
 }
 
 /// The tool to the app.
@@ -46,6 +51,8 @@ pub enum ToolMessage {
     /// The microphone is about to open for a dictation: voice mode ends first, so the two never
     /// listen at once.
     WillListen,
+    /// The answer to `capture-next-key`: the F-key he pressed, 1 to 19.
+    Key { key: u8 },
 }
 
 /// `/private/tmp/richos-<uid>`, for this user.
@@ -327,6 +334,14 @@ mod tests {
         assert_eq!(raw, r#"{"type":"will-listen"}"#);
         let hello = serde_json::to_string(&AppMessage::Hello { version: "1.2.0".into(), bundle: "b".into(), data_dir: "d".into() }).unwrap();
         assert_eq!(hello, r#"{"type":"hello","version":"1.2.0","bundle":"b","dataDir":"d"}"#);
+        // Key capture (slice 2): the plan's names on the wire, both ways.
+        send(&mut app, &AppMessage::CaptureNextKey).unwrap();
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), AppMessage::CaptureNextKey);
+        send(&mut app, &AppMessage::CancelCapture).unwrap();
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), AppMessage::CancelCapture);
+        assert_eq!(serde_json::to_string(&AppMessage::CaptureNextKey).unwrap(), r#"{"type":"capture-next-key"}"#);
+        hub.broadcast(&ToolMessage::Key { key: 9 });
+        assert_eq!(lines.next().unwrap().unwrap(), r#"{"type":"key","key":9}"#);
         drop(owner);
         std::fs::remove_dir_all(&d).unwrap();
     }
