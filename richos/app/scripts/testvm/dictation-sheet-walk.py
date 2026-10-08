@@ -83,9 +83,12 @@ STEPS = ['identity', 'stage', 'relaunch', 'switch-on', 'mic-prompt', 'ax-prompt'
 # one line of a prompt: a wrapped sentence is never one OCR line (setup-walk.py, walk-d33d482c9645).
 # Measured on walk-63fc2c726051 (mic-prompt-6.png): the prompt wraps after "would like to access"
 # and after "press the talk", and OCR reads "F1" in its small type as "Ft", so no fragment holds the key.
-MIC_PROMPT = 'would like to access'
+# walk-8f45d498831b (ax-prompt-failed.png): OCR joins the sheet's line under the prompt with its
+# title and drops the "w" ("Dictate in any app ould like to control this computer using"), so
+# the titles are matched from their middle.
+MIC_PROMPT = 'like to access'
 IRIS_FRAGMENTS = ('talk instead of typing', 'only after you tap', 'press the talk')
-AX_PROMPT = 'would like to control'
+AX_PROMPT = 'control this computer'
 # The sheet's drawn words (round 19 and its more lines), read from the accessibility tree. A line
 # with the key's cap in it is read by the text run after the cap.
 ON_RUN = 'in any app, talk, and tap it again.'
