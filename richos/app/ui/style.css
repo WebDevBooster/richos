@@ -3277,7 +3277,10 @@ body.bp-narrow .first-run {
 .setup-step.is-done .setup-step-mark {
   background: var(--gold);
   color: var(--on-gold);
-  font-size: 0.8125rem;
+  /* §15's 14px floor: the check mark is not declared a glyph exemption, because appearance.js
+     check 12 can only verify a glyph it reaches on its own page and the setup sheet is not on
+     it. 14px fits the 22px circle. */
+  font-size: 0.875rem;
   font-weight: 700;
 }
 
