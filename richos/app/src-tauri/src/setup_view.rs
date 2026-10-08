@@ -11,6 +11,11 @@
 //! consent copy is [`richos_core::setup::Component::why`], and a test asserts it carries no
 //! slash, no dollar sign, no digit and no mention of Terminal.
 //!
+//! **His sentence is exempt from that floor.** Once dictation is there
+//! (`richos_core::dictation_ready`), the video tools' line is the CEO's own setup sentence
+//! ([`richos_core::setup::MEDIA_TOOLS_WHY`], "private/local", "$140+/year"), used exactly as he
+//! wrote it.
+//!
 //! **And it does not imply zero-touch.** RichOS is BYO-Anthropic: `open-items.md` row 3.14
 //! lists it as the second of the three things to settle — *"D removes one setup step of two,
 //! not all of them — RichOS is BYO-Anthropic, so the customer still needs an account and a
@@ -833,7 +838,7 @@ mod tests {
         let ask = ask_for_with(&st, false);
         let items: Vec<&str> = ask.items.iter().map(|i| i.component).collect();
         assert_eq!(items, vec!["media-tools"]);
-        assert_eq!(ask.items[0].name, "my video tools");
+        assert_eq!(ask.items[0].name, Component::MediaTools.display_name());
         assert!(ask.can_install, "the video tools are always installable");
         assert!(!view_with(&st, false)["complete"].as_bool().unwrap(), "setup is not complete without them");
         // An unpinned build still offers them when the engine is already there.

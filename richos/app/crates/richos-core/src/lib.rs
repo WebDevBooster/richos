@@ -264,3 +264,44 @@ pub mod operator_desk;
 ///   - `operator_desk_tools` — the front desk's `richos_operator` tools (stop, interrupt, read)
 ///                    and the token-guarded socket they reach the live desk through.
 pub mod operator_desk_tools;
+
+/// **NOTHING TELLS ANYONE ABOUT DICTATION UNTIL DICTATION IS THERE** (dictation plan revision 2,
+/// richos-hq `docs/plans/2026-10-08-dictation-anywhere.md`, minor 2 and section 9: "Nothing
+/// user-visible reaches a nightly before all five slices are in"). The ways in, which are the
+/// Settings row, Rich's offer and the setup sheet's new lines (round 19, states 1 to 4), are built
+/// slice by slice and land on main as each passes; this one constant keeps all of them off screen
+/// until slice 5's walk passes and sets it `true`. A nightly published from main in between shows
+/// exactly what it showed before.
+pub const DICTATION_READY: bool = false;
+
+/// The walks' preview of the ways in before [`DICTATION_READY`] is `true`: a test VM walk launches
+/// the candidate with this set to `1` (`TESTVM_APP_ENV`), because a slice's screens must be walked
+/// on the candidate's own bundle before the constant flips. No person sets it, nothing in the app
+/// writes it, and it can only turn the ways in on, never off.
+pub const DICTATION_PREVIEW_ENV: &str = "RICHOS_DICTATION_PREVIEW";
+
+/// Whether the dictation ways in are shown in this process: [`DICTATION_READY`], or a walk's
+/// [`DICTATION_PREVIEW_ENV`].
+pub fn dictation_ready() -> bool {
+    dictation_ready_with(std::env::var(DICTATION_PREVIEW_ENV).ok().as_deref())
+}
+
+/// [`dictation_ready`] for a stated preview value, so the rule is a unit test.
+pub fn dictation_ready_with(preview: Option<&str>) -> bool {
+    DICTATION_READY || preview == Some("1")
+}
+
+#[cfg(test)]
+mod dictation_ready_tests {
+    use super::*;
+
+    /// INVARIANT: with no preview the constant alone decides; a walk's preview of exactly `1`
+    /// turns the ways in on, and no value can turn them off.
+    #[test]
+    fn the_ways_in_follow_the_constant_unless_a_walk_previews_them() {
+        assert_eq!(dictation_ready_with(None), DICTATION_READY);
+        assert_eq!(dictation_ready_with(Some("0")), DICTATION_READY);
+        assert_eq!(dictation_ready_with(Some("yes")), DICTATION_READY);
+        assert!(dictation_ready_with(Some("1")));
+    }
+}

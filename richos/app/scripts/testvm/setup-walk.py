@@ -29,7 +29,7 @@ moments to ONE timeline on the guest's clock, each with how much of the two mode
               typed, its folder given, "Add this company" pressed, the first conversation created.
               PASS when the download started before any press and every one of those moments came
               while it was still running.
-              (On a build where the setup sheet lists "my video tools", the walk presses its "Set it
+              (On a build where the setup sheet lists the video tools, the walk presses its "Set it
               up", which is the only way that build fetches them, and goes on as soon as it can.)
   arrived     the download finishes by itself: the app's own line says the video tools are
               installed; tools/yt-dlp verifies (launcher record = file hash) and answers --version
@@ -84,6 +84,9 @@ PINS = HERE.parents[2] / 'engine' / 'voice' / 'models' / 'model-pins.json'
 VOICE = 'ggml-small.en.bin'
 TRANSCRIPTION = 'ggml-large-v3-turbo-q5_0.bin'
 MODELS = (VOICE, TRANSCRIPTION)
+# The setup step's name on screen, in every build: "my video tools" and, once dictation is there,
+# "my voice and video tools" (setup.rs MEDIA_TOOLS_NAME; the sheet capitalizes it).
+TOOLS_ON_SHEET = 'video tools'
 # The first-setup moments a user acts in; each must come while the download is still running.
 USER_MOMENTS = ('company name typed', 'folder given', '"Add this company" pressed', 'first conversation created')
 
@@ -156,7 +159,7 @@ def voice_ready(lines):
 def tools_outcome(text):
     """How the video tools' download ended, from the app's own lines (setup_view.rs): 'done',
     'failed' or None while it runs. Either source: the background download, or a setup press."""
-    if re.search(r'^\[richos\] (?:setup|video tools in the background) \d+/\d+ done: My video tools are installed\.$', text, re.M):
+    if re.search(r'^\[richos\] (?:setup|video tools in the background) \d+/\d+ done: My (?:voice and )?video tools are installed\.$', text, re.M):
         return 'done'
     if re.search(r'^\[richos\] (?:setup|video tools in the background) \d+/\d+ FAILED', text, re.M):
         return 'failed'
@@ -259,8 +262,8 @@ class SetupWalk(adopt_walk.Walk):
             if progress['bytes'] > 0:
                 self.mark('models arriving, nothing pressed')
                 break
-            if self.present('Set it up') and self.shows_text('my video tools'):
-                self.mark('the setup sheet lists my video tools, nothing arriving')
+            if self.present('Set it up') and self.shows_text(TOOLS_ON_SHEET):
+                self.mark('the setup sheet lists the video tools, nothing arriving')
                 break
             time.sleep(1)
         else:
@@ -275,8 +278,8 @@ class SetupWalk(adopt_walk.Walk):
         while time.monotonic() < end:
             if self.present('Add this company'):
                 break
-            if self.present('Set it up') and self.shows_text('my video tools'):
-                self.click('Set it up', 'setup sheet: "Set it up" pressed (it lists my video tools)')
+            if self.present('Set it up') and self.shows_text(TOOLS_ON_SHEET):
+                self.click('Set it up', 'setup sheet: "Set it up" pressed (it lists the video tools)')
             elif self.present('Set it up') and self.shows_text('Where should I keep what you tell me?'):
                 if self.a.memory == 'set-up':
                     self.click('Set it up', 'memory question: "Set it up" pressed')
@@ -334,7 +337,7 @@ class SetupWalk(adopt_walk.Walk):
         if outcome != 'done':
             raise StepFailed(f'the video tools did not finish within {self.a.within} s ({outcome}): '
                              + json.dumps(lines[-20:])[:2000])
-        self.mark('the app says: My video tools are installed.')
+        self.mark('the app says the video tools are installed')
         launcher = guest(self.vm, 'cat ' + shlex.quote(self.tools + '/yt-dlp'))
         record = re.search(r'^# yt-dlp nightly (\S+) sha256 ([0-9a-f]{64})$', launcher, re.M)
         if not record:
@@ -444,7 +447,7 @@ class SetupWalk(adopt_walk.Walk):
             raise StepFailed(f'after setup the next launch still finds something missing: {verdict}')
         # The window settles before it would ask; then the sheet must not be there.
         time.sleep(15)
-        asked = self.present('Set it up') or self.shows_text('my video tools')
+        asked = self.present('Set it up') or self.shows_text(TOOLS_ON_SHEET)
         self.shot('relaunch.png')
         if asked:
             raise StepFailed('the relaunched app put the setup sheet up again')
