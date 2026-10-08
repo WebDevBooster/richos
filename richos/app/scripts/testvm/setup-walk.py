@@ -600,23 +600,25 @@ class SetupWalk(adopt_walk.Walk):
         guest(self.vm, 'mkdir -p {c} && cd {c} && if [ ! -d .git ]; then printf "Acme notes\\n" > README.md '
                        '&& git init -q && git add README.md && git -c user.name=QA -c user.email=qa@example.invalid '
                        'commit -q -m init; fi'.format(c=shlex.quote(self.company)))
-        end = time.monotonic() + 180
+        # FIRST SETUP'S OTHER QUESTIONS, one at a time and by their own controls, before the offer
+        # is looked for: it is drawn in the conversation, which they cover.
+        end = time.monotonic() + 240
+        added = False
         while time.monotonic() < end:
-            if self.present('Add this company') or self.present('Turn on dictation'):
-                break
-            if self.present('Not now') and self.shows_text('Where should I keep what you tell me?'):
-                self.click('Not now', 'memory question: "Not now" pressed')
-            time.sleep(1)
-        if self.present('Add this company'):
-            self.type_into('Acme', '--role', 'AXTextField', '--title', "What's the company called?")
-            self.type_into(self.company, '--role', 'AXTextField', '--title', 'Its folder on this Mac')
-            self.click('Add this company', '"Add this company" pressed')
-        end = time.monotonic() + 180
-        while time.monotonic() < end and not self.present('Turn on dictation'):
-            if self.present('Start the questions'):
+            if self.by_id('memory-setup-later'):
+                self.ax('click', '--id', 'memory-setup-later')
+                self.mark('memory question: "Not now" pressed', pressed=True)
+            elif not added and self.present('Add this company'):
+                self.type_into('Acme', '--role', 'AXTextField', '--title', "What's the company called?")
+                self.type_into(self.company, '--role', 'AXTextField', '--title', 'Its folder on this Mac')
+                self.click('Add this company', '"Add this company" pressed')
+                added = True
+            elif self.present('Start the questions'):
                 self.click('Not now', 'business questions: "Not now"')
+            elif added and self.by_id('dictation-offer-yes'):
+                break
             time.sleep(2)
-        if not self.present('Turn on dictation'):
+        if not self.by_id('dictation-offer-yes'):
             self.shot('r19-no-offer.png')
             raise StepFailed('Rich never offered dictation after Start: '
                              + json.dumps([ln for ln in self.read_log().splitlines() if 'voice' in ln][-5:]))
