@@ -273,10 +273,73 @@ mod tests {
         assert!(first.socket().exists());
         drop(first);
         assert!(!d.join(SOCKET_NAME).exists(), "the owner removes its socket");
-        let again = claim(&d).unwrap();
+        let again = claim_once_gone(&d);
         assert!(again.is_some(), "the key is free once its owner is gone");
         drop(again);
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Longest a `flock` may stay held by a child still being started (see `claim_once_gone`).
+    const CHILD_START_HOLD_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+    /// **Take the key after its owner was dropped.** A `flock` belongs to the open file
+    /// description, not to the descriptor. Starting a child copies the whole descriptor table, and
+    /// the copy lets go of close-on-exec descriptors only when the child's `exec` completes, so a
+    /// lock released by closing it inside that window stays held for about a millisecond though
+    /// nothing in this process holds it. Other tests in this binary start children, so an instant
+    /// re-claim is refused now and then (the `two_tools_one_lock` flake, 2026-10-08; same cause
+    /// as `phone::listen`'s stop test, c20253759). A key really still held stays refused for the
+    /// whole bound, so the test still fails then.
+    fn claim_once_gone(dir: &Path) -> Option<KeyOwner> {
+        let began = std::time::Instant::now();
+        loop {
+            if let Some(owner) = claim(dir).unwrap() {
+                return Some(owner);
+            }
+            if began.elapsed() >= CHILD_START_HOLD_BOUND {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    /// The race on demand: `cargo test --bin richos-tauri a_dropped_key_can_stay_locked -- --ignored --nocapture`.
+    /// Four threads keep starting `/bin/sleep` while the key is dropped and re-claimed 2000 times;
+    /// prints how many instant re-claims were refused, and fails if `claim_once_gone` ever is.
+    #[test]
+    #[ignore]
+    fn a_dropped_key_can_stay_locked_while_another_thread_starts_a_child() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let stop = Arc::new(AtomicBool::new(false));
+        let spawners: Vec<_> = (0..4).map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    std::process::Command::new("/bin/sleep").arg("0").status().ok();
+                }
+            })
+        }).collect();
+        let d = dir("race");
+        let (mut instant_refused, mut bounded_refused) = (0, 0);
+        for _ in 0..2000 {
+            let first = claim_once_gone(&d).expect("the key could not be taken for the whole bound");
+            drop(first);
+            match claim(&d).unwrap() {
+                Some(owner) => drop(owner),
+                None => {
+                    instant_refused += 1;
+                    match claim_once_gone(&d) {
+                        Some(owner) => drop(owner),
+                        None => bounded_refused += 1,
+                    }
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        for s in spawners { s.join().unwrap(); }
+        std::fs::remove_dir_all(&d).unwrap();
+        eprintln!("instant re-claims refused: {instant_refused} of 2000; refused for the whole bound: {bounded_refused}");
+        assert_eq!(bounded_refused, 0);
     }
 
     /// INVARIANT: the folder is 0700 when made, and refused when it is a link, a file, or open to
