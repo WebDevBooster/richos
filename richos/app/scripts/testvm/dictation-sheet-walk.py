@@ -537,9 +537,18 @@ class SheetWalk(dictation_walk.DictationWalk):
             try:
                 self.until(drawn, 180, 'the second copy drew no Settings button')
             except StepFailed:
+                # Whose window is whose (walk-bdcaf2edd24e: the frame showed a company question and
+                # ax.sh's tree an open Dictation sheet): every RichOS process, and each copy's tree.
                 self.shot('second-copy-unseen.png')
-                r = subprocess.run([str(HERE / 'ax.sh'), self.vm, 'tree'], capture_output=True, text=True, timeout=120)
-                (self.out / 'second-copy-tree.txt').write_text(r.stdout + r.stderr)
+                procs = guest(self.vm, 'ps -axo pid=,ppid=,lstart=,command= | grep -F richos-tauri | grep -v -F "grep -F" || true')
+                trees = [f'first copy {first_pid}, second copy {pid2}, app.pid now {state.read_text().strip()}', procs]
+                for who, pid in (('first', first_pid), ('second', pid2)):
+                    state.write_text(f'{pid}\n')
+                    r = subprocess.run([str(HERE / 'ax.sh'), self.vm, 'tree', '--depth', '40'],
+                                       capture_output=True, text=True, timeout=120)
+                    trees.append(f'--- {who} copy, pid {pid} ---\n' + r.stdout + r.stderr)
+                state.write_text(f'{pid2}\n')
+                (self.out / 'second-copy-tree.txt').write_text('\n'.join(trees))
                 (self.out / 'second-copy.log').write_text(guest(self.vm, 'cat ' + shlex.quote(log2) + ' 2>/dev/null || true', 30))
                 raise
             self.decline_first_run_sheets(seconds=20)
