@@ -207,6 +207,11 @@ core-foundation = "0.10"
 # lock beneath tauri, tao and wry (`cargo tree -i objc2`), so this is a direct edge onto an
 # existing node and the Cargo.lock diff adds no [[package]].
 objc2 = "0.6"
+# THE MICROPHONE PROMPT (src/dictation_app.rs, dictation plan slice 2, section 2 row 7):
+# `AVCaptureDevice requestAccessForMediaType:completionHandler:` takes an Objective-C block.
+# block2 0.6.2 is already in the lock beneath objc2's users (the plan's measured fact table), so
+# this is a direct edge onto an existing node and the Cargo.lock diff adds no [[package]].
+block2 = "0.6"
 
 # THE REAL DOWNLOAD, WITHOUT A WINDOW. Compiles src/voice_provision.rs by path, exactly as
 # examples/window_placement.rs compiles src/window_geometry.rs, and substitutes only the observer.

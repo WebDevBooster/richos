@@ -118,6 +118,34 @@ pub fn judge_key(f: u8, event: &KeyEvent) -> KeyVerdict {
     }
 }
 
+/// **Key capture: which F-key did he just press?** (plan section 2 row 11, "Press a different
+/// key"; the app asks the tool over the socket, and the tool's tap answers with this instead of
+/// acting on the key, so an Apple top-row key is captured as the key it is.)
+///
+/// Read on a key-down that is not an auto-repeat; anything else is `None`. A plain function-key
+/// code is the F-key it names, F13 included (only a CHOSEN F1 also answers to F13; a key he
+/// presses here is recorded as itself). A top-row system-defined event is the F-key it sits on:
+/// F1, F2 and F7 to F12, from the same table [`judge_key`] matches with, so a key captured here
+/// is always a key the tap then matches. Every other key is `None`: the window, which sees it
+/// too, says why it cannot be used.
+pub fn captured_key(event: &KeyEvent) -> Option<u8> {
+    match *event {
+        KeyEvent::Key { code, down: true, repeat: false } => {
+            F_KEY_CODES.iter().position(|c| *c == code).map(|i| i as u8 + 1)
+        }
+        KeyEvent::System { subtype, data1 } if subtype == AUX_CONTROL_BUTTONS => {
+            let key_type = (data1 >> 16) & 0xFFFF;
+            let flags = data1 & 0xFFFF;
+            let down = (flags >> 8) & 0xFF == 0x0A;
+            if !down || flags & 1 == 1 {
+                return None;
+            }
+            TOP_ROW.iter().find(|(_, types)| types.contains(&key_type)).map(|(n, _)| *n)
+        }
+        _ => None,
+    }
+}
+
 // =============================================================================================
 // THE SESSION
 // =============================================================================================
@@ -527,6 +555,32 @@ mod tests {
         assert_eq!(judge_key(1, &KeyEvent::Key { code: 122, down: false, repeat: false }), KeyVerdict::Swallow);
         assert_eq!(judge_key(1, &KeyEvent::Key { code: 105, down: false, repeat: false }), KeyVerdict::Swallow);
         assert_eq!(judge_key(1, &KeyEvent::top_row(3, false, false)), KeyVerdict::Swallow);
+    }
+
+    /// INVARIANT (slice 2, key capture): every F-key down is captured as itself, plain code or
+    /// Apple top row; a key-up, an auto-repeat, a typing key and any other system-defined event
+    /// are no choice. And whatever is captured is a key the tap then matches as his key.
+    #[test]
+    fn key_capture_records_the_f_key_as_it_is() {
+        for n in 1..=19u8 {
+            let code = f_key_code(n).unwrap();
+            assert_eq!(captured_key(&down(code)), Some(n), "F{n} by its plain code");
+            assert_eq!(judge_key(n, &down(code)), KeyVerdict::Toggle, "F{n} captured is F{n} matched");
+        }
+        assert_eq!(captured_key(&down(KEY_CODE_F13)), Some(13), "F13 is recorded as F13, not F1");
+        for (f, t) in [(1u8, 3i64), (2, 2), (7, 18), (7, 20), (8, 16), (9, 17), (9, 19), (10, 7), (11, 1), (12, 0)] {
+            let event = KeyEvent::top_row(t, true, false);
+            assert_eq!(captured_key(&event), Some(f), "top-row type {t}");
+            assert_eq!(judge_key(f, &event), KeyVerdict::Toggle, "top-row type {t} captured is matched");
+        }
+        assert_eq!(captured_key(&KeyEvent::Key { code: 122, down: false, repeat: false }), None, "a key-up");
+        assert_eq!(captured_key(&KeyEvent::Key { code: 122, down: true, repeat: true }), None, "an auto-repeat");
+        assert_eq!(captured_key(&KeyEvent::top_row(3, false, false)), None, "a top-row key-up");
+        assert_eq!(captured_key(&KeyEvent::top_row(3, true, true)), None, "a top-row auto-repeat");
+        assert_eq!(captured_key(&down(0)), None, "the A key types text");
+        assert_eq!(captured_key(&down(53)), None, "Escape");
+        assert_eq!(captured_key(&KeyEvent::top_row(22, true, false)), None, "the keyboard light is no F-key here");
+        assert_eq!(captured_key(&KeyEvent::System { subtype: 7, data1: 3 << 16 | 0x0A << 8 }), None, "another subtype");
     }
 
     /// INVARIANT: an auto-repeat never toggles a second time; holding the key is one tap.

@@ -37,6 +37,7 @@ window.RichSettings = (function () {
   var repositories = null; // { open() }
   var account = null; // { open() }, the first account's sign-in, reached from its card (round 18)
   var accounts = null; // { open(), paint() }, "Claude accounts" for everyone (round 18, accounts.js)
+  var dictation = null; // { open(), paint() }, "Dictation" for everyone once it is there (round 19, dictation.js)
   var quota = null; // { open() }, desktop technical settings only
   var memory = null; // { open() } — where his memory is kept (audit-7 row 13)
   var phonePairing = null; // { open() } — "Use Rich from your phone" (plan §4.1)
@@ -450,6 +451,14 @@ window.RichSettings = (function () {
         accounts.open();
       }, "set-accounts-state"));
     }
+    // DICTATION, FOR EVERYONE (round 19, state 5; dictation plan slice 2): after Claude accounts,
+    // as drawn, with its one plain line ("Off", "On. Tap F1 to talk", "Needs a permission").
+    // `dictation.js` registers it only once the app says dictation is there (DICTATION_READY).
+    if (dictation) {
+      menu.appendChild(buildDisclosureRow("set-dictation-open", "Dictation", function () {
+        dictation.open();
+      }, "set-dictation-state"));
+    }
     // N2 (dev-walk audit, 2026-09-17): these two carried the class "set-bug" — a typo with
     // no rule anywhere in style.css, `grep -rn "\.set-bug" ui/` returns nothing — so they
     // rendered as raw, unstyled native buttons (pure white `#FEFEFE` in the dark theme,
@@ -549,6 +558,7 @@ window.RichSettings = (function () {
     var quotaRow = menuEl.querySelector("#set-quota-open");
     if (quotaRow) { quotaRow.hidden = !(techy && techy.read()); if (quota.paint) quota.paint(); }
     if (accounts && accounts.paint && menuEl.querySelector("#set-accounts-open")) accounts.paint();
+    if (dictation && dictation.paint && menuEl.querySelector("#set-dictation-open")) dictation.paint();
     // The updates row is painted by its owner, because this file does not know what is in
     // it. Called on every paint so a rebuild (a forced-dark flip) never leaves an empty row.
     // The company row is REBUILT rather than repainted when its shape can change (chosen
@@ -840,6 +850,10 @@ window.RichSettings = (function () {
     /** "Claude accounts" for everyone (round 18). `host.open()` opens the accounts sheet,
      *  `host.paint()` writes the row's plain line and mini bar. */
     registerAccounts: function (host) { accounts = host || null; rebuild(); },
+    /** "Dictation" (round 19, state 5): `host.open()` opens the Dictation sheet, `host.paint()`
+     *  writes the row's plain line. `dictation.js` registers it only once the app says
+     *  dictation is there, so a build without it carries no row. */
+    registerDictation: function (host) { dictation = host || null; rebuild(); },
     /** The first account's sign-in (the setup sheet's account step), opened from its card in
      *  the accounts sheet now that the old row is gone. */
     openAccount: function () { close(); if (account && account.open) account.open(); },

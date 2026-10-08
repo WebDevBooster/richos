@@ -855,3 +855,19 @@ appended to `<app-data>/output/<thread_id>.jsonl`.
 witness saw the write (§4.1). An append that holds nothing new emits nothing. The record on disk
 is the truth and this event is a nudge: a reopened panel reads the record, not past events.
 As of 2026-10-05 nothing in `richos/app/ui/` listens to it yet; the panel is slice S4.
+
+## Dictation's tool: `rich://dictation`
+
+The twelfth family, added 2026-10-08 for the Dictation sheet and its Settings row (dictation plan
+slice 2; the plan is in the private record, not in this repository). Source of truth:
+`richos/app/src-tauri/src/dictation_app.rs`, the constant `EVENT`, emitted by the listener the
+app sets on its `Link` (the socket to whichever dictation tool holds the key in this login
+session) each time that tool says something, and once when its socket closes.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://dictation` | The tool's state moved (on, listening, writing, a problem, its key tap made), it said it is about to listen, or its socket closed. | `{ changed: true }` |
+| `rich://dictation` | Key capture answered: while "Press a different key" waits, the tool's key tap reports the F-key pressed instead of acting on it. | `{ key }`, 1 to 19 |
+
+**A nudge, not a record.** The window reads the facts again with `dictation_status` when it hears
+`changed`; nothing in the payload is meant to be drawn. The Dictation sheet and its Settings row are the listener.

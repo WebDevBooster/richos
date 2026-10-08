@@ -3575,12 +3575,22 @@ fn main() {
                 ensure_voice_state(app.handle());
                 let link = Arc::new(dictation_app::Link::default());
                 app.manage(link.clone());
-                dictation_app::boot(
+                // The Dictation sheet and the Settings row (slice 2) hear the tool through
+                // `rich://dictation`: its state moved, or key capture answered.
+                let window = app.handle().clone();
+                link.set_listener(Box::new(move |message| {
+                    if let Err(e) = window.emit(dictation_app::EVENT, dictation_app::event_payload(message)) {
+                        eprintln!("[richos] dictation: the window could not be told: {e}");
+                    }
+                }));
+                let host = dictation_app::Host::new(
                     link,
                     attachments_home.clone(),
                     app.package_info().version.to_string(),
                     Arc::new(AppVoice { app: app.handle().clone() }),
                 );
+                app.manage(host.clone());
+                dictation_app::boot(host);
             }
 
             // ================================================================
@@ -3865,7 +3875,26 @@ fn main() {
             output_files::output_save_copy,
             // --- Rich's one offer of dictation (dictation plan slice 4) — appended ---
             dictation_offer,
-            dictation_offer_shown
+            dictation_offer_shown,
+            // --- the Dictation sheet and the Settings row (dictation plan slice 2) — appended ---
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_status,
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_set_on,
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_set_key,
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_set_accuracy,
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_ask_microphone,
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_ask_accessibility,
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_permissions_changed,
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_open_settings,
+            #[cfg(target_os = "macos")]
+            dictation_app::dictation_capture_key
         ])
         .build(context)
         .expect("error while building RichOS")

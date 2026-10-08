@@ -107,6 +107,7 @@ const ROLES = {
   "updates.js": { role: "ui", why: "the update surface — CEO ruling §26" },
   "quota.js": { role: "ui", why: "Claude Code quota and weekly reset controls in Technical Settings" },
   "accounts.js": { role: "ui", why: "Claude accounts for everyone (round 18): the Settings row, the account cards, adding a second account and the buttons under Rich's lines about accounts" },
+  "dictation.js": { role: "ui", why: "Dictation (round 19, dictation plan slice 2): the Settings row, the Dictation sheet, the off notice and the composer's line once dictation is on" },
   "settings-button.js": { role: "ui", why: "the universal settings button — CEO ruling §15" },
   "splash.js": { role: "ui", why: "the opening curtain's renderer" },
   "splash-library.js": { role: "ui", why: "the two approved splash compositions — data, with prose in it" },

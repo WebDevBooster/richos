@@ -18,12 +18,15 @@
 //! PRIVACY, by construction: the callback reads the key code, the auto-repeat flag and, for a
 //! system-defined event, its subtype and data word; compares them with the chosen key; and keeps,
 //! logs and sends nothing about any other event. There is no buffer and no logging in it.
+//! Key capture (slice 2) adds one thing it may send: while the window is waiting for a key the
+//! person is choosing (`capture-next-key`, at most [`CAPTURE_FOR_MS`]), the F-number of the next
+//! function key pressed, once. Any other key is still neither kept nor sent.
 
 use objc2::encode::{Encoding, RefEncode};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject};
 use objc2::msg_send;
-use richos_voice::dictation::{judge_key, KeyEvent, KeyVerdict};
+use richos_voice::dictation::{captured_key, judge_key, KeyEvent, KeyVerdict};
 use std::ffi::c_void;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicU8, Ordering};
@@ -95,6 +98,18 @@ pub enum TapEvent {
     Toggle,
     /// macOS disabled the tap; it has already been re-enabled.
     Disabled { by_timeout: bool },
+    /// Key capture: he pressed F`n` while the window was waiting for a key. It was swallowed and
+    /// started nothing.
+    Captured(u8),
+}
+
+/// How long a capture waits for a key before the tap goes back to his key alone, so a window
+/// that never cancels can never leave F1 captured instead of starting a dictation.
+pub const CAPTURE_FOR_MS: u64 = 60_000;
+
+/// Milliseconds since the epoch, for the capture's deadline.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 struct Context {
@@ -104,6 +119,9 @@ struct Context {
     running: AtomicBool,
     port: AtomicPtr<c_void>,
     key: AtomicU8,
+    /// Key capture: until this time (ms since the epoch) the next F-key down is reported as
+    /// `Captured` instead of acting. 0 when no capture is waiting.
+    capture_until: AtomicU64,
     tx: Sender<TapEvent>,
     longest_ns: AtomicU64,
 }
@@ -151,6 +169,15 @@ extern "C" fn callback(_proxy: *mut c_void, etype: u32, event: CGEventRef, user:
         }
         // SAFETY: the live event of this callback.
         let Some(read) = (unsafe { read_event(etype, event) }) else { return false };
+        // Key capture first: the F-key he presses is the answer, never a dictation.
+        let until = ctx.capture_until.load(Ordering::Relaxed);
+        if until != 0 {
+            if let Some(n) = captured_key(&read).filter(|_| now_ms() < until) {
+                ctx.capture_until.store(0, Ordering::Relaxed);
+                ctx.tx.send(TapEvent::Captured(n)).ok();
+                return true;
+            }
+        }
         match judge_key(ctx.key.load(Ordering::Relaxed), &read) {
             KeyVerdict::Toggle => {
                 ctx.tx.send(TapEvent::Toggle).ok();
@@ -181,6 +208,7 @@ impl KeyTap {
             running: AtomicBool::new(true),
             port: AtomicPtr::new(std::ptr::null_mut()),
             key: AtomicU8::new(key),
+            capture_until: AtomicU64::new(0),
             tx,
             longest_ns: AtomicU64::new(0),
         });
@@ -228,6 +256,12 @@ impl KeyTap {
     /// He picked another key: the next event is judged against it.
     pub fn set_key(&self, key: u8) {
         self.ctx.key.store(key, Ordering::Relaxed);
+    }
+
+    /// Key capture: report the next F-key down as `Captured` (for [`CAPTURE_FOR_MS`] at most),
+    /// or stop waiting.
+    pub fn capture_next(&self, on: bool) {
+        self.ctx.capture_until.store(if on { now_ms() + CAPTURE_FOR_MS } else { 0 }, Ordering::Relaxed);
     }
 
     /// The longest callback run so far, in microseconds, and reset to zero: the hourly number.
