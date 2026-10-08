@@ -1652,6 +1652,10 @@ async function main() {
   await run.check("24  round 19, state 2: the rows, the summed counter, and his line only for both models", async () => {
     const page = await openApp(browser, R19);
     await page.waitForSelector("#setup-sheet:not([hidden])");
+    // RICH'S AVATAR IS NOT FETCHED BEFORE HIS LINE IS DRAWN. Loaded at boot, the hidden 40px copy
+    // changed how WebKit drew the same picture at 18px beside every "Rich" in the conversation:
+    // 67 to 253 pixels of it, in about fifty reference pictures across eight suites.
+    assertEqual(await page.getAttribute("#setup-rich-avatar", "src"), null, "the avatar is fetched before his line is drawn");
     await page.click("#setup-go");
     await page.waitForSelector("#setup-steps:not([hidden])");
     const rows = () => page.evaluate(() =>
@@ -1676,6 +1680,11 @@ async function main() {
     assert(r[2].text.endsWith("490 MB of 1.06 GB"), "the first reading: " + r[2].text);
     const first = parseFloat(r[2].bar);
     assertEqual((await page.textContent("#setup-rich-text")).trim(), HIS_DOWNLOAD_LINE, "his line while both models download");
+    // ...and once it is drawn, the avatar beside it is there.
+    await page.waitForFunction(() => {
+      const a = document.getElementById("setup-rich-avatar");
+      return a.getAttribute("src") === "assets/rich-hand.png" && a.complete && a.naturalWidth > 0;
+    });
     await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(700_000_000, 1_061_655_396, true, "700 MB of 1.06 GB"));
     r = await rows();
     assert(r[2].text.endsWith("700 MB of 1.06 GB") && parseFloat(r[2].bar) > first, "the second reading moves on: " + JSON.stringify(r[2]));
@@ -1689,7 +1698,7 @@ async function main() {
     r = await rows();
     assert(r[2].text.endsWith("Checking…"), "the hash: " + r[2].text);
     assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
-    bump(10);
+    bump(12);
     await page.close();
     return "rows Claude Code / The RichOS engine / My voice and video tools; 490 then 700 MB of 1.06 GB on a moving bar; his line only for both models; Checking…";
   });

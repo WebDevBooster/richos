@@ -114,6 +114,7 @@ const setupCloseEl = el("setup-close");
 const setupPanelEl = el("setup-panel");
 const setupRichLineEl = el("setup-rich-line");
 const setupRichTextEl = el("setup-rich-text");
+const setupRichAvatarEl = el("setup-rich-avatar");
 const setupStepsEl = el("setup-steps");
 const setupStartEl = el("setup-start");
 const threadMenuEl = el("thread-menu");
@@ -5609,6 +5610,8 @@ function renderSetupRichLine() {
   else if (voice && voice.state === "now" && videoToolsCount && videoToolsCount.both && ask && ask.download_line)
     line = ask.download_line;
   setupRichTextEl.textContent = line;
+  // The avatar is fetched the first time the line is drawn, never at boot (index.html says why).
+  if (line && !setupRichAvatarEl.getAttribute("src")) setupRichAvatarEl.src = "assets/rich-hand.png";
   setupRichLineEl.hidden = !line;
 }
 

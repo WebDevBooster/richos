@@ -1041,9 +1041,12 @@
           <p id="setup-note" class="overlay-note"></p>
           <!-- RICH'S LINE, round 19 states 2 and 3 (dictation plan slice 4), drawn only once
                dictation is there (`ask.dictation`): his download line while both speech models
-               are fetched, then "Voice is ready." when everything is in. -->
+               are fetched, then "Voice is ready." when everything is in. The avatar has no
+               `src` here: `renderSetupRichLine` gives it one when the line is first drawn.
+               Loaded at boot, this hidden 40px copy changed how WebKit draws the same picture
+               at 18px beside every "Rich" in the conversation, on every screen. -->
           <div id="setup-rich-line" class="setup-rich-line" hidden>
-            <img class="setup-rich-avatar" src="assets/rich-hand.png" alt="">
+            <img id="setup-rich-avatar" class="setup-rich-avatar" alt="">
             <p><span class="setup-rich-who">Rich</span><span id="setup-rich-text"></span></p>
           </div>
           <!-- ONE ROW PER MISSING PIECE: its name, and what it is for. Not a checklist of
