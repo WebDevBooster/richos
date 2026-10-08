@@ -68,12 +68,16 @@ class ReadingTheGuest(unittest.TestCase):
             '2026-10-08T10:00:09.000Z large-v3-turbo-q5_0 is not verified on this Mac yet; using small.en for this dictation',
             '2026-10-08T10:00:10.000Z dictation: model small.en, 3.42 s of audio, written in 911 ms, pasted, spacing read',
             '2026-10-08T10:00:30.000Z dictation of 0.20 s (200 ms tapped): nothing written, did-not-catch',
+            '2026-10-08T10:00:40.000Z listening (injected wav (/x.wav))',
+            # walk-770929407d2d waited 240 s past this line: an outcome that is not a paste.
+            '2026-10-08T10:01:49.000Z whisper-cli did not write the words (bound 64 s): stt io: decoder deadline',
         ])
         w = self.walk_with(lambda command: log)
         lines = w.dictated_lines()
-        self.assertEqual(len(lines), 2)
+        self.assertEqual(len(lines), 3)
         self.assertIn('pasted', lines[0])
         self.assertIn('nothing written', lines[1])
+        self.assertIn('did not write the words', lines[2])
 
     def test_every_step_is_a_method(self):
         for step in walk.STEPS:

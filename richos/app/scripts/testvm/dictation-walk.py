@@ -26,6 +26,10 @@ through the identical capture path (capture.rs).
                Input Monitoring row; the sample and the speech model copied in
   relaunch     the app relaunched with the sample as its microphone and the test switch on; the
                tool starts as its child, holds the key tap for F1 and the app connects
+  settle       the relaunched app's voice readiness has finished timing its decodes, and the
+               sample is decoded once with each speech model on the guest (the expected words,
+               which also leaves each model warm): walk-770929407d2d's first dictation ran beside
+               that calibration on a cold model and passed its 64 s bound
   probe-on     key_probe (a listen-only tap downstream of every session tap, standing in for
                open-wispr's passive observer) started in the guest
   textedit     three dictations into one empty TextEdit document, by key code 122 (F1), key code
@@ -73,7 +77,7 @@ _spec.loader.exec_module(adopt_walk)
 StepFailed = adopt_walk.StepFailed
 command = adopt_walk.command
 
-STEPS = ['identity', 'apps', 'stage', 'relaunch', 'probe-on', 'textedit', 'terminal', 'safari', 'chromium',
+STEPS = ['identity', 'apps', 'stage', 'relaunch', 'settle', 'probe-on', 'textedit', 'terminal', 'safari', 'chromium',
          'probe-check', 'second-tool', 'idle', 'scratch', 'ends-with-app', 'probe-off']
 
 # stt.rs decode_args(None), word for word: the expected words come from the same settings.
@@ -82,7 +86,9 @@ CHROMIUM_APPS = ['Google Chrome.app', 'Chromium.app', 'Microsoft Edge.app', 'Bra
                  'Visual Studio Code.app']
 CHROME_DMG = 'https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg'
 TOOL_ARG = '--richos-dictation'
-DICTATED = 'dictation: model '  # dictation.log's line for words put in place (tool.rs write)
+# Every line dictation.log writes when a dictation ends, whatever the outcome (tool.rs write).
+OUTCOMES = ('dictation: model ', 'nothing written', 'did not write the words', 'could not be put in place',
+            'could not be resolved', 'words copied')
 NO_TAP_EVENTS = ('"type":"key"', '"type":"system"')
 # How long one dictation may take to write, from the second tap to its log line: More accurate
 # took 46.2 s for 3.04 s of audio on a guest whose host was busy (walk-15a88cf29d54).
@@ -157,7 +163,7 @@ class DictationWalk(adopt_walk.Walk):
 
     def dictated_lines(self):
         text = guest(self.vm, 'cat ' + shlex.quote(self.dlog) + ' 2>/dev/null || true', 30)
-        return [line for line in text.splitlines() if DICTATED in line or 'nothing written' in line]
+        return [line for line in text.splitlines() if any(marker in line for marker in OUTCOMES)]
 
     def tool_pids(self):
         rows = guest(self.vm, 'ps -axo pid=,ppid=,command=')
@@ -345,6 +351,27 @@ class DictationWalk(adopt_walk.Walk):
             time.sleep(1)
         tail = guest(self.vm, 'tail -40 ' + shlex.quote(self.log) + ' || true')
         raise StepFailed('the tool did not start, take the key and connect within 60 s; log tail:\n' + tail)
+
+    def settle(self):
+        ready = '[richos] voice: ready on this machine'
+        not_ready = '[richos] voice: not ready on this machine'
+        end = time.monotonic() + 600
+        line = None
+        while time.monotonic() < end and line is None:
+            text = guest(self.vm, 'cat ' + shlex.quote(self.log) + ' 2>/dev/null || true', 30)
+            line = next((x for x in text.splitlines() if ready in x or not_ready in x), None)
+            if line is None:
+                time.sleep(2)
+        if line is None:
+            raise StepFailed('the app printed no voice-readiness line within 600 s')
+        models = self.home + '/.config/richos/models'
+        present = guest(self.vm, 'ls ' + shlex.quote(models)).split()
+        decoded = {}
+        for model_id in ('large-v3-turbo-q5_0', 'small.en'):
+            if f'ggml-{model_id}.bin' in present:
+                began = time.monotonic()
+                decoded[model_id] = {'text': self.expected(model_id), 'seconds': round(time.monotonic() - began, 1)}
+        return {'voice_readiness': line, 'models': present, 'decoded': decoded}
 
     def probe_on(self):
         out = self.payload + '/probe-on.jsonl'
