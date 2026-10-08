@@ -183,13 +183,13 @@ class SheetWalk(dictation_walk.DictationWalk):
         return dictation_walk.adopt_walk.Walk.press(self, title, role, app)
 
     def decline_first_run_sheets(self, tries=3, seconds=45):
-        """adopt-walk's, pressing Not now through click(): each first-run sheet before the
-        company question is declined, one at a time, `seconds` in all. Returns the presses."""
+        """adopt-walk's, pressing Not now through click(), and the company question too: this
+        walk needs no company, and that question over the window blocked the Settings button
+        (walk-8c18b701c0d8, granted: "the Dictation row did not appear"). Each
+        first-run sheet is declined, one at a time, `seconds` in all. Returns the presses."""
         presses = 0
         end = time.monotonic() + seconds
         while presses < tries and time.monotonic() < end:
-            if self.present('Add this company'):
-                break
             if self.present('Not now'):
                 self.click('Not now')
                 presses += 1
@@ -218,7 +218,7 @@ class SheetWalk(dictation_walk.DictationWalk):
                 self.until(lambda: self.by_id('set-dictation-open') is not None, 30, 'the Dictation row did not appear')
                 return
             except StepFailed as exc:
-                if attempt == 2 or 'blocked' not in str(exc) or not self.declined_late_sheet():
+                if attempt == 2 or not self.declined_late_sheet():
                     raise
 
     def open_sheet(self):
@@ -230,7 +230,7 @@ class SheetWalk(dictation_walk.DictationWalk):
                 self.until(lambda: self.by_id('dict-switch') is not None, 30, 'the Dictation sheet did not open')
                 return
             except StepFailed as exc:
-                if attempt == 2 or 'blocked' not in str(exc) or not self.declined_late_sheet():
+                if attempt == 2 or not self.declined_late_sheet():
                     raise
 
     def bring_front(self, pid):
