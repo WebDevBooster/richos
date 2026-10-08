@@ -804,6 +804,13 @@ def main():
                     a.vm, f'launchctl print gui/$(id -u)/{AGENT} 2>&1 | head -60; echo ---; ls -la {shlex.quote(DATA)} 2>&1; '
                           'echo ---; cat /private/tmp/richos-$(id -u)/dictation-tool-start.err 2>&1; '
                           'echo ---; ps -axo pid=,ppid=,command= | grep -i richos | grep -v grep || true', 60))
+                # launchd's and Background Task Management's own words about the agent, and the
+                # BTM record: walk-3eb1015dee52 showed 'spawn failed, EX_CONFIG, runs = 17' and
+                # the reason is only in the unified log.
+                (a.out / 'launchd-log.txt').write_text(guest(
+                    a.vm, f'log show --last 6m --style compact --predicate \'eventMessage CONTAINS "{AGENT}" OR '
+                          '(process == "launchd" AND eventMessage CONTAINS "richos")\' 2>&1 | tail -80; echo ---; '
+                          f'sudo -n sfltool dumpbtm 2>/dev/null | grep -i -B3 -A12 {AGENT} | head -60 || true', 180))
             except Exception as exc:  # evidence only; the step already failed
                 (a.out / 'evidence-error.txt').write_text(str(exc))
             break
