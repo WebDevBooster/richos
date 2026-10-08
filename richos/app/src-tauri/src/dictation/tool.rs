@@ -8,11 +8,14 @@
 //! policy before its event loop runs, so it has no Dock icon and never takes the front.
 //!
 //! It owns the key tap, the dictation microphone, whisper-cli and the paste (slice 1), and the
-//! bar, the words' flight and the menu bar item (slice 3: `bar.rs`, `menubar.rs`). In slices 1 to
-//! 4 it is always the app's child (`--parent <pid>`), started by the app when `dictation.json`
-//! says on, and it exits within a second of the app ending.
+//! bar, the words' flight and the menu bar item (slice 3: `bar.rs`, `menubar.rs`). It is the
+//! app's child (`--parent <pid>`) in any copy that cannot register the login start, started by
+//! the app when `dictation.json` says on, and it exits within a second of the app ending; in an
+//! installed copy it is launchd's (slice 5, `login.rs`): started at login with no arguments but
+//! its own, on the installed data folder it computes for the account, resolving the engine's
+//! whisper-cli itself, outliving the app, and restarting for an app of another version.
 //!
-//!   richos-tauri --richos-dictation --data-dir <dir> [--parent <pid>]
+//!   richos-tauri --richos-dictation [--data-dir <dir>] [--parent <pid>]
 
 use super::appkit::{self, Kind};
 use super::bar::{self, Bar, Menu, MenuMessage, UiEvent, UiTx, MENU};
@@ -27,10 +30,97 @@ use richos_voice::dictation::{
 use richos_voice::dictation_bar::{choice_for_model, hide_after, meter_level, model_for_choice, view_for, BarView, MeterGate, Rect};
 use richos_voice::stt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::Manager;
+
+/// How long the tool waits for every connected app to answer `will-listen` with
+/// `voice-yielded` before it opens the microphone (review finding 2). An app answers from its
+/// socket reader the moment it has closed voice mode, which is milliseconds; this bound only
+/// matters for an app that is wedged, and it is logged when it is reached.
+pub const HANDOVER_WAIT: Duration = Duration::from_secs(2);
+
+/// A quit that reaches the control loop (the parent gone, SIGTERM) ends the tool there, where
+/// the writing worker can be stopped and joined; this is the backstop if the loop never answers.
+const QUIT_BACKSTOP: Duration = Duration::from_secs(5);
+
+/// SIGTERM was delivered (launchd's `bootout`, a `kill`): read by a thread, never acted on in
+/// the handler.
+static TERMINATED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_sigterm(_: libc::c_int) {
+    TERMINATED.store(true, Ordering::SeqCst);
+}
+
+/// **The microphone handover, counted by copy** (review finding 2; third review, finding 1):
+/// `will-listen` went to the copies in `told`; the microphone opens once every one of them has
+/// answered this handover, and never at the bound.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Handover {
+    pub seq: u64,
+    /// The connections told `will-listen`, by the ids the Hub gave them (fourth review, finding
+    /// 1: two processes from one bundle are two connections).
+    pub told: std::collections::BTreeSet<u64>,
+    /// The connections that have answered this handover.
+    pub heard: std::collections::BTreeSet<u64>,
+}
+
+/// What one `voice-yielded` did to the handover (recheck, third review, finding 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Accept {
+    /// Counted; others are still to answer.
+    Counted,
+    /// Counted, and every copy told has now answered.
+    Complete,
+    /// An answer to an earlier handover: dropped.
+    Stale,
+    /// A second answer from a copy already counted: dropped.
+    Duplicate,
+    /// An answer from a copy that was not told: dropped.
+    Unknown,
+}
+
+impl Handover {
+    pub fn new(seq: u64, told: Vec<u64>) -> Handover {
+        Handover { seq, told: told.into_iter().collect(), heard: Default::default() }
+    }
+
+    /// Every app that was told has answered.
+    pub fn complete(&self) -> bool {
+        self.told.iter().all(|b| self.heard.contains(b))
+    }
+
+    /// **One answer, matched to this handover and its connection.** The third review's
+    /// counterexample: a late answer from A to a timed-out handover plus A's current answer
+    /// counted as two apps while B had not yielded; here A's late answer is Stale and A's second
+    /// is Duplicate, and B's silence keeps the microphone closed. The fourth review's: two
+    /// processes from one bundle are two connections, so one answer never completes for both.
+    pub fn accept(&mut self, seq: u64, client: u64) -> Accept {
+        if seq != self.seq {
+            return Accept::Stale;
+        }
+        if !self.told.contains(&client) {
+            return Accept::Unknown;
+        }
+        if !self.heard.insert(client) {
+            return Accept::Duplicate;
+        }
+        if self.complete() {
+            Accept::Complete
+        } else {
+            Accept::Counted
+        }
+    }
+
+    /// **May the microphone open now?** Only when every app has yielded it: at the bound, an
+    /// unanswered will-listen keeps the microphone closed (the handover fails closed; recheck
+    /// finding 1), because an app that has not answered may still be listening in voice mode.
+    pub fn microphone_may_open(&self) -> bool {
+        self.complete()
+    }
+}
 
 pub const ARG: &str = "--richos-dictation";
 
@@ -57,7 +147,8 @@ pub const PREVIEW_ENV: &str = "RICHOS_DICTATION_PREVIEW";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Args {
-    pub data_dir: PathBuf,
+    /// The data folder; `None` is a launchd start, which computes the installed one.
+    pub data_dir: Option<PathBuf>,
     pub parent: Option<i32>,
 }
 
@@ -68,16 +159,35 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--data-dir" => data_dir = it.next().map(PathBuf::from),
+            "--data-dir" => data_dir = Some(it.next().map(PathBuf::from).ok_or("--data-dir needs a folder")?),
             "--parent" => parent = Some(it.next().and_then(|p| p.parse::<i32>().ok()).ok_or("--parent needs a process id")?),
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    let data_dir = data_dir.ok_or("--data-dir is required")?;
-    if !data_dir.is_absolute() {
+    if data_dir.as_ref().is_some_and(|d| !d.is_absolute()) {
         return Err("--data-dir must be absolute".into());
     }
     Ok(Args { data_dir, parent })
+}
+
+/// **The engine's whisper-cli, for a tool the app did not start.** The app hands its child the
+/// verified runtime's `bin` (`RICHOS_DICTATION_RUNTIME_BIN`); a launchd start has no app to ask,
+/// so it resolves the engine exactly as the app does at boot (`engine.rs`, the same seven
+/// candidates) and verifies its runtime (`runtime::verify_engine`, the same hashes). The line
+/// this returns goes in the log, so "which whisper-cli" is never a guess.
+fn resolve_runtime_bin_alone() -> String {
+    let resolution = crate::engine::resolve_engine_dir(&crate::engine::LaunchPaths::from_process());
+    let Some(dir) = resolution.dir.clone() else {
+        return format!("no engine found for whisper-cli ({}); PATH and Homebrew are tried at the first dictation", resolution.describe());
+    };
+    match richos_core::runtime::verify_engine(&dir) {
+        Ok(runtime) => {
+            let bin = runtime.root.join("bin");
+            stt::set_delivered_runtime_bin(Some(bin.clone()));
+            format!("whisper-cli from the engine runtime at {} ({})", bin.display(), resolution.describe())
+        }
+        Err(e) => format!("the engine at {} has no verified runtime ({e}); PATH and Homebrew are tried at the first dictation", dir.display()),
+    }
 }
 
 /// The preview's problem, by its tag.
@@ -107,6 +217,13 @@ enum Control {
     BarExpired(u64),
     FlightDone(u64),
     Secure(Option<Option<String>>),
+    /// The app that started this child tool has ended, or SIGTERM arrived: end here, where the
+    /// writing worker is stopped and joined (review finding 1).
+    Quit(&'static str),
+    /// The handover's bound passed (review finding 2).
+    HandoverTimeout(u64),
+    /// A `voice-yielded` from connection `client` for handover `seq` (fourth review, finding 1).
+    Yielded { seq: u64, client: u64, bundle: String },
 }
 
 /// What the state message reports, shared with the socket thread.
@@ -116,6 +233,8 @@ struct Shared {
     phase: Phase,
     key_tap: bool,
     secure: Option<Option<String>>,
+    key: u8,
+    model: String,
 }
 
 impl Shared {
@@ -132,6 +251,26 @@ impl Shared {
             key_tap: self.key_tap,
             secure_input: self.secure.is_some(),
             secure_app: self.secure.clone().flatten(),
+            key: self.key,
+            model: self.model.clone(),
+        }
+    }
+}
+
+/// The writing worker: one dictation from the recording to the words in place, on a thread of
+/// its own, owned so a quit can stop its decoder and join it (review finding 1).
+struct Writing {
+    stop: Arc<AtomicBool>,
+    join: std::thread::JoinHandle<()>,
+}
+
+impl Writing {
+    /// Stop the decoder (killed and reaped inside `bounded_decoder_until`) and wait for the
+    /// worker, whose scratch folder then drops its files.
+    fn stop_and_join(self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if self.join.join().is_err() {
+            log::line("the writing worker ended with a panic while being stopped");
         }
     }
 }
@@ -172,11 +311,23 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
             return 2;
         }
     };
-    log::init(&args.data_dir);
-    if let Some(dir) = std::env::var_os("RICHOS_DICTATION_RUNTIME_BIN").filter(|d| !d.is_empty()) {
-        stt::set_delivered_runtime_bin(Some(PathBuf::from(dir)));
-    }
-    let settings = match store::read(&args.data_dir) {
+    let own_version = context.package_info().version.to_string();
+    // The tool runs only while RichOS runs (the CEO, 2026-10-08: no start at login in this
+    // release): its data folder is always named by the app that started it.
+    let Some(data_dir) = args.data_dir.clone() else {
+        eprintln!("[richos-dictation] no --data-dir: the dictation tool is started by RichOS, never on its own");
+        return 2;
+    };
+    let launched_by = if args.parent.is_some() { "as the app's child" } else { "on its own" };
+    log::init(&data_dir);
+    let runtime_note = match std::env::var_os("RICHOS_DICTATION_RUNTIME_BIN").filter(|d| !d.is_empty()) {
+        Some(dir) => {
+            stt::set_delivered_runtime_bin(Some(PathBuf::from(&dir)));
+            format!("whisper-cli from the app's runtime at {}", PathBuf::from(dir).display())
+        }
+        None => resolve_runtime_bin_alone(),
+    };
+    let settings = match store::read(&data_dir) {
         Ok(s) => s,
         Err(why) => {
             log::line(&why);
@@ -198,13 +349,18 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
             return 2;
         }
     };
+    let (tx, rx) = channel::<Control>();
     if let Some(parent) = args.parent {
+        let tx = tx.clone();
         std::thread::Builder::new()
             .name("dictation-parent".into())
             .spawn(move || loop {
                 // SAFETY: getppid has no failure mode.
                 if unsafe { libc::getppid() } != parent {
-                    log::line("the app that started this tool has ended; so does the tool");
+                    // Through the control loop, which stops and joins the writing worker
+                    // (finding 1); the backstop is for a loop that never answers.
+                    tx.send(Control::Quit("the app that started this tool has ended")).ok();
+                    std::thread::sleep(QUIT_BACKSTOP);
                     insert::settle();
                     std::process::exit(0);
                 }
@@ -212,9 +368,35 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
             })
             .ok();
     }
-
-    let (tx, rx) = channel::<Control>();
-    let shared = Arc::new(Mutex::new(Shared { owner: own_bundle(), on: true, phase: Phase::Idle, key_tap: false, secure: None }));
+    {
+        // SIGTERM (launchd's bootout, a kill): the same path as the parent ending.
+        // SAFETY: installing a handler that only stores a flag.
+        unsafe {
+            libc::signal(libc::SIGTERM, on_sigterm as extern "C" fn(libc::c_int) as libc::sighandler_t);
+        }
+        let tx = tx.clone();
+        std::thread::Builder::new()
+            .name("dictation-sigterm".into())
+            .spawn(move || loop {
+                if TERMINATED.load(Ordering::SeqCst) {
+                    tx.send(Control::Quit("SIGTERM")).ok();
+                    std::thread::sleep(QUIT_BACKSTOP);
+                    insert::settle();
+                    std::process::exit(0);
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            })
+            .ok();
+    }
+    let shared = Arc::new(Mutex::new(Shared {
+        owner: own_bundle(),
+        on: true,
+        phase: Phase::Idle,
+        key_tap: false,
+        secure: None,
+        key: settings.key(),
+        model: settings.model.clone(),
+    }));
     let hub = Arc::new(Hub::default());
     {
         let shared = shared.clone();
@@ -223,8 +405,14 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
             &owner,
             hub.clone(),
             move || shared.lock().unwrap_or_else(|p| p.into_inner()).message(),
-            move |m| {
-                tx.send(Control::App(m)).ok();
+            move |client, m| {
+                // A voice-yielded is tied to the connection that sent it, by the id the Hub
+                // gave that connection (fourth review, finding 1); its bundle is for the log.
+                let control = match m {
+                    AppMessage::VoiceYielded { seq, bundle } => Control::Yielded { seq, client, bundle },
+                    m => Control::App(m),
+                };
+                tx.send(control).ok();
             },
         ) {
             log::line(&format!("the dictation socket could not be served: {e}"));
@@ -280,13 +468,13 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
     let kind = appkit::kind_from(std::env::var(appkit::KIND_ENV).ok().as_deref());
     let preview = preview_problem(std::env::var(PREVIEW_ENV).ok().as_deref());
     log::line(&format!(
-        "dictation tool started: key F{}, accuracy {}, {}, the key held at {}{}",
+        "dictation tool started: version {own_version}, key F{}, accuracy {}, {launched_by}, the key held at {}{}",
         settings.key(),
         settings.model,
-        if args.parent.is_some() { "as the app's child" } else { "on its own" },
         owner.socket().display(),
         preview.map(|p| format!("; PREVIEW of the {} bar (window check only)", p.tag())).unwrap_or_default(),
     ));
+    log::line(&runtime_note);
 
     let builder = tauri::Builder::default()
         .manage(UiTx(Mutex::new(ui_tx.clone())))
@@ -300,6 +488,9 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
         .setup(move |app| {
             // No Dock icon, never the front: before the event loop runs (activation.rs's lever).
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            if let Err(why) = appkit::watch_activation() {
+                log::line(&why);
+            }
             let handle = app.handle().clone();
             if let Err(why) = bar::build(&handle, kind) {
                 log::line(&why);
@@ -320,9 +511,10 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
                     None
                 }
             };
-            let data_dir = args.data_dir.clone();
+            let data_dir = args.data_dir.clone().unwrap_or_default();
             std::thread::Builder::new().name("dictation-control".into()).spawn(move || {
-                let tool = Tool::new(settings, data_dir, shared, hub, tx, handle, kind, tray, preview);
+                let mut tool = Tool::new(settings, data_dir, shared, hub, tx, handle, kind, tray, preview);
+                tool.version = own_version;
                 let code = tool.run(rx);
                 drop(owner);
                 std::process::exit(code);
@@ -366,6 +558,16 @@ struct Tool {
     flights: u64,
     /// **Turn dictation off** was chosen: the tool ends once the bar has said so.
     ending: bool,
+    /// This tool's compiled version, logged with each app's `hello`.
+    version: String,
+    /// The dictation being written down, owned (finding 1).
+    writing: Option<Writing>,
+    /// `will-listen` is out and the microphone waits for the answers (finding 2).
+    handover: Option<Handover>,
+    handovers: u64,
+    /// **The accuracy pinned when listening began** (finding 6): Faster chosen mid-dictation
+    /// takes effect on the next one, as the menu says.
+    recording_model: String,
 }
 
 impl Tool {
@@ -404,6 +606,23 @@ impl Tool {
             focused: None,
             flights: 0,
             ending: false,
+            version: String::new(),
+            writing: None,
+            handover: None,
+            handovers: 0,
+            recording_model: String::new(),
+        }
+    }
+
+    /// **Open RichOS**, **Dictation settings…** and **Fix it**: the connected app comes forward,
+    /// on the Dictation sheet when `sheet`. The tool is a running app's child, so an app is
+    /// connected except in the moment it is starting or ending; with none, nothing is started.
+    fn bring_app(&mut self, sheet: bool) {
+        let heard = self.hub.broadcast(&ToolMessage::ComeForward { sheet });
+        if heard > 0 {
+            log::line(&format!("RichOS asked for: {heard} connected app(s) told to come forward"));
+        } else {
+            log::line("RichOS asked for, but no app is connected to this tool");
         }
     }
 
@@ -414,6 +633,8 @@ impl Tool {
             s.on = self.settings.on;
             s.key_tap = self.tap.is_some();
             s.secure = self.secure.clone();
+            s.key = self.settings.key();
+            s.model = self.settings.model.clone();
             s.message()
         };
         self.hub.broadcast(&message);
@@ -503,8 +724,9 @@ impl Tool {
     fn run(mut self, rx: Receiver<Control>) -> i32 {
         self.ensure_tap();
         self.publish();
-        if let Some(r) = self.tray.as_ref().and_then(menubar::item_rect) {
-            log::line(&format!("menu bar item at {:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h));
+        // Logged once the main run loop has placed the item, never the unplaced frame.
+        if let Some(tray) = self.tray.clone() {
+            menubar::log_item_when_placed(tray);
         }
         while let Ok(control) = rx.recv() {
             match control {
@@ -523,13 +745,97 @@ impl Tool {
                     }
                 }
                 Control::Written { outcome, words } => {
+                    if let Some(w) = self.writing.take() {
+                        // Done: joined at once, so the thread is reaped and nothing is owned.
+                        w.stop_and_join();
+                    }
                     self.session.finish(outcome);
                     self.publish();
                     if let (Ok(()), Some(words)) = (outcome, words) {
                         self.fly(words);
                     }
                 }
-                Control::App(AppMessage::Hello { version, bundle, data_dir }) => log::line(&format!("an app connected: version {version}, {bundle}, data folder {data_dir}")),
+                Control::Quit(why) => {
+                    log::line(&format!("{why}; the tool ends"));
+                    return self.end();
+                }
+                Control::Yielded { seq, client, bundle } => {
+                    if let Some(h) = self.handover.as_mut() {
+                        match h.accept(seq, client) {
+                            Accept::Complete => {
+                                let told = h.told.len();
+                                self.handover = None;
+                                log::line(&format!("every app ({told}) yielded the microphone for will-listen {seq}"));
+                                self.open_microphone();
+                            }
+                            Accept::Counted => {}
+                            verdict => log::line(&format!(
+                                "a voice-yielded for will-listen {seq} from connection {client} ({bundle}) is dropped: {verdict:?}"
+                            )),
+                        }
+                    } else {
+                        log::line(&format!(
+                            "a voice-yielded for will-listen {seq} from connection {client} ({bundle}) arrived with no handover open"
+                        ));
+                    }
+                }
+                Control::App(AppMessage::VoiceYielded { .. }) => {} // always arrives as Control::Yielded
+                Control::HandoverTimeout(seq) => {
+                    let due = self.handover.as_ref().is_some_and(|h| h.seq == seq);
+                    if let Some(h) = due.then(|| self.handover.take()).flatten() {
+                        if h.microphone_may_open() {
+                            self.open_microphone();
+                        } else {
+                            // Fails closed (recheck finding 1): voice mode may still be
+                            // listening in the app that did not answer, so dictation does not.
+                            log::line(&format!(
+                                "{} of {} app(s) answered will-listen {seq} within {} ms; the microphone stays closed, voice-still-listening",
+                                h.heard.len(),
+                                h.told.len(),
+                                HANDOVER_WAIT.as_millis()
+                            ));
+                            self.session.finish(Err(Problem::VoiceStillListening));
+                            self.publish();
+                        }
+                    }
+                }
+                Control::App(AppMessage::Change { on, key, model }) => {
+                    // A copy that does not own the key changes the owner's file, here (finding 4).
+                    match store::update(&self.data_dir, |s| {
+                        if let Some(on) = on {
+                            s.on = on;
+                        }
+                        if let Some(key) = key.filter(|k| (1..=19).contains(k)) {
+                            s.key = key;
+                        }
+                        if let Some(model) = model.as_deref().and_then(model_for_choice_or_id) {
+                            s.model = model.to_string();
+                        }
+                    }) {
+                        Ok(s) => {
+                            self.settings = s;
+                            log::line("another copy of RichOS changed the settings; applied");
+                            // on=false reaches every copy before the tool ends (recheck finding 2).
+                            self.publish();
+                            self.hub.broadcast(&ToolMessage::SettingsChanged);
+                        }
+                        Err(why) => log::line(&format!("another copy's change could not be saved: {why}")),
+                    }
+                    if !self.settings.on {
+                        log::line("dictation was turned off by another copy of RichOS; the tool stops");
+                        return self.end();
+                    }
+                    if let Some(tap) = &self.tap {
+                        tap.set_key(self.settings.key());
+                    }
+                    self.publish();
+                }
+                Control::App(AppMessage::Hello { version, bundle, data_dir }) => {
+                    log::line(&format!(
+                        "an app connected: version {version}, {bundle}, data folder {data_dir} (this tool is {})",
+                        self.version
+                    ));
+                }
                 Control::App(AppMessage::SettingsChanged) | Control::App(AppMessage::PermissionsChanged) => {
                     match store::read(&self.data_dir) {
                         Ok(s) => self.settings = s,
@@ -537,6 +843,9 @@ impl Tool {
                     }
                     if !self.settings.on {
                         log::line("dictation was turned off; the tool stops");
+                        // on=false reaches every connected copy before the tool ends (recheck
+                        // finding 2): a second copy's recovery never reverses this Off.
+                        self.publish();
                         return self.end();
                     }
                     if let Some(tap) = &self.tap {
@@ -601,10 +910,17 @@ impl Tool {
         0
     }
 
-    /// Stop everything and say the exit code.
+    /// Stop everything and say the exit code. The writing worker, if one runs, is stopped (its
+    /// decoder killed and reaped) and joined, so its scratch folder drops its files before the
+    /// process ends (finding 1).
     fn end(&mut self) -> i32 {
         self.capture = None;
         self.tap = None;
+        self.handover = None;
+        if let Some(w) = self.writing.take() {
+            log::line("a dictation was being written down: stopping its decoder and removing its recording");
+            w.stop_and_join();
+        }
         insert::settle();
         0
     }
@@ -646,7 +962,7 @@ impl Tool {
                     return None;
                 }
                 log::line("Fix it pressed: RichOS opens on the Dictation sheet");
-                self.hub.broadcast(&ToolMessage::ComeForward { sheet: true });
+                self.bring_app(true);
                 self.session.reset();
                 self.publish();
             }
@@ -705,7 +1021,7 @@ impl Tool {
                 self.close_menu();
                 let sheet = act == "settings";
                 log::line(if sheet { "Dictation settings… chosen: RichOS opens on the Dictation sheet" } else { "Open RichOS chosen" });
-                self.hub.broadcast(&ToolMessage::ComeForward { sheet });
+                self.bring_app(sheet);
             }
             "onoff" => {
                 self.close_menu();
@@ -716,6 +1032,9 @@ impl Tool {
                     Ok(s) => {
                         self.settings = s;
                         log::line("Turn dictation off chosen in the menu bar; the tool ends once the bar has said so");
+                        // Every connected copy hears on=false before the tool ends, so none
+                        // starts a tool again that would undo this Off (recheck finding 2).
+                        self.publish();
                         self.hub.broadcast(&ToolMessage::SettingsChanged);
                         self.capture = None;
                         self.tap = None;
@@ -760,16 +1079,42 @@ impl Tool {
 
     fn listen(&mut self) {
         self.focused = insert::focused_window_rect();
+        // The accuracy for THIS dictation is the one chosen when it begins (finding 6).
+        self.recording_model = self.settings.model.clone();
         // Iris's line 5a shows at the tap, before any talking: with neither speech model on this
         // Mac, nobody talks for a minute into nothing (dictation-more-lines.html, NOTES).
-        if pick_model(&self.settings.model, |id| stt::resolve_model(id).is_ok()).id().is_none() {
+        if pick_model(&self.recording_model, |id| stt::resolve_model(id).is_ok()).id().is_none() {
             log::line("no speech model is on this Mac yet; nothing heard, model-missing");
             self.session.finish(Err(Problem::ModelMissing));
             self.publish();
             return;
         }
-        // Voice mode ends first, so the two never listen at once (plan section 2).
-        self.hub.broadcast(&ToolMessage::WillListen);
+        // Voice mode ends first, so the two never listen at once (plan section 2): every
+        // connected app is told, and the microphone opens once each has answered that it closed
+        // voice mode (finding 2), or at the bound.
+        self.publish();
+        self.handovers += 1;
+        let seq = self.handovers;
+        let told = self.hub.broadcast_to(&ToolMessage::WillListen { seq });
+        let handover = Handover::new(seq, told);
+        if handover.complete() {
+            self.open_microphone();
+            return;
+        }
+        log::line(&format!(
+            "will-listen {seq} sent to {} app(s); the microphone waits for each one's answer",
+            handover.told.len()
+        ));
+        self.handover = Some(handover);
+        later(&self.tx, HANDOVER_WAIT, Control::HandoverTimeout(seq));
+    }
+
+    /// The microphone, once every app has yielded it.
+    fn open_microphone(&mut self) {
+        if !matches!(self.session.phase(), Phase::Listening { .. }) {
+            // The key was tapped again, or the input died, while the handover waited.
+            return;
+        }
         *self.recording.lock().unwrap_or_else(|p| p.into_inner()) = Some(Recording::new());
         let recording = self.recording.clone();
         let tx = self.tx.clone();
@@ -800,20 +1145,34 @@ impl Tool {
     fn stop(&mut self, duration_ms: u64) {
         // Dropping the capture closes the microphone.
         self.capture = None;
+        self.handover = None;
         let recording = self.recording.lock().unwrap_or_else(|p| p.into_inner()).take().unwrap_or_default();
         self.publish();
         let data_dir = self.data_dir.clone();
-        let model = self.settings.model.clone();
+        let model = self.recording_model.clone();
         let tx = self.tx.clone();
         let app = self.app.clone();
-        std::thread::Builder::new()
-            .name("dictation-write".into())
-            .spawn(move || {
-                let (outcome, words) = write(recording, duration_ms, &model, &data_dir, &app);
-                tx.send(Control::Written { outcome, words }).ok();
-            })
-            .ok();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        match std::thread::Builder::new().name("dictation-write".into()).spawn(move || {
+            let (outcome, words) = write(recording, duration_ms, &model, &data_dir, &app, &flag);
+            tx.send(Control::Written { outcome, words }).ok();
+        }) {
+            Ok(join) => self.writing = Some(Writing { stop, join }),
+            Err(e) => {
+                log::line(&format!("the writing worker could not start: {e}"));
+                self.session.finish(Err(Problem::CouldNotWrite));
+                self.publish();
+            }
+        }
     }
+}
+
+/// A model for `change`: an accuracy label (`accurate`, `fast`) or a model id the tool knows.
+fn model_for_choice_or_id(value: &str) -> Option<&'static str> {
+    model_for_choice(value).or_else(|| {
+        [richos_voice::dictation::MORE_ACCURATE, richos_voice::dictation::FASTER].into_iter().find(|id| *id == value)
+    })
 }
 
 /// V's key code, read on the main thread (Text Input Sources require it).
@@ -827,8 +1186,8 @@ fn v_code_on_main(app: &tauri::AppHandle) -> u16 {
 
 /// One dictation, from the recording to the words in place, and where they landed on screen
 /// when Accessibility says. Never logs the words.
-fn write(recording: Recording, duration_ms: u64, chosen: &str, data_dir: &std::path::Path, app: &tauri::AppHandle) -> (Result<(), Problem>, Option<Rect>) {
-    match write_words(recording, duration_ms, chosen, data_dir, app) {
+fn write(recording: Recording, duration_ms: u64, chosen: &str, data_dir: &std::path::Path, app: &tauri::AppHandle, stop: &AtomicBool) -> (Result<(), Problem>, Option<Rect>) {
+    match write_words(recording, duration_ms, chosen, data_dir, app, stop) {
         Ok((then, landed)) => {
             let words = landed.and_then(|(start, text)| insert::words_rect(start, &text));
             (then.map_or(Ok(()), Err), words)
@@ -841,7 +1200,7 @@ fn write(recording: Recording, duration_ms: u64, chosen: &str, data_dir: &std::p
 type Landed = Option<(isize, String)>;
 
 /// The words in place: `Ok` with the problem to say afterwards (if any) and what was pasted where.
-fn write_words(recording: Recording, duration_ms: u64, chosen: &str, data_dir: &std::path::Path, app: &tauri::AppHandle) -> Result<(Option<Problem>, Landed), Problem> {
+fn write_words(recording: Recording, duration_ms: u64, chosen: &str, data_dir: &std::path::Path, app: &tauri::AppHandle, stop: &AtomicBool) -> Result<(Option<Problem>, Landed), Problem> {
     let secs = recording.secs();
     let then = match judge_recording(duration_ms, &recording) {
         Stopped::Refuse(p) => {
@@ -870,12 +1229,16 @@ fn write_words(recording: Recording, duration_ms: u64, chosen: &str, data_dir: &
             log::line(&format!("a dictation's scratch folder could not be made: {e}"));
             Problem::CouldNotWrite
         })?;
-        recognizer.transcribe_bounded(&samples, scratch.path(), bound).map_err(|e| {
+        recognizer.transcribe_bounded_until(&samples, scratch.path(), bound, stop).map_err(|e| {
             log::line(&format!("whisper-cli did not write the words (bound {} s): {e}", bound.as_secs()));
             Problem::CouldNotWrite
         })?
-        // `scratch` is dropped here: the recording and the words on disk are removed.
+        // `scratch` is dropped here: the recording and the words on disk are removed, on a
+        // stop too (`transcribe_bounded_until` returns at once with the decoder reaped).
     };
+    if stop.load(Ordering::SeqCst) {
+        return Err(Problem::CouldNotWrite);
+    }
     let latency = started.elapsed().as_millis();
     let words = match judge_transcript(&transcript.0) {
         Ok(w) => w,
@@ -913,16 +1276,18 @@ mod tests {
         v.iter().map(|x| x.to_string()).collect()
     }
 
-    /// INVARIANT: the tool takes exactly its two arguments; the data folder is required and
-    /// absolute, so a child can never resolve a different folder from its app's.
+    /// INVARIANT: the tool takes exactly its two arguments. A data folder, when given, is
+    /// absolute, so a child can never resolve a different folder from its app's; none at all is
+    /// a launchd start (the plist names none), which computes the installed one.
     #[test]
     fn the_arguments() {
         assert_eq!(
             parse(&s(&["--data-dir", "/d", "--parent", "42"])).unwrap(),
-            Args { data_dir: "/d".into(), parent: Some(42) }
+            Args { data_dir: Some("/d".into()), parent: Some(42) }
         );
         assert_eq!(parse(&s(&["--data-dir", "/d"])).unwrap().parent, None);
-        assert!(parse(&s(&[])).is_err());
+        assert_eq!(parse(&s(&[])).unwrap(), Args { data_dir: None, parent: None }, "a launchd start");
+        assert!(parse(&s(&["--data-dir"])).is_err());
         assert!(parse(&s(&["--data-dir", "relative"])).is_err());
         assert!(parse(&s(&["--data-dir", "/d", "--parent", "x"])).is_err());
         assert!(parse(&s(&["--data-dir", "/d", "--other"])).is_err());
@@ -939,18 +1304,131 @@ mod tests {
         assert_eq!(preview_problem(None), None);
     }
 
-    /// INVARIANT: the state on the wire says Secure Event Input and its app, as the menu shows it.
+    /// INVARIANT: the state on the wire says Secure Event Input and its app, as the menu shows it,
+    /// and the key and model the tool actually uses (finding 4).
     #[test]
     fn the_state_carries_secure_event_input() {
-        let shared = Shared { owner: "o".into(), on: true, phase: Phase::Idle, key_tap: true, secure: Some(Some("1Password".into())) };
+        let shared = Shared { owner: "o".into(), on: true, phase: Phase::Idle, key_tap: true, secure: Some(Some("1Password".into())), key: 5, model: "small.en".into() };
         match shared.message() {
-            ToolMessage::State { secure_input, secure_app, .. } => {
+            ToolMessage::State { secure_input, secure_app, key, model, .. } => {
                 assert!(secure_input);
                 assert_eq!(secure_app.as_deref(), Some("1Password"));
+                assert_eq!((key, model.as_str()), (5, "small.en"));
             }
             other => panic!("{other:?}"),
         }
         let unnamed = Shared { secure: Some(None), ..shared };
         assert!(matches!(unnamed.message(), ToolMessage::State { secure_input: true, secure_app: None, .. }));
+    }
+
+    /// INVARIANT (finding 2): the microphone opens only once every app told has answered; with
+    /// nobody to tell it opens at once.
+    #[test]
+    fn the_handover_waits_for_every_answer() {
+        let mut h = Handover::new(1, vec![1, 2]);
+        assert!(!h.complete());
+        h.accept(1, 1);
+        assert!(!h.complete());
+        h.accept(1, 2);
+        assert!(h.complete());
+        assert!(Handover::new(2, Vec::new()).complete(), "no app connected: nothing to wait for");
+    }
+
+    /// INVARIANT (recheck finding 1): at the bound, an unanswered will-listen keeps the
+    /// microphone closed; it opens only once every app has yielded, or with no app connected.
+    #[test]
+    fn the_handover_fails_closed_at_the_bound() {
+        let two = || Handover::new(1, vec![1, 2]);
+        let mut one_silent = two();
+        assert_eq!(one_silent.accept(1, 1), Accept::Counted);
+        assert!(!one_silent.microphone_may_open(), "one app silent: closed");
+        assert!(!Handover::new(1, vec![1]).microphone_may_open(), "the only app silent: closed");
+        let mut both = two();
+        both.accept(1, 1);
+        assert_eq!(both.accept(1, 2), Accept::Complete);
+        assert!(both.microphone_may_open(), "every app yielded");
+        assert!(Handover::new(1, Vec::new()).microphone_may_open(), "no app connected: nobody to wait for");
+    }
+
+    /// INVARIANT (third and fourth reviews, finding 1): an answer counts only for its own
+    /// handover and its own connection. The third review's counterexample: A's late answer to
+    /// a timed-out handover plus A's current answer counted as two apps while B had not
+    /// yielded. The fourth's: two processes from one bundle were one name; here they are
+    /// connections 1 and 2, and one answer never completes for both.
+    #[test]
+    fn an_answer_counts_only_for_its_handover_and_its_connection() {
+        let mut h = Handover::new(2, vec![1, 2]);
+        assert_eq!(h.accept(1, 1), Accept::Stale, "A's late answer to handover 1");
+        assert_eq!(h.accept(2, 1), Accept::Counted, "A's answer to this one");
+        assert_eq!(h.accept(2, 1), Accept::Duplicate, "A again stands for nobody else");
+        assert_eq!(h.accept(2, 3), Accept::Unknown, "a connection that was not told");
+        assert!(!h.microphone_may_open(), "B has not yielded: closed");
+        assert_eq!(h.accept(2, 2), Accept::Complete);
+        assert!(h.microphone_may_open());
+    }
+
+    /// INVARIANT (fourth review, finding 1): two processes started from one bundle are two
+    /// connections, and one answer never completes the handover for both. RED on 31f787bae
+    /// (the handover named the copies told by bundle path, so the two were one name: told 1,
+    /// not 2); GREEN here, where the Hub names each connection it accepted by its own id.
+    #[test]
+    fn two_processes_from_one_bundle_are_two_connections() {
+        let hub = ipc::Hub::default();
+        let (a, _a_peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (b, _b_peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let a = hub.add(a);
+        let b = hub.add(b);
+        assert_ne!(a, b, "two connections, two ids, whatever bundle each process came from");
+        let told = hub.broadcast_to(&ToolMessage::WillListen { seq: 3 });
+        let mut h = Handover::new(3, told);
+        assert_eq!(h.told.len(), 2, "two connections told, two to wait for");
+        assert_eq!(h.accept(3, a), Accept::Counted, "the first process answers");
+        assert!(!h.microphone_may_open(), "the other process from the same bundle has not yielded");
+        assert_eq!(h.accept(3, a), Accept::Duplicate, "the first again stands for nobody else");
+        assert_eq!(h.accept(3, b), Accept::Complete);
+        assert!(h.microphone_may_open());
+    }
+
+    /// INVARIANT (finding 1): a writing worker told to stop ends with its child gone and is
+    /// joined; `end` owns that, so an ordinary quit leaves no decoder and no recording.
+    #[test]
+    fn a_stopped_writing_worker_is_joined_with_its_decoder_gone() {
+        let dir = std::env::temp_dir().join(format!("richos-dictation-writing-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let scratch = Scratch::new(&dir).unwrap();
+        let folder = scratch.path().to_path_buf();
+        let pid_file = dir.join("decoder.pid");
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let join = std::thread::spawn(move || {
+            let mut cmd = std::process::Command::new("/bin/sh");
+            cmd.args(["-c", "echo $$ > \"$1\"; exec /bin/sleep 30", "x"]).arg(&pid_file);
+            let r = stt::bounded_decoder_until(&mut cmd, scratch.path(), Duration::from_secs(30), Some(&flag));
+            assert_eq!(r.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+            // `scratch` drops here: the folder goes with the decoder's files.
+        });
+        // load-bound: a hang guard only, never the verdict; the child's own pid file is the fact waited for.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !dir.join("decoder.pid").exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let pid: i32 = std::fs::read_to_string(dir.join("decoder.pid")).unwrap().trim().parse().unwrap();
+        // The verdict is the worker's own error (Interrupted, asserted inside it: only the stop
+        // produces it, never the 30 s deadline) and the child being gone; no clock is read.
+        Writing { stop, join }.stop_and_join();
+        // SAFETY: signal 0 asks whether the child this test started still exists.
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "the decoder (pid {pid}) is gone");
+        assert!(!folder.exists(), "the scratch folder {} is gone", folder.display());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// INVARIANT (finding 4): a second copy's change names a model by label or by id, and
+    /// nothing else; an unknown value changes nothing.
+    #[test]
+    fn a_change_names_a_model_by_label_or_id() {
+        assert_eq!(model_for_choice_or_id("fast"), Some("small.en"));
+        assert_eq!(model_for_choice_or_id("accurate"), Some("large-v3-turbo-q5_0"));
+        assert_eq!(model_for_choice_or_id("small.en"), Some("small.en"));
+        assert_eq!(model_for_choice_or_id("tiny.en"), None);
     }
 }

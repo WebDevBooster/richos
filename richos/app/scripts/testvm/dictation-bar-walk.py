@@ -41,7 +41,10 @@ the moment they are needed and read with the guest's tesseract.
   chromium       one dictation into the Chromium app's text box; whether the words flew
   window-closed  CHILD MODE (lead, esc-20261008T072600Z-d94d767e): the app's window closed with
                  dictation on quits the app exactly as with dictation off, and the tool ends with
-                 it within a second. The tool outliving the app is slice 5's.
+                 it within a second. The tool outliving the app is slice 5's (dictation-login-walk.py).
+  accuracy-mid   (review finding 6, 2026-10-08) Faster chosen from the menu WHILE a dictation
+                 listens: that dictation's log line still names the model chosen when it began,
+                 and the next dictation's names small.en; then More accurate is put back
 
 Exit 0 when every step passes. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 """
@@ -67,7 +70,8 @@ command = dictation_walk.command
 words_of = dictation_walk.words_of
 
 STEPS = ['identity', 'stage', 'check-window', 'check-panel', 'relaunch', 'settle', 'frames', 'fullscreen', 'menu',
-         'nofield', 'nosound', 'apps', 'chromium', 'window-closed']
+         'nofield', 'nosound', 'apps', 'chromium', 'accuracy-mid', 'window-closed', 'quit-listening', 'quit-writing',
+         'menu-fresh']
 TEXTEDIT = 'com.apple.TextEdit'
 # The bar's drawn lines as the guest's tesseract should find them (a fragment of each, so a
 # line break or an apostrophe read as a quote does not decide the step).
@@ -100,6 +104,21 @@ def center(box):
     return (x + w / 2.0, y + h / 2.0)
 
 
+# The menu bar's band in top-left points (menubar.rs MENU_BAR_BAND): a logged item rectangle
+# outside it is the unplaced frame Tauri reported before the run loop placed the item (walks
+# 5028f74bc8b6 and 7bdbf43a6228 logged 0,1050 34x24), and the item is found through System
+# Events instead.
+# Seconds a fresh tool gets before its menu bar item is pressed (walk-c409831e46f9).
+FRESH_TOOL_SETTLE = 8.0
+
+MENU_BAR_BAND =100.0
+
+
+def item_placed(rect):
+    x, y, w, h = rect
+    return w > 0 and h > 0 and 0 <= y < MENU_BAR_BAND
+
+
 def read_contains(ocr, fragment):
     """OCR reads straight and curly quotes and spacing loosely; compare letters only."""
     squash = lambda s: re.sub(r'[^a-z]', '', s.lower())
@@ -113,6 +132,8 @@ class BarWalk(dictation_walk.DictationWalk):
         self.long = self.home + '/dictation-long.wav'
         self.silent = self.home + '/dictation-silent.wav'
         self.frames_dir = self.payload + '/frames'
+        self.opens = []
+        self.presses_to_open = 0
 
     # --- helpers ------------------------------------------------------------------------------
     def dlog_lines(self):
@@ -199,7 +220,7 @@ class BarWalk(dictation_walk.DictationWalk):
         logged = [line for line in self.dlog_lines() if 'menu bar item at ' in line]
         if logged:
             n = [float(v) for v in re.findall(r'-?\d+', logged[-1].split('menu bar item at ', 1)[1])][:4]
-            if len(n) == 4 and n[2] > 0:
+            if len(n) == 4 and item_placed(n):
                 return (n[0] + n[2] / 2, n[1] + n[3] / 2), {'from': 'dictation.log', 'rect': n}
         tool = self.tool_pids()
         if len(tool) != 1:
@@ -371,10 +392,15 @@ class BarWalk(dictation_walk.DictationWalk):
             raise StepFailed(f'over full screen: {line}; front {front}; still full screen {still}')
         return {'bar': shown, 'read': read, 'log': line, 'front': front, 'stayed_full_screen': still}
 
+    def bar_document(self):
+        """The TextEdit document the frames step writes into, opened; made empty when a run
+        without that step has none (the first run of the five open steps, walk-cf87b06695ad)."""
+        guest(self.vm, 'test -f /tmp/dictation-bar.txt || : > /tmp/dictation-bar.txt; open -a TextEdit /tmp/dictation-bar.txt')
+        time.sleep(2)
+
     def menu(self):
         self.use_sample(self.spoken)
-        guest(self.vm, 'open -a TextEdit /tmp/dictation-bar.txt')
-        time.sleep(2)
+        self.bar_document()
         before = self.textedit_text()
         (ix, iy), item = self.item_center()
         since = len(self.dlog_lines())
@@ -405,8 +431,11 @@ class BarWalk(dictation_walk.DictationWalk):
 
     def nofield(self):
         self.use_sample(self.spoken)
-        self.osa('tell application "Finder" to close every window')
-        self.osa('tell application "Finder" to activate')
+        # The desktop in front through System Events, the one app the session may drive
+        # (dictation-walk.osa): an Apple event to Finder itself puts up a consent prompt nobody
+        # answers (walk-d94269c3a41c, nofield: 40 s timeout under "sshd-keygen-wrapper wants
+        # access to control Finder").
+        self.osa('tell application "System Events" to set frontmost of process "Finder" to true')
         time.sleep(2)
         front = self.front_bundle()
         since = len(self.dlog_lines())
@@ -424,8 +453,7 @@ class BarWalk(dictation_walk.DictationWalk):
 
     def nosound(self):
         self.use_sample(self.silent)
-        guest(self.vm, 'open -a TextEdit /tmp/dictation-bar.txt')
-        time.sleep(2)
+        self.bar_document()
         before = self.textedit_text()
         since = len(self.dlog_lines())
         self.press('122')
@@ -437,12 +465,182 @@ class BarWalk(dictation_walk.DictationWalk):
             raise StepFailed('a silent dictation changed TextEdit')
         return {'bar': bar_shown(shown), 'log': line, 'read': read}
 
+    def modifier_flags(self):
+        """The modifier keys the guest's HID system and session believe are held (post_key --flags)."""
+        try:
+            return guest(self.vm, shlex.quote(self.post_key) + ' --flags', 20)
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            return f'(unread: {str(exc)[:120]})'
+
+    def release_command(self):
+        """A Command key-up with no flags posted in the guest (post_key --release-command)."""
+        return guest(self.vm, shlex.quote(self.post_key) + ' --release-command', 20)
+
     def chromium(self):
         self.use_sample(self.spoken)
         since = len(self.dlog_lines())
+        flags_before = self.modifier_flags()
         out = super().chromium()
+        # The words go into Chrome by the paste path (insert.rs post_command: a Command-V
+        # keystroke posted at the HID tap), where TextEdit's go in through Accessibility; what
+        # the HID system believes is held before and after is the measurement for the menu bar
+        # item's press that follows (walk-411cc5b8669f: the item saw a mouse-up alone).
+        out['modifier_flags'] = {'before': flags_before, 'after': self.modifier_flags()}
         flew = [x for x in self.dlog_lines()[since:] if 'the words flew to' in x]
         out['flight'] = flew[-1].split(' ', 1)[-1] if flew else 'no flight: the app gave Accessibility no rectangle, so the bar said Added alone'
+        # Chrome's first run posts macOS notification banners at the top right, at the item's own
+        # x (walk-e7b42c44d5d8's frame); recorded here, left in place, so the next step's press
+        # meets what a person's press after Chrome's first run meets (see open_menu_from_item).
+        out['banners'] = self.banners()
+        return out
+
+    def banners(self):
+        """Notification Center's banner windows, position and size, as System Events reports them."""
+        try:
+            return self.osa('tell application "System Events" to tell process "NotificationCenter" to get {position, size} of windows', 20)
+        except (StepFailed, RuntimeError, subprocess.TimeoutExpired) as exc:
+            return f'(unread: {str(exc)[:120]})'
+
+    def clear_banners(self):
+        """Notification banners dismissed (NotificationCenter restarted by launchd), with their
+        geometry recorded before and after."""
+        before = self.banners()
+        guest(self.vm, 'killall NotificationCenter 2>/dev/null || true')
+        time.sleep(3)
+        return {'banners_before': before, 'banners_after': self.banners()}
+
+    def item_answers(self, tool_pid):
+        """Whether the tool's main thread answers Accessibility for its menu bar item (System Events
+        reads the item through that thread): its frame, or the refusal, within 20 s."""
+        script = (f'tell application "System Events" to tell (first process whose unix id is {int(tool_pid)}) to '
+                  'get {position, size} of menu bar item 1 of menu bar 2')
+        try:
+            return self.osa(script, 25)
+        except (StepFailed, RuntimeError, subprocess.TimeoutExpired) as exc:
+            return f'(no answer: {str(exc)[:160]})'
+
+    def open_menu_from_item(self, since):
+        """The menu opened by a press on the item, as a person presses it: once; and when that press
+        reaches nothing within 5 s, what the press met is recorded (the item's own event lines, the
+        modifier keys the HID system believes are held, Notification Center's banner windows, the
+        front app, whether the tool's main thread still answers for the item); then, with Command
+        believed held, a Command key-up is posted (walk-411cc5b8669f: after the paste into Chrome
+        the item saw a mouse-up alone, which is how AppKit delivers a Command-click to a status
+        item: the start of dragging it), else the banners are dismissed; and the item is pressed
+        once more. Returns the evidence; raises with it when the second press opens nothing either."""
+        (ix, iy), item = self.item_center()
+        tool = self.tool_pids()
+        self.click(ix, iy)
+        evidence = {'item': item, 'presses': 1}
+        try:
+            self.wait_dlog('menu bar item pressed', since, 5)
+        except StepFailed:
+            flags = self.modifier_flags()
+            evidence['first_press'] = {
+                'item_events': [x.split(' ', 1)[-1] for x in self.dlog_lines()[since:] if 'menu bar item event' in x][-6:],
+                'modifier_flags': flags,
+                'banners': self.banners(),
+                'front': self.front_bundle(),
+                'item_answers': self.item_answers(tool[0]['pid']) if len(tool) == 1 else f'tools {tool}',
+            }
+            if 'command' in flags.split(';')[0]:
+                evidence['command_released'] = self.release_command()
+            else:
+                evidence['banners_cleared'] = self.clear_banners()
+            evidence['presses'] = 2
+            self.click(ix, iy)
+        try:
+            evidence['shown'] = self.wait_dlog('menu shown at', since, 10).split(' ', 1)[-1]
+        except StepFailed:
+            evidence['last_press'] = {
+                'item_events': [x.split(' ', 1)[-1] for x in self.dlog_lines()[since:] if 'menu bar item event' in x][-6:],
+                'modifier_flags': self.modifier_flags(),
+                'banners': self.banners(),
+                'front': self.front_bundle(),
+                'item_answers': self.item_answers(tool[0]['pid']) if len(tool) == 1 else f'tools {tool}',
+            }
+            raise StepFailed(f'no menu after {evidence["presses"]} press(es) on the item: {evidence}')
+        self.presses_to_open = evidence['presses']
+        # Kept in facts.json too, so a step that fails after the menu opened still leaves what
+        # the press met (walk-1e28724389ec: the menu opened at the second press and the step
+        # failed later, and the report carried only the later failure).
+        self.facts.setdefault('menu_opens', []).append(evidence)
+        self.save()
+        return evidence
+
+    def menu_fresh(self):
+        """The menu opened right after a fresh launch (fourth review, finding 2): RichOS relaunched,
+        its tool fresh, the item pressed as soon as the tool has placed it and its menu page is
+        ready, with the item's own event lines recorded so a press that opens nothing says whether
+        anything reached the item."""
+        self.fresh_runs = getattr(self, 'fresh_runs', 0) + 1
+        since = len(self.dlog_lines())
+        launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
+        self.log = launched['log']
+        self.facts['app_pid'] = launched['pid']
+        self.save()
+        tool = self.wait_tool()
+        self.wait_dlog('the menu page is ready', since, 30)
+        started = time.monotonic()
+        opened = self.open_menu_from_item(since)
+        self.grab(f'menu-fresh-{self.fresh_runs}')
+        self.key(53)
+        self.wait_dlog('menu closed', since, 10)
+        events = [x.split(' ', 1)[-1] for x in self.dlog_lines()[since:] if 'menu bar item event' in x]
+        return {'tool': tool, 'pressed_after_ready_seconds': round(time.monotonic() - started, 2), 'item_events': events[-6:], **opened}
+
+    def quit_listening(self):
+        return self.quit_during('listening')
+
+    def quit_writing(self):
+        return self.quit_during('writing')
+
+    def quit_during(self, phase):
+        """RichOS quit by its window while a dictation is listening, or being written down (first
+        review, finding 1; third review's missing coverage): the tool ends with the app, no
+        whisper-cli is left, the dictation's scratch folder is empty, and for the writing case the
+        log says the decoder was stopped and the recording removed."""
+        self.use_sample(self.long)
+        launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
+        self.log = launched['log']
+        app = launched['pid']
+        tool = self.wait_tool()['pid']
+        time.sleep(FRESH_TOOL_SETTLE)
+        self.bar_document()
+        since = len(self.dlog_lines())
+        self.press('122')
+        self.wait_dlog('listening (', since, 20)
+        if phase == 'writing':
+            time.sleep(1.5)
+            self.press('122')
+            self.wait_dlog('bar shown: writing', since, 20)
+        scratch = self.data + '/dictation-scratch'
+        before = guest(self.vm, 'ls -A ' + shlex.quote(scratch) + ' 2>/dev/null || true')
+        self.osa(f'tell application "System Events" to tell (first process whose unix id is {app}) to '
+                 'click (first button of window 1 whose subrole is "AXCloseButton")')
+        started = time.monotonic()
+        app_gone = tool_gone = None
+        while time.monotonic() - started < 30 and (app_gone is None or tool_gone is None):
+            if app_gone is None and guest(self.vm, f'kill -0 {app} 2>/dev/null && echo alive || true') != 'alive':
+                app_gone = round(time.monotonic() - started, 2)
+            if tool_gone is None and guest(self.vm, f'kill -0 {tool} 2>/dev/null && echo alive || true') != 'alive':
+                tool_gone = round(time.monotonic() - started, 2)
+            time.sleep(0.1)
+        time.sleep(2)
+        decoders = guest(self.vm, 'ps -axo pid=,command= | grep -i whisper-cli | grep -v grep || true').strip()
+        after = guest(self.vm, 'ls -A ' + shlex.quote(scratch) + ' 2>/dev/null || true').strip()
+        said = [x for x in self.dlog_lines()[since:] if 'stopping its decoder and removing its recording' in x]
+        out = {'phase': phase, 'app_pid': app, 'tool_pid': tool, 'app_gone_after_seconds': app_gone,
+               'tool_gone_after_seconds': tool_gone, 'scratch_before': before.strip(), 'scratch_after': after,
+               'decoders_left': decoders, 'log_said': said[-1:]}
+        if app_gone is None or tool_gone is None:
+            raise StepFailed(f'the app or its tool did not end: {out}')
+        if decoders:
+            raise StepFailed(f'a decoder is left running after the quit: {out}')
+        if after:
+            raise StepFailed(f'recording files are left after the quit: {out}')
+        if phase == 'writing' and not said:
+            raise StepFailed(f'the tool did not say it stopped the decoder and removed the recording: {out}')
         return out
 
     def close_window_quits(self, on):
@@ -466,6 +664,62 @@ class BarWalk(dictation_walk.DictationWalk):
         return {'dictation_on': on, 'app_pid': app, 'app_gone_after_seconds': app_gone, 'tool_pid': tool,
                 'tool_gone_after_seconds': tool_gone}
 
+    def choose_accuracy(self, down_presses):
+        """The menu from the item, the focused row moved `down_presses` times from More accurate,
+        pressed, then Escape. Returns the tool's line for the choice."""
+        since = len(self.dlog_lines())
+        self.opens.append(self.open_menu_from_item(since))
+        time.sleep(0.6)
+        for _ in range(down_presses):
+            self.key(125)
+        self.key(49)
+        line = self.wait_dlog('accuracy set to', since, 10)
+        self.key(53)
+        self.wait_dlog('menu closed', since, 10)
+        time.sleep(0.6)
+        return line
+
+    def accuracy_mid(self):
+        """Finding 6: the accuracy is pinned when a dictation begins."""
+        # On the app and tool already running (the chromium step's). The press on the item is
+        # open_menu_from_item's, which records what sat over the item when a press reaches
+        # nothing; the fresh-tool press is menu-fresh's own step.
+        if not self.tool_pids():
+            launched = relaunch(self.vm, environment={'RICHOS_VOICE_INPUT_WAV': self.wav, 'RICHOS_DICTATION_TEST_ON': '1'})
+            self.log = launched['log']
+            self.facts['app_pid'] = launched['pid']
+            self.save()
+            self.wait_tool()
+            time.sleep(FRESH_TOOL_SETTLE)
+        # Whatever the file says, this dictation begins on More accurate.
+        self.opens = []
+        self.choose_accuracy(0)
+        presses = [self.presses_to_open]
+        self.use_sample(self.long)
+        self.open_textedit('/tmp/dictation-accuracy-mid.txt')
+        since = len(self.dlog_lines())
+        self.press('122')
+        self.wait_dlog('listening (', since, 20)
+        time.sleep(1.0)
+        # Faster, chosen while it listens.
+        changed = self.choose_accuracy(1)
+        presses.append(self.presses_to_open)
+        guest(self.vm, 'open -a TextEdit /tmp/dictation-accuracy-mid.txt')
+        time.sleep(3)
+        self.press('122')
+        first = self.wait_dlog('dictation: model ', since, dictation_walk.DICTATION_WITHIN)
+        first_model = re.search(r'dictation: model (\S+),', first).group(1)
+        if first_model != 'large-v3-turbo-q5_0':
+            raise StepFailed(f'the dictation in progress changed its model to {first_model}: {first}')
+        self.use_sample(self.spoken)
+        row = self.dictate('122', TEXTEDIT, 'clipboard-before-accuracy-mid')
+        if row['model'] != 'small.en':
+            raise StepFailed(f'the next dictation did not use Faster: {row["log"]}')
+        restored = self.choose_accuracy(0)
+        presses.append(self.presses_to_open)
+        return {'changed_while_listening': changed, 'dictation_in_progress': first, 'next_dictation': row, 'restored': restored,
+                'presses_to_open_each_menu': presses, 'menu_opens': self.opens}
+
     def window_closed(self):
         off = self.close_window_quits(False)
         on = self.close_window_quits(True)
@@ -476,7 +730,7 @@ class BarWalk(dictation_walk.DictationWalk):
         if quits_on and (on['tool_gone_after_seconds'] is None or on['tool_gone_after_seconds'] - on['app_gone_after_seconds'] > 1.5):
             raise StepFailed(f'the tool did not end with its app: {on}')
         return {'off': off, 'on': on, 'the_app_quits': quits_on,
-                'note': 'child mode (slices 1 to 4): the tool ends with its app; outliving it is slice 5'}
+                'note': 'the tool is the app\'s child and ends with it (the CEO, 2026-10-08: no start at login in this release)'}
 
 
 def main():

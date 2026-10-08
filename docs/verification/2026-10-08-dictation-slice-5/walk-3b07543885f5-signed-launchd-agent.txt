@@ -1,0 +1,77 @@
+gui/501/com.richos.app.dictation = {
+	active count = 0
+	path = (submitted by smd.81)
+	type = Submitted
+	managed_by = com.apple.xpc.ServiceManagement
+	state = spawn scheduled
+
+	program identifier = Contents/MacOS/richos-tauri (mode: 2)
+	parent bundle identifier = com.richos.app
+	parent bundle version = 1.2.0-dev.f07ae7621.dirty
+	BTM uuid = B9046C47-4959-4FDD-AFAD-B55D4762A6FD
+	arguments = {
+		richos-tauri
+		--richos-dictation
+	}
+
+	inherited environment = {
+		SSH_AUTH_SOCK => /private/tmp/com.apple.launchd.Fuyv0MsIj0/Listeners
+	}
+
+	default environment = {
+		PATH => /usr/bin:/bin:/usr/sbin:/sbin
+	}
+
+	environment = {
+		XPC_SERVICE_NAME => com.richos.app.dictation
+	}
+
+	domain = gui/501 [100003]
+	asid = 100003
+	minimum runtime = 10
+	exit timeout = 5
+	runs = 18
+	last exit code = 78: EX_CONFIG
+
+	semaphores = {
+		successful exit => 0
+	}
+
+	spawn type = interactive (4)
+	jetsam priority = 40
+	jetsam memory limit (active) = (unlimited)
+	jetsam memory limit (inactive) = (unlimited)
+	jetsamproperties category = daemon
+	submitted job. ignore execute allowed
+	jetsam thread limit = 32
+	cpumon = default
+	job state = spawn failed
+	probabilistic guard malloc policy = {
+		activation rate = 1/1000
+		sample rate = 1/0
+	}
+
+	properties = partial import | runatload | resolve program | has LWCR | tle system
+}
+---
+total 24
+drwxr-xr-x  10 admin  staff  320  8 Oct 14:59 .
+drwx------+ 30 admin  staff  960  8 Oct 14:59 ..
+-rw-------   1 admin  staff    0  8 Oct 14:59 .dictation.json.lock
+-rw-------   1 admin  staff  318  8 Oct 14:59 claude-reset-offers.json
+-rw-------   1 admin  staff    0  8 Oct 14:59 claude-reset-offers.lock
+-rw-r--r--   1 admin  staff    0  8 Oct 14:59 conversation-ledger.jsonl
+-rw-r--r--   1 admin  staff  123  8 Oct 14:59 dictation.json
+drwxr-xr-x   4 admin  staff  128  8 Oct 15:00 engine-state
+-rw-r--r--   1 admin  staff  217  8 Oct 14:59 launches.json
+drwxr-xr-x   2 admin  staff   64  8 Oct 14:59 phone
+---
+cat: /private/tmp/richos-501/dictation-tool-start.err: No such file or directory
+---
+ 1051     1 /Users/admin/testvm/walk-3b07543885f5/RichOS.app/Contents/MacOS/richos-tauri
+ 1473     1 /Users/admin/Applications/RichOS.app/Contents/MacOS/richos-tauri
+ 2309  1473 /Users/admin/Library/Application Support/RichOS/engine/runtime/bin/whisper-cli -m /Users/admin/.config/richos/models/ggml-small.en.bin -f /var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/richos-voice-calibration/probe.wav -l en -t 4 -fa -np -nt -mc 0
+ 2397  1473 /Users/admin/Library/Application Support/RichOS/engine/runtime/bin/whisper-cli -m /Users/admin/.config/richos/models/ggml-large-v3-turbo-q5_0.bin -f /var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/richos-voice-calibration/probe.wav -l en -t 4 -fa -np -nt -mc 0
+ 2400  1473 /Users/admin/Library/Application Support/RichOS/engine/runtime/bin/whisper-cli -m /Users/admin/.config/richos/models/ggml-large-v3-turbo-q5_0.bin -f /var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/richos-voice-calibration/probe.wav -l en -t 4 -fa -np -nt -mc 0
+ 2491  1051 /Users/admin/testvm/walk-3b07543885f5/engine/runtime/bin/whisper-cli -m /Users/admin/testvm/walk-3b07543885f5/home/.config/richos/models/ggml-large-v3-turbo-q5_0.bin -f /var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/richos-voice-calibration/probe.wav -l en -t 4 -fa -np -nt -mc 0
+ 2492  1051 /Users/admin/testvm/walk-3b07543885f5/engine/runtime/bin/whisper-cli -m /Users/admin/testvm/walk-3b07543885f5/home/.config/richos/models/ggml-large-v3-turbo-q5_0.bin -f /var/folders/9m/b94f0mqn0d327g6_m6p0x0br0000gn/T/richos-voice-calibration/probe.wav -l en -t 4 -fa -np -nt -mc 0

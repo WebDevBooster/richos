@@ -1,0 +1,42 @@
+2026-10-08T14:24:32Z dictation tool started: version 1.2.0-dev.4c19a1b7f.dirty, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T14:24:32Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-447858a8c733/engine/runtime/bin
+2026-10-08T14:24:32Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:24:32Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:24:32Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:24:32Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T14:24:32Z key tap created for F1
+2026-10-08T14:24:32Z an app connected: version 1.2.0-dev.4c19a1b7f.dirty, /Users/admin/testvm/walk-447858a8c733/RichOS.app, data folder /Users/admin/testvm/walk-447858a8c733/home/Library/Application Support/com.richos.app
+2026-10-08T14:24:33Z menu bar item at 1438,0 34x24
+2026-10-08T14:24:33Z the menu page is ready
+2026-10-08T14:24:33Z the flight page is ready
+2026-10-08T14:24:33Z the bar page is ready
+2026-10-08T14:26:36Z menu bar item pressed
+2026-10-08T14:26:36Z menu opened from the menu bar item; the front app is pid Some(2173)
+2026-10-08T14:26:36Z menu shown at 1126,28 346x319
+2026-10-08T14:26:36Z menu key window shown; the tool is active: true; front pid Some(2173)
+2026-10-08T14:26:38Z accuracy set to small.en from the menu bar; the next dictation uses it
+2026-10-08T14:26:38Z menu shown at 1126,28 346x319
+2026-10-08T14:26:38Z menu key window shown; the tool is active: true; front pid Some(2173)
+2026-10-08T14:26:38Z menu closed; the front app is pid Some(2173)
+2026-10-08T14:26:40Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T14:26:40Z every app (1) yielded the microphone
+2026-10-08T14:26:40Z listening (injected wav (/Users/admin/testvm/walk-447858a8c733/home/dictation-sample.wav))
+2026-10-08T14:26:40Z bar shown: listening at 579,817 523x138
+2026-10-08T14:26:44Z bar shown: writing at 692,817 296x138
+2026-10-08T14:27:14Z dictation: model small.en, 3.49 s of audio, written in 30283 ms, pasted, spacing read; into com.apple.TextEdit (from Accessibility), focused element yes (AXTextArea, asked system-wide), window yes
+2026-10-08T14:27:15Z the words flew to 182,101 424x13 on the screen at 0,0
+2026-10-08T14:27:15Z bar shown: added at 732,817 216x138
+2026-10-08T14:27:24Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T14:27:24Z every app (1) yielded the microphone
+2026-10-08T14:27:24Z listening (injected wav (/Users/admin/testvm/walk-447858a8c733/home/dictation-sample.wav))
+2026-10-08T14:27:24Z bar shown: listening at 579,817 523x138
+2026-10-08T14:27:28Z bar shown: writing at 692,817 296x138
+2026-10-08T14:27:50Z dictation: model small.en, 3.58 s of audio, written in 22803 ms, copied (no text box); into com.apple.finder (from Accessibility), focused element yes (AXGroup, asked system-wide), window yes
+2026-10-08T14:27:51Z bar shown: problem no-text-box at 468,817 745x138
+2026-10-08T14:27:59Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T14:27:59Z every app (1) yielded the microphone
+2026-10-08T14:27:59Z listening (injected wav (/Users/admin/testvm/walk-447858a8c733/home/dictation-sample.wav))
+2026-10-08T14:27:59Z bar shown: listening at 579,817 523x138
+2026-10-08T14:28:02Z the microphone delivered nothing for 3.008 s; listening ended
+2026-10-08T14:28:02Z dictation of 3.01 s (3002 ms tapped): nothing written, no-sound
+2026-10-08T14:28:02Z bar shown: problem no-sound at 546,817 589x138

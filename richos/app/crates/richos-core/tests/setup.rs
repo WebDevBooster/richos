@@ -338,7 +338,8 @@ fn the_video_tools_with_no_home_name_nowhere_rather_than_nothing() {
 
 /// **UNTIL DICTATION IS THERE, THE CONSENT LINE IS THE MEDIA-TOOLS PLAN'S, AND MEETS THE SHEET'S
 /// FLOOR**: no path, no digit, no terminal (the same rule `setup_view.rs` holds the other two
-/// components to). `DICTATION_READY` is false until slice 5, so it is also what ships today.
+/// components to). It was what shipped until slice 5 set `DICTATION_READY` true (2026-10-08);
+/// the constant decides which line `display_name()` and `why()` give, as the last assertion says.
 #[test]
 fn the_video_tools_consent_line_is_the_plans() {
     assert_eq!(Component::MediaTools.display_name_for(false), "my video tools");

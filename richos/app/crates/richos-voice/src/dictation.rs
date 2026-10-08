@@ -175,6 +175,10 @@ pub enum Problem {
     /// Iris's slice 0 line: the words could not be written down (whisper-cli failed or passed
     /// its bound).
     CouldNotWrite,
+    /// "Voice mode is still listening, so I didn't start. Tap F1 again in a moment." An app did
+    /// not answer will-listen within the bound: the microphone stays closed (the handover fails
+    /// closed, never open), and the press is dropped.
+    VoiceStillListening,
 }
 
 impl Problem {
@@ -188,6 +192,7 @@ impl Problem {
             Problem::NoAccessibility => "no-accessibility",
             Problem::ModelMissing => "model-missing",
             Problem::CouldNotWrite => "could-not-write",
+            Problem::VoiceStillListening => "voice-still-listening",
         }
     }
 }
@@ -469,14 +474,24 @@ pub enum Insert {
 /// text box focused and the system-wide `AXFocusedUIElement` answered nothing, so a rule on the
 /// focused element alone copied instead of pasting in every Chromium app. Chrome's windows are
 /// ordinary windows, and Accessibility reports them without an assistive client.
-pub fn insert_plan(focused_element: bool, window_focused: bool, finder_in_front: bool) -> Insert {
+///
+/// Finder describes its whole tree, so in Finder only a focused text box (a rename field, the
+/// search field, Go to Folder) is a place to type: with the desktop in front Finder answers a
+/// focused element (its icon view, `AXScrollArea`) AND a window (walk-36699815244d, where the
+/// words were pasted at the desktop), so `focused_role` is what tells the desktop from a field.
+pub fn insert_plan(focused_element: bool, window_focused: bool, finder_in_front: bool, focused_role: Option<&str>) -> Insert {
     let nothing_focused = !focused_element && !window_focused;
-    let the_desktop = finder_in_front && !window_focused;
-    if nothing_focused || the_desktop {
+    let finder_not_a_text_box = finder_in_front && !focused_role.is_some_and(typing_role);
+    if nothing_focused || finder_not_a_text_box {
         Insert::CopyOnly
     } else {
         Insert::Paste
     }
+}
+
+/// An Accessibility role that takes typed text.
+pub fn typing_role(role: &str) -> bool {
+    matches!(role, "AXTextField" | "AXTextArea" | "AXComboBox")
 }
 
 /// **The spacing rule** (plan section 5, point 3): a space before the words when the character
@@ -753,18 +768,22 @@ mod tests {
     /// app, pastes.
     #[test]
     fn only_no_focus_or_the_desktop_is_nothing_to_type_into() {
-        assert_eq!(insert_plan(false, false, false), Insert::CopyOnly, "nothing focused");
-        assert_eq!(insert_plan(true, false, true), Insert::CopyOnly, "the desktop");
-        assert_eq!(insert_plan(true, true, true), Insert::Paste, "a Finder window's rename field");
-        assert_eq!(insert_plan(true, false, false), Insert::Paste, "any other app, described or not");
-        assert_eq!(insert_plan(true, true, false), Insert::Paste, "an app that describes its focus");
+        assert_eq!(insert_plan(false, false, false, None), Insert::CopyOnly, "nothing focused");
+        assert_eq!(insert_plan(true, false, true, None), Insert::CopyOnly, "the desktop");
+        assert_eq!(insert_plan(true, true, true, Some("AXScrollArea")), Insert::CopyOnly, "the desktop as walk-36699815244d saw it: an icon view and a window");
+        assert_eq!(insert_plan(false, true, true, None), Insert::CopyOnly, "a Finder window with nothing focused in it");
+        assert_eq!(insert_plan(true, true, true, Some("AXTextField")), Insert::Paste, "a Finder window's rename field");
+        assert_eq!(insert_plan(true, true, true, Some("AXTextArea")), Insert::Paste);
+        assert_eq!(insert_plan(true, false, false, None), Insert::Paste, "any other app, described or not");
+        assert_eq!(insert_plan(true, true, false, Some("AXScrollArea")), Insert::Paste, "another app's role is not judged (Chromium, Electron)");
+        assert_eq!(insert_plan(true, true, false, None), Insert::Paste, "an app that describes its focus");
     }
 
     /// INVARIANT (M7, measured in walk-326edd632dac): an app whose window is focused but which
     /// reports no focused element without an assistive client (Chrome, Electron) still pastes.
     #[test]
     fn a_focused_window_without_a_described_element_pastes() {
-        assert_eq!(insert_plan(false, true, false), Insert::Paste);
+        assert_eq!(insert_plan(false, true, false, None), Insert::Paste);
     }
 
     /// INVARIANT: round 19's spacing (`insertAt`): a space before unless at the start or after

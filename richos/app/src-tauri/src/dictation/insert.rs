@@ -137,6 +137,9 @@ pub struct Focus {
     /// can report one when it reports no focused element.
     pub window_focused: bool,
     pub finder_in_front: bool,
+    /// The focused element's `AXRole`, where it answers one: in Finder, what tells a rename
+    /// field from the desktop's icon view (walk-36699815244d).
+    pub focused_role: Option<String>,
     /// The characters on either side of the cursor, where Accessibility can read them.
     pub around: Option<(Option<char>, Option<char>)>,
     /// Where the selection began (UTF-16 units), where Accessibility can read it: the words'
@@ -190,10 +193,14 @@ pub fn focus() -> Focus {
         None => Err(0),
     };
     out.window_focused = window.is_ok();
+    if let Ok(element) = &element {
+        out.focused_role = string_attribute(element.0, "AXRole");
+    }
     out.seen = format!(
-        "into {} (from {app_from}), focused element {} (asked {element_from}), window {}",
+        "into {} (from {app_from}), focused element {} ({}asked {element_from}), window {}",
         out.front_bundle.as_deref().unwrap_or("an unknown app"),
         answer(&element),
+        out.focused_role.as_deref().map(|r| format!("{r}, ")).unwrap_or_default(),
         answer(&window),
     );
     if let Ok(element) = element {
@@ -299,6 +306,13 @@ fn frontmost_pid() -> Option<i32> {
             (pid > 0).then_some(pid)
         }
     })
+}
+
+/// A string attribute of an element, where it answers one.
+fn string_attribute(element: AXUIElementRef, name: &'static str) -> Option<String> {
+    let value = attribute(element, name)?;
+    // SAFETY: `value` is a +1 reference; the wrapper takes its own.
+    Some(unsafe { CFType::wrap_under_get_rule(value.0 as _) }.downcast::<CFString>()?.to_string())
 }
 
 /// The characters either side of the cursor, and where the selection begins.
@@ -496,16 +510,34 @@ fn write_words(pb: *mut AnyObject, words: &str) -> Option<isize> {
     })
 }
 
+/// kVK_Command.
+const COMMAND_KEY: u16 = 0x37;
+
+/// **The keystroke Command-`code`, as a keyboard sends it**: Command down, the key down and up
+/// with Command held, Command up with nothing held: (key code, down, flags) in order.
+///
+/// Until walk-411cc5b8669f this posted the key down and up alone, both carrying the Command
+/// flag and no Command key event at all, and the HID system was left believing Command held
+/// after every pasted dictation (post_key --flags read `hid 0x100000 [command]` after the
+/// paste into Chrome; TextEdit's words go in through Accessibility and post nothing). Every
+/// later click on the Mac was then a Command-click until a real key was pressed: on the menu
+/// bar item, AppKit took it for the start of dragging the item and handed the item its mouse-up
+/// alone, so the menu never opened (walk-c409831e46f9, walk-8dcad10d445b, walk-3520f87af8f9,
+/// walk-e7b42c44d5d8, walk-411cc5b8669f: every failing press came after a paste into Chrome).
+fn command_keystroke(code: u16) -> [(u16, bool, u64); 4] {
+    [(COMMAND_KEY, true, FLAG_COMMAND), (code, true, FLAG_COMMAND), (code, false, FLAG_COMMAND), (COMMAND_KEY, false, 0)]
+}
+
 fn post_command(code: u16) {
     // SAFETY: CoreGraphics event creation and posting; every created reference is released.
     unsafe {
         let source = CGEventSourceCreate(HID_SYSTEM_STATE);
-        for down in [true, false] {
-            let event = CGEventCreateKeyboardEvent(source, code, down);
+        for (key, down, flags) in command_keystroke(code) {
+            let event = CGEventCreateKeyboardEvent(source, key, down);
             if event.is_null() {
                 continue;
             }
-            CGEventSetFlags(event, FLAG_COMMAND);
+            CGEventSetFlags(event, flags);
             CGEventPost(HID_EVENT_TAP, event);
             CFRelease(event);
         }
@@ -540,7 +572,7 @@ pub fn insert(words: &str, v_code: u16) -> Result<Inserted, String> {
         previous.join().ok();
     }
     let f = focus();
-    let how = insert_plan(f.focused_element, f.window_focused, f.finder_in_front);
+    let how = insert_plan(f.focused_element, f.window_focused, f.finder_in_front, f.focused_role.as_deref());
     let pb = general().ok_or("no general pasteboard")?;
     let text = match (how, f.around) {
         (Insert::Paste, Some((before, after))) => spaced(words, before, after),
@@ -587,6 +619,23 @@ pub fn settle() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// INVARIANT (walk-411cc5b8669f): the paste keystroke is what a keyboard sends, Command down
+    /// first and Command up last with no flags, so the HID system is never left believing
+    /// Command held after a pasted dictation. RED before this: two events, the key down and up,
+    /// both with Command set and no Command key event at all.
+    #[test]
+    fn the_paste_keystroke_lets_command_go() {
+        let keys = command_keystroke(9);
+        assert_eq!(keys[0], (COMMAND_KEY, true, FLAG_COMMAND), "Command goes down first");
+        assert_eq!(keys[1], (9, true, FLAG_COMMAND));
+        assert_eq!(keys[2], (9, false, FLAG_COMMAND));
+        assert_eq!(keys[3], (COMMAND_KEY, false, 0), "Command goes up last, with nothing held");
+        let last_with_command = keys.iter().rposition(|(_, _, flags)| flags & FLAG_COMMAND != 0).unwrap();
+        assert!(matches!(keys[last_with_command + 1..], [(COMMAND_KEY, false, 0)]), "nothing after Command's release");
+        assert_eq!(keys.iter().filter(|(k, down, _)| *k == COMMAND_KEY && *down).count(),
+                   keys.iter().filter(|(k, down, _)| *k == COMMAND_KEY && !*down).count(), "every Command down has its up");
+    }
 
     /// INVARIANT: the log names each Accessibility answer, and an error by its own code, so a
     /// copy instead of a paste says what Accessibility reported.

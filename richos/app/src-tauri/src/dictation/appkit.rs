@@ -272,6 +272,88 @@ pub fn pointer() -> Option<(f64, f64)> {
     Some((p.x, primary_height() - p.y))
 }
 
+/// Is this process the active app? It never should be: the tool is Accessory and its windows
+/// are nonactivating panels.
+pub fn app_active() -> bool {
+    objc2::rc::autoreleasepool(|_| {
+        let Some(class) = AnyClass::get(c"NSApplication") else { return false };
+        // SAFETY: documented class method and accessor.
+        unsafe {
+            let app: *mut AnyObject = msg_send![class, sharedApplication];
+            msg_send![app, isActive]
+        }
+    })
+}
+
+/// `NSApplicationDidBecomeActiveNotification` reached the watcher: the activation is handed
+/// back at once, and the log says so with the app that was in front.
+///
+/// Where it comes from (walk-8dcad10d445b, bundle 6dcd14dcb): wry activates the application
+/// when it creates a webview (`wry-0.55.1/src/wkwebview/mod.rs:696`, `NSApplication::activate`,
+/// unconditional), and on macOS 14+ that cooperative request is granted about two seconds
+/// later through the run loop, when the app that was active is itself still starting: a tool
+/// started by a freshly launched RichOS became the active app at 16:03:43 and 16:03:55, and
+/// a press on its menu bar item then opened nothing, where the same press with TextEdit active
+/// opened the menu in every other run. The tool is never the front (plan section 6): the front
+/// belongs to the app the words go to.
+extern "C-unwind" fn became_active(_: *mut AnyObject, _: Sel, _: *mut AnyObject) {
+    let front = frontmost_pid();
+    deactivate();
+    super::log::line(&format!(
+        "the tool became the active app (front pid {front:?}); activation handed back, the front belongs to the app the words go to"
+    ));
+}
+
+/// Give activation back to whatever app had it: `[NSApp deactivate]`.
+fn deactivate() {
+    objc2::rc::autoreleasepool(|_| {
+        if let Some(class) = AnyClass::get(c"NSApplication") {
+            // SAFETY: documented class method and instance method; main thread (the observer
+            // runs on the notification's thread, which is the main thread for AppKit).
+            unsafe {
+                let app: *mut AnyObject = msg_send![class, sharedApplication];
+                let _: () = msg_send![app, deactivate];
+            }
+        }
+    });
+}
+
+/// **Hand back every activation of this process.** Registered once, in the tool's `setup`
+/// (main thread); the observer lives for the process.
+pub fn watch_activation() -> Result<(), String> {
+    static WATCH: OnceLock<Result<(), String>> = OnceLock::new();
+    WATCH
+        .get_or_init(|| {
+            let superclass = AnyClass::get(c"NSObject").ok_or("no NSObject")?;
+            let mut builder = ClassBuilder::new(c"RichOSDictationActivationWatch", superclass)
+                .ok_or("the activation watch class could not be made")?;
+            type Handler = extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject);
+            let handler: Handler = became_active;
+            // SAFETY: the selector takes one object (the notification) and returns nothing.
+            unsafe {
+                builder.add_method(sel!(appDidBecomeActive:), handler);
+            }
+            let class = builder.register();
+            let center_class = AnyClass::get(c"NSNotificationCenter").ok_or("no NSNotificationCenter")?;
+            // SAFETY: documented NSNotificationCenter API; the watcher is kept for the process.
+            unsafe {
+                let watcher: *mut AnyObject = msg_send![class, new];
+                let center: *mut AnyObject = msg_send![center_class, defaultCenter];
+                let name = ns_string("NSApplicationDidBecomeActiveNotification");
+                let _: () = msg_send![center, addObserver: watcher, selector: sel!(appDidBecomeActive:), name: name, object: std::ptr::null::<AnyObject>()];
+            }
+            Ok(())
+        })
+        .clone()
+}
+
+/// An autoreleased NSString.
+unsafe fn ns_string(s: &str) -> *mut AnyObject {
+    let c = std::ffi::CString::new(s).unwrap_or_default();
+    let class = AnyClass::get(c"NSString").expect("NSString");
+    msg_send![class, stringWithUTF8String: c.as_ptr()]
+}
+
 /// The app in front, by process id.
 pub fn frontmost_pid() -> Option<i32> {
     objc2::rc::autoreleasepool(|_| {
@@ -387,6 +469,18 @@ fn secure_input_pid() -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// INVARIANT: the activation watch registers once and answers the same the second time; a
+    /// test process is never the active app (and handing back activation while not active is
+    /// harmless: `deactivate` on an inactive app does nothing).
+    #[test]
+    fn the_activation_watch_registers_once() {
+        assert_eq!(watch_activation(), Ok(()));
+        assert_eq!(watch_activation(), Ok(()));
+        assert!(!app_active());
+        deactivate();
+        assert!(!app_active());
+    }
 
     /// INVARIANT: the check's switch names exactly the two types; anything else is the default.
     #[test]

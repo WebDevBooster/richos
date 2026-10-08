@@ -38,6 +38,32 @@ pub enum AppMessage {
     CaptureNextKey,
     /// The window stopped waiting for a key (Escape, Cancel, a key chosen on the strip).
     CancelCapture,
+    /// **The answer to `will-listen`** (review finding 2, 2026-10-08): this app has closed voice
+    /// mode's microphone and its turn gate (or had none open), so the tool may open the
+    /// microphone now. The tool waits for one from every connected app before it listens. The
+    /// answer names the handover it answers (`seq`, from the `will-listen`) and the copy that
+    /// answers (`bundle`), so a late answer to an earlier handover, or a second answer from the
+    /// same copy, never stands in for another copy's (recheck, third review, finding 1). Both
+    /// default, so an answer from an app built before them reads as seq 0 and no bundle, which
+    /// matches nothing.
+    #[serde(rename_all = "camelCase")]
+    VoiceYielded {
+        #[serde(default)]
+        seq: u64,
+        #[serde(default)]
+        bundle: String,
+    },
+    /// **A change to the key's owner's settings, from a copy that does not own the key** (review
+    /// finding 4): a second copy's sheet changes `dictation.json` where the TOOL reads it, never
+    /// its own, so what the sheet says is what the next dictation does. Each field is optional.
+    Change {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        on: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+    },
 }
 
 /// The tool to the app.
@@ -63,10 +89,20 @@ pub enum ToolMessage {
         secure_input: bool,
         #[serde(default)]
         secure_app: Option<String>,
+        /// The key and the model the tool actually uses (its own `dictation.json`), so a copy
+        /// that does not own the key shows them rather than its own file's (finding 4). Both
+        /// default, so a state from a tool built before them still reads.
+        #[serde(default)]
+        key: u8,
+        #[serde(default)]
+        model: String,
     },
     /// The microphone is about to open for a dictation: voice mode ends first, so the two never
-    /// listen at once.
-    WillListen,
+    /// listen at once. `seq` names this handover; the answer carries it back.
+    WillListen {
+        #[serde(default)]
+        seq: u64,
+    },
     /// The answer to `capture-next-key`: the F-key he pressed, 1 to 19.
     Key { key: u8 },
     /// The tool's menu bar menu changed `dictation.json` (Accuracy, or Turn dictation off): an
@@ -197,24 +233,53 @@ pub fn read_lines<T: for<'de> Deserialize<'de>>(stream: UnixStream, mut on_messa
     }
 }
 
+/// One connected app: its stream, and the id this tool gave the connection when it accepted
+/// it. The id is the connection's identity for the microphone handover (fourth review, finding
+/// 1): two processes started from one bundle are two connections, and nothing the app sends
+/// can stand for another connection.
+struct Client {
+    id: u64,
+    stream: UnixStream,
+}
+
 /// Every connected app, for the tool's broadcasts.
 #[derive(Default)]
 pub struct Hub {
-    clients: Mutex<Vec<UnixStream>>,
+    clients: Mutex<Vec<Client>>,
+    next_id: Mutex<u64>,
 }
 
 impl Hub {
-    /// Say `message` to every app; an app that has gone is dropped.
-    pub fn broadcast(&self, message: &ToolMessage) {
-        if let Ok(mut clients) = self.clients.lock() {
-            clients.retain_mut(|c| send(c, message).is_ok());
+    /// Say `message` to every app; an app that has gone is dropped. Returns how many heard it,
+    /// so a caller can tell "an app is connected" from "nobody is".
+    pub fn broadcast(&self, message: &ToolMessage) -> usize {
+        self.broadcast_to(message).len()
+    }
+
+    /// Say `message` to every app and name the connections that heard it, by the ids this tool
+    /// gave them: the handover's list of who must yield the microphone (third and fourth
+    /// reviews, finding 1).
+    pub fn broadcast_to(&self, message: &ToolMessage) -> Vec<u64> {
+        match self.clients.lock() {
+            Ok(mut clients) => {
+                clients.retain_mut(|c| send(&mut c.stream, message).is_ok());
+                clients.iter().map(|c| c.id).collect()
+            }
+            Err(_) => Vec::new(),
         }
     }
 
-    fn add(&self, stream: UnixStream) {
+    /// A connection accepted: the next id is its identity for as long as it is connected.
+    pub(super) fn add(&self, stream: UnixStream) -> u64 {
+        let id = {
+            let mut next = self.next_id.lock().unwrap_or_else(|p| p.into_inner());
+            *next += 1;
+            *next
+        };
         if let Ok(mut clients) = self.clients.lock() {
-            clients.push(stream);
+            clients.push(Client { id, stream });
         }
+        id
     }
 }
 
@@ -224,7 +289,7 @@ pub fn serve(
     owner: &KeyOwner,
     hub: Arc<Hub>,
     state: impl Fn() -> ToolMessage + Send + Sync + 'static,
-    on_message: impl Fn(AppMessage) + Send + Sync + 'static,
+    on_message: impl Fn(u64, AppMessage) + Send + Sync + 'static,
 ) -> std::io::Result<()> {
     let listener = owner.listener().try_clone()?;
     let state = Arc::new(state);
@@ -242,11 +307,13 @@ pub fn serve(
                 continue;
             }
             let Ok(reader) = stream.try_clone() else { continue };
-            hub.add(stream);
+            let id = hub.add(stream);
             let on_message = on_message.clone();
+            // Every message this connection sends is tagged with the connection's own id here,
+            // on the tool's side, so the handover counts connections, not what an app claims.
             if let Err(e) = std::thread::Builder::new()
                 .name("dictation-ipc-client".into())
-                .spawn(move || read_lines::<AppMessage>(reader, |m| on_message(m)))
+                .spawn(move || read_lines::<AppMessage>(reader, |m| on_message(id, m)))
             {
                 eprintln!("[richos-dictation] an app's connection could not be heard: {e}");
             }
@@ -407,8 +474,10 @@ mod tests {
             key_tap: true,
             secure_input: false,
             secure_app: None,
+            key: 1,
+            model: "large-v3-turbo-q5_0".into(),
         };
-        serve(&owner, hub.clone(), state, move |m| tx.send(m).unwrap()).unwrap();
+        serve(&owner, hub.clone(), state, move |_, m| tx.send(m).unwrap()).unwrap();
         let mut app = UnixStream::connect(owner.socket()).unwrap();
         let mut lines = BufReader::new(app.try_clone().unwrap()).lines();
         let first: ToolMessage = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
@@ -416,9 +485,9 @@ mod tests {
         app.write_all(b"{\"type\":\"from-a-newer-app\"}\n").unwrap();
         send(&mut app, &AppMessage::Finish).unwrap();
         assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), AppMessage::Finish);
-        hub.broadcast(&ToolMessage::WillListen);
+        hub.broadcast(&ToolMessage::WillListen { seq: 1 });
         let raw = lines.next().unwrap().unwrap();
-        assert_eq!(raw, r#"{"type":"will-listen"}"#);
+        assert_eq!(raw, r#"{"type":"will-listen","seq":1}"#);
         let come = serde_json::to_string(&ToolMessage::ComeForward { sheet: true }).unwrap();
         assert_eq!(come, r#"{"type":"come-forward","sheet":true}"#);
         assert_eq!(serde_json::to_string(&ToolMessage::SettingsChanged).unwrap(), r#"{"type":"settings-changed"}"#);
@@ -427,7 +496,25 @@ mod tests {
             r#"{"type":"state","owner":"o","on":true,"listening":false,"writing":false,"problem":null,"keyTap":true}"#,
         )
         .unwrap();
-        assert!(matches!(older, ToolMessage::State { secure_input: false, secure_app: None, .. }));
+        assert!(matches!(older, ToolMessage::State { secure_input: false, secure_app: None, key: 0, .. }));
+        // The handover's answer and the second copy's change (review findings 2 and 4).
+        assert_eq!(
+            serde_json::to_string(&AppMessage::VoiceYielded { seq: 7, bundle: "/a/RichOS.app".into() }).unwrap(),
+            r#"{"type":"voice-yielded","seq":7,"bundle":"/a/RichOS.app"}"#
+        );
+        // An answer from an app built before the fields reads as seq 0 and no bundle, which
+        // matches no handover (third review, finding 1).
+        assert_eq!(
+            serde_json::from_str::<AppMessage>(r#"{"type":"voice-yielded"}"#).unwrap(),
+            AppMessage::VoiceYielded { seq: 0, bundle: String::new() }
+        );
+        assert_eq!(serde_json::to_string(&ToolMessage::WillListen { seq: 7 }).unwrap(), r#"{"type":"will-listen","seq":7}"#);
+        let change = AppMessage::Change { on: None, key: Some(5), model: None };
+        assert_eq!(serde_json::to_string(&change).unwrap(), r#"{"type":"change","key":5}"#);
+        send(&mut app, &change).unwrap();
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), change);
+        send(&mut app, &AppMessage::VoiceYielded { seq: 1, bundle: "b".into() }).unwrap();
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), AppMessage::VoiceYielded { seq: 1, bundle: "b".into() });
         let hello = serde_json::to_string(&AppMessage::Hello { version: "1.2.0".into(), bundle: "b".into(), data_dir: "d".into() }).unwrap();
         assert_eq!(hello, r#"{"type":"hello","version":"1.2.0","bundle":"b","dataDir":"d"}"#);
         // Key capture (slice 2): the plan's names on the wire, both ways.

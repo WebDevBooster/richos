@@ -7,6 +7,13 @@
 //!                                   then up (slice 3: the bar's Fix it and the menu bar item,
 //!                                   which belong to the dictation tool and not to the app in
 //!                                   front, so `ax.sh click --at` refuses them)
+//!   post_key --flags                the modifier keys the HID system and the session believe
+//!                                   are held right now, as CoreGraphics reports them (walk
+//!                                   411cc5b8669f: a press on the menu bar item after a pasted
+//!                                   dictation reached the item as a mouse-up alone, which is
+//!                                   how AppKit delivers a Command-click to a status item)
+//!   post_key --release-command      a Command key-up with no flags, so a Command the HID
+//!                                   system still believes held is let go
 //!
 //! System Events can post a key code but not a system-defined event, and the test VM has no
 //! physical keyboard, so this is how the walk proves the tap matches and swallows the event a
@@ -44,6 +51,8 @@ fn main() {
         fn CGEventCreateKeyboardEvent(source: *mut c_void, code: u16, down: bool) -> *mut CGEvent;
         fn CGEventCreateMouseEvent(source: *mut c_void, kind: u32, at: Point, button: u32) -> *mut CGEvent;
         fn CGEventPost(tap: u32, event: *mut CGEvent);
+        fn CGEventSetFlags(event: *mut CGEvent, flags: u64);
+        fn CGEventSourceFlagsState(state: i32) -> u64;
         fn CFRelease(cf: *const c_void);
     }
     #[link(name = "AppKit", kind = "framework")]
@@ -107,8 +116,28 @@ fn main() {
             }
             println!("posted a left click at {x},{y}");
         }
+        ["--flags"] => {
+            // kCGEventSourceStateHIDSystemState (1): what the HID system believes is held, which
+            // is what the window server stamps on the next click; CombinedSessionState (0): the
+            // session's view. Printed as CoreGraphics' own bits and the names they carry.
+            let (hid, session) = unsafe { (CGEventSourceFlagsState(1), CGEventSourceFlagsState(0)) };
+            println!("hid {:#x} [{}]; session {:#x} [{}]", hid, flag_names(hid), session, flag_names(session));
+        }
+        ["--release-command"] => {
+            unsafe {
+                let source = CGEventSourceCreate(1);
+                let event = CGEventCreateKeyboardEvent(source, COMMAND_KEY, false);
+                CGEventSetFlags(event, 0);
+                CGEventPost(0, event);
+                CFRelease(event as *const c_void);
+                CFRelease(source);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            let hid = unsafe { CGEventSourceFlagsState(1) };
+            println!("posted Command up with no flags; hid now {:#x} [{}]", hid, flag_names(hid));
+        }
         _ => {
-            eprintln!("usage: post_key --brightness-down | --code <kVK> | --click <x>,<y>");
+            eprintln!("usage: post_key --brightness-down | --code <kVK> | --click <x>,<y> | --flags | --release-command");
             std::process::exit(2);
         }
     }
@@ -116,6 +145,20 @@ fn main() {
 
 #[cfg(not(target_os = "macos"))]
 fn main() {}
+
+/// kVK_Command.
+const COMMAND_KEY: u16 = 0x37;
+
+/// The modifier names in a CoreGraphics flags word (kCGEventFlagMask*: Shift 1<<17, Control
+/// 1<<18, Alternate 1<<19, Command 1<<20), or "none".
+fn flag_names(flags: u64) -> String {
+    let names: Vec<&str> = [(1u64 << 17, "shift"), (1 << 18, "control"), (1 << 19, "option"), (1 << 20, "command")]
+        .iter()
+        .filter(|(bit, _)| flags & bit != 0)
+        .map(|(_, name)| *name)
+        .collect();
+    if names.is_empty() { "none".into() } else { names.join("+") }
+}
 
 /// `x,y` as two numbers.
 fn parse_point(at: &str) -> Option<(f64, f64)> {
@@ -141,6 +184,14 @@ mod tests {
         assert_eq!(super::parse_point(" 3 , 4 "), Some((3.0, 4.0)));
         assert_eq!(super::parse_point("700"), None);
         assert_eq!(super::parse_point("a,b"), None);
+    }
+
+    #[test]
+    fn the_flag_names_are_coregraphics_bits() {
+        assert_eq!(super::flag_names(0), "none");
+        assert_eq!(super::flag_names(1 << 20), "command");
+        assert_eq!(super::flag_names((1 << 17) | (1 << 20)), "shift+command");
+        assert_eq!(super::COMMAND_KEY, 0x37);
     }
 
     #[test]

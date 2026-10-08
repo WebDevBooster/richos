@@ -1,0 +1,278 @@
+{
+  "vm": "walk-8dcad10d445b",
+  "expect_sha": "6dcd14dcb",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "6dcd14dcb4161e79475035213d78ff6e51825d9c"
+      },
+      "outcome": "PASS",
+      "seconds": 0.2
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone"
+          ],
+          "system": [
+            "kTCCServiceAccessibility"
+          ]
+        },
+        "input_monitoring_row": false,
+        "wav": "/Users/admin/testvm/walk-8dcad10d445b/home/dictation-sample.wav",
+        "wav_seconds": 3.042,
+        "model": "/Users/admin/testvm/walk-8dcad10d445b/home/.config/richos/models/ggml-small.en.bin",
+        "expected_text": {
+          "small.en": "The quarterly numbers look better than we expected this morning."
+        },
+        "samples": {
+          "spoken": "/Users/admin/testvm/walk-8dcad10d445b/home/dictation-spoken.wav",
+          "long": "/Users/admin/testvm/walk-8dcad10d445b/home/dictation-long.wav",
+          "silent": "/Users/admin/testvm/walk-8dcad10d445b/home/dictation-silent.wav"
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 17.6
+    },
+    {
+      "step": "relaunch",
+      "evidence": {
+        "app_pid": 1409,
+        "tool": {
+          "pid": 1482,
+          "ppid": 1409,
+          "command": "/Users/admin/testvm/walk-8dcad10d445b/RichOS.app/Contents/MacOS/richos-tauri --richos-dictation --data-dir /Users/admin/testvm/walk-8dcad10d445b/home/Library/Application Support/com.richos.app --parent 1409"
+        },
+        "log": [
+          "[richos] dictation: turned on by the test switch (RICHOS_DICTATION_TEST_ON)",
+          "[richos] dictation: the tool started as this app's child (pid 1482)",
+          "[richos-dictation] dictation tool started: version 1.2.0-dev.6dcd14dcb, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock",
+          "[richos-dictation] whisper-cli from the app's runtime at /Users/admin/testvm/walk-8dcad10d445b/engine/runtime/bin",
+          "[richos] dictation: connected to the tool",
+          "[richos-dictation] dictation-bar window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] dictation-flight window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] dictation-menu window: nonactivating panel, activation prevented at the window server",
+          "[richos-dictation] the bar, the flight and the menu windows are built as the panel type",
+          "[richos-dictation] key tap created for F1",
+          "[richos-dictation] an app connected: version 1.2.0-dev.6dcd14dcb, /Users/admin/testvm/walk-8dcad10d445b/RichOS.app, data folder /Users/admin/testvm/walk-8dcad10d445b/home/Library/Application Support/com.richos.app (this tool is 1.2.0-dev.6dcd14dcb)",
+          "[richos-dictation] menu bar item at 1438,0 34x24"
+        ]
+      },
+      "outcome": "PASS",
+      "seconds": 4.4
+    },
+    {
+      "step": "settle",
+      "evidence": {
+        "voice_readiness": "[richos] voice: ready on this machine (ready) \u2014 whisper.cpp 1.9.1 bin:fe7b744a4b31 model:small.en@c6138d6d58ec | model:small.en (hw-resolved top rung, 23.411s/utt <= 1.000s) mem:2780200960B/5368709120B pressure:normal",
+        "models": [
+          "ggml-large-v3-turbo-q5_0.bin",
+          "ggml-small.en.bin",
+          "ggml-small.en.bin.part"
+        ],
+        "decoded": {
+          "large-v3-turbo-q5_0": {
+            "text": "The quarterly numbers look better than we expected this morning.",
+            "seconds": 10.1
+          },
+          "small.en": {
+            "text": "The quarterly numbers look better than we expected this morning.",
+            "seconds": 0.0
+          }
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 105.9
+    },
+    {
+      "step": "menu",
+      "evidence": {
+        "item": {
+          "from": "dictation.log",
+          "rect": [
+            1438.0,
+            0.0,
+            34.0,
+            24.0
+          ]
+        },
+        "shown": "menu shown at 1126,28 346x319",
+        "chosen": "accuracy set to small.en from the menu bar; the next dictation uses it",
+        "closed": "menu closed; the front app is pid Some(2113)",
+        "front_while_open": "com.apple.TextEdit",
+        "front_after_close": "com.apple.TextEdit",
+        "reads": [
+          "menu.png reads \"More accurate\"",
+          "menu.png reads \"Open RichOS\""
+        ],
+        "next_dictation": {
+          "key": "122",
+          "log": "2026-10-08T16:01:44Z dictation: model small.en, 3.33 s of audio, written in 31813 ms, pasted, spacing read; into com.apple.TextEdit (from Accessibility), focused element yes (AXTextArea, asked system-wide), window yes",
+          "model": "small.en",
+          "expected": "The quarterly numbers look better than we expected this morning.",
+          "clipboard_restored": true,
+          "front_samples": 137,
+          "front": "com.apple.TextEdit",
+          "press_seconds": 0.326,
+          "sample_delivered_after_seconds": 3.211,
+          "second_tap_after_delivery_seconds": 0.157
+        },
+        "textedit_after": "The quarterly numbers look better than we expected this morning."
+      },
+      "outcome": "PASS",
+      "seconds": 61.7
+    },
+    {
+      "step": "nofield",
+      "evidence": {
+        "front": "com.apple.finder",
+        "bar": {
+          "view": "problem no-text-box",
+          "frame": [
+            468,
+            817,
+            745,
+            138
+          ]
+        },
+        "log": "2026-10-08T16:02:22Z dictation: model small.en, 3.65 s of audio, written in 23447 ms, copied (no text box); into com.apple.finder (from Accessibility), focused element yes (AXGroup, asked system-wide), window yes",
+        "read": "no-text-box.png reads \"No text box was selected\""
+      },
+      "outcome": "PASS",
+      "seconds": 32.0
+    },
+    {
+      "step": "nosound",
+      "evidence": {
+        "bar": {
+          "view": "problem no-sound",
+          "frame": [
+            546,
+            817,
+            589,
+            138
+          ]
+        },
+        "log": "2026-10-08T16:02:34Z dictation of 3.01 s (3018 ms tapped): nothing written, no-sound",
+        "read": "no-sound.png reads \"hear anything\""
+      },
+      "outcome": "PASS",
+      "seconds": 13.2
+    },
+    {
+      "step": "apps",
+      "evidence": {
+        "applications": [
+          "/Applications:",
+          "Safari.app",
+          "Utilities",
+          "",
+          "/System/Applications:",
+          "App Store.app",
+          "Automator.app",
+          "Books.app",
+          "Calculator.app",
+          "Calendar.app",
+          "Chess.app",
+          "Clock.app",
+          "Contacts.app",
+          "Dictionary.app",
+          "FaceTime.app",
+          "FindMy.app",
+          "Font Book.app",
+          "Freeform.app",
+          "Home.app",
+          "Image Capture.app",
+          "Image Playground.app",
+          "iPhone Mirroring.app",
+          "Launchpad.app",
+          "Mail.app",
+          "Maps.app",
+          "Messages.app",
+          "Mission Control.app",
+          "Music.app",
+          "News.app",
+          "Notes.app",
+          "Passwords.app",
+          "Photo Booth.app",
+          "Photos.app",
+          "Podcasts.app",
+          "Preview.app",
+          "QuickTime Player.app",
+          "Reminders.app",
+          "Shortcuts.app",
+          "Siri.app",
+          "Stickies.app",
+          "Stocks.app",
+          "System Settings.app",
+          "TextEdit.app",
+          "Time Machine.app",
+          "Tips.app",
+          "TV.app",
+          "Utilities",
+          "VoiceMemos.app",
+          "Weather.app"
+        ],
+        "chromium_or_electron": "Google Chrome.app",
+        "installed_chrome": true
+      },
+      "outcome": "PASS",
+      "seconds": 31.0
+    },
+    {
+      "step": "chromium",
+      "evidence": {
+        "app": "Google Chrome.app",
+        "bundle": "com.google.Chrome",
+        "dictation": {
+          "key": "122",
+          "log": "2026-10-08T16:03:25Z dictation: model small.en, 3.26 s of audio, written in 3707 ms, pasted; into com.google.Chrome (from the workspace), focused element none (-25212) (asked system-wide), window yes",
+          "model": "small.en",
+          "expected": "The quarterly numbers look better than we expected this morning.",
+          "clipboard_restored": true,
+          "front_samples": 37,
+          "front": "com.google.Chrome",
+          "press_seconds": 0.13,
+          "sample_delivered_after_seconds": 3.145,
+          "second_tap_after_delivery_seconds": 0.134
+        },
+        "text": "The quarterly numbers look better than we expected this morning.",
+        "flight": "no flight: the app gave Accessibility no rectangle, so the bar said Added alone"
+      },
+      "outcome": "PASS",
+      "seconds": 21.0
+    },
+    {
+      "step": "window-closed",
+      "evidence": {
+        "off": {
+          "dictation_on": false,
+          "app_pid": 5740,
+          "app_gone_after_seconds": 0.1,
+          "tool_pid": null,
+          "tool_gone_after_seconds": null
+        },
+        "on": {
+          "dictation_on": true,
+          "app_pid": 5874,
+          "app_gone_after_seconds": 0.12,
+          "tool_pid": 5934,
+          "tool_gone_after_seconds": 0.21
+        },
+        "the_app_quits": true,
+        "note": "the tool is the app's child and ends with it (the CEO, 2026-10-08: no start at login in this release)"
+      },
+      "outcome": "PASS",
+      "seconds": 20.9
+    },
+    {
+      "step": "accuracy-mid",
+      "outcome": "FAIL",
+      "detail": "dictation.log never said \"menu shown at\" within 10 s; its tail:\n   1: richos_tauri::dictation::appkit::became_active\n   2: <unknown>\n   3: <unknown>\n   4: <unknown>\n   5: <unknown>\n   6: <unknown>\n   7: <unknown>\n   8: <unknown>\n   9: tao::platform_impl::platform::app::send_event\n  10: <unknown>\n  11: <unknown>\n  12: tao::platform_impl::platform::event_loop::EventLoop<T>::run\n  13: <tauri_runtime_wry::Wry<T> as tauri_runtime::Runtime<T>>::run\n  14: tauri::app::App<R>::run\n  15: richos_tauri::dictation::tool::main\n  16: richos_tauri::main\n  17: std::sys::backtrace::__rust_begin_short_backtrace\n  18: std::rt::lang_start::{{closure}}\n  19: std::rt::lang_start_internal\n  20: _main",
+      "seconds": 27.8
+    }
+  ]
+}

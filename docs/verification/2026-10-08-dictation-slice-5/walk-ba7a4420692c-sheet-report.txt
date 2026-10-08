@@ -1,0 +1,86 @@
+{
+  "vm": "walk-ba7a4420692c",
+  "expect_sha": "7eed1de96",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "7eed1de96f54e818b6c643dfe9bcda72f0bcc53d-dirty"
+      },
+      "outcome": "PASS",
+      "seconds": 0.3
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [],
+          "system": []
+        },
+        "no_grants": true,
+        "dictation_json": "absent",
+        "wav": "/Users/admin/testvm/walk-ba7a4420692c/home/dictation-sample.wav",
+        "model": "/Users/admin/testvm/walk-ba7a4420692c/home/.config/richos/models/ggml-small.en.bin"
+      },
+      "outcome": "PASS",
+      "seconds": 3.0
+    },
+    {
+      "step": "relaunch",
+      "evidence": {
+        "app_pid": 1328,
+        "first_run_sheets_declined": 0
+      },
+      "outcome": "PASS",
+      "seconds": 41.7
+    },
+    {
+      "step": "switch-on",
+      "evidence": {
+        "sheet_said_off_first": true
+      },
+      "outcome": "PASS",
+      "seconds": 41.4
+    },
+    {
+      "step": "mic-prompt",
+      "evidence": {
+        "frame": "mic-prompt-1.png",
+        "iris_sentence_ocr": {
+          "talk instead of typing": true,
+          "only after you tap": true,
+          "press the talk": true
+        },
+        "allow_pressed_in": "UserNotificationCenter",
+        "fallback": null
+      },
+      "outcome": "PASS",
+      "seconds": 18.5
+    },
+    {
+      "step": "ax-prompt",
+      "evidence": {
+        "frame": "ax-prompt-0.png",
+        "mic_answer_in_log": [
+          "[richos] dictation: the microphone was allowed"
+        ],
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone=2"
+          ],
+          "system": [
+            "kTCCServiceAccessibility=0"
+          ]
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 3.3
+    },
+    {
+      "step": "granted-settings",
+      "outcome": "FAIL",
+      "detail": "no RichOS switch in the Accessibility pane (texts and boxes seen: {'texts': [], 'boxes': [(1140, 232, 26, 15, '1'), (1140, 274, 26, 15, '0'), (1140, 316, 26, 15, '1'), (1140, 358, 26, 15, '1'), (1140, 400, 26, 15, '1')]})",
+      "seconds": 354.7
+    }
+  ]
+}

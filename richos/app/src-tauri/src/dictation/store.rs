@@ -3,16 +3,25 @@
 //! **The app writes it**; the tool reads it at start and again when the app says it changed
 //! (`settings-changed`). **The one exception is the tool's menu bar menu** (slice 3): its
 //! Accuracy rows and **Turn dictation off** live in the tool and must work with RichOS's window
-//! closed, so the tool changes exactly those two fields with [`update`], which reads the file
-//! fresh first so nothing the app wrote is lost, and then tells every app `settings-changed`.
-//! The accuracy label is derived from `model`, never stored beside it, so the label cannot claim
-//! a model the next dictation will not use.
+//! closed, so the tool changes exactly those two fields with [`update`], and then tells every
+//! app `settings-changed`. The accuracy label is derived from `model`, never stored beside it,
+//! so the label cannot claim a model the next dictation will not use.
+//!
+//! **Two writers, one file, no lost change** (slice 5, once the tool runs without the app):
+//! every change goes through [`update`], which holds an advisory lock on `.dictation.json.lock`
+//! beside the file across its read, its change and its atomic write. The app's and the tool's
+//! read-modify-writes therefore never interleave: the second waits for the first's write and
+//! then reads it. An in-process mutex could not do this (two processes), and a lock-free
+//! read-then-write could lose the app's key change under the tool's accuracy change (the test
+//! `two_writers_lose_nothing` is that race, made deterministic).
 
 use richos_voice::dictation::{DEFAULT_KEY, MORE_ACCURATE};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const FILE_NAME: &str = "dictation.json";
+/// The lock file beside it (never the file itself, which is replaced by rename).
+pub const LOCK_NAME: &str = ".dictation.json.lock";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -80,13 +89,38 @@ pub fn write(data_dir: &Path, settings: &Settings) -> Result<(), String> {
     })
 }
 
-/// **Change the file as it is on disk now**: read it fresh, apply `change`, write it back
-/// atomically. What the tool's menu uses, so a field the app wrote a moment ago is kept.
+/// **Change the file as it is on disk now**, under the file lock: read it fresh, apply `change`,
+/// write it back atomically. What the app and the tool's menu both use, so a field the other
+/// wrote a moment ago is kept. A file that cannot be read is never overwritten.
 pub fn update(data_dir: &Path, change: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
+    let _held = lock(data_dir)?;
     let mut settings = read(data_dir)?;
     change(&mut settings);
     write(data_dir, &settings)?;
     Ok(settings)
+}
+
+/// Take the advisory lock (blocking); released when the returned file is dropped. `pub` for the
+/// one other writer of the file, Rich's offer (`dictation_offer::mark_shown`), which keeps its
+/// own JSON shape and so cannot go through [`update`].
+pub fn lock(data_dir: &Path) -> Result<std::fs::File, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::AsRawFd;
+    std::fs::create_dir_all(data_dir).map_err(|e| format!("the data folder could not be created: {e}"))?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(data_dir.join(LOCK_NAME))
+        .map_err(|e| format!("{LOCK_NAME} could not be opened: {e}"))?;
+    // SAFETY: a valid descriptor we own for the life of `file`.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(format!("{LOCK_NAME} could not be locked: {}", std::io::Error::last_os_error()));
+    }
+    Ok(file)
 }
 
 #[cfg(test)]
@@ -123,6 +157,40 @@ mod tests {
         }
         let leftovers: Vec<_> = std::fs::read_dir(&d).unwrap().map(|e| e.unwrap().file_name()).collect();
         assert_eq!(leftovers, vec![std::ffi::OsString::from(FILE_NAME)], "no partial file left");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// INVARIANT (slice 5, two writers): the app's change and the tool's change to the same file
+    /// both survive. The race, made deterministic: writer A is inside its change when writer B
+    /// changes another field. With the lock, B waits for A's write and reads it; without it, B
+    /// writes inside A's window and A's stale copy then erases B's field.
+    #[test]
+    fn two_writers_lose_nothing() {
+        use std::sync::mpsc::channel;
+        let d = dir("two-writers");
+        write(&d, &Settings::default()).unwrap();
+        let (b_started, started) = channel::<()>();
+        let (a_free, free) = channel::<()>();
+        let d2 = d.clone();
+        let a = std::thread::spawn(move || {
+            update(&d2, |s| {
+                b_started.send(()).unwrap();
+                // B is now trying its own update; with the lock it cannot finish while this runs.
+                free.recv_timeout(std::time::Duration::from_millis(400)).ok();
+                s.key = 5;
+            })
+            .unwrap()
+        });
+        started.recv().unwrap();
+        let d3 = d.clone();
+        let b = std::thread::spawn(move || update(&d3, |s| s.model = "small.en".into()).unwrap());
+        // B is blocked on the lock: it does not finish while A holds it.
+        assert!(!b.is_finished(), "writer B must wait for writer A");
+        a_free.send(()).ok();
+        a.join().unwrap();
+        b.join().unwrap();
+        let after = read(&d).unwrap();
+        assert_eq!((after.key, after.model.as_str()), (5, "small.en"), "{after:?}");
         std::fs::remove_dir_all(&d).unwrap();
     }
 

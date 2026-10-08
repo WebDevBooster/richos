@@ -3893,6 +3893,7 @@ fn main() {
             dictation_app::dictation_permissions_changed,
             #[cfg(target_os = "macos")]
             dictation_app::dictation_open_settings,
+            dictation_take_sheet_request,
             #[cfg(target_os = "macos")]
             dictation_app::dictation_capture_key
         ])
@@ -4342,6 +4343,12 @@ impl dictation_app::VoiceMode for AppVoice {
     /// to open the Dictation sheet (`dictation-open-sheet`; the sheet is slice 2's).
     fn come_forward(&self, sheet: bool) {
         let app = self.app.clone();
+        if sheet {
+            // Kept until a page takes it: a window rebuilt here (RichOS kept running by its
+            // work with the window closed) has no page subscribed yet when the event below
+            // goes out, so the page asks for it as it boots (third review, finding 4).
+            DICTATION_SHEET_REQUEST.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         let ran = self.app.run_on_main_thread(move || {
             reopen_window(&app);
             if sheet {
@@ -4366,6 +4373,34 @@ impl dictation_app::VoiceMode for AppVoice {
 /// The page opens the Dictation sheet (the tool's **Dictation settings…** or **Fix it**).
 #[cfg(target_os = "macos")]
 const DICTATION_OPEN_SHEET: &str = "dictation-open-sheet";
+
+/// A sheet request not yet taken by a page (third review, finding 4): set by `come_forward`,
+/// taken once by `dictation_take_sheet_request`, which the page calls as it boots and when it
+/// hears the event, so a request made before the page existed still opens the sheet.
+static DICTATION_SHEET_REQUEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `true` once per request: the page takes the pending Dictation sheet request. Async dispatch
+/// like every command here (`ipc_responsiveness_tests`): one atomic swap never needs the native
+/// event loop, and a synchronous command is the one shape that could hold it.
+#[tauri::command(async)]
+fn dictation_take_sheet_request() -> bool {
+    DICTATION_SHEET_REQUEST.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod dictation_sheet_request_tests {
+    use super::*;
+
+    /// INVARIANT (third review, finding 4): a sheet request is kept until one page takes it,
+    /// and taken once; with none pending, a page booting opens nothing.
+    #[test]
+    fn a_sheet_request_is_taken_once() {
+        assert!(!dictation_take_sheet_request(), "nothing pending");
+        DICTATION_SHEET_REQUEST.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(dictation_take_sheet_request(), "the page that boots takes it");
+        assert!(!dictation_take_sheet_request(), "and it is gone");
+    }
+}
 /// The tool's menu bar menu changed `dictation.json`; what the page shows of it is re-read.
 #[cfg(target_os = "macos")]
 const DICTATION_SETTINGS_CHANGED: &str = "dictation-settings-changed";
@@ -4550,10 +4585,14 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     speech_preflight()?;
     ensure_voice_state(&app);
     // A dictation listening right now is written first, as if its key had been tapped, so voice
-    // mode and dictation never hold the microphone at once (dictation plan section 2).
+    // mode and dictation never hold the microphone at once (dictation plan section 2). A
+    // dictation that does not stop keeps the microphone: voice mode does not open, rather than
+    // opening beside it and sending his dictated words to Rich (review finding 2).
     #[cfg(target_os = "macos")]
     if let Some(link) = app.try_state::<Arc<dictation_app::Link>>() {
-        link.finish();
+        if !link.finish() {
+            return Err("a dictation is still listening; tap its key to finish it, then try again".into());
+        }
     }
     let handle = app.state::<VoiceHandle>();
     let mut slot = handle.controller.lock().map_err(|_| "voice state poisoned")?;
@@ -9098,6 +9137,19 @@ fn remember_window_geometry(window: &tauri::WebviewWindow, path: std::path::Path
 /// back to the mirror exactly as it does today — a degraded path that is no worse than the
 /// current behavior, never a curtain drawn on a guess.
 fn launch_init_script(kind: LaunchKind, ordinal: Option<u64>, splash_enabled: Option<bool>) -> String {
+    // One line per window, so a walk can read "a fresh start with the splash" or "a second
+    // window, no splash" off the log instead of off a frame (dictation plan slice 5's proof,
+    // the CEO's "still show the splash screen etc as usual"). The splash itself is the
+    // webview's (`splash.js` declines every kind but `fresh`, and the switch).
+    eprintln!(
+        "[richos] window: launch kind {}, splash {}",
+        kind.as_str(),
+        match (kind, splash_enabled) {
+            (LaunchKind::Fresh, Some(false)) => "off by the switch",
+            (LaunchKind::Fresh, _) => "on",
+            _ => "not for this kind",
+        }
+    );
     format!(
         "window.__RICHOS_LAUNCH__ = Object.freeze({{ kind: {:?}, ordinal: {}, splashEnabled: {} }});",
         kind.as_str(),

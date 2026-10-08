@@ -418,6 +418,11 @@ impl Menu {
                 activate_self();
             }
             win.show_key();
+            log::line(&format!(
+                "menu key window shown; the tool is active: {}; front pid {:?}",
+                appkit::app_active(),
+                appkit::frontmost_pid()
+            ));
         });
         Some(frame)
     }
