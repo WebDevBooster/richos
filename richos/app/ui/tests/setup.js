@@ -1811,6 +1811,34 @@ async function main() {
     return "both paragraphs and buttons as drawn; Not now, on and not-on lines; once only; after voice is ready; nothing with the gate off";
   });
 
+  await run.check("27  round 19: a step that failed stops saying it is installing", async () => {
+    // FOUND ON THE GUEST, 2026-10-08: the engine's download was refused (a 404), the failure's
+    // sentence came up, and the engine's row kept "Installing…" with its spinner turning.
+    const sentence = "The download didn't arrive. Nothing has been changed on your Mac.";
+    const page = await openApp(browser, { ...R19, setupFails: sentence });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-error:not([hidden])");
+    const rows = await page.evaluate(() =>
+      [...document.querySelectorAll("#setup-steps .setup-step")].map((li) => ({
+        c: li.dataset.component,
+        cls: li.className,
+        state: li.querySelector(".setup-step-state").textContent,
+      }))
+    );
+    const failed = rows.find((r) => r.c === "claude-code");
+    assert(/is-failed/.test(failed.cls), "the failed step's row: " + JSON.stringify(failed));
+    assertEqual(failed.state, "", "a failed row says nothing of its own; the sentence beneath it does");
+    assert(!rows.some((r) => r.c !== "media-tools" && /is-now/.test(r.cls)), "a row still spins after the failure: " + JSON.stringify(rows));
+    assertEqual((await page.textContent("#setup-error")).trim(), sentence, "the failure's own sentence");
+    assertEqual((await page.textContent("#setup-go")).trim(), "Try again", "the way on");
+    assert(await page.isHidden("#setup-start"), "no Start after a failed press");
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    bump(6);
+    await page.close();
+    return "the failed row is still and silent, the sentence is verbatim, Try again is up, no Start";
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,

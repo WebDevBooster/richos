@@ -5637,6 +5637,12 @@ function renderSetupSteps() {
       // The one element whose words carry digits and a decimal point (setup.js case 2's
       // declared exemption names it by this attribute).
       state.dataset.counter = "";
+    } else if (row.state === "failed") {
+      // A STEP THAT FAILED STOPS SAYING IT IS INSTALLING (found on the guest, 2026-10-08: the
+      // engine's download was refused and its row kept "Installing…" and a turning spinner under
+      // the failure sentence). The row goes still with no word of its own; the failure's own
+      // sentence, verbatim, is directly beneath the rows (`#setup-error`).
+      state.textContent = "";
     } else state.textContent = row.state === "now" ? "Installing…" : "Waiting";
     li.append(mark, name, state);
     if (counting && videoToolsCount.of > 0) {
@@ -5922,6 +5928,11 @@ async function runSetup() {
     // THE BACKEND'S SENTENCE, AS IT STANDS. Each `SetupError`'s Display says what happened
     // and whether his Mac was changed; rewriting it here would lose the instruction.
     setupProgressEl.hidden = true;
+    // Round 19: the step that was installing stopped there.
+    if (setupRows) {
+      for (const row of setupRows) if (row.state === "now" && row.component !== "media-tools") row.state = "failed";
+      renderSetupSteps();
+    }
     setupErrorEl.textContent = String(e);
     setupErrorEl.hidden = false;
     setupGoEl.disabled = false;
@@ -6102,7 +6113,7 @@ Bridge.listen("richos://setup", (payload) => {
     if (p.state === "done") refreshVoiceReadiness();
     // ROUND 19: the voice row counts, and turns Installed; the heading follows once Start is up.
     if (setupRows) {
-      setSetupRow("media-tools", p.state === "done" ? "done" : p.state === "started" ? "now" : "wait");
+      setSetupRow("media-tools", p.state === "done" ? "done" : p.state === "started" ? "now" : "failed");
       if (setupStartShown) paintSetupR19Outcome();
       else renderSetupSteps();
       if (p.state === "failed") {
@@ -6127,6 +6138,10 @@ Bridge.listen("richos://setup", (payload) => {
     }
   }
   if (p.state === "failed") {
+    if (setupRows && p.component) {
+      setSetupRow(p.component, "failed");
+      renderSetupSteps();
+    }
     setupProgressEl.hidden = true;
     setupErrorEl.textContent = p.detail || p.what;
     setupErrorEl.hidden = false;

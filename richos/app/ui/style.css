@@ -3173,7 +3173,8 @@ body.bp-narrow .first-run {
   font-weight: 700;
 }
 
-.setup-step.is-wait .setup-step-mark {
+.setup-step.is-wait .setup-step-mark,
+.setup-step.is-failed .setup-step-mark {
   border: 2px solid var(--line-control);
 }
 
