@@ -269,10 +269,10 @@ pub mod operator_desk_tools;
 /// richos-hq `docs/plans/2026-10-08-dictation-anywhere.md`, minor 2 and section 9: "Nothing
 /// user-visible reaches a nightly before all five slices are in"). The ways in, which are the
 /// Settings row, Rich's offer and the setup sheet's new lines (round 19, states 1 to 4), are built
-/// slice by slice and land on main as each passes; this one constant keeps all of them off screen
-/// until slice 5's walk passes and sets it `true`. A nightly published from main in between shows
-/// exactly what it showed before.
-pub const DICTATION_READY: bool = false;
+/// slice by slice and land on main as each passes; this one constant kept all of them off screen
+/// until slice 5's walk passed and set it `true` (2026-10-08). A nightly published from main in
+/// between showed exactly what it showed before.
+pub const DICTATION_READY: bool = true;
 
 /// The walks' preview of the ways in before [`DICTATION_READY`] is `true`: a test VM walk launches
 /// the candidate with this set to `1` (`TESTVM_APP_ENV`), because a slice's screens must be walked
