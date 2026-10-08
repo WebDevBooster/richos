@@ -185,7 +185,7 @@ class SheetWalk(dictation_walk.DictationWalk):
             return True
         return False
 
-    def open_settings(self):
+    def open_settings_panel(self):
         """The Settings button, until its Dictation row is drawn; a late first-run sheet is
         declined and the opening starts over, at most three times."""
         for attempt in range(3):
@@ -198,10 +198,10 @@ class SheetWalk(dictation_walk.DictationWalk):
                     raise
 
     def open_sheet(self):
-        """Settings, then its Dictation row, with open_settings' tolerance for a late sheet."""
+        """Settings, then its Dictation row, with open_settings_panel's tolerance for a late sheet."""
         for attempt in range(3):
             try:
-                self.open_settings()
+                self.open_settings_panel()
                 self.ax('click', '--id', 'set-dictation-open', '--first')
                 self.until(lambda: self.by_id('dict-switch') is not None, 30, 'the Dictation sheet did not open')
                 return
@@ -512,7 +512,7 @@ class SheetWalk(dictation_walk.DictationWalk):
             self.until(drawn, 180, 'the second copy drew no Settings button')
             self.decline_first_run_sheets(seconds=20)
             self.bring_front(pid2)
-            self.open_settings()
+            self.open_settings_panel()
             row = self.by_id('set-dictation-state') or {}
             row_text = row.get('value') or row.get('title') or ''
             if OTHER_ROW not in row_text and not self.shows_text(OTHER_ROW):

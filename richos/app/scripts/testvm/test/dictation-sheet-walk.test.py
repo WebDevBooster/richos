@@ -31,6 +31,18 @@ class TheWordsItReads(unittest.TestCase):
         self.assertIn(walk.OTHER_ROW + '. Tap ${kcap(k)} in any app and talk.', source)
 
 
+class TheSteps(unittest.TestCase):
+    def test_each_step_is_defined_once(self):
+        """A helper given a step's method name replaces the step or is replaced by it (walk
+        490c9ae819b3: a helper named open_settings was shadowed by the open-settings step, so
+        opening the sheet pressed Open System Settings)."""
+        source = (HERE / 'dictation-sheet-walk.py').read_text()
+        for step in walk.STEPS:
+            name = step.replace('-', '_')
+            self.assertTrue(hasattr(walk.SheetWalk, name), name)  # here or inherited (identity)
+            self.assertLessEqual(source.count(f'    def {name}(self'), 1, name)
+
+
 class TheVerdicts(unittest.TestCase):
     def test_within_two_seconds_allows_one_round_trip(self):
         self.assertTrue(walk.grant_seconds_ok(0.4))
