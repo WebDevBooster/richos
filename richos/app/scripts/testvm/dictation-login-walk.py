@@ -364,11 +364,27 @@ class LoginWalk(bar_walk.BarWalk):
         return {'app_pid': pid, 'app_gone_after_seconds': gone, 'tool_stays': tool, 'menu_bar_item': item, 'dictation': row}
 
     def item_center_real(self):
+        """The installed tool's menu bar item: from its own log line when that names a place in
+        the menu bar (menubar.rs logs it once the item is placed), else from System Events."""
         logged = [x for x in self.rdlog_lines() if 'menu bar item at ' in x]
-        if not logged:
-            raise StepFailed('the tool logged no menu bar item')
-        n = [float(v) for v in re.findall(r'-?\d+', logged[-1].split('menu bar item at ', 1)[1])][:4]
-        return (n[0] + n[2] / 2, n[1] + n[3] / 2), {'from': 'dictation.log', 'rect': n}
+        if logged:
+            n = [float(v) for v in re.findall(r'-?\d+', logged[-1].split('menu bar item at ', 1)[1])][:4]
+            if len(n) == 4 and bar_walk.item_placed(n):
+                return (n[0] + n[2] / 2, n[1] + n[3] / 2), {'from': 'dictation.log', 'rect': n}
+        tools = self.tool()
+        if len(tools) != 1:
+            raise StepFailed(f'not exactly one installed tool: {tools}')
+        for bar in (2, 1):
+            script = (f'tell application "System Events" to tell (first process whose unix id is {tools[0]["pid"]}) to '
+                      f'get {{position, size}} of menu bar item 1 of menu bar {bar}')
+            try:
+                out = self.osa(script)
+            except RuntimeError:
+                continue
+            n = [float(v) for v in re.findall(r'-?\d+(?:\.\d+)?', out)]
+            if len(n) == 4:
+                return (n[0] + n[2] / 2, n[1] + n[3] / 2), {'menu_bar': bar, 'position': n[:2], 'size': n[2:]}
+        raise StepFailed('the installed tool has no menu bar item System Events can see')
 
     def self_quit(self):
         """The app's own quit path (`request_quit`, the Quit menu item), with dictation on: the

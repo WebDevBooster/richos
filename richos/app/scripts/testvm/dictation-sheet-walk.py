@@ -57,6 +57,7 @@ second copy is quit here, by its own pid, before the step ends.
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess

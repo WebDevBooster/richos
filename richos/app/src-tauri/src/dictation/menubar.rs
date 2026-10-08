@@ -60,6 +60,45 @@ pub fn item_rect(tray: &TrayIcon) -> Option<Rect> {
     Some(Rect { x: p.x, y: p.y, w: s.width, h: s.height })
 }
 
+/// The menu bar's band, in top-left points: a status item sits in the top row of the screen.
+pub const MENU_BAR_BAND: f64 = 100.0;
+
+/// **Is this the item's real place?** Read before the main run loop has put the status item in
+/// the menu bar, Tauri reports the unplaced frame, which lands at the screen's bottom-left corner
+/// (`0,1050 34x24` on a 1680x1050 guest: walks 5028f74bc8b6 and 7bdbf43a6228). A placed item is
+/// in the menu bar's band and has a width.
+pub fn placed(r: &Rect) -> bool {
+    r.w > 0.0 && r.h > 0.0 && r.y >= 0.0 && r.y < MENU_BAR_BAND
+}
+
+/// How long [`log_item_when_placed`] keeps looking, and how often.
+pub const PLACE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+pub const PLACE_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Log "menu bar item at x,y wxh" once the item is placed, on a thread of its own so the control
+/// loop never waits for the main run loop; a line saying so if it never is within the bound.
+pub fn log_item_when_placed(tray: TrayIcon) {
+    std::thread::Builder::new()
+        .name("dictation-menubar-place".into())
+        .spawn(move || {
+            let began = std::time::Instant::now();
+            loop {
+                if let Some(r) = item_rect(&tray) {
+                    if placed(&r) {
+                        log::line(&format!("menu bar item at {:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h));
+                        return;
+                    }
+                }
+                if began.elapsed() >= PLACE_WAIT {
+                    log::line(&format!("menu bar item: no place in the menu bar reported within {} s", PLACE_WAIT.as_secs()));
+                    return;
+                }
+                std::thread::sleep(PLACE_POLL);
+            }
+        })
+        .ok();
+}
+
 /// Gold while listening, the template microphone otherwise. `dark` is the menu bar's appearance.
 pub fn set_listening(tray: &TrayIcon, listening: bool, dark: bool) {
     let (icon, template) = picture(listening, dark);
@@ -71,6 +110,18 @@ pub fn set_listening(tray: &TrayIcon, listening: bool, dark: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// INVARIANT: the unplaced frame Tauri reports before the run loop has put the item in the
+    /// menu bar (the screen's bottom-left corner) is never logged as the item's place; a frame in
+    /// the menu bar's band with a size is.
+    #[test]
+    fn the_unplaced_frame_is_never_the_items_place() {
+        assert!(!placed(&Rect { x: 0.0, y: 1050.0, w: 34.0, h: 24.0 }), "walk 5028f74bc8b6's and 7bdbf43a6228's line");
+        assert!(placed(&Rect { x: 1437.0, y: 0.0, w: 34.0, h: 24.0 }), "walk 37076638c6dd's line");
+        assert!(!placed(&Rect { x: 1437.0, y: 0.0, w: 0.0, h: 24.0 }), "no width is no item");
+        assert!(!placed(&Rect { x: 10.0, y: -5.0, w: 34.0, h: 24.0 }));
+        assert!(!placed(&Rect { x: 10.0, y: MENU_BAR_BAND, w: 34.0, h: 24.0 }));
+    }
 
     /// INVARIANT: the item is 18 points at 2x in both states; idle is a template (macOS inks it
     /// for the menu bar), listening is not (its gold is its own), and the bytes are whole RGBA.

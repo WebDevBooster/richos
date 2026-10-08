@@ -704,8 +704,9 @@ impl Tool {
     fn run(mut self, rx: Receiver<Control>) -> i32 {
         self.ensure_tap();
         self.publish();
-        if let Some(r) = self.tray.as_ref().and_then(menubar::item_rect) {
-            log::line(&format!("menu bar item at {:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h));
+        // Logged once the main run loop has placed the item, never the unplaced frame.
+        if let Some(tray) = self.tray.clone() {
+            menubar::log_item_when_placed(tray);
         }
         while let Ok(control) = rx.recv() {
             match control {

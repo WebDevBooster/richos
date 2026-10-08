@@ -30,9 +30,19 @@ class ReadingTheToolsLog(unittest.TestCase):
         source = (APP / 'src-tauri/src/dictation/tool.rs').read_text()
         self.assertIn('"bar shown: {} at {:.0},{:.0} {:.0}x{:.0}{}"', source)
         self.assertIn('"; Fix it at {:.0},{:.0} {:.0}x{:.0}"', source)
+        others = (APP / 'src-tauri/src/dictation/bar.rs').read_text() + (APP / 'src-tauri/src/dictation/menubar.rs').read_text()
         for said in ('menu shown at', 'menu closed', 'Fix it pressed', 'accuracy set to {model} from the menu bar',
                      'the words flew to', 'built as the {} type', 'menu bar item at {:.0},{:.0} {:.0}x{:.0}'):
-            self.assertIn(said, source + (APP / 'src-tauri/src/dictation/bar.rs').read_text(), said)
+            self.assertIn(said, source + others, said)
+
+    def test_a_logged_item_outside_the_menu_bar_band_is_not_trusted(self):
+        # The unplaced frame Tauri reported before the run loop placed the item (walks
+        # 5028f74bc8b6 and 7bdbf43a6228), against a placed one (walk 37076638c6dd).
+        self.assertFalse(walk.item_placed([0, 1050, 34, 24]))
+        self.assertTrue(walk.item_placed([1437, 0, 34, 24]))
+        self.assertFalse(walk.item_placed([1437, 0, 0, 24]))
+        menubar = (APP / 'src-tauri/src/dictation/menubar.rs').read_text()
+        self.assertIn('pub const MENU_BAR_BAND: f64 = %d.0;' % int(walk.MENU_BAR_BAND), menubar, 'the same band as the tool')
 
 
 class ReadingFrames(unittest.TestCase):

@@ -103,6 +103,18 @@ def center(box):
     return (x + w / 2.0, y + h / 2.0)
 
 
+# The menu bar's band in top-left points (menubar.rs MENU_BAR_BAND): a logged item rectangle
+# outside it is the unplaced frame Tauri reported before the run loop placed the item (walks
+# 5028f74bc8b6 and 7bdbf43a6228 logged 0,1050 34x24), and the item is found through System
+# Events instead.
+MENU_BAR_BAND = 100.0
+
+
+def item_placed(rect):
+    x, y, w, h = rect
+    return w > 0 and h > 0 and 0 <= y < MENU_BAR_BAND
+
+
 def read_contains(ocr, fragment):
     """OCR reads straight and curly quotes and spacing loosely; compare letters only."""
     squash = lambda s: re.sub(r'[^a-z]', '', s.lower())
@@ -202,7 +214,7 @@ class BarWalk(dictation_walk.DictationWalk):
         logged = [line for line in self.dlog_lines() if 'menu bar item at ' in line]
         if logged:
             n = [float(v) for v in re.findall(r'-?\d+', logged[-1].split('menu bar item at ', 1)[1])][:4]
-            if len(n) == 4 and n[2] > 0:
+            if len(n) == 4 and item_placed(n):
                 return (n[0] + n[2] / 2, n[1] + n[3] / 2), {'from': 'dictation.log', 'rect': n}
         tool = self.tool_pids()
         if len(tool) != 1:
@@ -374,10 +386,15 @@ class BarWalk(dictation_walk.DictationWalk):
             raise StepFailed(f'over full screen: {line}; front {front}; still full screen {still}')
         return {'bar': shown, 'read': read, 'log': line, 'front': front, 'stayed_full_screen': still}
 
+    def bar_document(self):
+        """The TextEdit document the frames step writes into, opened; made empty when a run
+        without that step has none (the first run of the five open steps, walk-cf87b06695ad)."""
+        guest(self.vm, 'test -f /tmp/dictation-bar.txt || : > /tmp/dictation-bar.txt; open -a TextEdit /tmp/dictation-bar.txt')
+        time.sleep(2)
+
     def menu(self):
         self.use_sample(self.spoken)
-        guest(self.vm, 'open -a TextEdit /tmp/dictation-bar.txt')
-        time.sleep(2)
+        self.bar_document()
         before = self.textedit_text()
         (ix, iy), item = self.item_center()
         since = len(self.dlog_lines())
@@ -427,8 +444,7 @@ class BarWalk(dictation_walk.DictationWalk):
 
     def nosound(self):
         self.use_sample(self.silent)
-        guest(self.vm, 'open -a TextEdit /tmp/dictation-bar.txt')
-        time.sleep(2)
+        self.bar_document()
         before = self.textedit_text()
         since = len(self.dlog_lines())
         self.press('122')
