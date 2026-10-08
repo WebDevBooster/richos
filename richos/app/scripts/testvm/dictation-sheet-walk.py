@@ -181,10 +181,14 @@ class SheetWalk(dictation_walk.DictationWalk):
 
     # --- the guest's screen -----------------------------------------------------------------
     def by_id(self, dom_id):
+        """None while the node is not there yet. `nowindow` is one such answer: a relaunched app
+        whose process is up and whose window is not (walk-9b00963b522b, 13.9 s after the launch,
+        the frame blank, the app fetching its voice tools); the launch loop waits 180 s for that,
+        and this read must not end it early."""
         try:
             nodes = self.ax('find', '--id', dom_id, '--first')
         except StepFailed as exc:
-            if 'notfound' in str(exc) or 'nothing matched' in str(exc) or 'guest_deadline' in str(exc):
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc) or 'guest_deadline' in str(exc) or 'nowindow' in str(exc):
                 return None
             raise
         nodes = [n for n in nodes if not n.get('meta')]
