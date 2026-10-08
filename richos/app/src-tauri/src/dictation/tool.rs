@@ -60,11 +60,11 @@ extern "C" fn on_sigterm(_: libc::c_int) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Handover {
     pub seq: u64,
-    /// The copies told `will-listen`, by bundle (an app whose `hello` had not arrived is an
-    /// empty name, which no answer can match).
-    pub told: std::collections::BTreeSet<String>,
-    /// The copies that have answered this handover.
-    pub heard: std::collections::BTreeSet<String>,
+    /// The connections told `will-listen`, by the ids the Hub gave them (fourth review, finding
+    /// 1: two processes from one bundle are two connections).
+    pub told: std::collections::BTreeSet<u64>,
+    /// The connections that have answered this handover.
+    pub heard: std::collections::BTreeSet<u64>,
 }
 
 /// What one `voice-yielded` did to the handover (recheck, third review, finding 1).
@@ -83,7 +83,7 @@ pub enum Accept {
 }
 
 impl Handover {
-    pub fn new(seq: u64, told: Vec<String>) -> Handover {
+    pub fn new(seq: u64, told: Vec<u64>) -> Handover {
         Handover { seq, told: told.into_iter().collect(), heard: Default::default() }
     }
 
@@ -92,18 +92,19 @@ impl Handover {
         self.told.iter().all(|b| self.heard.contains(b))
     }
 
-    /// **One answer, matched to this handover and its copy.** The review's counterexample: a
-    /// late answer from A to a timed-out handover plus A's current answer counted as two apps
-    /// while B had not yielded; here A's late answer is Stale and A's second is Duplicate, and
-    /// B's silence keeps the microphone closed.
-    pub fn accept(&mut self, seq: u64, bundle: &str) -> Accept {
+    /// **One answer, matched to this handover and its connection.** The third review's
+    /// counterexample: a late answer from A to a timed-out handover plus A's current answer
+    /// counted as two apps while B had not yielded; here A's late answer is Stale and A's second
+    /// is Duplicate, and B's silence keeps the microphone closed. The fourth review's: two
+    /// processes from one bundle are two connections, so one answer never completes for both.
+    pub fn accept(&mut self, seq: u64, client: u64) -> Accept {
         if seq != self.seq {
             return Accept::Stale;
         }
-        if !self.told.contains(bundle) {
+        if !self.told.contains(&client) {
             return Accept::Unknown;
         }
-        if !self.heard.insert(bundle.to_string()) {
+        if !self.heard.insert(client) {
             return Accept::Duplicate;
         }
         if self.complete() {
@@ -221,6 +222,8 @@ enum Control {
     Quit(&'static str),
     /// The handover's bound passed (review finding 2).
     HandoverTimeout(u64),
+    /// A `voice-yielded` from connection `client` for handover `seq` (fourth review, finding 1).
+    Yielded { seq: u64, client: u64, bundle: String },
 }
 
 /// What the state message reports, shared with the socket thread.
@@ -402,8 +405,14 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
             &owner,
             hub.clone(),
             move || shared.lock().unwrap_or_else(|p| p.into_inner()).message(),
-            move |m| {
-                tx.send(Control::App(m)).ok();
+            move |client, m| {
+                // A voice-yielded is tied to the connection that sent it, by the id the Hub
+                // gave that connection (fourth review, finding 1); its bundle is for the log.
+                let control = match m {
+                    AppMessage::VoiceYielded { seq, bundle } => Control::Yielded { seq, client, bundle },
+                    m => Control::App(m),
+                };
+                tx.send(control).ok();
             },
         ) {
             log::line(&format!("the dictation socket could not be served: {e}"));
@@ -750,9 +759,9 @@ impl Tool {
                     log::line(&format!("{why}; the tool ends"));
                     return self.end();
                 }
-                Control::App(AppMessage::VoiceYielded { seq, bundle }) => {
+                Control::Yielded { seq, client, bundle } => {
                     if let Some(h) = self.handover.as_mut() {
-                        match h.accept(seq, &bundle) {
+                        match h.accept(seq, client) {
                             Accept::Complete => {
                                 let told = h.told.len();
                                 self.handover = None;
@@ -761,13 +770,16 @@ impl Tool {
                             }
                             Accept::Counted => {}
                             verdict => log::line(&format!(
-                                "a voice-yielded for will-listen {seq} from {bundle} is dropped: {verdict:?}"
+                                "a voice-yielded for will-listen {seq} from connection {client} ({bundle}) is dropped: {verdict:?}"
                             )),
                         }
                     } else {
-                        log::line(&format!("a voice-yielded for will-listen {seq} from {bundle} arrived with no handover open"));
+                        log::line(&format!(
+                            "a voice-yielded for will-listen {seq} from connection {client} ({bundle}) arrived with no handover open"
+                        ));
                     }
                 }
+                Control::App(AppMessage::VoiceYielded { .. }) => {} // always arrives as Control::Yielded
                 Control::HandoverTimeout(seq) => {
                     let due = self.handover.as_ref().is_some_and(|h| h.seq == seq);
                     if let Some(h) = due.then(|| self.handover.take()).flatten() {
@@ -1313,11 +1325,11 @@ mod tests {
     /// nobody to tell it opens at once.
     #[test]
     fn the_handover_waits_for_every_answer() {
-        let mut h = Handover::new(1, vec!["/a/RichOS.app".into(), "/b/RichOS.app".into()]);
+        let mut h = Handover::new(1, vec![1, 2]);
         assert!(!h.complete());
-        h.accept(1, "/a/RichOS.app");
+        h.accept(1, 1);
         assert!(!h.complete());
-        h.accept(1, "/b/RichOS.app");
+        h.accept(1, 2);
         assert!(h.complete());
         assert!(Handover::new(2, Vec::new()).complete(), "no app connected: nothing to wait for");
     }
@@ -1326,35 +1338,55 @@ mod tests {
     /// microphone closed; it opens only once every app has yielded, or with no app connected.
     #[test]
     fn the_handover_fails_closed_at_the_bound() {
-        let two = || Handover::new(1, vec!["/a/RichOS.app".into(), "/b/RichOS.app".into()]);
+        let two = || Handover::new(1, vec![1, 2]);
         let mut one_silent = two();
-        assert_eq!(one_silent.accept(1, "/a/RichOS.app"), Accept::Counted);
+        assert_eq!(one_silent.accept(1, 1), Accept::Counted);
         assert!(!one_silent.microphone_may_open(), "one app silent: closed");
-        assert!(!Handover::new(1, vec!["/a/RichOS.app".into()]).microphone_may_open(), "the only app silent: closed");
+        assert!(!Handover::new(1, vec![1]).microphone_may_open(), "the only app silent: closed");
         let mut both = two();
-        both.accept(1, "/a/RichOS.app");
-        assert_eq!(both.accept(1, "/b/RichOS.app"), Accept::Complete);
+        both.accept(1, 1);
+        assert_eq!(both.accept(1, 2), Accept::Complete);
         assert!(both.microphone_may_open(), "every app yielded");
         assert!(Handover::new(1, Vec::new()).microphone_may_open(), "no app connected: nobody to wait for");
     }
 
-    /// INVARIANT (third review, finding 1): an answer counts only for its own handover and its
-    /// own copy. The review's counterexample: A's late answer to a timed-out handover plus A's
-    /// current answer counted as two apps while B had not yielded.
+    /// INVARIANT (third and fourth reviews, finding 1): an answer counts only for its own
+    /// handover and its own connection. The third review's counterexample: A's late answer to
+    /// a timed-out handover plus A's current answer counted as two apps while B had not
+    /// yielded. The fourth's: two processes from one bundle were one name; here they are
+    /// connections 1 and 2, and one answer never completes for both.
     #[test]
-    fn an_answer_counts_only_for_its_handover_and_its_copy() {
-        let mut h = Handover::new(2, vec!["/a/RichOS.app".into(), "/b/RichOS.app".into()]);
-        assert_eq!(h.accept(1, "/a/RichOS.app"), Accept::Stale, "A's late answer to handover 1");
-        assert_eq!(h.accept(2, "/a/RichOS.app"), Accept::Counted, "A's answer to this one");
-        assert_eq!(h.accept(2, "/a/RichOS.app"), Accept::Duplicate, "A again stands for nobody else");
-        assert_eq!(h.accept(2, "/c/RichOS.app"), Accept::Unknown, "a copy that was not told");
+    fn an_answer_counts_only_for_its_handover_and_its_connection() {
+        let mut h = Handover::new(2, vec![1, 2]);
+        assert_eq!(h.accept(1, 1), Accept::Stale, "A's late answer to handover 1");
+        assert_eq!(h.accept(2, 1), Accept::Counted, "A's answer to this one");
+        assert_eq!(h.accept(2, 1), Accept::Duplicate, "A again stands for nobody else");
+        assert_eq!(h.accept(2, 3), Accept::Unknown, "a connection that was not told");
         assert!(!h.microphone_may_open(), "B has not yielded: closed");
-        assert_eq!(h.accept(2, "/b/RichOS.app"), Accept::Complete);
+        assert_eq!(h.accept(2, 2), Accept::Complete);
         assert!(h.microphone_may_open());
-        // An app whose hello had not arrived is an empty name, which no answer can match.
-        let mut unnamed = Handover::new(3, vec![String::new()]);
-        assert_eq!(unnamed.accept(3, "/a/RichOS.app"), Accept::Unknown);
-        assert!(!unnamed.microphone_may_open());
+    }
+
+    /// INVARIANT (fourth review, finding 1): two processes started from one bundle are two
+    /// connections, and one answer never completes the handover for both. RED on 31f787bae
+    /// (the handover named the copies told by bundle path, so the two were one name: told 1,
+    /// not 2); GREEN here, where the Hub names each connection it accepted by its own id.
+    #[test]
+    fn two_processes_from_one_bundle_are_two_connections() {
+        let hub = ipc::Hub::default();
+        let (a, _a_peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (b, _b_peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let a = hub.add(a);
+        let b = hub.add(b);
+        assert_ne!(a, b, "two connections, two ids, whatever bundle each process came from");
+        let told = hub.broadcast_to(&ToolMessage::WillListen { seq: 3 });
+        let mut h = Handover::new(3, told);
+        assert_eq!(h.told.len(), 2, "two connections told, two to wait for");
+        assert_eq!(h.accept(3, a), Accept::Counted, "the first process answers");
+        assert!(!h.microphone_may_open(), "the other process from the same bundle has not yielded");
+        assert_eq!(h.accept(3, a), Accept::Duplicate, "the first again stands for nobody else");
+        assert_eq!(h.accept(3, b), Accept::Complete);
+        assert!(h.microphone_may_open());
     }
 
     /// INVARIANT (finding 1): a writing worker told to stop ends with its child gone and is

@@ -233,11 +233,13 @@ pub fn read_lines<T: for<'de> Deserialize<'de>>(stream: UnixStream, mut on_messa
     }
 }
 
-/// One connected app: its stream, and its bundle once its `hello` has been heard.
+/// One connected app: its stream, and the id this tool gave the connection when it accepted
+/// it. The id is the connection's identity for the microphone handover (fourth review, finding
+/// 1): two processes started from one bundle are two connections, and nothing the app sends
+/// can stand for another connection.
 struct Client {
     id: u64,
     stream: UnixStream,
-    bundle: Option<String>,
 }
 
 /// Every connected app, for the tool's broadcasts.
@@ -254,38 +256,30 @@ impl Hub {
         self.broadcast_to(message).len()
     }
 
-    /// Say `message` to every app and name the bundles that heard it (an app whose `hello` has
-    /// not arrived is named by an empty bundle, which no answer can match): the handover's list
-    /// of who must yield the microphone (recheck, third review, finding 1).
-    pub fn broadcast_to(&self, message: &ToolMessage) -> Vec<String> {
+    /// Say `message` to every app and name the connections that heard it, by the ids this tool
+    /// gave them: the handover's list of who must yield the microphone (third and fourth
+    /// reviews, finding 1).
+    pub fn broadcast_to(&self, message: &ToolMessage) -> Vec<u64> {
         match self.clients.lock() {
             Ok(mut clients) => {
                 clients.retain_mut(|c| send(&mut c.stream, message).is_ok());
-                clients.iter().map(|c| c.bundle.clone().unwrap_or_default()).collect()
+                clients.iter().map(|c| c.id).collect()
             }
             Err(_) => Vec::new(),
         }
     }
 
-    fn add(&self, stream: UnixStream) -> u64 {
+    /// A connection accepted: the next id is its identity for as long as it is connected.
+    pub(super) fn add(&self, stream: UnixStream) -> u64 {
         let id = {
             let mut next = self.next_id.lock().unwrap_or_else(|p| p.into_inner());
             *next += 1;
             *next
         };
         if let Ok(mut clients) = self.clients.lock() {
-            clients.push(Client { id, stream, bundle: None });
+            clients.push(Client { id, stream });
         }
         id
-    }
-
-    /// The app on connection `id` said hello as `bundle`.
-    fn set_bundle(&self, id: u64, bundle: &str) {
-        if let Ok(mut clients) = self.clients.lock() {
-            if let Some(c) = clients.iter_mut().find(|c| c.id == id) {
-                c.bundle = Some(bundle.to_string());
-            }
-        }
     }
 }
 
@@ -295,7 +289,7 @@ pub fn serve(
     owner: &KeyOwner,
     hub: Arc<Hub>,
     state: impl Fn() -> ToolMessage + Send + Sync + 'static,
-    on_message: impl Fn(AppMessage) + Send + Sync + 'static,
+    on_message: impl Fn(u64, AppMessage) + Send + Sync + 'static,
 ) -> std::io::Result<()> {
     let listener = owner.listener().try_clone()?;
     let state = Arc::new(state);
@@ -315,15 +309,12 @@ pub fn serve(
             let Ok(reader) = stream.try_clone() else { continue };
             let id = hub.add(stream);
             let on_message = on_message.clone();
-            let hub_for_hello = hub.clone();
-            if let Err(e) = std::thread::Builder::new().name("dictation-ipc-client".into()).spawn(move || {
-                read_lines::<AppMessage>(reader, |m| {
-                    if let AppMessage::Hello { bundle, .. } = &m {
-                        hub_for_hello.set_bundle(id, bundle);
-                    }
-                    on_message(m)
-                })
-            }) {
+            // Every message this connection sends is tagged with the connection's own id here,
+            // on the tool's side, so the handover counts connections, not what an app claims.
+            if let Err(e) = std::thread::Builder::new()
+                .name("dictation-ipc-client".into())
+                .spawn(move || read_lines::<AppMessage>(reader, |m| on_message(id, m)))
+            {
                 eprintln!("[richos-dictation] an app's connection could not be heard: {e}");
             }
         }
@@ -486,7 +477,7 @@ mod tests {
             key: 1,
             model: "large-v3-turbo-q5_0".into(),
         };
-        serve(&owner, hub.clone(), state, move |m| tx.send(m).unwrap()).unwrap();
+        serve(&owner, hub.clone(), state, move |_, m| tx.send(m).unwrap()).unwrap();
         let mut app = UnixStream::connect(owner.socket()).unwrap();
         let mut lines = BufReader::new(app.try_clone().unwrap()).lines();
         let first: ToolMessage = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();

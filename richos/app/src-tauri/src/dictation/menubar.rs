@@ -34,21 +34,56 @@ pub fn build(app: &AppHandle) -> Result<TrayIcon, String> {
         .tooltip("Dictation")
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
+            let app = tray.app_handle();
+            let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(2.0);
+            // Every event but a move is logged with where the item was (in points, the unit of
+            // "menu bar item at"), so a press that opens nothing (walk-c409831e46f9,
+            // walk-8dcad10d445b, walk-3520f87af8f9, walk-e7b42c44d5d8) says whether anything
+            // reached the item at all.
+            if !matches!(event, TrayIconEvent::Move { .. }) {
+                let at = event_rect(&event, scale)
+                    .map(|r| format!("{:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h))
+                    .unwrap_or_else(|| "?".into());
+                log::line(&format!("menu bar item event: {} at {at}", event_word(&event)));
+            }
             // On the press, as every menu in the macOS menu bar opens; the release is ignored.
             // walk-37076638c6dd: a click whose release never reached the item opened nothing.
-            if let TrayIconEvent::Click { rect, button: MouseButton::Left, button_state: MouseButtonState::Down, .. } = event {
-                let app = tray.app_handle();
-                let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(2.0);
-                let p = rect.position.to_logical::<f64>(scale);
-                let s = rect.size.to_logical::<f64>(scale);
-                let item = Rect { x: p.x, y: p.y, w: s.width, h: s.height };
-                if let Some(tx) = app.try_state::<UiTx>() {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Down, .. } = event {
+                if let (Some(item), Some(tx)) = (event_rect(&event, scale), app.try_state::<UiTx>()) {
                     tx.0.lock().unwrap_or_else(|p| p.into_inner()).send(UiEvent::ItemClicked { item }).ok();
                 }
             }
         })
         .build(app)
         .map_err(|e| format!("the menu bar item could not be made: {e}"))
+}
+
+/// The item's rectangle an event carries, in top-left points (Tauri reports it in pixels of
+/// the primary screen, as [`item_rect`] reads it).
+fn event_rect(event: &TrayIconEvent, scale: f64) -> Option<Rect> {
+    let rect = match event {
+        TrayIconEvent::Click { rect, .. }
+        | TrayIconEvent::DoubleClick { rect, .. }
+        | TrayIconEvent::Enter { rect, .. }
+        | TrayIconEvent::Move { rect, .. }
+        | TrayIconEvent::Leave { rect, .. } => rect,
+        _ => return None,
+    };
+    let p = rect.position.to_logical::<f64>(scale);
+    let s = rect.size.to_logical::<f64>(scale);
+    Some(Rect { x: p.x, y: p.y, w: s.width, h: s.height })
+}
+
+/// One word for a tray event, for the log.
+fn event_word(event: &TrayIconEvent) -> String {
+    match event {
+        TrayIconEvent::Click { button, button_state, .. } => format!("click {button:?} {button_state:?}"),
+        TrayIconEvent::DoubleClick { button, .. } => format!("double-click {button:?}"),
+        TrayIconEvent::Enter { .. } => "enter".into(),
+        TrayIconEvent::Leave { .. } => "leave".into(),
+        TrayIconEvent::Move { .. } => "move".into(),
+        _ => "other".into(),
+    }
 }
 
 /// Where the item sits, in top-left points: Tauri reports it in pixels of the primary screen.
