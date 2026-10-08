@@ -2931,6 +2931,55 @@ class UnknownIsNeverClean(Base):
         self.assertTrue(fin, why)
         self.assertEqual(self.pre(aid, "tu-after")[0], "FINISHED")
 
+    def test_point_09_a_subagentstop_just_after_its_command_ended_but_before_the_wake_does_not_seal_it(self):
+        """2026-10-08: echo-fable-dict5's background test run ended at 16:55:45, its turn ended
+        at 16:55:46.18 with no shell of its own left running, the end was recorded, and the
+        platform woke it 0.6 s later with that run's notification, into the lock-out. Replayed in
+        that order: the command ends, SubagentStop, SubagentStart. Until the notification is in
+        its transcript the stop is not its end; once it is, the next stop is, and a restart after
+        that is refused (point 9)."""
+        hold_env = patch.dict(os.environ, {"RICHOS_AGENT_HOLD_DIR": os.path.join(self.env.root, "agent-hold")})
+        hold_env.start()                                    # the fixture's own, never the operator's
+        self.addCleanup(hold_env.stop)
+        aid, npath = self.spawn("echo-fable-race")
+        ah = ws._agent_hold()
+        call = "toolu_race"
+        payload = {"session_id": self.sid, "agent_id": aid, "tool_use_id": call, "tool_name": "Bash",
+                   "tool_input": {"command": "cargo test", "run_in_background": True}}
+        stem, _held = ah._record(payload, "bg", "cargo test")
+        transcript = os.path.join(ws._platform_projects_dir(), "-fixture", self.sid, "subagents",
+                                  "agent-%s.jsonl" % aid)
+        os.makedirs(os.path.dirname(transcript))
+
+        def append(row):
+            row.update({"agentId": aid, "sessionId": self.sid, "isSidechain": True})
+            with open(transcript, "a") as f:
+                f.write(json.dumps(row) + "\n")
+        # The platform's receipt: the call went to the background.
+        append({"type": "user", "toolUseResult": {"stdout": "", "stderr": "", "interrupted": False,
+                                                  "backgroundTaskId": "bkrace"},
+                "message": {"role": "user", "content": [{"tool_use_id": call, "type": "tool_result",
+                            "content": "Command running in background with ID: bkrace. Output is being "
+                                       "written to: /tmp/x/tasks/bkrace.output.", "is_error": False}]}})
+        shell = subprocess.Popen(["bash", "-c", "%s %s mark --state %s %s && exit 101"
+                                  % (sys.executable, ah.__file__, ah.state_dir(), stem)])
+        self.env.procs.append(shell)
+        shell.wait()                                        # the command ends (reaped: no shell is left)
+        self.assertTrue(os.path.exists(stem + ".pid"), "agent_hold's mark never recorded the shell")
+        self.finish(aid)                                    # its turn ends before the notification arrives
+        fin, _paused, why = ws.finished_state(self.rec("echo-fable-race"))
+        self.assertFalse(fin, why)
+        ws.record_start(self.sid, aid, npath, "echo")       # woken by that notification, 0.6 s later
+        append({"type": "user", "origin": {"kind": "task-notification"}, "message": {"role": "user", "content":
+                "<task-notification>\n<task-id>bkrace</task-id>\n<tool-use-id>%s</tool-use-id>\n"
+                "<status>failed</status>\n</task-notification>" % call}})
+        self.assertEqual(self.pre(aid, "tu-woken")[0], "REGISTERED", "woken by its own command, it may still work")
+        self.finish(aid)                                    # the turn the notification started ends
+        fin, _paused, why = ws.finished_state(self.rec("echo-fable-race"))
+        self.assertTrue(fin, why)
+        ws.record_start(self.sid, aid, npath, "echo")       # the platform restarts a finished agent
+        self.assertEqual(self.pre(aid, "tu-after")[0], "FINISHED")
+
     def test_point_03_a_known_stray_in_one_repository_never_hides_one_in_another(self):
         """Finding 7. A stray already known in the first repository must not
         narrow the scan of the repositories it was asked to look at."""
