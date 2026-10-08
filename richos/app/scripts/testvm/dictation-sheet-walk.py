@@ -124,6 +124,30 @@ GRANT = ("INSERT OR REPLACE INTO access (service, client, client_type, auth_valu
 GRANTED_WITHIN = 2.0
 
 
+def center_of(node):
+    """A node's center from ax.sh's x, y, w, h."""
+    x, y = float(node.get('x') or 0), float(node.get('y') or 0)
+    return x + float(node.get('w') or 0) / 2, y + float(node.get('h') or 0) / 2
+
+
+# Half a row of System Settings' app list, in points: a switch on the same row as a name sits
+# within this of the name's vertical center.
+HALF_ROW = 20.0
+
+
+def switch_on_the_row(names, boxes):
+    """The checkbox on the same row as one of `names` (static texts): nearest vertical centers,
+    within HALF_ROW. The switches in the Accessibility list carry no title (walk-943b91d5720b)."""
+    out = []
+    for name in names:
+        _, ny = center_of(name)
+        near = [(abs(center_of(b)[1] - ny), b) for b in boxes]
+        near = [(d, b) for d, b in near if d <= HALF_ROW]
+        if near:
+            out.append(min(near, key=lambda p: p[0])[1])
+    return out
+
+
 def grant_seconds_ok(seconds):
     """The plan's "within 2 s", read as the walk measures it: from the row's write to the tool's
     key-tap line, each read one ssh round trip, so a reading is an upper bound."""
@@ -499,12 +523,16 @@ class SheetWalk(dictation_walk.DictationWalk):
         time.sleep(1)
 
     def richos_switch(self):
-        """RichOS's switch in the Accessibility list: a checkbox titled RichOS, or one whose
-        description names it."""
+        """RichOS's switch in the Accessibility list. The switches carry no title or description
+        of their own (walk-943b91d5720b saw five untitled AXCheckBox nodes), so the switch is the
+        checkbox on the same row as the static text "RichOS": the one whose vertical center is
+        nearest that text's, within half a row."""
         rows = self.settings_find('AXCheckBox', 'RichOS')
-        if not rows:
-            rows = [n for n in self.settings_find('AXCheckBox') if 'richos' in (str(n.get('title') or '') + str(n.get('desc') or '')).lower()]
-        return rows
+        if rows:
+            return rows
+        names = [n for n in self.settings_find('AXStaticText', 'RichOS') if str(n.get('title') or '').strip() == 'RichOS']
+        boxes = self.settings_find('AXCheckBox')
+        return switch_on_the_row(names, boxes)
 
     def turn_richos_on_in_accessibility(self):
         """System Settings on the Accessibility pane; RichOS's switch found by its row and pressed;
@@ -528,7 +556,8 @@ class SheetWalk(dictation_walk.DictationWalk):
             raise StepFailed(f'no RichOS switch in the Accessibility pane (switches seen: {seen["switches"]})')
         seen['row'] = rows[0]
         seen['switch_before'] = rows[0].get('value')
-        self.ax('click', '--title', 'RichOS', '--role', 'AXCheckBox', '--first', '--contains', app=SYSTEM_SETTINGS)
+        x, y = center_of(rows[0])
+        self.ax('click', '--at', f'{x:.0f},{y:.0f}', app=SYSTEM_SETTINGS)
         time.sleep(2)
         if self.password_sheet_up():
             seen['password_asked'] = True
