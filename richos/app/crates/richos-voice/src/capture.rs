@@ -345,12 +345,24 @@ fn start_wav(
         let silence = vec![0.0f32; VAD_FRAME_SAMPLES];
         let mut next = std::time::Instant::now();
         let mut pos = 0usize;
+        let mut ended = false;
         while !stop_thread.load(Ordering::SeqCst) {
             next += period;
             if pos + VAD_FRAME_SAMPLES <= at16.len() {
                 on_frame(&at16[pos..pos + VAD_FRAME_SAMPLES]);
                 pos += VAD_FRAME_SAMPLES;
             } else {
+                // SAID ONCE, when the file's last frame has gone downstream. Because this source
+                // runs slow on a loaded host (above), the wall clock cannot say when the speech
+                // has been delivered; this line can. A walk that has to act "within 1 s of the
+                // sample's end" (the dictation walk's second tap) waits for it.
+                if !ended {
+                    ended = true;
+                    eprintln!(
+                        "[richos-voice] INJECTED INPUT ended: {} frames of the file delivered; silence follows",
+                        pos / VAD_FRAME_SAMPLES
+                    );
+                }
                 // The file ran out: keep the "mic" open with real silence, so the hangover
                 // fires and the CEO's turn is endpointed exactly as it would be live.
                 on_frame(&silence);
