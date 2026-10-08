@@ -47,6 +47,23 @@ moments to ONE timeline on the guest's clock, each with how much of the two mode
               (grant_microphone), so no privacy prompt comes up.
   relaunch    the app is relaunched; the boot line says "nothing missing." and no sheet comes up
 
+ROUND 19, STATES 1 TO 4 (dictation plan revision 2, slice 4), three more steps, chosen with
+--steps identity,r19-sheet,r19-offer,r19-again. The ways in are off until slice 5
+(richos_core::DICTATION_READY), so these relaunch the app with the walks' preview,
+RICHOS_DICTATION_PREVIEW=1, and with RICHOS_ENGINE_DIR naming the folder setup installs the
+engine into, which does not exist yet: the guest is then a Mac without the engine, so the sheet
+asks for it, and the press installs it there from the build's engine pin (the bundle must be
+built with one: a nightly's engine-pin.env).
+  r19-sheet   state 1: the sheet up, his line for the voice and video tools read by OCR and by
+              the accessibility tree; "Set it up" pressed; state 2: his download line read by
+              OCR, two counter readings ("490 MB of 1.06 GB") that increase; Start on the sheet
+              before "You're all set." when the engine is in first (recorded either way); state 3:
+              "You're all set." with both models on disk
+  r19-offer   Start pressed, first setup answered (the memory question "Not now", the company
+              added); Rich's offer appears once, its "Not now" says the drawn line, and
+              dictation.json says offered
+  r19-again   the app relaunched: no setup sheet and no offer
+
 CEO §53: no sound is played. Every app instance is quit by run-walk.py's stop.sh (CEO §54).
 Exit 0 when every step passes.
 """
@@ -70,6 +87,17 @@ _spec.loader.exec_module(adopt_walk)
 StepFailed = adopt_walk.StepFailed
 
 STEPS = ['identity', 'meanwhile', 'arrived', 'voice', 'relaunch']
+# Round 19's states 1 to 4 (dictation plan slice 4); never in the default run.
+R19_STEPS = ['r19-sheet', 'r19-offer', 'r19-again']
+QA = HERE.parent / 'qa'
+# What OCR must read in each state: fragments of his two lines short enough to sit on one line
+# of the sheet (setup.rs MEDIA_TOOLS_WHY, setup_view.rs SETUP_DOWNLOAD_LINE).
+R19_STATE1_OCR = ('Wispr Flow', 'voice and video tools')
+R19_STATE2_OCR = ('Sit tight', 'local voice AI')
+# The accessibility tree carries the exact words.
+R19_STATE1_AX = 'a free & private/local replacement for Wispr Flow'
+R19_OFFER_AX = 'I can also type for you in any other app on your Mac'
+R19_NOT_NOW_AX = "Okay. It's in Settings, under Dictation, whenever you want it."
 # The microphone's stand-in for the voice step (capture.rs RICHOS_VOICE_INPUT_WAV), in the guest.
 SILENCE_WAV = '/Users/admin/voice-silence.wav'
 # Two seconds of 16 kHz mono silence, written in the guest: nothing is played and nothing is said.
@@ -164,6 +192,40 @@ def tools_outcome(text):
     if re.search(r'^\[richos\] (?:setup|video tools in the background) \d+/\d+ FAILED', text, re.M):
         return 'failed'
     return None
+
+
+def counter_reading(text):
+    """The voice row's counter as round 19 draws it, "490 MB of 1.06 GB" (setup_view.rs
+    counter_line): (megabytes in hand, the whole as written), or None for anything else."""
+    m = re.fullmatch(r'\s*(\d+) MB of (\d+\.\d\d GB|\d+ MB)\s*', text or '')
+    return (int(m.group(1)), m.group(2)) if m else None
+
+
+def readings_increase(readings):
+    """At least two readings of the same whole, each more than the one before."""
+    if len(readings) < 2 or len({whole for _, whole in readings}) != 1:
+        return False
+    return all(b[0] > a[0] for a, b in zip(readings, readings[1:]))
+
+
+def r19_verdict(facts):
+    """Round 19's states 1 to 3 from what r19-sheet recorded: None (PASS) or the reasons."""
+    why = []
+    if not facts.get('state1_ocr'):
+        why.append('OCR did not read his line for the voice and video tools in state 1')
+    if not facts.get('state1_ax'):
+        why.append('the accessibility tree does not carry his line word for word in state 1')
+    if not facts.get('state2_ocr'):
+        why.append('OCR did not read his download line in state 2')
+    if not readings_increase([tuple(r) for r in facts.get('readings', [])]):
+        why.append(f"no two counter readings that increase: {facts.get('readings')}")
+    if not facts.get('start'):
+        why.append('Start never came up')
+    if not facts.get('all_set'):
+        why.append('"You\'re all set." never came up')
+    elif not facts['all_set'].get('download_done'):
+        why.append('"You\'re all set." came up before both models were on disk')
+    return '; '.join(why) or None
 
 
 class SetupWalk(adopt_walk.Walk):
@@ -453,6 +515,153 @@ class SetupWalk(adopt_walk.Walk):
             raise StepFailed('the relaunched app put the setup sheet up again')
         return {'boot': verdict, 'sheet_shown': False, 'log': launched['log']}
 
+    # --- round 19, states 1 to 4 (dictation plan slice 4) --------------------------------------
+    def r19_env(self):
+        """The relaunch environment: the walks' preview of the dictation ways in, and the engine
+        named at the folder setup installs it into (`setup::engine_install_dir`), so the guest is
+        a Mac without one until the press puts it there."""
+        return {'RICHOS_DICTATION_PREVIEW': '1',
+                'RICHOS_ENGINE_DIR': self.home + '/Library/Application Support/RichOS/engine'}
+
+    def frame_says(self, name, text):
+        """True when OCR reads `text` in the frame `name` (qa/ocr-find.sh: 0 hit, 1 none)."""
+        r = subprocess.run([str(QA / 'ocr-find.sh'), text, str(self.out / name), '--first', '--quiet'],
+                           capture_output=True, text=True, timeout=120)
+        if r.returncode not in (0, 1):
+            raise StepFailed('ocr-find could not read the frame: ' + r.stderr)
+        return r.returncode == 0
+
+    def counter(self):
+        """The voice row's counter now, read from the accessibility tree, or None."""
+        try:
+            nodes = self.ax('find', '--value', ' MB of ', '--contains', '--first')
+        except StepFailed as exc:
+            if 'notfound' in str(exc) or 'nothing matched' in str(exc):
+                return None
+            raise
+        for n in nodes:
+            reading = counter_reading(n.get('value') or n.get('title') or '')
+            if reading:
+                return reading
+        return None
+
+    def r19_sheet(self):
+        facts = {}
+        launched = relaunch(self.vm, environment=self.r19_env())
+        self.log = launched['log']
+        self.facts['r19_launch'] = launched
+        self.save()
+        verdict = self.wait_boot_setup(self.log)
+        facts['boot'] = verdict
+        end = time.monotonic() + 120
+        while time.monotonic() < end and not (self.present('Set it up')
+                                             and self.shows_text("There's a bit of setting up to do first.")):
+            time.sleep(1)
+        self.mark('round 19, state 1: the setup sheet is up')
+        self.shot('r19-state1.png')
+        facts['state1_ocr'] = all(self.frame_says('r19-state1.png', t) for t in R19_STATE1_OCR)
+        facts['state1_ax'] = self.shows_text(R19_STATE1_AX)
+        self.click('Set it up', 'round 19: "Set it up" pressed')
+        readings, end = [], time.monotonic() + self.a.within
+        while time.monotonic() < end:
+            reading = self.counter()
+            if reading and (not readings or reading != readings[-1]):
+                readings.append(reading)
+                self.mark(f'counter reads {reading[0]} MB of {reading[1]}')
+                if len(readings) == 1:
+                    self.shot('r19-state2.png')
+                    facts['state2_ocr'] = all(self.frame_says('r19-state2.png', t) for t in R19_STATE2_OCR)
+            if 'start' not in facts and self.by_id('setup-start'):
+                all_set = self.shows_text("You're all set.")
+                row = self.mark('Start is on the sheet' + (' with "You\'re all set."' if all_set
+                                                           else ' while the voice row still counts'))
+                facts['start'] = {'with_all_set': all_set, 'reading': list(readings[-1]) if readings else None,
+                                  'since_launch_s': row['since_launch_s']}
+                self.shot('r19-start.png')
+            if self.shows_text("You're all set."):
+                row = self.mark('round 19, state 3: "You\'re all set."')
+                facts['all_set'] = {'download_done': row['download_done'], 'since_launch_s': row['since_launch_s']}
+                self.shot('r19-state3.png')
+                break
+            time.sleep(2)
+        facts['readings'] = [list(r) for r in readings]
+        # Whether the engine was in first, so Start came up while the voice row still counted.
+        facts['start_before_all_set'] = bool(facts.get('start')) and not facts['start']['with_all_set']
+        self.facts['r19_sheet'] = facts
+        self.save()
+        why = r19_verdict(facts)
+        if why:
+            raise StepFailed(why + ' — ' + json.dumps(facts)[:1500])
+        return facts
+
+    def r19_offer(self):
+        self.ax('click', '--id', 'setup-start')
+        self.mark('round 19: "Start" pressed', pressed=True)
+        guest(self.vm, 'mkdir -p {c} && cd {c} && if [ ! -d .git ]; then printf "Acme notes\\n" > README.md '
+                       '&& git init -q && git add README.md && git -c user.name=QA -c user.email=qa@example.invalid '
+                       'commit -q -m init; fi'.format(c=shlex.quote(self.company)))
+        end = time.monotonic() + 180
+        while time.monotonic() < end:
+            if self.present('Add this company') or self.present('Turn on dictation'):
+                break
+            if self.present('Not now') and self.shows_text('Where should I keep what you tell me?'):
+                self.click('Not now', 'memory question: "Not now" pressed')
+            time.sleep(1)
+        if self.present('Add this company'):
+            self.type_into('Acme', '--role', 'AXTextField', '--title', "What's the company called?")
+            self.type_into(self.company, '--role', 'AXTextField', '--title', 'Its folder on this Mac')
+            self.click('Add this company', '"Add this company" pressed')
+        end = time.monotonic() + 180
+        while time.monotonic() < end and not self.present('Turn on dictation'):
+            if self.present('Start the questions'):
+                self.click('Not now', 'business questions: "Not now"')
+            time.sleep(2)
+        if not self.present('Turn on dictation'):
+            self.shot('r19-no-offer.png')
+            raise StepFailed('Rich never offered dictation after Start: '
+                             + json.dumps([ln for ln in self.read_log().splitlines() if 'voice' in ln][-5:]))
+        self.mark('round 19, state 4: Rich offers dictation')
+        self.shot('r19-offer.png')
+        offers = [n for n in self.ax('find', '--title', 'Turn on dictation', '--role', 'AXButton', '--contains')
+                  if not n.get('meta')]
+        said = self.shows_text(R19_OFFER_AX)
+        self.ax('click', '--id', 'dictation-offer-no')
+        time.sleep(2)
+        after = self.shows_text(R19_NOT_NOW_AX)
+        self.shot('r19-offer-not-now.png')
+        record = guest(self.vm, 'cat ' + shlex.quote(self.data + '/dictation.json') + ' 2>/dev/null || true')
+        try:
+            offered = json.loads(record).get('offered') is True
+        except ValueError:
+            offered = False
+        facts = {'offers': len(offers), 'offer_words': said, 'not_now_line': after,
+                 'dictation_json': record.strip(), 'offered': offered}
+        self.facts['r19_offer'] = facts
+        self.save()
+        why = [w for ok, w in ((len(offers) == 1, f'{len(offers)} offers on screen'),
+                               (said, 'the offer does not say the drawn words'),
+                               (after, '"Not now" did not say the drawn line'),
+                               (offered, 'dictation.json does not record the offer')) if not ok]
+        if why:
+            raise StepFailed('; '.join(why) + ' — ' + json.dumps(facts))
+        return facts
+
+    def r19_again(self):
+        launched = relaunch(self.vm, environment=self.r19_env())
+        self.log = launched['log']
+        verdict = self.wait_boot_setup(self.log)
+        # The window settles; then neither the sheet nor the offer may be there.
+        time.sleep(20)
+        offered = self.present('Turn on dictation') or self.shows_text(R19_OFFER_AX)
+        sheet = self.present('Set it up')
+        self.shot('r19-again.png')
+        facts = {'boot': verdict, 'offer_shown': offered, 'sheet_shown': sheet, 'log': launched['log']}
+        self.facts['r19_again'] = facts
+        self.save()
+        if offered or sheet or not verdict['nothing_missing']:
+            raise StepFailed('after the relaunch: ' + json.dumps(facts))
+        return facts
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -467,7 +676,7 @@ def main():
     p.add_argument('--steps', default=','.join(STEPS))
     a = p.parse_args()
     steps = a.steps.split(',')
-    unknown = [s for s in steps if s not in STEPS]
+    unknown = [s for s in steps if s not in STEPS + R19_STEPS]
     if unknown:
         p.error('unknown step(s): ' + ', '.join(unknown))
     walk = SetupWalk(a)

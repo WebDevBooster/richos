@@ -91,5 +91,42 @@ class VoiceLines(unittest.TestCase):
         self.assertGreater(walk.STEPS.index('voice'), walk.STEPS.index('arrived'))
 
 
+class Round19(unittest.TestCase):
+    """Round 19's states 1 to 4 (dictation plan slice 4): the walk's verdicts, offline."""
+
+    GOOD = {'state1_ocr': True, 'state1_ax': True, 'state2_ocr': True,
+            'readings': [[490, '1.06 GB'], [700, '1.06 GB']],
+            'start': {'with_all_set': False}, 'all_set': {'download_done': True}}
+
+    def test_the_counter_is_read_as_round_19_draws_it(self):
+        self.assertEqual(walk.counter_reading('490 MB of 1.06 GB'), (490, '1.06 GB'))
+        self.assertEqual(walk.counter_reading('100 MB of 574 MB'), (100, '574 MB'))
+        self.assertIsNone(walk.counter_reading('Checking…'))
+        self.assertIsNone(walk.counter_reading('Getting my voice and video tools. 43%'))
+
+    def test_readings_must_increase_against_one_whole(self):
+        self.assertTrue(walk.readings_increase([(490, '1.06 GB'), (700, '1.06 GB')]))
+        self.assertFalse(walk.readings_increase([(490, '1.06 GB')]))
+        self.assertFalse(walk.readings_increase([(490, '1.06 GB'), (490, '1.06 GB')]))
+        self.assertFalse(walk.readings_increase([(700, '1.06 GB'), (490, '1.06 GB')]))
+        self.assertFalse(walk.readings_increase([(400, '574 MB'), (700, '1.06 GB')]))
+
+    def test_the_verdict_passes_only_what_the_plan_names(self):
+        self.assertIsNone(walk.r19_verdict(self.GOOD))
+        # Start with "You're all set." already up (the models came first) still passes: the plan's
+        # "Start before that when the engine is in first" is recorded, not required.
+        self.assertIsNone(walk.r19_verdict({**self.GOOD, 'start': {'with_all_set': True}}))
+        for key, bad, words in (('state1_ocr', False, 'state 1'), ('state2_ocr', False, 'download line'),
+                                ('readings', [[490, '1.06 GB']], 'increase'), ('start', None, 'Start'),
+                                ('all_set', {'download_done': False}, 'before both models')):
+            self.assertIn(words, walk.r19_verdict({**self.GOOD, key: bad}))
+
+    def test_the_round_19_steps_are_never_in_the_default_run(self):
+        self.assertFalse(set(walk.R19_STEPS) & set(walk.STEPS))
+        self.assertEqual(walk.R19_STEPS, ['r19-sheet', 'r19-offer', 'r19-again'])
+        for step in walk.R19_STEPS:
+            self.assertTrue(hasattr(walk.SetupWalk, step.replace('-', '_')), step)
+
+
 if __name__ == '__main__':
     unittest.main()
