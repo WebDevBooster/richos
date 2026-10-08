@@ -3784,7 +3784,7 @@ module.exports = [
     "why": "The native stop/exit fence reports an unsettled worker observation."
   },
   {
-    "s": "You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.",
+    "s": "You need your own Anthropic account and a Max subscription there. You can sign in through your browser after setup; I never see your password. If you don't already have that subscription, sign up there first and pick the Max/Max 20x tier.",
     "c": "INFORMATIONAL",
     "why": "Explains the separate account requirement before installation; the subsequent account sheet supplies the sign-in control.",
     "fixture": "setup-missing-both"
