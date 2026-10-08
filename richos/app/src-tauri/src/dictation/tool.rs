@@ -438,6 +438,9 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
         .setup(move |app| {
             // No Dock icon, never the front: before the event loop runs (activation.rs's lever).
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            if let Err(why) = appkit::watch_activation() {
+                log::line(&why);
+            }
             let handle = app.handle().clone();
             if let Err(why) = bar::build(&handle, kind) {
                 log::line(&why);

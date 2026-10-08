@@ -272,6 +272,67 @@ pub fn pointer() -> Option<(f64, f64)> {
     Some((p.x, primary_height() - p.y))
 }
 
+/// Is this process the active app? It never should be: the tool is Accessory and its windows
+/// are nonactivating panels.
+pub fn app_active() -> bool {
+    objc2::rc::autoreleasepool(|_| {
+        let Some(class) = AnyClass::get(c"NSApplication") else { return false };
+        // SAFETY: documented class method and accessor.
+        unsafe {
+            let app: *mut AnyObject = msg_send![class, sharedApplication];
+            msg_send![app, isActive]
+        }
+    })
+}
+
+/// `NSApplicationDidBecomeActiveNotification` reached the watcher: say so, with the front app
+/// and the frames that led here, so the log names who activated the tool.
+extern "C-unwind" fn became_active(_: *mut AnyObject, _: Sel, _: *mut AnyObject) {
+    let trace = std::backtrace::Backtrace::force_capture().to_string();
+    let frames: Vec<&str> = trace.lines().filter(|l| !l.trim_start().starts_with("at ")).take(48).collect();
+    super::log::line(&format!(
+        "the tool became the active app (it never should: the front belongs to the app the words go to); front pid {:?}; from:\n{}",
+        frontmost_pid(),
+        frames.join("\n")
+    ));
+}
+
+/// **Log every activation of this process, with where it came from.** Registered once, in the
+/// tool's `setup` (main thread); the observer lives for the process.
+pub fn watch_activation() -> Result<(), String> {
+    static WATCH: OnceLock<Result<(), String>> = OnceLock::new();
+    WATCH
+        .get_or_init(|| {
+            let superclass = AnyClass::get(c"NSObject").ok_or("no NSObject")?;
+            let mut builder = ClassBuilder::new(c"RichOSDictationActivationWatch", superclass)
+                .ok_or("the activation watch class could not be made")?;
+            type Handler = extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject);
+            let handler: Handler = became_active;
+            // SAFETY: the selector takes one object (the notification) and returns nothing.
+            unsafe {
+                builder.add_method(sel!(appDidBecomeActive:), handler);
+            }
+            let class = builder.register();
+            let center_class = AnyClass::get(c"NSNotificationCenter").ok_or("no NSNotificationCenter")?;
+            // SAFETY: documented NSNotificationCenter API; the watcher is kept for the process.
+            unsafe {
+                let watcher: *mut AnyObject = msg_send![class, new];
+                let center: *mut AnyObject = msg_send![center_class, defaultCenter];
+                let name = ns_string("NSApplicationDidBecomeActiveNotification");
+                let _: () = msg_send![center, addObserver: watcher, selector: sel!(appDidBecomeActive:), name: name, object: std::ptr::null::<AnyObject>()];
+            }
+            Ok(())
+        })
+        .clone()
+}
+
+/// An autoreleased NSString.
+unsafe fn ns_string(s: &str) -> *mut AnyObject {
+    let c = std::ffi::CString::new(s).unwrap_or_default();
+    let class = AnyClass::get(c"NSString").expect("NSString");
+    msg_send![class, stringWithUTF8String: c.as_ptr()]
+}
+
 /// The app in front, by process id.
 pub fn frontmost_pid() -> Option<i32> {
     objc2::rc::autoreleasepool(|_| {
@@ -387,6 +448,15 @@ fn secure_input_pid() -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// INVARIANT: the activation watch registers once and answers the same the second time; a
+    /// test process is never the active app.
+    #[test]
+    fn the_activation_watch_registers_once() {
+        assert_eq!(watch_activation(), Ok(()));
+        assert_eq!(watch_activation(), Ok(()));
+        assert!(!app_active());
+    }
 
     /// INVARIANT: the check's switch names exactly the two types; anything else is the default.
     #[test]
