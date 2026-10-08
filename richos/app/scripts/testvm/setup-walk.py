@@ -531,6 +531,13 @@ class SetupWalk(adopt_walk.Walk):
             raise StepFailed('ocr-find could not read the frame: ' + r.stderr)
         return r.returncode == 0
 
+    def shown(self, dom_id, title):
+        """The control `dom_id` is on screen as `title`. The DOM id alone is not enough: on the
+        guest (2026-10-08) a find for the hidden #setup-start answered with a titleless 10 px
+        button, so the walk recorded a Start that was not drawn."""
+        node = self.by_id(dom_id)
+        return bool(node) and title in (node.get('title') or node.get('desc') or '')
+
     def counter(self):
         """The voice row's counter now, read from the accessibility tree, or None."""
         try:
@@ -564,6 +571,12 @@ class SetupWalk(adopt_walk.Walk):
         self.click('Set it up', 'round 19: "Set it up" pressed')
         readings, end = [], time.monotonic() + self.a.within
         while time.monotonic() < end:
+            # A press that failed says so at once rather than after the whole wait (the first walk,
+            # 2026-10-08, waited out its window on an engine download refused in the first second).
+            if self.present('Try again'):
+                self.shot('r19-press-failed.png')
+                failed = [ln for ln in self.read_log().splitlines() if 'FAILED' in ln][-3:]
+                raise StepFailed('the press failed: ' + json.dumps(failed))
             reading = self.counter()
             if reading and (not readings or reading != readings[-1]):
                 readings.append(reading)
@@ -571,7 +584,7 @@ class SetupWalk(adopt_walk.Walk):
                 if len(readings) == 1:
                     self.shot('r19-state2.png')
                     facts['state2_ocr'] = all(self.frame_says('r19-state2.png', t) for t in R19_STATE2_OCR)
-            if 'start' not in facts and self.by_id('setup-start'):
+            if 'start' not in facts and self.shown('setup-start', 'Start'):
                 all_set = self.shows_text("You're all set.")
                 row = self.mark('Start is on the sheet' + (' with "You\'re all set."' if all_set
                                                            else ' while the voice row still counts'))
@@ -605,7 +618,7 @@ class SetupWalk(adopt_walk.Walk):
         end = time.monotonic() + 240
         added = False
         while time.monotonic() < end:
-            if self.by_id('memory-setup-later'):
+            if self.shown('memory-setup-later', 'Not now'):
                 self.ax('click', '--id', 'memory-setup-later')
                 self.mark('memory question: "Not now" pressed', pressed=True)
             elif not added and self.present('Add this company'):
@@ -615,10 +628,10 @@ class SetupWalk(adopt_walk.Walk):
                 added = True
             elif self.present('Start the questions'):
                 self.click('Not now', 'business questions: "Not now"')
-            elif added and self.by_id('dictation-offer-yes'):
+            elif added and self.shown('dictation-offer-yes', 'Turn on dictation'):
                 break
             time.sleep(2)
-        if not self.by_id('dictation-offer-yes'):
+        if not self.shown('dictation-offer-yes', 'Turn on dictation'):
             self.shot('r19-no-offer.png')
             raise StepFailed('Rich never offered dictation after Start: '
                              + json.dumps([ln for ln in self.read_log().splitlines() if 'voice' in ln][-5:]))
