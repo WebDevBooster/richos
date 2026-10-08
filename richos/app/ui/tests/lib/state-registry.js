@@ -3675,11 +3675,6 @@ module.exports = [
     "why": "The refresh waits for the other conversation to release its lock."
   },
   {
-    "s": "Anthropic Console (API billing)",
-    "c": "CONTROL",
-    "why": "An account-kind option in the sign-in selector."
-  },
-  {
     "s": "Checking this folder…",
     "c": "INFORMATIONAL",
     "why": "The native folder check, and Git set-up where the folder has none, is in progress."
@@ -3784,10 +3779,15 @@ module.exports = [
     "why": "The native stop/exit fence reports an unsettled worker observation."
   },
   {
-    "s": "You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.",
+    "s": "You need your own Anthropic account and a Max subscription there. You can sign in through your browser after setup; I never see your password. If you don't already have that subscription, sign up there first and pick the Max/Max 20x tier.",
     "c": "INFORMATIONAL",
     "why": "Explains the separate account requirement before installation; the subsequent account sheet supplies the sign-in control.",
     "fixture": "setup-missing-both"
+  },
+  {
+    "s": "sign up there first and pick the Max/Max 20x tier",
+    "c": "CONTROL",
+    "why": "The underlined pricing link inside the setup sheet's account sentence (`#setup-account a`, main.js renderSetupAccountNote). It is itself the control: a click opens claude.com/pricing through the `open_external` allowlist key."
   },
   {
     "s": "Your Anthropic account",
