@@ -98,6 +98,9 @@ OTHER_ROW = 'On even when RichOS is closed'
 PROMPT_PROCESSES = ('UserNotificationCenter', 'universalAccessAuthWarn', 'CoreServicesUIAgent', 'tccd')
 USER_DB = '"$HOME/Library/Application Support/com.apple.TCC/TCC.db"'
 SYS_DB = '"/Library/Application Support/com.apple.TCC/TCC.db"'
+# tccd writes these databases too; a read or write that meets its lock waits up to 10 s instead
+# of failing at once (walk-2d04da6fc5a4, stage: "database is locked (5)").
+SQLITE = "sqlite3 -cmd '.timeout 10000'"
 GRANT = ("INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, "
          "indirect_object_identifier_type, indirect_object_identifier, flags, last_modified) "
          "VALUES ('{svc}', 'com.richos.app', 0, 2, 2, 1, 0, 'UNUSED', 0, strftime('%s','now'));")
@@ -208,17 +211,17 @@ class SheetWalk(dictation_walk.DictationWalk):
         # Each row with its auth_value (0 denied, 2 allowed): macOS itself records an app it has
         # checked as a denied row, which is no grant (walk of ee92df2c4, stage).
         query = "SELECT service || '=' || auth_value FROM access WHERE client='com.richos.app' ORDER BY service;"
-        return {'user': guest(self.vm, f'sqlite3 {USER_DB} ' + shlex.quote(query)).splitlines(),
-                'system': guest(self.vm, f'sudo -n sqlite3 {SYS_DB} ' + shlex.quote(query)).splitlines()}
+        return {'user': guest(self.vm, f'{SQLITE} {USER_DB} ' + shlex.quote(query)).splitlines(),
+                'system': guest(self.vm, f'sudo -n {SQLITE} {SYS_DB} ' + shlex.quote(query)).splitlines()}
 
     def grant(self, service, system):
         db = SYS_DB if system else USER_DB
-        guest(self.vm, ('sudo -n ' if system else '') + f'sqlite3 {db} ' + shlex.quote(GRANT.format(svc=service)))
+        guest(self.vm, ('sudo -n ' if system else '') + f'{SQLITE} {db} ' + shlex.quote(GRANT.format(svc=service)))
 
     def revoke(self, service, system):
         db = SYS_DB if system else USER_DB
         sql = f"DELETE FROM access WHERE client='com.richos.app' AND service='{service}';"
-        guest(self.vm, ('sudo -n ' if system else '') + f'sqlite3 {db} ' + shlex.quote(sql))
+        guest(self.vm, ('sudo -n ' if system else '') + f'{SQLITE} {db} ' + shlex.quote(sql))
 
     def post_ax_notice(self):
         """What a change through tccd announces and a row written with sqlite3 does not: the
@@ -342,7 +345,7 @@ class SheetWalk(dictation_walk.DictationWalk):
             # to running processes as System Settings' switch does, and the allowed row is written
             # straight after it, so the process's next question reads it.
             reset_sql = shlex.quote(GRANT.format(svc='kTCCServiceAccessibility'))
-            guest(self.vm, f'sudo -n tccutil reset Accessibility com.richos.app >/dev/null 2>&1; sudo -n sqlite3 {SYS_DB} {reset_sql}')
+            guest(self.vm, f'sudo -n tccutil reset Accessibility com.richos.app >/dev/null 2>&1; sudo -n {SQLITE} {SYS_DB} {reset_sql}')
             noticed = [noticed, self.post_ax_notice()]
             row_after_write = self.tcc_rows()['system']
             seen, clock_from = tap_within(time.monotonic(), 5), 'tccutil reset, then the row'
