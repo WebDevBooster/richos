@@ -107,7 +107,10 @@ def center(box):
 # outside it is the unplaced frame Tauri reported before the run loop placed the item (walks
 # 5028f74bc8b6 and 7bdbf43a6228 logged 0,1050 34x24), and the item is found through System
 # Events instead.
-MENU_BAR_BAND = 100.0
+# Seconds a fresh tool gets before its menu bar item is pressed (walk-c409831e46f9).
+FRESH_TOOL_SETTLE = 8.0
+
+MENU_BAR_BAND =100.0
 
 
 def item_placed(rect):
@@ -494,6 +497,16 @@ class BarWalk(dictation_walk.DictationWalk):
         (ix, iy), _ = self.item_center()
         since = len(self.dlog_lines())
         self.click(ix, iy)
+        try:
+            self.wait_dlog('menu bar item pressed', since, 5)
+        except StepFailed:
+            # walk-c409831e46f9, accuracy-mid: a press 3 s after a fresh tool's start reached no
+            # item (no "pressed" line at all), where the menu step's press two minutes after the
+            # start has passed three times. A person presses again; the count is reported.
+            self.presses_to_open = 2
+            self.click(ix, iy)
+        else:
+            self.presses_to_open = 1
         self.wait_dlog('menu shown at', since, 10)
         time.sleep(0.6)
         for _ in range(down_presses):
@@ -512,8 +525,14 @@ class BarWalk(dictation_walk.DictationWalk):
         self.facts['app_pid'] = launched['pid']
         self.save()
         self.wait_tool()
+        # The menu step's press comes long after the tool's start (the settle step waits for the
+        # app's voice-readiness line first); this one came 3 s after a fresh tool's start and
+        # reached no item (walk-c409831e46f9). A settle before the press.
+        time.sleep(FRESH_TOOL_SETTLE)
         # Whatever the file says, this dictation begins on More accurate.
+        self.presses_to_open = 0
         self.choose_accuracy(0)
+        presses = [self.presses_to_open]
         self.use_sample(self.long)
         self.open_textedit('/tmp/dictation-accuracy-mid.txt')
         since = len(self.dlog_lines())
@@ -522,6 +541,7 @@ class BarWalk(dictation_walk.DictationWalk):
         time.sleep(1.0)
         # Faster, chosen while it listens.
         changed = self.choose_accuracy(1)
+        presses.append(self.presses_to_open)
         guest(self.vm, 'open -a TextEdit /tmp/dictation-accuracy-mid.txt')
         time.sleep(3)
         self.press('122')
@@ -534,7 +554,9 @@ class BarWalk(dictation_walk.DictationWalk):
         if row['model'] != 'small.en':
             raise StepFailed(f'the next dictation did not use Faster: {row["log"]}')
         restored = self.choose_accuracy(0)
-        return {'changed_while_listening': changed, 'dictation_in_progress': first, 'next_dictation': row, 'restored': restored}
+        presses.append(self.presses_to_open)
+        return {'changed_while_listening': changed, 'dictation_in_progress': first, 'next_dictation': row, 'restored': restored,
+                'presses_to_open_each_menu': presses}
 
     def window_closed(self):
         off = self.close_window_quits(False)
