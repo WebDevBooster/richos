@@ -26,6 +26,7 @@ type CGEventRef = *mut c_void;
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
     fn AXUIElementCopyAttributeValue(element: AXUIElementRef, attribute: CFTypeRef, value: *mut CFTypeRef) -> i32;
     fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut i32) -> i32;
     fn AXValueGetValue(value: CFTypeRef, kind: u32, out: *mut c_void) -> bool;
@@ -93,46 +94,124 @@ impl Drop for Owned {
 }
 
 fn attribute(element: AXUIElementRef, name: &'static str) -> Option<Owned> {
+    asked(element, name).ok()
+}
+
+/// One Accessibility attribute, or the `AXError` it answered with (a missing value reads as
+/// `kAXErrorNoValue`, -25212).
+fn asked(element: AXUIElementRef, name: &'static str) -> Result<Owned, i32> {
     let name = CFString::from_static_string(name);
     let mut value: CFTypeRef = std::ptr::null();
     // SAFETY: a live element, a CFString attribute name and an out-parameter.
     let error = unsafe { AXUIElementCopyAttributeValue(element, name.as_concrete_TypeRef() as CFTypeRef, &mut value) };
-    (error == 0 && !value.is_null()).then_some(Owned(value))
+    match (error, value.is_null()) {
+        (0, false) => Ok(Owned(value)),
+        (0, true) => Err(-25212),
+        (e, false) => {
+            // An error that came with a value: the value is still ours to release.
+            drop(Owned(value));
+            Err(e)
+        }
+        (e, true) => Err(e),
+    }
+}
+
+fn answer(r: &Result<Owned, i32>) -> String {
+    match r {
+        Ok(_) => "yes".into(),
+        Err(e) => format!("none ({e})"),
+    }
 }
 
 /// What Accessibility says about where the words would go.
 #[derive(Debug, Default)]
 pub struct Focus {
     pub focused_element: bool,
-    /// The app in front reports a focused window (`AXFocusedWindow`). Chrome does without an
-    /// assistive client even when it reports no focused element.
+    /// The app in front reports a focused window (`AXFocusedWindow`, or `AXMainWindow`). Chrome
+    /// can report one when it reports no focused element.
     pub window_focused: bool,
     pub finder_in_front: bool,
     /// The characters on either side of the cursor, where Accessibility can read them.
     pub around: Option<(Option<char>, Option<char>)>,
     /// The front app's bundle identifier, for the log's "into" field.
     pub front_bundle: Option<String>,
+    /// What Accessibility answered, for the log: which app, and each question's answer or error.
+    pub seen: String,
 }
 
 /// Ask Accessibility for the focused element and the text around its cursor.
+///
+/// The system-wide element is asked first. Where it does not answer, the front app (from
+/// Accessibility, or from `NSWorkspace` when Accessibility cannot name it) is asked directly:
+/// an app that builds its accessibility tree only for an assistive client can still answer for
+/// itself. Every answer and error code goes to [`Focus::seen`], so a copy instead of a paste in
+/// the log says exactly what Accessibility reported.
 pub fn focus() -> Focus {
     let mut out = Focus::default();
     // SAFETY: creates a +1 system-wide element we release.
     let system = Owned(unsafe { AXUIElementCreateSystemWide() });
-    if let Some(app) = attribute(system.0, "AXFocusedApplication") {
-        let mut pid = 0i32;
-        // SAFETY: a live element and an out-parameter.
-        if unsafe { AXUIElementGetPid(app.0, &mut pid) } == 0 {
-            out.front_bundle = bundle_of(pid);
+    let ax_app = asked(system.0, "AXFocusedApplication");
+    let pid = match &ax_app {
+        Ok(app) => {
+            let mut pid = 0i32;
+            // SAFETY: a live element and an out-parameter.
+            (unsafe { AXUIElementGetPid(app.0, &mut pid) } == 0).then_some(pid)
         }
-        out.finder_in_front = out.front_bundle.as_deref() == Some("com.apple.finder");
-        out.window_focused = attribute(app.0, "AXFocusedWindow").is_some();
+        Err(_) => None,
     }
-    if let Some(element) = attribute(system.0, "AXFocusedUIElement") {
+    .or_else(frontmost_pid);
+    let app_from = if ax_app.is_ok() { "Accessibility" } else { "the workspace" };
+    let app = match ax_app {
+        Ok(app) => Some(app),
+        // SAFETY: creates a +1 application element we release.
+        Err(_) => pid.map(|p| Owned(unsafe { AXUIElementCreateApplication(p) })),
+    };
+    out.front_bundle = pid.and_then(bundle_of);
+    out.finder_in_front = out.front_bundle.as_deref() == Some("com.apple.finder");
+    let mut element = asked(system.0, "AXFocusedUIElement");
+    let mut element_from = "system-wide";
+    if let (Err(_), Some(app)) = (&element, &app) {
+        if let Ok(e) = asked(app.0, "AXFocusedUIElement") {
+            element = Ok(e);
+            element_from = "the app";
+        }
+    }
+    let window = match &app {
+        Some(app) => asked(app.0, "AXFocusedWindow").or_else(|_| asked(app.0, "AXMainWindow")),
+        None => Err(0),
+    };
+    out.window_focused = window.is_ok();
+    out.seen = format!(
+        "into {} (from {app_from}), focused element {} (asked {element_from}), window {}",
+        out.front_bundle.as_deref().unwrap_or("an unknown app"),
+        answer(&element),
+        answer(&window),
+    );
+    if let Ok(element) = element {
         out.focused_element = true;
         out.around = around_cursor(element.0);
     }
     out
+}
+
+/// The front app's process, from `NSWorkspace`, when Accessibility cannot name it.
+fn frontmost_pid() -> Option<i32> {
+    objc2::rc::autoreleasepool(|_| {
+        let class = AnyClass::get(c"NSWorkspace")?;
+        // SAFETY: documented class method and NSRunningApplication accessor.
+        unsafe {
+            let ws: *mut AnyObject = msg_send![class, sharedWorkspace];
+            if ws.is_null() {
+                return None;
+            }
+            let app: *mut AnyObject = msg_send![ws, frontmostApplication];
+            if app.is_null() {
+                return None;
+            }
+            let pid: i32 = msg_send![app, processIdentifier];
+            (pid > 0).then_some(pid)
+        }
+    })
 }
 
 fn around_cursor(element: AXUIElementRef) -> Option<(Option<char>, Option<char>)> {
@@ -353,6 +432,8 @@ pub struct Inserted {
     /// Whether the spacing rule could read the text around the cursor.
     pub spaced: bool,
     pub front_bundle: Option<String>,
+    /// What Accessibility answered ([`Focus::seen`]).
+    pub seen: String,
 }
 
 /// **Put `words` where the cursor is.** `v_code` is [`v_key_code`], read on the main thread.
@@ -374,7 +455,7 @@ pub fn insert(words: &str, v_code: u16) -> Result<Inserted, String> {
     };
     if how == Insert::CopyOnly {
         write_words(pb, &text).ok_or("the words could not be written to the clipboard")?;
-        return Ok(Inserted { how, spaced: false, front_bundle: f.front_bundle });
+        return Ok(Inserted { how, spaced: false, front_bundle: f.front_bundle, seen: f.seen });
     }
     let saved = save(pb);
     let written = write_words(pb, &text).ok_or("the words could not be written to the clipboard")?;
@@ -391,7 +472,7 @@ pub fn insert(words: &str, v_code: u16) -> Result<Inserted, String> {
         })
         .map_err(|e| e.to_string())?;
     *pending = Some(restore);
-    Ok(Inserted { how, spaced: f.around.is_some(), front_bundle: f.front_bundle })
+    Ok(Inserted { how, spaced: f.around.is_some(), front_bundle: f.front_bundle, seen: f.seen })
 }
 
 /// Copy `words` to the clipboard and nothing else: the case where the words are ready and
@@ -412,6 +493,17 @@ pub fn settle() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// INVARIANT: the log names each Accessibility answer, and an error by its own code, so a
+    /// copy instead of a paste says what Accessibility reported.
+    #[test]
+    fn an_accessibility_answer_reads_as_yes_or_its_error() {
+        assert_eq!(answer(&Err(-25212)), "none (-25212)");
+        assert_eq!(answer(&Err(-25204)), "none (-25204)");
+        // SAFETY: creates a +1 system-wide element, owned and released by `Owned`.
+        let system = Owned(unsafe { AXUIElementCreateSystemWide() });
+        assert_eq!(answer(&Ok(system)), "yes");
+    }
 
     /// INVARIANT: Accessibility's ranges are UTF-16 units, so the characters either side of the
     /// cursor are found by unit, at both ends and past an emoji.

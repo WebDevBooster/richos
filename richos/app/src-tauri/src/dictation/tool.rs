@@ -461,9 +461,10 @@ fn write(recording: Recording, duration_ms: u64, chosen: &str, data_dir: &std::p
         Problem::CouldNotWrite
     })?;
     log::line(&format!(
-        "dictation: model {id}, {secs:.2} s of audio, written in {latency} ms, {}{}",
+        "dictation: model {id}, {secs:.2} s of audio, written in {latency} ms, {}{}; {}",
         if inserted.how == Insert::Paste { "pasted" } else { "copied (no text box)" },
         if inserted.spaced { ", spacing read" } else { "" },
+        inserted.seen,
     ));
     if inserted.how == Insert::CopyOnly {
         return Err(Problem::NoTextBox);
