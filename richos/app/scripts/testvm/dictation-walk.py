@@ -84,6 +84,9 @@ CHROME_DMG = 'https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrom
 TOOL_ARG = '--richos-dictation'
 DICTATED = 'dictation: model '  # dictation.log's line for words put in place (tool.rs write)
 NO_TAP_EVENTS = ('"type":"key"', '"type":"system"')
+# How long one dictation may take to write, from the second tap to its log line: More accurate
+# took 46.2 s for 3.04 s of audio on a guest whose host was busy (walk-15a88cf29d54).
+DICTATION_WITHIN = 240
 # Terminal's text, read through System Events (sshd-session's own grant), never by asking
 # Terminal itself for it: that needs an automation grant the guest does not give, and its prompt
 # would sit on the screen.
@@ -119,6 +122,11 @@ def words_of(text):
     return re.findall(r"[a-z0-9']+", text.lower())
 
 
+def answer_of(output):
+    """ax.sh's by-hand answer without the phase lines it frames it with."""
+    return '\n'.join(line for line in output.splitlines() if not line.startswith('{"ax_')).strip()
+
+
 def wav_seconds(path):
     with wave.open(str(path), 'rb') as w:
         return w.getnframes() / float(w.getframerate())
@@ -139,8 +147,10 @@ class DictationWalk(adopt_walk.Walk):
     # --- helpers ------------------------------------------------------------------------------
     def osa(self, script, timeout=40):
         """AppleScript through System Events in the guest (ax.sh's by-hand mode). Every grant it
-        needs is sshd-session's (provision-guest.sh): it never asks another app for automation."""
-        return command([HERE / 'ax.sh', self.vm, script], timeout).strip()
+        needs is sshd-session's (provision-guest.sh): it never asks another app for automation.
+        ax.sh frames its answer with its own phase lines ({"ax_phase": ...}); they are not the
+        answer (walk-15a88cf29d54 read them as the clipboard)."""
+        return answer_of(command([HERE / 'ax.sh', self.vm, script], timeout))
 
     def front_bundle(self):
         return guest(self.vm, 'lsappinfo info -only bundleid "$(lsappinfo front)"').split('=')[-1].strip().strip('"')
@@ -181,15 +191,19 @@ class DictationWalk(adopt_walk.Walk):
         else:
             guest(self.vm, 'osascript -e ' + shlex.quote(f'tell application "System Events" to key code {int(key)}'))
 
-    def sample_front(self, seconds):
-        """`lsappinfo front` every 250 ms in the guest, for `seconds`, to a file (activation.rs's
-        method). Returns the file to read afterwards."""
+    def sample_front(self):
+        """`lsappinfo front` every 250 ms in the guest (activation.rs's method), to a file, until
+        stop_front() is called (at most 10 minutes). Returns the file. Sampled from before the
+        first tap until after the paste: a dictation with More accurate on a loaded guest takes
+        46 s to write (walk-15a88cf29d54), far longer than the sample itself."""
         out = self.payload + f'/front-{time.time_ns()}.txt'
-        script = ('end=$(( $(date +%s) + {s} )); while [ $(date +%s) -lt $end ]; do '
-                  'lsappinfo info -only bundleid "$(lsappinfo front)" >> {o}; sleep 0.25; done').format(
-            s=int(seconds) + 1, o=shlex.quote(out))
+        script = ('end=$(( $(date +%s) + 600 )); while [ ! -e {o}.stop ] && [ $(date +%s) -lt $end ]; do '
+                  'lsappinfo info -only bundleid "$(lsappinfo front)" >> {o}; sleep 0.25; done').format(o=shlex.quote(out))
         guest(self.vm, 'nohup /bin/bash -c ' + shlex.quote(script) + ' >/dev/null 2>&1 &')
         return out
+
+    def stop_front(self, path):
+        guest(self.vm, 'touch ' + shlex.quote(path + '.stop'))
 
     def front_samples(self, path):
         rows = guest(self.vm, 'cat ' + shlex.quote(path) + ' 2>/dev/null || true', 30).splitlines()
@@ -203,7 +217,7 @@ class DictationWalk(adopt_walk.Walk):
         before = len(self.dictated_lines())
         if self.front_bundle() != bundle:
             raise StepFailed(f'{bundle} is not in front before the dictation: {self.front_bundle()}')
-        sampler = self.sample_front(self.seconds + 12)
+        sampler = self.sample_front()
         began = time.monotonic()
         self.press(key)
         posted = time.monotonic()
@@ -213,7 +227,7 @@ class DictationWalk(adopt_walk.Walk):
         time.sleep(max(0.0, self.seconds + 0.6 - (posted - began)))
         self.press(key)
         second = time.monotonic()
-        end = time.monotonic() + 90
+        end = time.monotonic() + DICTATION_WITHIN
         line = None
         while time.monotonic() < end:
             lines = self.dictated_lines()
@@ -223,7 +237,7 @@ class DictationWalk(adopt_walk.Walk):
             time.sleep(1)
         if line is None:
             tail = guest(self.vm, 'tail -30 ' + shlex.quote(self.dlog) + ' 2>/dev/null || true')
-            raise StepFailed(f'no dictation finished within 90 s of the second tap; dictation.log tail:\n{tail}')
+            raise StepFailed(f'no dictation finished within {DICTATION_WITHIN} s of the second tap; dictation.log tail:\n{tail}')
         if 'pasted' not in line:
             raise StepFailed(f'the dictation did not paste: {line}')
         model = re.search(r'dictation: model (\S+),', line).group(1)
@@ -231,7 +245,8 @@ class DictationWalk(adopt_walk.Walk):
         clip = self.clipboard()
         if clip != sentinel:
             raise StepFailed(f'the clipboard holds {clip!r}, not what it held before ({sentinel!r})')
-        time.sleep(max(0.0, self.seconds + 12 - 1.6))
+        self.stop_front(sampler)
+        time.sleep(0.5)
         fronts = self.front_samples(sampler)
         others = sorted(set(f for f in fronts if f != bundle))
         if not fronts or others:
@@ -349,7 +364,8 @@ class DictationWalk(adopt_walk.Walk):
         texts = []
         for n, key in enumerate(['122', '105', 'brightness']):
             rows.append(self.dictate(key, 'com.apple.TextEdit', f'clipboard-before-{n}'))
-            nodes = self.ax('find', '--role', 'AXTextArea', '--first', app='TextEdit')
+            nodes = [n for n in self.ax('find', '--role', 'AXTextArea', '--first', app='TextEdit')
+                     if n.get('role') == 'AXTextArea']
             texts.append(nodes[0].get('value', '') if nodes else '')
         # The spacing rule: nothing before the first (an empty box), one space before each later one
         # (the character before the cursor is not whitespace), nothing after (end of the text).

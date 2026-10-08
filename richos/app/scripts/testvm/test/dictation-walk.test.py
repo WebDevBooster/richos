@@ -37,6 +37,12 @@ class ExpectedWords(unittest.TestCase):
 
 
 class ReadingTheGuest(unittest.TestCase):
+    def test_ax_sh_phase_lines_are_not_the_answer(self):
+        # walk-15a88cf29d54 read these framing lines as the clipboard and failed a restored one.
+        framed = '{"ax_phase": "guest"}\nclipboard-before-0\n{"ax_guest_seconds": 0.1728}\n'
+        self.assertEqual(walk.answer_of(framed), 'clipboard-before-0')
+        self.assertEqual(walk.answer_of('box:Talk soon.'), 'box:Talk soon.')
+
     def walk_with(self, guest_answers):
         w = object.__new__(walk.DictationWalk)
         w.vm = 'walk-test'
