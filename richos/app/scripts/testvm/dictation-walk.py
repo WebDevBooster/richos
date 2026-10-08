@@ -463,8 +463,11 @@ class DictationWalk(adopt_walk.Walk):
         extra = ''
         if app == 'Google Chrome.app':
             extra = '--args ' + ' '.join(CHROME_FLAGS) + ' --user-data-dir=' + shlex.quote(self.payload + '/chrome')
-            # `open -na App --args ... URL`: the page is an argument too.
-            guest(self.vm, f'open -na "Google Chrome" {extra} {shlex.quote("file://" + self.page)}')
+            # `open -na App --args ... URL`: the page is an argument too. By path, not by name: a
+            # Chrome the apps step copied into /Applications seconds earlier is not yet registered
+            # with LaunchServices, and `open -na "Google Chrome"` answered "Unable to find
+            # application named 'Google Chrome'" (walk-447858a8c733).
+            guest(self.vm, f'open -na {shlex.quote("/Applications/" + app)} {extra} {shlex.quote("file://" + self.page)}')
             time.sleep(8)
             row = self.dictate('122', bundle, 'clipboard-before-chromium')
             title = self.osa(f'tell application "System Events" to get name of front window of (first process whose bundle identifier is "{bundle}")')
