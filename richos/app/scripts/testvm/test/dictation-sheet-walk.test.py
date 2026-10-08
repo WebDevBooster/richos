@@ -42,6 +42,19 @@ class TheSteps(unittest.TestCase):
             self.assertTrue(hasattr(walk.SheetWalk, name), name)  # here or inherited (identity)
             self.assertLessEqual(source.count(f'    def {name}(self'), 1, name)
 
+    def test_buttons_go_through_click_not_the_key_press(self):
+        """DictationWalk.press(key) posts the dictation key and shadows adopt-walk's
+        press(title); a button title passed to it fails with "invalid literal for int()"
+        (walk-8e2679058844: self.press('Not now'))."""
+        import ast
+        tree = ast.parse((HERE / 'dictation-sheet-walk.py').read_text())
+        titled = [n.lineno for n in ast.walk(tree)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == 'press'
+                  and isinstance(n.func.value, ast.Name) and n.func.value.id == 'self'
+                  and n.args and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)
+                  and not n.args[0].value.isdigit() and n.args[0].value not in ('brightness',)]
+        self.assertEqual(titled, [])
+
 
 class TheVerdicts(unittest.TestCase):
     def test_within_two_seconds_allows_one_round_trip(self):

@@ -174,13 +174,35 @@ class SheetWalk(dictation_walk.DictationWalk):
             time.sleep(1)
         raise StepFailed(f'OCR did not read "{text}" on the guest screen within {seconds} s (frames {name}-*.png)')
 
+    def click(self, title, role='AXButton', app=None):
+        """A button by its title: adopt-walk's press(). DictationWalk's press(key) shadows it (it
+        posts the dictation key), so self.press('Not now') failed with "invalid literal for
+        int()" (walks 490c9ae819b3 and 8e2679058844); a button goes through here."""
+        return dictation_walk.adopt_walk.Walk.press(self, title, role, app)
+
+    def decline_first_run_sheets(self, tries=3, seconds=45):
+        """adopt-walk's, pressing Not now through click(): each first-run sheet before the
+        company question is declined, one at a time, `seconds` in all. Returns the presses."""
+        presses = 0
+        end = time.monotonic() + seconds
+        while presses < tries and time.monotonic() < end:
+            if self.present('Add this company'):
+                break
+            if self.present('Not now'):
+                self.click('Not now')
+                presses += 1
+                time.sleep(3)
+            else:
+                time.sleep(1)
+        return presses
+
     def declined_late_sheet(self):
         """A first-run sheet a slow launch puts up late hides the window's tree from ax.sh
         ("blocked ... modal=Where should I keep what you tell me?": walk-513e77dc426d after
         decline_first_run_sheets' 30 s, walk-e0f1629e8f0b's refused relaunch). Declines one
         that is up; True when it did."""
         if self.present('Not now'):
-            self.press('Not now')
+            self.click('Not now')
             time.sleep(3)
             return True
         return False
@@ -442,7 +464,7 @@ class SheetWalk(dictation_walk.DictationWalk):
         return {'app_pid': launched['pid'], 'denied_line': DENIED_LINE, 'open_system_settings': True, 'tcc': self.tcc_rows()}
 
     def open_settings(self):
-        self.press('Open System Settings')
+        self.click('Open System Settings')
         end = time.monotonic() + 30
         front = None
         while time.monotonic() < end:
