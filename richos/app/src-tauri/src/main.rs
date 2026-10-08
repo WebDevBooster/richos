@@ -98,6 +98,10 @@ use memory::MemoryStatus;
 /// `richos_core::setup` holds the decisions; this file holds the window's side of them.
 mod setup_view;
 
+/// RICH'S ONE OFFER OF DICTATION after setup (round 19, state 4): whether it may be shown, and
+/// the record that it was, as `offered` in `<data dir>/dictation.json`.
+mod dictation_offer;
+
 /// GETTING THE SPEECH MODEL, so ".github/README.md: Voice does not work yet" can stop being
 /// true. The transport only — every rule about what the bytes are, whether there is room and
 /// whether what arrived is the model RichOS pinned lives in `richos_voice::provision`, which is
@@ -3827,7 +3831,10 @@ fn main() {
             output_files::output_preview,
             output_files::output_open,
             output_files::output_reveal,
-            output_files::output_save_copy
+            output_files::output_save_copy,
+            // --- Rich's one offer of dictation (dictation plan slice 4) — appended ---
+            dictation_offer,
+            dictation_offer_shown
         ])
         .build(context)
         .expect("error while building RichOS")
@@ -5582,6 +5589,22 @@ fn set_claude_at_threshold(state: State<AppState>, value: richos_core::claude_ac
 #[tauri::command(async)]
 fn setup_status(state: State<AppState>) -> serde_json::Value {
     setup_view::view(&setup_view::detect(Some(&state.engine_dir.lock().unwrap())))
+}
+
+/// **May Rich offer dictation now?** (round 19, state 4) Dictation is there, the offer was never
+/// made, and which key to name. The window asks after Start, once voice is ready.
+#[tauri::command]
+fn dictation_offer(state: State<AppState>) -> dictation_offer::OfferView {
+    dictation_offer::view(&state.data_dir, richos_core::dictation_ready())
+}
+
+/// **The offer was shown**: `offered: true` in `<data dir>/dictation.json`, so it is never made
+/// again.
+#[tauri::command]
+fn dictation_offer_shown(state: State<AppState>) -> Result<(), String> {
+    dictation_offer::mark_shown(&state.data_dir).inspect_err(|why| {
+        eprintln!("[richos] dictation offer: the offer was shown and could not be recorded: {why}")
+    })
 }
 
 /// **THE CEO PRESSES "Set it up".** Install what is missing, reporting each step on
