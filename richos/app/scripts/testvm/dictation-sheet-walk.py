@@ -197,6 +197,17 @@ class SheetWalk(dictation_walk.DictationWalk):
         sql = f"DELETE FROM access WHERE client='com.richos.app' AND service='{service}';"
         guest(self.vm, ('sudo -n ' if system else '') + f'sqlite3 {db} ' + shlex.quote(sql))
 
+    def post_ax_notice(self):
+        """What System Settings does after a person flips an Accessibility switch: post the
+        distributed notice "com.apple.accessibility.api", on which a running process drops the
+        trust answer it holds (walk-46bb2eac452a: row written as allowed, tccd restarted, and the
+        running app still read no for 30 s). Posted in the guest's GUI session, as the user."""
+        script = ("ObjC.import('Foundation'); $.NSDistributedNotificationCenter.defaultCenter"
+                  ".postNotificationNameObjectUserInfoDeliverImmediately('com.apple.accessibility.api', null, null, true);"
+                  " 'posted'")
+        return guest(self.vm, 'sudo -n launchctl asuser "$(id -u)" sudo -n -u "$(id -un)" osascript -l JavaScript -e '
+                     + shlex.quote(script) + ' 2>&1 || echo refused')
+
     def reload_tcc(self, system):
         """tccd answers from what it has already read: a row written behind its back (the walk's
         stand-in for a person's switch in System Settings, which goes through tccd itself) is seen
@@ -275,6 +286,7 @@ class SheetWalk(dictation_walk.DictationWalk):
         taps_before = sum('key tap created for F1' in x for x in self.dlog_lines())
         began = time.monotonic()
         self.grant('kTCCServiceAccessibility', True)
+        noticed = self.post_ax_notice()
         written = time.monotonic()
         row_after_write = self.tcc_rows()['system']
 
@@ -285,14 +297,22 @@ class SheetWalk(dictation_walk.DictationWalk):
                 time.sleep(0.2)
             return None
 
-        # The clock starts when tccd can know: at the write if it sees it, else at its restart.
+        # The clock starts when the app can know: at the write and its notice if they are seen,
+        # else at tccd's restart and a second notice.
         seen, reloaded = tap_within(written, 5), None
         if seen is None:
             reloaded = self.reload_tcc(True)
+            noticed = [noticed, self.post_ax_notice()]
             seen = tap_within(time.monotonic(), 30)
         if seen is None:
-            raise StepFailed(f'the tool made no key tap within 30 s of the Accessibility row and a tccd restart '
-                             f'(row: {row_after_write}, restart: {reloaded!r})')
+            # What tccd answered RichOS, kept beside the frame: it says whether the row was
+            # honored and the running process held an old answer, or the row was not honored.
+            tcc_log = guest(self.vm, "log show --last 2m --style compact --predicate "
+                                     + shlex.quote('subsystem == "com.apple.TCC" AND eventMessage CONTAINS[c] "richos"')
+                                     + " 2>&1 | tail -200 || true", 120)
+            (self.out / 'tcc-answers.log').write_text(tcc_log)
+            raise StepFailed(f'the tool made no key tap within 30 s of the Accessibility row, its notice and a tccd '
+                             f'restart (row: {row_after_write}, notice: {noticed!r}, restart: {reloaded!r})')
         on = self.until(lambda: self.shows_text(ON_RUN), 15, 'the sheet did not say On')
         dismissed_in = self.press_in_prompt('Deny')  # the prompt macOS left up; the grant stands
         pid_now = guest(self.vm, f'kill -0 {int(pid_before)} 2>/dev/null && echo alive || true')
@@ -302,7 +322,7 @@ class SheetWalk(dictation_walk.DictationWalk):
         if not grant_seconds_ok(seen):
             raise StepFailed(f'the key tap came {seen} s after tccd could know of the row, not within {GRANTED_WITHIN} s')
         return {'key_tap_after_row_seconds': seen, 'clock_from': 'tccd restart' if reloaded is not None else 'row write',
-                'tccd_restart': reloaded, 'row_after_write': row_after_write,
+                'tccd_restart': reloaded, 'notice': noticed, 'row_after_write': row_after_write,
                 'write_seconds': round(written - began, 2), 'sheet_says_on': on,
                 'same_app_pid': pid_before, 'prompt_dismissed_in': dismissed_in, 'tcc': self.tcc_rows()}
 
@@ -320,6 +340,7 @@ class SheetWalk(dictation_walk.DictationWalk):
     def refused(self):
         self.revoke('kTCCServiceAccessibility', True)
         self.reload_tcc(True)
+        self.post_ax_notice()
         launched, presses = self.launch()
         self.open_sheet()
         self.until(lambda: self.shows_text(DENIED_LINE), 30, 'the sheet did not say the denied line')
@@ -352,6 +373,7 @@ class SheetWalk(dictation_walk.DictationWalk):
     def second_copy(self):
         self.grant('kTCCServiceAccessibility', True)
         self.reload_tcc(True)
+        self.post_ax_notice()
         first_pid = self.facts['app_pid']
         app = guest(self.vm, 'find ' + shlex.quote(self.payload) + ' -maxdepth 1 -name "*.app" -type d -print').splitlines()[0]
         second_dir, home2 = self.payload + '/second', self.payload + '/home2'
