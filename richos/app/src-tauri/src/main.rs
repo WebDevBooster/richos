@@ -5593,14 +5593,14 @@ fn setup_status(state: State<AppState>) -> serde_json::Value {
 
 /// **May Rich offer dictation now?** (round 19, state 4) Dictation is there, the offer was never
 /// made, and which key to name. The window asks after Start, once voice is ready.
-#[tauri::command]
+#[tauri::command(async)]
 fn dictation_offer(state: State<AppState>) -> dictation_offer::OfferView {
     dictation_offer::view(&state.data_dir, richos_core::dictation_ready())
 }
 
 /// **The offer was shown**: `offered: true` in `<data dir>/dictation.json`, so it is never made
 /// again.
-#[tauri::command]
+#[tauri::command(async)]
 fn dictation_offer_shown(state: State<AppState>) -> Result<(), String> {
     dictation_offer::mark_shown(&state.data_dir).inspect_err(|why| {
         eprintln!("[richos] dictation offer: the offer was shown and could not be recorded: {why}")
