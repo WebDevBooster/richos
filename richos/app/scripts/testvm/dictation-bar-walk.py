@@ -179,7 +179,13 @@ class BarWalk(dictation_walk.DictationWalk):
             raise StepFailed(f'TextEdit is not in front: {self.front_bundle()}')
 
     def item_center(self):
-        """The menu bar item's center, from the tool's own process in System Events."""
+        """The menu bar item's center: from the tool's own log line (menubar.rs `item_rect`), or
+        else from the tool's process in System Events."""
+        logged = [line for line in self.dlog_lines() if 'menu bar item at ' in line]
+        if logged:
+            n = [float(v) for v in re.findall(r'-?\d+', logged[-1].split('menu bar item at ', 1)[1])][:4]
+            if len(n) == 4 and n[2] > 0:
+                return (n[0] + n[2] / 2, n[1] + n[3] / 2), {'from': 'dictation.log', 'rect': n}
         tool = self.tool_pids()
         if len(tool) != 1:
             raise StepFailed(f'not exactly one dictation tool: {tool}')

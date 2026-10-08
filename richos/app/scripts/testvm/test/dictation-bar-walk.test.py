@@ -31,7 +31,7 @@ class ReadingTheToolsLog(unittest.TestCase):
         self.assertIn('"bar shown: {} at {:.0},{:.0} {:.0}x{:.0}{}"', source)
         self.assertIn('"; Fix it at {:.0},{:.0} {:.0}x{:.0}"', source)
         for said in ('menu shown at', 'menu closed', 'Fix it pressed', 'accuracy set to {model} from the menu bar',
-                     'the words flew to', 'built as the {} type'):
+                     'the words flew to', 'built as the {} type', 'menu bar item at {:.0},{:.0} {:.0}x{:.0}'):
             self.assertIn(said, source + (APP / 'src-tauri/src/dictation/bar.rs').read_text(), said)
 
 

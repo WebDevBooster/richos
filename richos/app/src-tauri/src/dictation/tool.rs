@@ -503,6 +503,9 @@ impl Tool {
     fn run(mut self, rx: Receiver<Control>) -> i32 {
         self.ensure_tap();
         self.publish();
+        if let Some(r) = self.tray.as_ref().and_then(menubar::item_rect) {
+            log::line(&format!("menu bar item at {:.0},{:.0} {:.0}x{:.0}", r.x, r.y, r.w, r.h));
+        }
         while let Ok(control) = rx.recv() {
             match control {
                 Control::Tap(TapEvent::Toggle) | Control::App(AppMessage::Finish) => self.toggle(matches!(control, Control::App(_))),
@@ -595,6 +598,7 @@ impl Tool {
     fn ui(&mut self, event: UiEvent) -> Option<i32> {
         match event {
             UiEvent::Ready { role } => {
+                log::line(&format!("the {role} page is ready"));
                 if role == "bar" {
                     if let Some(p) = self.preview {
                         // Held, with no timer: the check reads it, clicks it and ends the tool.

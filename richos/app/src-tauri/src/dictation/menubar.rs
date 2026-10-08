@@ -49,6 +49,15 @@ pub fn build(app: &AppHandle) -> Result<TrayIcon, String> {
         .map_err(|e| format!("the menu bar item could not be made: {e}"))
 }
 
+/// Where the item sits, in top-left points: Tauri reports it in pixels of the primary screen.
+pub fn item_rect(tray: &TrayIcon) -> Option<Rect> {
+    let rect = tray.rect().ok().flatten()?;
+    let scale = tray.app_handle().primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(2.0);
+    let p = rect.position.to_logical::<f64>(scale);
+    let s = rect.size.to_logical::<f64>(scale);
+    Some(Rect { x: p.x, y: p.y, w: s.width, h: s.height })
+}
+
 /// Gold while listening, the template microphone otherwise. `dark` is the menu bar's appearance.
 pub fn set_listening(tray: &TrayIcon, listening: bool, dark: bool) {
     let (icon, template) = picture(listening, dark);
