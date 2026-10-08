@@ -123,6 +123,17 @@ pub fn parse(args: &[String]) -> Result<Args, String> {
 /// so it resolves the engine exactly as the app does at boot (`engine.rs`, the same seven
 /// candidates) and verifies its runtime (`runtime::verify_engine`, the same hashes). The line
 /// this returns goes in the log, so "which whisper-cli" is never a guess.
+/// The note a start that fails before it knows its data folder leaves. launchd keeps no stderr,
+/// so a launchd-started tool that failed there left nothing anywhere (walk-a2de78a678d9).
+pub const START_FAILURE_NOTE: &str = "dictation-tool-start.err";
+
+/// Say why the tool could not start, on stderr and in the runtime folder's note.
+fn early_failure_note(why: &str) {
+    let dir = ipc::runtime_dir();
+    std::fs::create_dir_all(&dir).ok();
+    log::line_to(&dir.join(START_FAILURE_NOTE), why);
+}
+
 fn resolve_runtime_bin_alone() -> String {
     let resolution = crate::engine::resolve_engine_dir(&crate::engine::LaunchPaths::from_process());
     let Some(dir) = resolution.dir.clone() else {
@@ -268,7 +279,8 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
         None => match login::launchd_data_dir(&identifier) {
             Ok(dir) => (dir, "by launchd at login"),
             Err(why) => {
-                eprintln!("[richos-dictation] no --data-dir, and the installed data folder cannot be used: {why}");
+                // launchd keeps no stderr: the one place this can be read later.
+                early_failure_note(&format!("no --data-dir, and the installed data folder cannot be used: {why}"));
                 return 2;
             }
         },

@@ -797,6 +797,13 @@ def main():
                 if walk.app_log:
                     (a.out / 'app.log.tail').write_text(guest(a.vm, 'tail -80 ' + shlex.quote(walk.app_log) + ' || true', 30))
                 (a.out / 'dictation.log').write_text('\n'.join(walk.rdlog_lines()) + '\n')
+                # What launchd itself says of the agent (pid, run count, last exit status), the
+                # installed data folder, and every RichOS process: walk-a2de78a678d9 failed on
+                # 'no launchd child' with an empty dictation.log and nothing else to read.
+                (a.out / 'launchd-agent.txt').write_text(guest(
+                    a.vm, f'launchctl print gui/$(id -u)/{AGENT} 2>&1 | head -60; echo ---; ls -la {shlex.quote(DATA)} 2>&1; '
+                          'echo ---; cat /private/tmp/richos-$(id -u)/dictation-tool-start.err 2>&1; '
+                          'echo ---; ps -axo pid=,ppid=,command= | grep -i richos | grep -v grep || true', 60))
             except Exception as exc:  # evidence only; the step already failed
                 (a.out / 'evidence-error.txt').write_text(str(exc))
             break
