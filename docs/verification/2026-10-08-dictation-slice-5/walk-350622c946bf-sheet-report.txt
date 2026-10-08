@@ -1,0 +1,86 @@
+{
+  "vm": "walk-350622c946bf",
+  "expect_sha": "4c19a1b7f",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "4c19a1b7fac9379163dbe93268a58a443e16e16d-dirty"
+      },
+      "outcome": "PASS",
+      "seconds": 0.2
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [],
+          "system": []
+        },
+        "no_grants": true,
+        "dictation_json": "absent",
+        "wav": "/Users/admin/testvm/walk-350622c946bf/home/dictation-sample.wav",
+        "model": "/Users/admin/testvm/walk-350622c946bf/home/.config/richos/models/ggml-small.en.bin"
+      },
+      "outcome": "PASS",
+      "seconds": 3.2
+    },
+    {
+      "step": "relaunch",
+      "evidence": {
+        "app_pid": 1315,
+        "first_run_sheets_declined": 0
+      },
+      "outcome": "PASS",
+      "seconds": 66.3
+    },
+    {
+      "step": "switch-on",
+      "evidence": {
+        "sheet_said_off_first": true
+      },
+      "outcome": "PASS",
+      "seconds": 31.0
+    },
+    {
+      "step": "mic-prompt",
+      "evidence": {
+        "frame": "mic-prompt-1.png",
+        "iris_sentence_ocr": {
+          "talk instead of typing": true,
+          "only after you tap": true,
+          "press the talk": true
+        },
+        "allow_pressed_in": "UserNotificationCenter",
+        "fallback": null
+      },
+      "outcome": "PASS",
+      "seconds": 11.9
+    },
+    {
+      "step": "ax-prompt",
+      "evidence": {
+        "frame": "ax-prompt-0.png",
+        "mic_answer_in_log": [
+          "[richos] dictation: the microphone was allowed"
+        ],
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone=2"
+          ],
+          "system": [
+            "kTCCServiceAccessibility=0"
+          ]
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 2.2
+    },
+    {
+      "step": "granted-settings",
+      "outcome": "FAIL",
+      "detail": "no RichOS switch in the Accessibility pane (switches seen: ['', '', '', '', ''])",
+      "seconds": 282.6
+    }
+  ]
+}

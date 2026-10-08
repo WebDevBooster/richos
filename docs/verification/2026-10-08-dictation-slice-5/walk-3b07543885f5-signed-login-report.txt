@@ -1,0 +1,50 @@
+{
+  "vm": "walk-3b07543885f5",
+  "expect_sha": "f07ae7621",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "f07ae7621607e811df50890a2cdd3fe1bfc12bc5-dirty"
+      },
+      "outcome": "PASS",
+      "seconds": 0.3
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone"
+          ],
+          "system": [
+            "kTCCServiceAccessibility"
+          ]
+        },
+        "input_monitoring_row": false,
+        "wav": "/Users/admin/testvm/walk-3b07543885f5/home/dictation-sample.wav",
+        "wav_seconds": 3.042,
+        "model": "/Users/admin/testvm/walk-3b07543885f5/home/.config/richos/models/ggml-small.en.bin",
+        "expected_text": {
+          "small.en": "The quarterly numbers look better than we expected this morning."
+        },
+        "real_home": "/Users/admin",
+        "installed": "/Users/admin/Applications/RichOS.app",
+        "engine_at": "/Users/admin/Library/Application Support/RichOS/engine",
+        "launchd_environment": "Usage: launchctl config <system|user> <parameter> <value>\nWhen given the \"system\" argument, modifies the configuration for the system\ndomain. When given the \"user\" argument on supported platforms, modifies the\nconfiguration for all user domains. You must reboot for changes to take effect.\nNote that if a service specifies a conflicting configuration, the service's\nparameter will be preferred.\n\nSupported configuration parameters are:\n\numask <integer as octal>\nModifies the umask(2) applied to services launched in the domain.\n\npath <string>\nModifies the PATH environment variable set on each service in the\ndomain.",
+        "launch_agent_plist_in_bundle": true,
+        "models": [
+          "ggml-small.en.bin"
+        ]
+      },
+      "outcome": "PASS",
+      "seconds": 21.2
+    },
+    {
+      "step": "install",
+      "outcome": "FAIL",
+      "detail": "the tool is not exactly one launchd child: []",
+      "seconds": 176.5
+    }
+  ]
+}

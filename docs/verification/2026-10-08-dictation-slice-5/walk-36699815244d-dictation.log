@@ -1,0 +1,19 @@
+2026-10-08T14:08:29Z dictation tool started: version 1.2.0-dev.c29c5a319.dirty, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T14:08:29Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-36699815244d/engine/runtime/bin
+2026-10-08T14:08:30Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:08:30Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:08:30Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:08:30Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T14:08:30Z key tap created for F1
+2026-10-08T14:08:30Z an app connected: version 1.2.0-dev.c29c5a319.dirty, /Users/admin/testvm/walk-36699815244d/RichOS.app, data folder /Users/admin/testvm/walk-36699815244d/home/Library/Application Support/com.richos.app
+2026-10-08T14:08:30Z menu bar item at 1438,0 34x24
+2026-10-08T14:08:30Z the flight page is ready
+2026-10-08T14:08:30Z the menu page is ready
+2026-10-08T14:08:30Z the bar page is ready
+2026-10-08T14:10:12Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T14:10:12Z every app (1) yielded the microphone
+2026-10-08T14:10:12Z listening (injected wav (/Users/admin/testvm/walk-36699815244d/home/dictation-sample.wav))
+2026-10-08T14:10:12Z bar shown: listening at 579,815 523x138
+2026-10-08T14:10:15Z bar shown: writing at 692,815 296x138
+2026-10-08T14:10:36Z dictation: model large-v3-turbo-q5_0, 3.39 s of audio, written in 21344 ms, pasted; into com.apple.finder (from Accessibility), focused element yes (asked system-wide), window yes
+2026-10-08T14:10:36Z bar shown: added at 732,815 216x138

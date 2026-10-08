@@ -1,0 +1,28 @@
+2026-10-08T14:02:32Z dictation tool started: version 1.2.0-dev.c29c5a319.dirty, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T14:02:32Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-d94269c3a41c/engine/runtime/bin
+2026-10-08T14:02:32Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:02:32Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:02:32Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T14:02:32Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T14:02:32Z key tap created for F1
+2026-10-08T14:02:32Z an app connected: version 1.2.0-dev.c29c5a319.dirty, /Users/admin/testvm/walk-d94269c3a41c/RichOS.app, data folder /Users/admin/testvm/walk-d94269c3a41c/home/Library/Application Support/com.richos.app
+2026-10-08T14:02:32Z menu bar item at 1438,0 34x24
+2026-10-08T14:02:33Z the bar page is ready
+2026-10-08T14:02:33Z the menu page is ready
+2026-10-08T14:02:33Z the flight page is ready
+2026-10-08T14:04:26Z menu bar item pressed
+2026-10-08T14:04:27Z menu opened from the menu bar item; the front app is pid Some(2131)
+2026-10-08T14:04:27Z menu shown at 1126,28 346x319
+2026-10-08T14:04:27Z menu key window shown; the tool is active: true; front pid Some(2131)
+2026-10-08T14:04:28Z accuracy set to small.en from the menu bar; the next dictation uses it
+2026-10-08T14:04:28Z menu shown at 1126,28 346x319
+2026-10-08T14:04:28Z menu key window shown; the tool is active: true; front pid Some(2131)
+2026-10-08T14:04:29Z menu closed; the front app is pid Some(2131)
+2026-10-08T14:04:31Z will-listen sent to 1 app(s); the microphone waits for their answer
+2026-10-08T14:04:31Z every app (1) yielded the microphone
+2026-10-08T14:04:31Z listening (injected wav (/Users/admin/testvm/walk-d94269c3a41c/home/dictation-sample.wav))
+2026-10-08T14:04:31Z bar shown: listening at 579,817 523x138
+2026-10-08T14:04:35Z bar shown: writing at 692,817 296x138
+2026-10-08T14:05:04Z dictation: model small.en, 3.50 s of audio, written in 29406 ms, pasted, spacing read; into com.apple.TextEdit (from Accessibility), focused element yes (asked system-wide), window yes
+2026-10-08T14:05:04Z the words flew to 182,101 424x13 on the screen at 0,0
+2026-10-08T14:05:05Z bar shown: added at 732,817 216x138

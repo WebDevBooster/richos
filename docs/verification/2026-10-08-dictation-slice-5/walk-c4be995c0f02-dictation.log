@@ -1,0 +1,18 @@
+2026-10-08T13:40:40Z dictation tool started: version 1.2.0-dev.1733118a8, key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T13:40:40Z whisper-cli from the app's runtime at /Users/admin/testvm/walk-c4be995c0f02/engine/runtime/bin
+2026-10-08T13:40:40Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T13:40:40Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T13:40:40Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T13:40:40Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T13:40:41Z key tap created for F1
+2026-10-08T13:40:41Z an app connected: version 1.2.0-dev.1733118a8, /Users/admin/testvm/walk-c4be995c0f02/RichOS.app, data folder /Users/admin/testvm/walk-c4be995c0f02/home/Library/Application Support/com.richos.app
+2026-10-08T13:40:41Z menu bar item at 1438,0 34x24
+2026-10-08T13:40:41Z the menu page is ready
+2026-10-08T13:40:41Z the flight page is ready
+2026-10-08T13:40:41Z the bar page is ready
+2026-10-08T13:42:58Z menu bar item pressed
+2026-10-08T13:42:58Z menu opened from the menu bar item; the front app is pid Some(2279)
+2026-10-08T13:42:58Z menu shown at 1126,28 346x319
+2026-10-08T13:42:59Z accuracy set to small.en from the menu bar; the next dictation uses it
+2026-10-08T13:42:59Z menu shown at 1126,28 346x319
+2026-10-08T13:43:00Z menu closed; the front app is pid Some(1436)
