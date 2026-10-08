@@ -175,6 +175,10 @@ pub enum Problem {
     /// Iris's slice 0 line: the words could not be written down (whisper-cli failed or passed
     /// its bound).
     CouldNotWrite,
+    /// "Voice mode is still listening, so I didn't start. Tap F1 again in a moment." An app did
+    /// not answer will-listen within the bound: the microphone stays closed (the handover fails
+    /// closed, never open), and the press is dropped.
+    VoiceStillListening,
 }
 
 impl Problem {
@@ -188,6 +192,7 @@ impl Problem {
             Problem::NoAccessibility => "no-accessibility",
             Problem::ModelMissing => "model-missing",
             Problem::CouldNotWrite => "could-not-write",
+            Problem::VoiceStillListening => "voice-still-listening",
         }
     }
 }

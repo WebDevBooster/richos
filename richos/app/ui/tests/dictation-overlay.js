@@ -56,6 +56,7 @@ const LINES = {
   "no-accessibility": "I can't type into other apps yet, so I copied your words.",
   "model-missing": "I'm still downloading the voice AI. Try again in a few minutes.",
   "could-not-write": "Sorry, I couldn't write that down. Tap F1 and say it again.",
+  "voice-still-listening": "Voice mode is still listening, so I didn't start. Tap F1 again in a moment.",
 };
 
 async function open(browser, url, theme, reduced) {

@@ -59,6 +59,9 @@ window.RichDictationBar = (function () {
     "could-not-write": function (k) {
       return "Sorry, I couldn't write that down. Tap " + kcap(k) + " and say it again.";
     },
+    "voice-still-listening": function (k) {
+      return "Voice mode is still listening, so I didn't start. Tap " + kcap(k) + " again in a moment.";
+    },
   };
   /// Fix it is on the microphone and Accessibility bars only (`dictation_bar::has_fix`).
   var FIX = { "no-microphone": true, "no-accessibility": true };

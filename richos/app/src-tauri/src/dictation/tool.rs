@@ -68,6 +68,13 @@ impl Handover {
     pub fn complete(&self) -> bool {
         self.heard >= self.expected
     }
+
+    /// **May the microphone open now?** Only when every app has yielded it: at the bound, an
+    /// unanswered will-listen keeps the microphone closed (the handover fails closed; recheck
+    /// finding 1), because an app that has not answered may still be listening in voice mode.
+    pub fn microphone_may_open(&self) -> bool {
+        self.complete()
+    }
 }
 
 pub const ARG: &str = "--richos-dictation";
@@ -768,13 +775,20 @@ impl Tool {
                 Control::HandoverTimeout(seq) => {
                     if let Some(h) = self.handover.filter(|h| h.seq == seq) {
                         self.handover = None;
-                        log::line(&format!(
-                            "{} of {} app(s) answered will-listen within {} ms; the microphone opens now",
-                            h.heard,
-                            h.expected,
-                            HANDOVER_WAIT.as_millis()
-                        ));
-                        self.open_microphone();
+                        if h.microphone_may_open() {
+                            self.open_microphone();
+                        } else {
+                            // Fails closed (recheck finding 1): voice mode may still be
+                            // listening in the app that did not answer, so dictation does not.
+                            log::line(&format!(
+                                "{} of {} app(s) answered will-listen within {} ms; the microphone stays closed, voice-still-listening",
+                                h.heard,
+                                h.expected,
+                                HANDOVER_WAIT.as_millis()
+                            ));
+                            self.session.finish(Err(Problem::VoiceStillListening));
+                            self.publish();
+                        }
                     }
                 }
                 Control::App(AppMessage::Change { on, key, model }) => {
@@ -1312,6 +1326,16 @@ mod tests {
         h.heard = 2;
         assert!(h.complete());
         assert!(Handover { seq: 2, expected: 0, heard: 0 }.complete(), "no app connected: nothing to wait for");
+    }
+
+    /// INVARIANT (recheck finding 1): at the bound, an unanswered will-listen keeps the
+    /// microphone closed; it opens only once every app has yielded, or with no app connected.
+    #[test]
+    fn the_handover_fails_closed_at_the_bound() {
+        assert!(!Handover { seq: 1, expected: 2, heard: 1 }.microphone_may_open(), "one app silent: closed");
+        assert!(!Handover { seq: 1, expected: 1, heard: 0 }.microphone_may_open(), "the only app silent: closed");
+        assert!(Handover { seq: 1, expected: 2, heard: 2 }.microphone_may_open(), "every app yielded");
+        assert!(Handover { seq: 1, expected: 0, heard: 0 }.microphone_may_open(), "no app connected: nobody to wait for");
     }
 
     /// INVARIANT (finding 1): a writing worker told to stop ends with its child gone and is

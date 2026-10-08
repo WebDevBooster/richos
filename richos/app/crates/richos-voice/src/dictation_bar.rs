@@ -73,7 +73,9 @@ pub fn problem_shown_for(p: Problem) -> Duration {
         Problem::NoTextBox | Problem::NoAccessibility | Problem::ModelMissing | Problem::CouldNotWrite => {
             Duration::from_millis(5200)
         }
-        Problem::DidNotCatch | Problem::NoSound | Problem::NoMicrophone => Duration::from_millis(4200),
+        Problem::DidNotCatch | Problem::NoSound | Problem::NoMicrophone | Problem::VoiceStillListening => {
+            Duration::from_millis(4200)
+        }
     }
 }
 
@@ -387,7 +389,7 @@ mod tests {
         for p in [Problem::NoTextBox, Problem::NoAccessibility, Problem::ModelMissing, Problem::CouldNotWrite] {
             assert_eq!(hide_after(BarView::Problem(p)), Some(Duration::from_millis(5200)), "{p:?}");
         }
-        for p in [Problem::DidNotCatch, Problem::NoSound, Problem::NoMicrophone] {
+        for p in [Problem::DidNotCatch, Problem::NoSound, Problem::NoMicrophone, Problem::VoiceStillListening] {
             assert_eq!(hide_after(BarView::Problem(p)), Some(Duration::from_millis(4200)), "{p:?}");
         }
     }
@@ -398,7 +400,7 @@ mod tests {
     fn only_a_fix_it_bar_takes_the_mouse() {
         assert!(has_fix(Problem::NoMicrophone));
         assert!(has_fix(Problem::NoAccessibility));
-        for p in [Problem::DidNotCatch, Problem::NoSound, Problem::NoTextBox, Problem::ModelMissing, Problem::CouldNotWrite] {
+        for p in [Problem::DidNotCatch, Problem::NoSound, Problem::NoTextBox, Problem::ModelMissing, Problem::CouldNotWrite, Problem::VoiceStillListening] {
             assert!(!has_fix(p), "{p:?}");
             assert!(!takes_mouse(BarView::Problem(p)), "{p:?}");
         }
