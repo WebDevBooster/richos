@@ -172,10 +172,21 @@ class SheetWalk(dictation_walk.DictationWalk):
         raise StepFailed(f'OCR did not read "{text}" on the guest screen within {seconds} s (frames {name}-*.png)')
 
     def open_sheet(self):
-        self.ax('click', '--id', 'set-btn', '--first')
-        self.until(lambda: self.by_id('set-dictation-open') is not None, 30, 'the Dictation row did not appear')
-        self.ax('click', '--id', 'set-dictation-open', '--first')
-        self.until(lambda: self.by_id('dict-switch') is not None, 30, 'the Dictation sheet did not open')
+        """Settings, then its Dictation row. A first-run sheet a slow relaunch puts up late (the
+        memory question, after decline_first_run_sheets' 30 s: walk-513e77dc426d, "blocked ...
+        modal=Where should I keep what you tell me?") is declined and the opening starts over."""
+        for attempt in range(3):
+            try:
+                self.ax('click', '--id', 'set-btn', '--first')
+                self.until(lambda: self.by_id('set-dictation-open') is not None, 30, 'the Dictation row did not appear')
+                self.ax('click', '--id', 'set-dictation-open', '--first')
+                self.until(lambda: self.by_id('dict-switch') is not None, 30, 'the Dictation sheet did not open')
+                return
+            except StepFailed as exc:
+                if attempt == 2 or 'blocked' not in str(exc) or not self.present('Not now'):
+                    raise
+                self.press('Not now')
+                time.sleep(3)
 
     def bring_front(self, pid):
         guest(self.vm, 'osascript -e ' + shlex.quote(
