@@ -25,11 +25,11 @@ async function main() {
     const page = await browser.newPage({ viewport: opts.viewport || { width: 1440, height: 900 }, locale: "en-US" });
     page.setDefaultTimeout(30000); // load-bound: a hang guard only; every wait below waits for a fact
     page.on("pageerror", e => errors.push(String(e)));
-    await page.addInitScript(({ theme, view, ready, axAsked, tapNever, sheetPending }) => {
+    await page.addInitScript(({ theme, view, ready, axAsked, tapNever, sheetPending, owner }) => {
       localStorage.setItem("richos-theme", theme);
       localStorage.setItem("richos-mock-config", JSON.stringify({ theme, font_scale: 100 }));
-      window.__RICHOS_MOCK_PRESET__ = { dictation: ready, dictationView: view, dictationAxAsked: axAsked, dictationTapNever: tapNever, dictationSheetPending: sheetPending };
-    }, { theme, view: view || {}, ready: opts.ready !== false, axAsked: !!opts.axAsked, sheetPending: !!opts.sheetPending,
+      window.__RICHOS_MOCK_PRESET__ = { dictation: ready, dictationView: view, dictationAxAsked: axAsked, dictationTapNever: tapNever, dictationSheetPending: sheetPending, dictationOwner: owner };
+    }, { theme, view: view || {}, ready: opts.ready !== false, axAsked: !!opts.axAsked, sheetPending: !!opts.sheetPending, owner: opts.owner,
          // A fixture that says keyTap false with its own tool and Accessibility allowed is a tool
          // whose tap never comes (the sheet pokes it once; recheck finding 6), unless opts says.
          tapNever: opts.tapNever !== undefined ? !!opts.tapNever : !!(view && view.keyTap === false && view.owner === "self" && view.ax === "allowed") });
@@ -167,6 +167,52 @@ async function main() {
     assertEqual(await text(page, "#dictation-composer-note"), "Dictation is on: tap F1 and talk, here or in any app");
     await page.close();
     return "microphone, then Accessibility, then On with the cursor in Try it here";
+  });
+
+  // ---- 4b. the line, when the tool reports in after the flow (D18) ---------------------------
+  // The tool makes its key tap on its own time, after the window has told it the permission
+  // changed (0.09 s after the switch in System Settings, walk-2882d6930ecc) or after it was
+  // started by the switch (run T3: "Starting" first, On 8 s later). Check 4 above gives the tap
+  // in the same breath as the grant, which is not how the app sees it; here the tap comes last.
+  await run.check("D18: round 19's 'Dictation is on' line shows once the tool holds the key, when the tap comes after Accessibility was allowed and when it comes after the switch with both grants already there", async () => {
+    const LINE = "Dictation is on. Try it in the box on the right, or in any app.";
+    const ON = "On. Tap F1 in any app, talk, and tap it again.";
+    // A2's shape: the microphone, then Accessibility allowed in System Settings, then the tap.
+    let page = await open("dark", {}, { tapNever: true });
+    await sheet(page);
+    await page.click("#dict-switch");
+    await waitText(page, '[data-perm="microphone"] .dict-perm-state', "macOS is asking you");
+    await set(page, { mic: "allowed" });
+    // The prompt first, then the grant (as System Settings gives it): the flow reads the
+    // microphone once a second, so a grant given before it has asked skips the prompt.
+    await page.waitForFunction(() => window.__RICHOS_MOCK__.dictationCalls().some(c => c.cmd === "dictation_ask_accessibility"));
+    await set(page, { ax: "allowed" });
+    await page.waitForFunction(() => window.__RICHOS_MOCK__.dictationCalls().some(c => c.cmd === "dictation_permissions_changed" && c.forward === true));
+    assertEqual(await page.locator("#dict-feedback").count(), 0, "no line before the tool holds the key");
+    await set(page, { keyTap: true }); // the tool's tap, reported over rich://dictation
+    await waitText(page, "#dict-state", ON);
+    assertEqual(await page.locator("#dict-feedback").count(), 1, "the line, in the same paint as On");
+    assertEqual(await text(page, "#dict-feedback"), LINE);
+    await page.close();
+    // T3's shape: both grants already there, the switch pressed; the tool starts (owner none,
+    // "Starting dictation…"), then connects with its tap.
+    page = await open("dark", { mic: "allowed", ax: "allowed" }, { owner: "none" });
+    await sheet(page);
+    await page.click("#dict-switch");
+    await waitText(page, "#dict-state", "Starting dictation…");
+    assertEqual(await page.locator("#dict-feedback").count(), 0, "no line while the tool starts");
+    await set(page, { owner: "self", keyTap: true });
+    await waitText(page, "#dict-state", ON);
+    assertEqual(await page.locator("#dict-feedback").count(), 1, "the line once the tool holds the key");
+    assertEqual(await text(page, "#dict-feedback"), LINE);
+    // Closing the sheet clears it (round 19 `closeSheet`): opened again, the card says On alone.
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.getElementById("dictation-sheet").hidden);
+    await sheet(page);
+    await waitText(page, "#dict-state", ON);
+    assertEqual(await page.locator("#dict-feedback").count(), 0, "the line is the turn-on's, not the sheet's");
+    await page.close();
+    return "the line after the grant's tap, after the switch's tap, and gone once the sheet was closed";
   });
 
   await run.check("turning it off: the tool is told, the sheet says Off, the composer's line goes", async () => {
