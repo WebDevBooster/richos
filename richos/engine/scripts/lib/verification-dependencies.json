@@ -1111,7 +1111,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "b3a0543a020cc884aa34cfa149e08f3e6a340f55328622ca45eb3789919c1d71",
+      "sha256": "fc5a6caf25114305ae6d7d750bce767e7229e717e661fbbf4f54e4b07686e595",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
@@ -8701,7 +8701,11 @@
       "keys": [],
       "edges": [
         {
-          "to": "mega-lander/workspaces.py#unit-fixtures"
+          "to": "mega-lander/workspaces.py#unit-fixtures",
+          "overrides": [
+            "SCRATCH_BUILD_CACHE_ROOT",
+            "SCRATCH_CARGO_TARGET_ROOTS"
+          ]
         },
         {
           "to": "scripts/land-lease.sh"
@@ -15916,12 +15920,11 @@
     },
     "scripts/lib/build_caches.py": {
       "source": "scripts/lib/build_caches.py",
-      "sha256": "8fde4283bbdfce4adb7edb04909288176cd20fe3cf43c103f4d468d03949ba4c",
-      "evidence": "Standard-library module. declared() reads its two literal key callers (SCRATCH_BUILD_CACHE_ROOT, SCRATCH_CARGO_TARGET_ROOTS) from the environment, else from SCRATCH_REAPER_CONFIG or the engine's orchestration.config by sourcing it in bash. It runs git ls-files and git worktree list on checkouts it is given, lists the declared cache directories, and takes flock on Cargo's .cargo-lock files. git, bash and rm are external executables, not engine readers.",
+      "sha256": "4a14ffa9f56151c865db0ac7bdaf62510a8389e25a898dee3312c5c772727b06",
+      "evidence": "Standard-library module. declared() reads its two literal key callers (SCRATCH_BUILD_CACHE_ROOT, SCRATCH_CARGO_TARGET_ROOTS) from the environment, else from SCRATCH_REAPER_CONFIG or the engine's orchestration.config by sourcing it in bash with one fixed script per key (_CONFIG_READS, no indirect expansion); any other name returns empty. It runs git ls-files and git worktree list on checkouts it is given, lists the declared cache directories, and takes flock on Cargo's .cargo-lock files. git, bash and rm are external executables, not engine readers. SCRATCH_REAPER_CONFIG is an environment path, not a config key (the scratch-reaper row does not list it either).",
       "keys": [
         "SCRATCH_BUILD_CACHE_ROOT",
-        "SCRATCH_CARGO_TARGET_ROOTS",
-        "SCRATCH_REAPER_CONFIG"
+        "SCRATCH_CARGO_TARGET_ROOTS"
       ],
       "edges": []
     }

@@ -433,6 +433,16 @@ def delete_units(profile, keys, idle_seconds, now=None):
 
 # --- the lander's half -----------------------------------------------------------------------
 
+# One fixed read per key, written out, so the verification-inputs check can see exactly which
+# config keys this module reads (an indirect "${!name}" read hides them from it).
+_CONFIG_READS = {
+    "SCRATCH_BUILD_CACHE_ROOT":
+        '. "$1" >/dev/null 2>&1; printf "%s" "${SCRATCH_BUILD_CACHE_ROOT-}"',
+    "SCRATCH_CARGO_TARGET_ROOTS":
+        '. "$1" >/dev/null 2>&1; printf "%s" "${SCRATCH_CARGO_TARGET_ROOTS-}"',
+}
+
+
 def declared(name):
     """A key from the environment, else from the engine's orchestration.config. The lander
     runs without the config sourced; the scheduled sweep runs with it exported."""
@@ -444,11 +454,11 @@ def declared(name):
     config = (os.environ.get("SCRATCH_REAPER_CONFIG") or "").strip() or os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         "orchestration.config")
-    if not os.path.isfile(config):
+    script = _CONFIG_READS.get(name)
+    if script is None or not os.path.isfile(config):
         return ""
     try:
-        r = subprocess.run(["bash", "-c", '. "$1" >/dev/null 2>&1; printf "%s" "${!2-}"',
-                            "build_caches", config, name],
+        r = subprocess.run(["bash", "-c", script, "build_caches", config],
                            capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return ""
