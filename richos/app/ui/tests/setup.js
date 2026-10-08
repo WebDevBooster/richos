@@ -1427,6 +1427,55 @@ async function main() {
     return "the offer is back with Set it up on it after a spoken refusal, and a voice error on a healthy machine opens nothing";
   });
 
+  await run.check("22  \"Setup is done.\" waits for the video tools still downloading", async () => {
+    // THE CEO, 2026-10-07: the video tools download "right away and independently of the other
+    // stuff". `run_setup` answers `complete` with them missing while that download runs
+    // (`setup_view::sheet_needs`), and a press that found them alone on the sheet gets its answer
+    // BEFORE the download's first line reaches the window. On main the heading then read
+    // "Setup is done." above a line still counting a percentage.
+    const page = await openApp(browser, { setup: "missing-engine" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    // `setup_view::run` with only the video tools wanted: it starts their download and returns at
+    // once, emitting nothing, with `complete` true and `media_tools.present` false (the mock's
+    // status has no `media_tools`; the shell's always does).
+    await page.evaluate(() => {
+      const inv = window.RichBridge.invoke.bind(window.RichBridge);
+      window.RichBridge.invoke = async (cmd, args) => {
+        if (cmd !== "run_setup") return inv(cmd, args);
+        const out = await inv("setup_status");
+        out.status.media_tools = { component: "media-tools", present: false, at: null, detail: null, looked_in: [] };
+        out.status.installed_now = true;
+        out.ask.items = [];
+        out.ask.can_install = false;
+        out.complete = true;
+        return out;
+      };
+    });
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-close:not([hidden])");
+    const title = async () => (await page.textContent("#setup-title")).trim();
+    const closeTop = () => page.evaluate(() => Math.round(document.getElementById("setup-close").getBoundingClientRect().top));
+    const atAnswer = await title();
+    assert(atAnswer !== "Setup is done.", "the sheet says it is done while the video tools are still downloading");
+    const top0 = await closeTop();
+    const line = "Getting my video tools. 43%";
+    await page.evaluate((what) => window.__RICHOS_MOCK__.setupEmit({ state: "started", component: "media-tools", what, index: 1, total: 1 }), line);
+    const during = await title();
+    assertEqual(during, line, "the sheet must show the download's progress line, not \"Setup is done.\"");
+    assert(!(await sheetText(page)).includes("Setup is done."), "\"Setup is done.\" is on the sheet mid-download");
+    const top1 = await closeTop();
+    await page.evaluate(() => window.__RICHOS_MOCK__.setupEmit({ state: "done", component: "media-tools", what: "My video tools are installed.", index: 1, total: 1 }));
+    const after = await title();
+    assertEqual(after, "Setup is done.", "once the video tools are installed the sheet says so");
+    const top2 = await closeTop();
+    assertEqual([top1, top2].join(","), [top0, top0].join(","), "`Close` moved while the heading followed the download");
+    assert(page.__errors.length === 0, "the shell logged errors: " + page.__errors.join(" | "));
+    bump(5);
+    await page.close();
+    return "at the answer " + JSON.stringify(atAnswer) + ", mid-download " + JSON.stringify(during) +
+      ", installed " + JSON.stringify(after) + "; Close held y=" + top0;
+  });
+
   await run.check("11  this suite actually checked something", async () => {
     assert(
       assertions >= 40,
