@@ -1,0 +1,44 @@
+{
+  "vm": "walk-e4955735c377",
+  "expect_sha": "008c710ea",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "008c710eaea234b8725a0e7505709e4c63d6123a"
+      },
+      "outcome": "PASS",
+      "seconds": 0.2
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [],
+          "system": []
+        },
+        "no_grants": true,
+        "dictation_json": "absent",
+        "wav": "/Users/admin/testvm/walk-e4955735c377/home/dictation-sample.wav",
+        "model": "/Users/admin/testvm/walk-e4955735c377/home/.config/richos/models/ggml-small.en.bin"
+      },
+      "outcome": "PASS",
+      "seconds": 7.1
+    },
+    {
+      "step": "relaunch",
+      "evidence": {
+        "app_pid": 1336,
+        "first_run_sheets_declined": 0
+      },
+      "outcome": "PASS",
+      "seconds": 85.8
+    },
+    {
+      "step": "switch-on",
+      "outcome": "FAIL",
+      "detail": "command failed (124): ~/ab/richos-wt/ray-opus-walk46/richos/app/scripts/testvm/ax.sh walk-e4955735c377 click --id set-btn --first --json\n{\"error\": \"guest_deadline\", \"phase\": \"guest\", \"status\": \"effect_unknown\", \"detail\": \"AX deadline reached; owned command group terminated; inspect before retrying\"}\n{\"ax_timing\": true, \"total_seconds\": 19.0065, \"preflight_seconds\": 0.8466, \"transport_seconds\": 18.16}\n",
+      "seconds": 56.5
+    }
+  ]
+}
