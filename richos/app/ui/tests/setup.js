@@ -1746,6 +1746,13 @@ async function main() {
     const said = await page.evaluate(() => [...document.querySelectorAll("#dictation-offer .tl-prose")].map((p) => p.innerText.replace(/\s+/g, " ").trim()));
     assertEqual(said[0], "Voice is ready. Press the round button beside the message box and just talk to me.", "the drawn first paragraph");
     assertEqual(said[1], "I can also type for you in any other app on your Mac, like Mail, Slack or your browser. Tap F1, say what you want written, then tap it again. Your words appear where your cursor is.", "the drawn second paragraph, the key filled in");
+    // NO BLANK LINE UNDER "Rich" (seen on the guest, 2026-10-08): the first sentence sits where
+    // the greeting's does, right under the name.
+    assertEqual(
+      await page.evaluate(() => getComputedStyle(document.querySelector("#dictation-offer .tl-prose")).marginTop),
+      "0px",
+      "the offer's first sentence starts a line below Rich's name"
+    );
     assertEqual((await page.textContent("#dictation-offer-yes")).trim(), "Turn on dictation", "the first button");
     assertEqual((await page.textContent("#dictation-offer-no")).trim(), "Not now", "the second button");
     assertEqual((await page.evaluate(() => window.__RICHOS_MOCK__.dictationOfferCalls())).join(","), "dictation_offer,dictation_offer_shown", "asked once and recorded as shown");
@@ -1837,6 +1844,28 @@ async function main() {
     bump(6);
     await page.close();
     return "the failed row is still and silent, the sentence is verbatim, Try again is up, no Start";
+  });
+
+  await run.check("28  round 19, state 2 draws no button while the press runs", async () => {
+    // SEEN ON THE GUEST, 2026-10-08: a disabled "Set it up" sat under the counting rows, where
+    // round 19 draws no button at all. The press is held open here so the running state is the
+    // one measured, not the finished one.
+    const page = await openApp(browser, R19);
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.evaluate(() => {
+      const inv = window.RichBridge.invoke.bind(window.RichBridge);
+      window.RichBridge.invoke = (cmd, args) => (cmd === "run_setup" ? new Promise(() => {}) : inv(cmd, args));
+    });
+    await page.click("#setup-go");
+    await page.waitForSelector("#setup-steps:not([hidden])");
+    const visible = await page.evaluate(() =>
+      ["setup-go", "setup-later", "setup-close", "setup-start"].filter((id) => !document.getElementById(id).hidden)
+    );
+    assertEqual(visible.join(","), "", "a button is drawn while the press runs");
+    assertEqual((await page.textContent("#setup-title")).trim(), "Setting things up", "state 2's heading");
+    bump(2);
+    await page.close();
+    return "no button while the press runs; Try again (case 27) or Start (case 25) when it ends";
   });
 
   await run.check("11  this suite actually checked something", async () => {

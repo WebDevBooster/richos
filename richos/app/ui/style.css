@@ -3216,6 +3216,12 @@ body.bp-narrow .first-run {
    timeline's own Rich styles (`.tl-rich`, `.tl-prose`, already measured), the key as a key cap
    in `--ink`, and the two answers as the desk's own buttons. The cap's border is decoration;
    its letters say which key. */
+/* Paragraphs, so the browser's own paragraph margin is taken off: on the guest (2026-10-08) it
+   put a blank line between "Rich" and the first sentence, which the greeting above does not have. */
+.dictation-offer p.tl-prose {
+  margin: 0;
+}
+
 .dictation-offer .tl-prose + .tl-prose {
   margin-top: 10px;
 }

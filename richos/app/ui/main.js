@@ -5912,8 +5912,11 @@ async function runSetup() {
   setupErrorEl.textContent = "";
   const r19 = setupDictation();
   if (r19) {
-    // ROUND 19, STATE 2: the rows say what is happening, so there is no progress line.
+    // ROUND 19, STATE 2: the rows say what is happening, so there is no progress line, and no
+    // button until there is a next step (round 19 draws none; seen on the guest, 2026-10-08, as a
+    // disabled "Set it up" under the counting rows). A failure brings back Try again.
     beginSetupRows(setupState.ask);
+    setupGoEl.hidden = true;
   } else {
     setupProgressEl.hidden = false;
     setupProgressEl.textContent = "Starting.";
@@ -5935,6 +5938,7 @@ async function runSetup() {
     }
     setupErrorEl.textContent = String(e);
     setupErrorEl.hidden = false;
+    setupGoEl.hidden = false;
     setupGoEl.disabled = false;
     setupGoEl.textContent = "Try again";
     setupLaterEl.hidden = false;
