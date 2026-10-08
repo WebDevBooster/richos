@@ -137,6 +137,9 @@ pub struct Focus {
     /// can report one when it reports no focused element.
     pub window_focused: bool,
     pub finder_in_front: bool,
+    /// The focused element's `AXRole`, where it answers one: in Finder, what tells a rename
+    /// field from the desktop's icon view (walk-36699815244d).
+    pub focused_role: Option<String>,
     /// The characters on either side of the cursor, where Accessibility can read them.
     pub around: Option<(Option<char>, Option<char>)>,
     /// Where the selection began (UTF-16 units), where Accessibility can read it: the words'
@@ -190,10 +193,14 @@ pub fn focus() -> Focus {
         None => Err(0),
     };
     out.window_focused = window.is_ok();
+    if let Ok(element) = &element {
+        out.focused_role = string_attribute(element.0, "AXRole");
+    }
     out.seen = format!(
-        "into {} (from {app_from}), focused element {} (asked {element_from}), window {}",
+        "into {} (from {app_from}), focused element {} ({}asked {element_from}), window {}",
         out.front_bundle.as_deref().unwrap_or("an unknown app"),
         answer(&element),
+        out.focused_role.as_deref().map(|r| format!("{r}, ")).unwrap_or_default(),
         answer(&window),
     );
     if let Ok(element) = element {
@@ -299,6 +306,13 @@ fn frontmost_pid() -> Option<i32> {
             (pid > 0).then_some(pid)
         }
     })
+}
+
+/// A string attribute of an element, where it answers one.
+fn string_attribute(element: AXUIElementRef, name: &'static str) -> Option<String> {
+    let value = attribute(element, name)?;
+    // SAFETY: `value` is a +1 reference; the wrapper takes its own.
+    Some(unsafe { CFType::wrap_under_get_rule(value.0 as _) }.downcast::<CFString>()?.to_string())
 }
 
 /// The characters either side of the cursor, and where the selection begins.
@@ -540,7 +554,7 @@ pub fn insert(words: &str, v_code: u16) -> Result<Inserted, String> {
         previous.join().ok();
     }
     let f = focus();
-    let how = insert_plan(f.focused_element, f.window_focused, f.finder_in_front);
+    let how = insert_plan(f.focused_element, f.window_focused, f.finder_in_front, f.focused_role.as_deref());
     let pb = general().ok_or("no general pasteboard")?;
     let text = match (how, f.around) {
         (Insert::Paste, Some((before, after))) => spaced(words, before, after),
