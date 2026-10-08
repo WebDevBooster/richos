@@ -190,10 +190,11 @@ pub fn main(context: tauri::Context<tauri::Wry>, args: &[String]) -> i32 {
             .ok();
     }
     log::line(&format!(
-        "dictation tool started: key F{}, accuracy {}, {}",
+        "dictation tool started: key F{}, accuracy {}, {}, the key held at {}",
         settings.key(),
         settings.model,
-        if args.parent.is_some() { "as the app's child" } else { "on its own" }
+        if args.parent.is_some() { "as the app's child" } else { "on its own" },
+        owner.socket().display()
     ));
 
     let builder = tauri::Builder::default().setup(move |app| {

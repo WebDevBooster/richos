@@ -26,7 +26,7 @@ use objc2::msg_send;
 use richos_voice::dictation::{judge_key, KeyEvent, KeyVerdict};
 use std::ffi::c_void;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicPtr, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
@@ -72,11 +72,12 @@ extern "C" {
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     static kCFRunLoopCommonModes: CFStringRef;
+    static kCFRunLoopDefaultMode: CFStringRef;
     fn CFMachPortCreateRunLoopSource(allocator: *const c_void, port: CFMachPortRef, order: isize) -> CFRunLoopSourceRef;
     fn CFMachPortInvalidate(port: CFMachPortRef);
     fn CFRunLoopGetCurrent() -> CFRunLoopRef;
     fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
-    fn CFRunLoopRun();
+    fn CFRunLoopRunInMode(mode: CFStringRef, seconds: f64, return_after_source: bool) -> i32;
     fn CFRunLoopStop(rl: CFRunLoopRef);
     fn CFRelease(cf: *const c_void);
 }
@@ -97,6 +98,10 @@ pub enum TapEvent {
 }
 
 struct Context {
+    /// Cleared by `KeyTap::drop`. The tap thread runs its loop in slices while this is set, so a
+    /// stop that lands before the loop has started is still seen: `CFRunLoopStop` on a run loop
+    /// that is not running yet is forgotten when it starts (CF keeps the flag per run).
+    running: AtomicBool,
     port: AtomicPtr<c_void>,
     key: AtomicU8,
     tx: Sender<TapEvent>,
@@ -172,7 +177,13 @@ impl KeyTap {
     /// Create the tap for F`key` and start its thread. `Err` when macOS refuses the tap, which
     /// is what it does without Accessibility.
     pub fn start(key: u8, tx: Sender<TapEvent>) -> Result<KeyTap, String> {
-        let ctx = Arc::new(Context { port: AtomicPtr::new(std::ptr::null_mut()), key: AtomicU8::new(key), tx, longest_ns: AtomicU64::new(0) });
+        let ctx = Arc::new(Context {
+            running: AtomicBool::new(true),
+            port: AtomicPtr::new(std::ptr::null_mut()),
+            key: AtomicU8::new(key),
+            tx,
+            longest_ns: AtomicU64::new(0),
+        });
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<usize, String>>();
         let thread_ctx = ctx.clone();
         let thread = std::thread::Builder::new()
@@ -193,7 +204,9 @@ impl KeyTap {
                     CFRunLoopAddSource(rl, source, kCFRunLoopCommonModes);
                     CGEventTapEnable(port, true);
                     ready_tx.send(Ok(rl as usize)).ok();
-                    CFRunLoopRun();
+                    while thread_ctx.running.load(Ordering::Acquire) {
+                        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.25, false);
+                    }
                     CGEventTapEnable(port, false);
                     thread_ctx.port.store(std::ptr::null_mut(), Ordering::Release);
                     CFMachPortInvalidate(port);
@@ -225,7 +238,8 @@ impl KeyTap {
 
 impl Drop for KeyTap {
     fn drop(&mut self) {
-        // SAFETY: the run loop of our own thread, which is running until this stops it.
+        self.ctx.running.store(false, Ordering::Release);
+        // SAFETY: the run loop of our own thread; stopping it only ends the current slice early.
         unsafe { CFRunLoopStop(self.run_loop as CFRunLoopRef) };
         if let Some(t) = self.thread.take() {
             t.join().ok();
@@ -294,6 +308,15 @@ mod tests {
         for t in [1u32, 2, 5, 12, 22] {
             assert_eq!(EVENT_MASK & (1 << t), 0, "type {t}");
         }
+    }
+
+    /// INVARIANT: the activity is really begun and ended, with the message types Foundation
+    /// declares (a debug build checks every encoding), in a process with no window.
+    #[test]
+    fn the_activity_against_app_nap_begins_and_ends() {
+        let activity = Activity::begin();
+        assert!(activity.0.is_some(), "NSProcessInfo gave no activity token");
+        drop(activity);
     }
 
     /// INVARIANT: the activity options keep idle system sleep allowed and add latency-critical.
