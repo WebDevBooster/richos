@@ -72,9 +72,11 @@ STEPS = ['identity', 'stage', 'relaunch', 'switch-on', 'mic-prompt', 'ax-prompt'
 
 # macOS's own words in its two prompts, and Iris's sentence (Info.plist), as OCR fragments that sit on
 # one line of a prompt: a wrapped sentence is never one OCR line (setup-walk.py, walk-d33d482c9645).
-MIC_PROMPT = 'access the microphone'
-IRIS_FRAGMENTS = ('talk instead of typing', 'press the talk button')
-AX_PROMPT = 'accessibility features'
+# Measured on walk-63fc2c726051 (mic-prompt-6.png): the prompt wraps after "would like to access"
+# and after "press the talk", and OCR reads "F1" in its small type as "Ft", so no fragment holds the key.
+MIC_PROMPT = 'would like to access'
+IRIS_FRAGMENTS = ('talk instead of typing', 'only after you tap', 'press the talk')
+AX_PROMPT = 'would like to control'
 # The sheet's drawn words (round 19 and its more lines), read from the accessibility tree. A line
 # with the key's cap in it is read by the text run after the cap.
 ON_RUN = 'in any app, talk, and tap it again.'
