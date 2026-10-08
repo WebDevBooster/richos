@@ -70,6 +70,11 @@ class TheVerdicts(unittest.TestCase):
         far = dict(name, y=500)
         self.assertEqual(walk.switch_on_the_row([far], boxes), [], 'no switch within half a row')
         self.assertEqual(walk.switch_on_the_row([], boxes), [])
+        # walk-ba7a4420692c: nothing in the pane names a row, and exactly one switch is off.
+        self.assertEqual(walk.the_only_switch_off(boxes), [], 'values 0,1,0,1,0 have three off: no')
+        seen = [dict(b, value=v) for b, v in zip(boxes, ('1', '0', '1', '1', '1'))]
+        self.assertEqual(walk.the_only_switch_off(seen), [seen[1]])
+        self.assertEqual(walk.the_only_switch_off([seen[1]]), [], 'one box alone is no list')
 
     def test_within_two_seconds_allows_one_round_trip(self):
         self.assertTrue(walk.grant_seconds_ok(0.4))

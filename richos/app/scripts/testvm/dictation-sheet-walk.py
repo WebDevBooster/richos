@@ -140,6 +140,12 @@ def names_richos(node):
     return 'richos' in (str(node.get('value') or '') + ' ' + str(node.get('title') or '')).lower()
 
 
+def the_only_switch_off(boxes):
+    """The one checkbox whose value is off when every other is on; nothing otherwise."""
+    off = [b for b in boxes if str(b.get('value') or '0') in ('0', 'false', 'False', '')]
+    return off if len(off) == 1 and len(boxes) > 1 else []
+
+
 def switch_on_the_row(names, boxes):
     """The checkbox on the same row as one of `names` (static texts): nearest vertical centers,
     within HALF_ROW. The switches in the Accessibility list carry no title (walk-943b91d5720b)."""
@@ -535,14 +541,24 @@ class SheetWalk(dictation_walk.DictationWalk):
         rows = self.settings_find('AXCheckBox', 'RichOS')
         if rows:
             return rows
-        # A static text's string is its AXValue, not its title (walk-350622c946bf: a title search
-        # for RichOS found no text at all): any text whose value or title says RichOS.
-        texts = self.settings_find('AXStaticText')
-        names = [n for n in texts if names_richos(n)]
+        # The pane answers no AXStaticText at all (walk-ba7a4420692c: texts [], five untitled
+        # boxes): any node of any role whose title says RichOS names the row; and when nothing
+        # names it, the pane after a denied prompt has exactly one switch off (RichOS's) among
+        # the harness's own, all on, which is the row too, said so in the evidence.
         boxes = self.settings_find('AXCheckBox')
-        self.pane_seen = {'texts': [(str(n.get('value') or n.get('title') or ''), n.get('y')) for n in texts][:40],
-                          'boxes': [(n.get('x'), n.get('y'), n.get('w'), n.get('h'), n.get('value')) for n in boxes]}
-        return switch_on_the_row(names, boxes)
+        try:
+            names = [n for n in self.ax('find', '--title', 'RichOS', '--contains', app=SYSTEM_SETTINGS, timeout=60) if not n.get('meta')]
+        except StepFailed:
+            names = []
+        self.pane_seen = {'names': [(n.get('role'), str(n.get('title') or ''), n.get('y')) for n in names][:20],
+                          'boxes': [(n.get('x'), n.get('y'), n.get('w'), n.get('h'), n.get('value'), str(n.get('title') or ''),
+                                     str(n.get('desc') or '')) for n in boxes]}
+        rows = switch_on_the_row(names, boxes)
+        self.switch_matched_by = 'the row named RichOS'
+        if not rows:
+            rows = the_only_switch_off(boxes)
+            self.switch_matched_by = 'the only switch off in the list'
+        return rows
 
     def turn_richos_on_in_accessibility(self):
         """System Settings on the Accessibility pane; RichOS's switch found by its row and pressed;
@@ -565,6 +581,7 @@ class SheetWalk(dictation_walk.DictationWalk):
             seen['pane'] = getattr(self, 'pane_seen', None)
             raise StepFailed(f'no RichOS switch in the Accessibility pane (texts and boxes seen: {seen["pane"]})')
         seen['row'] = rows[0]
+        seen['matched_by'] = getattr(self, 'switch_matched_by', None)
         seen['switch_before'] = rows[0].get('value')
         x, y = center_of(rows[0])
         self.ax('click', '--at', f'{x:.0f},{y:.0f}', app=SYSTEM_SETTINGS)
