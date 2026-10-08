@@ -564,14 +564,24 @@ class SheetWalk(dictation_walk.DictationWalk):
             self.decline_first_run_sheets(seconds=20)
             self.bring_front(pid2)
             self.open_settings_panel()
-            row = self.by_id('set-dictation-state') or {}
-            row_text = row.get('value') or row.get('title') or ''
-            if OTHER_ROW not in row_text and not self.shows_text(OTHER_ROW):
-                raise StepFailed(f'the second copy\'s row does not say "{OTHER_ROW}": {row!r}')
+            # The row's state line is a span inside the row's button, so the accessibility tree
+            # carries it in the button's own title (walk-8631ebd515c6: no node for set-dictation-state); the
+            # frame is read too, by OCR, and kept whatever it says.
             self.shot('second-copy-row.png')
+            row = self.by_id('set-dictation-open') or {}
+            row_text = ' '.join(str(row.get(k) or '') for k in ('title', 'desc', 'value'))
+            row_ocr = self.frame_says('second-copy-row.png', OTHER_ROW)
+            if OTHER_ROW not in row_text and not self.shows_text(OTHER_ROW) and not row_ocr:
+                raise StepFailed(f'the second copy\'s row does not say "{OTHER_ROW}": {row_text!r} (second-copy-row.png)')
             self.ax('click', '--id', 'set-dictation-open', '--first')
-            self.until(lambda: self.shows_text(OTHER_ROW + '.'), 30, 'the second copy\'s sheet does not say it')
+            self.until(lambda: self.by_id('dict-switch') is not None, 30, 'the second copy\'s sheet did not open')
+            time.sleep(1)
             self.shot('second-copy-sheet.png')
+            sheet_ax = self.shows_text(OTHER_ROW + '.')
+            sheet_ocr = self.frame_says('second-copy-sheet.png', OTHER_ROW)
+            if not sheet_ax and not sheet_ocr:
+                raise StepFailed(f'the second copy\'s sheet does not say "{OTHER_ROW}." (second-copy-sheet.png)')
+            seen = {'row_text': row_text.strip(), 'row_ocr': row_ocr, 'sheet_ax': sheet_ax, 'sheet_ocr': sheet_ocr}
         finally:
             state.write_text(f'{first_pid}\n')
             guest(self.vm, f'kill -TERM {int(pid2)} 2>/dev/null || true')
@@ -582,7 +592,7 @@ class SheetWalk(dictation_walk.DictationWalk):
         if not gone:
             raise StepFailed(f'the second copy (pid {pid2}) did not quit')
         return {'second_pid': pid2, 'second_tool_exit': 3, 'row': OTHER_ROW, 'sheet': OTHER_ROW + '.', 'second_quit': True,
-                'first_pid': first_pid}
+                'first_pid': first_pid, **seen}
 
 
 def main():
