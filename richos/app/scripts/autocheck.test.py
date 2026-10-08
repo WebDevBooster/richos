@@ -1332,7 +1332,12 @@ class Land(Fixture):
         self.make()
         self.branch_with("feature", "richos/app/src/thing.txt", "BROKEN\n")
         self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
-        plan = next((self.base / "proof-runs").glob("*/attempt-*/plan.json"))
+        # The plan the next attempt resumes: the one last-attempt.json names. A refused merge now
+        # leaves two attempts (the round and the failed check's retry alone), so "the first
+        # plan.json a glob finds" is either of them, by directory order.
+        prior = next((self.base / "proof-runs").glob("*/last-attempt.json"))
+        plan = Path(json.loads(prior.read_text())["directory"]) / "plan.json"
+        self.assertTrue(plan.is_file())
         plan.unlink()
         before = self.tools()
         out = self.git("commit", "-m", "land feature", expect=1)
