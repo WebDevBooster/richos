@@ -18,6 +18,7 @@
  */
 
 import { exportBufferedArchive } from './buffered-export.mjs';
+import { trackChrome, stopChrome, stopAllChrome } from './chrome-process.mjs';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { createServer } from 'node:https';
 import fs from 'node:fs';
@@ -330,7 +331,7 @@ async function main() {
   ];
   if (!HEADED) args.push('--headless=new');
 
-  const chrome = spawn(chromePath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const chrome = trackChrome(spawn(chromePath, args, { stdio: ['ignore', 'pipe', 'pipe'] }));
   const chromeLog = [];
   chrome.stderr.on('data', (d) => chromeLog.push(String(d)));
   chrome.stdout.on('data', (d) => chromeLog.push(String(d)));
@@ -886,14 +887,17 @@ async function main() {
   if (KEEP) console.log(`kept workdir: ${workDir}`);
 
   cdp.close();
-  chrome.kill('SIGTERM');
   server.close();
-  await sleep(500);
+  // Wait for Chrome and everything it started to exit: its shutdown writes into the profile.
+  await stopChrome(chrome);
+  await stopAllChrome();
   if (!KEEP) fs.rmSync(workDir, { recursive: true, force: true });
   process.exit(failures ? 1 : 0);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(`\nharness error: ${err.stack}`);
+  // Never leave a browser behind on the error path.
+  await stopAllChrome().catch((stopError) => console.error(String(stopError.message || stopError)));
   process.exit(2);
 });

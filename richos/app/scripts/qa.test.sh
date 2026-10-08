@@ -89,7 +89,7 @@
 #
 # run-tests: no-host-screen: its only capture/keystroke references are the strings it asserts those two tools REFUSE to act on, and its frames are committed PNG fixtures
 # run-tests: inputs richos/app/scripts/qa.test.sh richos/app/scripts/qa richos/mobile/conformance/vectors/fingerprint.json richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
-# run-tests: covers richos/app/scripts/qa/usage-shape.sh richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/step-mark.py richos/app/scripts/qa/hidden-send-try.py richos/app/scripts/qa/tunnel-requests.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/ocr-cache.test.py richos/app/scripts/qa/child-lifetime.test.py richos/app/scripts/qa/trust-reading.test.py richos/app/scripts/qa/device-launch.test.py richos/app/scripts/qa/lab-pause.test.py richos/app/scripts/qa/tunnel-requests.test.py richos/app/scripts/qa/phone-ios-run.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
+# run-tests: covers richos/app/scripts/qa/usage-shape.sh richos/app/scripts/qa/pair-words.py richos/app/scripts/qa/contrast.py richos/app/scripts/qa/frame.py richos/app/scripts/qa/lib/qaimg.py richos/app/scripts/qa/lib/qaocr.py richos/app/scripts/qa/ocr-find.py richos/app/scripts/qa/ocr-find.sh richos/app/scripts/qa/ocr-gate.sh richos/app/scripts/qa/ocr-read.py richos/app/scripts/qa/ocr-watch.sh richos/app/scripts/qa/redact.py richos/app/scripts/qa/timeline.py richos/app/scripts/qa/timeline-bounds.test.py richos/app/scripts/qa/wait-for.sh richos/app/scripts/qa/phone-client.mjs richos/app/scripts/qa/flake-rate.sh richos/app/scripts/qa/phone-android.py richos/app/scripts/qa/lab-ledger.py richos/app/scripts/qa/lab-pause.py richos/app/scripts/qa/step-mark.py richos/app/scripts/qa/hidden-send-try.py richos/app/scripts/qa/tunnel-requests.py richos/app/scripts/qa/fixtures/make-fixtures.py richos/app/scripts/qa/phone-ios.py richos/app/scripts/qa/stall-run.py richos/app/scripts/qa/under-load.py richos/app/scripts/qa/busy-sample.py richos/app/scripts/qa/lib/busy-sample/sitecustomize.py richos/app/scripts/qa/slow-shutdown.py richos/app/scripts/qa/ocr-cache.test.py richos/app/scripts/qa/child-lifetime.test.py richos/app/scripts/qa/trust-reading.test.py richos/app/scripts/qa/device-launch.test.py richos/app/scripts/qa/lab-pause.test.py richos/app/scripts/qa/tunnel-requests.test.py richos/app/scripts/qa/phone-ios-run.test.py richos/mobile/native-ios/UITests/PhysicalDeviceTests.swift
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -603,6 +603,27 @@ run python3 "$QA/busy-sample.py" --busy 10 -- python3 "$DIR/testvm/reserve.py" -
 expect "B3 under busy-sample.py --busy 10 the same admission reads 10% and admits" 0 "user CPU 10.0%"
 run python3 "$QA/busy-sample.py" --busy 100
 expect "B4 busy-sample.py with no command is refused as bad usage" 2 "usage"
+# slow-shutdown.py makes a program start its shutdown a known time after it is signaled (the
+# extension browser suites' Chrome on a busy Mac, made certain). The delay check waits for the
+# child to exist, so the signal never lands before the handlers are in place, and bounds the
+# delay from below only: a loaded Mac can only make the shutdown later.
+run python3 "$QA/slow-shutdown.py" --ms 0 -- sh -c 'echo slow-child-ran; exit 4'
+expect "SL1 slow-shutdown.py runs the program and hands back its own exit status" 4 "slow-child-ran"
+run env SLOW_SHUTDOWN_TARGET=/bin/sh SLOW_SHUTDOWN_MS=0 python3 "$QA/slow-shutdown.py" -c 'echo env-child-ran; exit 3'
+expect "SL2 slow-shutdown.py takes the program from SLOW_SHUTDOWN_TARGET (the CHROME_PATH form)" 3 "env-child-ran"
+run python3 "$QA/slow-shutdown.py"
+expect "SL3 slow-shutdown.py with no program is refused as bad usage" 2 "usage"
+run python3 -c '
+import subprocess, sys, time
+p = subprocess.Popen([sys.executable, sys.argv[1], "--ms", "300", "--", "sleep", "30"])
+for _ in range(600):
+    if subprocess.run(["pgrep", "-P", str(p.pid)], capture_output=True).returncode == 0:
+        break
+    time.sleep(0.05)
+t = time.monotonic(); p.terminate(); rc = p.wait(); dt = time.monotonic() - t
+print("OK" if rc == 143 and dt >= 0.29 else "BAD rc=%s after %.3f s" % (rc, dt))
+' "$QA/slow-shutdown.py"
+expect "SL4 slow-shutdown.py --ms 300 forwards SIGTERM no sooner than 300 ms and exits 128+15" 0 "OK"
 
 echo "=== N. phone-client: the headless phone ==="
 

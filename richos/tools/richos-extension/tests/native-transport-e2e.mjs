@@ -30,6 +30,7 @@
  */
 
 import { exportBufferedArchive } from './buffered-export.mjs';
+import { trackChrome, stopChrome, stopAllChrome } from './chrome-process.mjs';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { createServer } from 'node:https';
 import fs from 'node:fs';
@@ -234,7 +235,7 @@ async function launchChrome(profileDir, downloadDir, httpsPort, extraArgs = []) 
     ...extraArgs,
   ];
   if (!HEADED) args.push('--headless=new');
-  const chrome = spawn(CHROME, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const chrome = trackChrome(spawn(CHROME, args, { stdio: ['ignore', 'pipe', 'pipe'] }));
   const log = []; chrome.stderr.on('data', (d) => log.push(String(d))); chrome.stdout.on('data', (d) => log.push(String(d)));
   const portFile = path.join(profileDir, 'DevToolsActivePort');
   const devPort = await waitFor('DevToolsActivePort', () => {
@@ -343,7 +344,7 @@ async function runNativeLeg(workDir, speechB64) {
     const hostStderr = path.join(workDir, 'native-host-stderr.log');
     console.error('Native launch diagnostics:', fs.existsSync(hostStderr) ? fs.readFileSync(hostStderr, 'utf8').slice(-6000) : 'host did not create stderr log');
     console.error(log.join('').slice(-6000));
-    cdp.close(); chrome.kill('SIGTERM'); server.close();
+    cdp.close(); server.close(); await stopChrome(chrome);
     throw new Error(`native host prerequisite: ${JSON.stringify(hostProbe)}`);
   }
 
@@ -434,7 +435,7 @@ async function runNativeLeg(workDir, speechB64) {
   check('LEG1: the extension logged no errors and threw no uncaught exceptions', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | ') || 'clean');
 
   await checkNoDesktopNotifications(cdp, swSession, 'LEG1');
-  cdp.close(); chrome.kill('SIGTERM'); server.close(); await sleep(400);
+  cdp.close(); server.close(); await stopChrome(chrome);
   return { sessionId, transcript, finalAudioBytes, streamedBytes: streaming.streamedBytes, hostDir, zone: KEEP ? zone : null };
 }
 
@@ -493,7 +494,7 @@ async function runFallbackLeg(workDir, speechB64) {
     found.join(', '));
 
   await checkNoDesktopNotifications(cdp, swSession, 'LEG2');
-  cdp.close(); chrome.kill('SIGTERM'); server.close(); await sleep(400);
+  cdp.close(); server.close(); await stopChrome(chrome);
 }
 
 // =======================================================================================
@@ -534,7 +535,7 @@ async function investigateTabArming(workDir) {
     note('INVESTIGATION: OS-level synthetic gesture (cliclick) not attempted headless', 'the toolbar action icon is not rendered/hit-testable in --headless=new, and its screen coordinates are unknown/unstable in a headed throwaway window; a trusted click on the action is what the boundary requires. Tab-arming is therefore left to a one-click manual / real-call confirmation (README TEST-PROTOCOL). The mic leg proves the transport; the tab leg is the SAME streaming code path once armed.');
   }
   await checkNoDesktopNotifications(cdp, swSession, 'INVESTIGATION');
-  cdp.close(); chrome.kill('SIGTERM'); server.close(); await sleep(400);
+  cdp.close(); server.close(); await stopChrome(chrome);
   return mint;
 }
 
@@ -560,6 +561,8 @@ async function main() {
   if (LEG !== 'fallback') try { leg1 = await runNativeLeg(workDir, speechB64); } catch (e) { check('LEG1 ran to completion', false, String(e.stack || e).slice(0, 300)); }
   if (LEG !== 'native') try { await runFallbackLeg(workDir, speechB64); } catch (e) { check('LEG2 ran to completion', false, String(e.stack || e).slice(0, 300)); }
   if (LEG === 'all') try { await investigateTabArming(workDir); } catch (e) { note('INVESTIGATION errored (non-fatal)', String(e.message).slice(0, 160)); }
+  // A leg that threw never reached its own stop. Nothing may still write into workDir when it is removed.
+  try { await stopAllChrome(); } catch (e) { check('every Chrome the harness started has exited', false, String(e.message).slice(0, 300)); }
 
   const summary = { ranAt: new Date().toISOString(), chrome: CHROME, headless: !HEADED, selection: LEG, results, leg1: leg1 ? { sessionId: leg1.sessionId, streamedBytes: leg1.streamedBytes, finalAudioBytes: leg1.finalAudioBytes } : null };
   const summaryPath = path.join(workDir, 'native-transport-result.json');
