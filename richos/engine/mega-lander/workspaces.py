@@ -5265,9 +5265,11 @@ def _delete(rec, workspaces, branches, why, processes=None, deadline=None):
                 deferred = "the budget ran out before %s was deleted" % w.get("path")
                 held = True
                 break
+            caches = workspace_build_caches(w.get("path"))
             ok, err = remove_workspace(w, deadline=deadline)
             if ok:
                 w["deleted_at"] = iso()
+                discard_build_caches(rec["key"], w.get("path"), caches)
             else:
                 failures.append(err)
     untouched = []
@@ -5366,6 +5368,53 @@ def retry_due(budget=5.0, deadline=None):
 
 def keeps_failing():
     return [r for r in all_agents() if (r.get("deletion") or {}).get("attempts", 0) >= RETRY_TELL_CEO_AFTER]
+
+
+_BUILD_CACHES = []
+
+
+def _build_caches():
+    """scripts/lib/build_caches.py, the same file the scheduled sweep loads, so the land and
+    the sweep can never disagree about which cache folder belongs to which checkout."""
+    if not _BUILD_CACHES:
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "scripts", "lib", "build_caches.py")
+        spec = importlib.util.spec_from_file_location("richos_build_caches", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _BUILD_CACHES.append(mod)
+    return _BUILD_CACHES[0]
+
+
+def workspace_build_caches(path):
+    """The build output keyed to this workspace on the external drive (its Cargo folder,
+    its iOS and Android build folders), read BEFORE the workspace is deleted, because the
+    Cargo keys come from the Cargo.toml files in its tree. Never raises: a land is never
+    refused over a cache."""
+    try:
+        return _build_caches().checkout_caches(path)
+    except Exception as exc:                               # noqa: BLE001
+        event("build-caches-unread", path=path, why=str(exc)[:300])
+        return []
+
+
+def discard_build_caches(key, path, caches):
+    """THE MOMENT THE CACHE BECOMES GARBAGE IS THE MOMENT ITS WORKSPACE IS DELETED (CEO,
+    2026-10-08: "Doesn't that cache clean-up belong to the Mega Lander then?"). Before this,
+    nothing removed a landed workspace's build folders, and 1,103 Cargo folders plus the
+    native ones filled the external drive. Each folder is moved aside in one rename and
+    deleted in the background, so the land waits for nothing; the scheduled sweep takes
+    whatever that deletion did not finish. Never raises."""
+    if not caches:
+        return
+    try:
+        bc = _build_caches()
+        moved, bad = bc.discard(caches, bc.declared("SCRATCH_BUILD_CACHE_ROOT"))
+    except Exception as exc:                               # noqa: BLE001
+        moved, bad = [], [str(exc)]
+    event("build-caches-discarded", key=key, path=path, moved=len(moved),
+          folders=caches, failures=bad or None)
 
 
 def remove_workspace(w, deadline=None):

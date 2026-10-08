@@ -57,17 +57,19 @@ class Inputs(unittest.TestCase):
             with self.assertRaises(inputs.Unsupported):
                 inputs.Snapshot(root, "missing-ref")
 
-    def test_real_config_accepts_all_nine_environment_path_assignments(self):
+    def test_real_config_accepts_all_ten_environment_path_assignments(self):
         parsed = inputs.config((HERE.parent / "orchestration.config").read_text())
         expected = {"SCRATCH_CAMPAIGN_PARENT", "SCRATCH_NIGHTLY_DIR", "SCRATCH_FAILURES_STATE",
                     "SCRATCH_REAPER_STATE", "APP_INSTANCE_FAILURES_STATE", "TEST_DEVICE_FAILURES_STATE",
-                    "DISK_CONSUMER_CANDIDATES", "DISK_STATE_JSON", "SCRATCH_KEPT_DIR"}
+                    "DISK_CONSUMER_CANDIDATES", "DISK_STATE_JSON", "SCRATCH_KEPT_DIR",
+                    "SCRATCH_BUILD_CACHE_CHECKOUT_PARENTS"}
         actual = {key for key, row in parsed.items() if any(part[0] == "parameter" for part in row["value"])}
         self.assertEqual(actual, expected)
         # 105 since 0ba40e59 added CHECK_RESOURCE_WAITS and RESOURCE_WAIT_MINUTES;
         # 106 since SCRATCH_AGENT_ROOTS (2026-10-01, a land sweeps only its agent's scratch);
-        # 108 since SCRATCH_KEPT_DIR and SCRATCH_KEPT_RETENTION_DAYS (2026-10-04, what a land kept).
-        self.assertEqual(len(parsed), 108)
+        # 108 since SCRATCH_KEPT_DIR and SCRATCH_KEPT_RETENTION_DAYS (2026-10-04, what a land kept);
+        # 113 since SCRATCH_BUILD_CACHE_* and SCRATCH_CARGO_TARGET_ROOTS (2026-10-08, build caches).
+        self.assertEqual(len(parsed), 113)
         self.assertIsNone(inputs.config_change("", (HERE.parent / "orchestration.config").read_text())["fallback"])
 
     def test_semantic_values_ignore_comments_spacing_and_equivalent_quotes(self):
@@ -1381,7 +1383,8 @@ class Closure(unittest.TestCase):
                     'GENERIC_AGENT_TYPES', 'SESSION_TEAMS_DIR', 'SEAL_READONLY_TOOLS', 'SEAL_WAIT_SECONDS',
                     'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
                     'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
-                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS',
+                    'SCRATCH_BUILD_CACHE_ROOT', 'SCRATCH_CARGO_TARGET_ROOTS'}  # the lander's build-cache step (2026-10-08)
         closure = graph.closure(unit)
         self.assertEqual(closure['fallback'], [])
         self.assertEqual(set(closure['keys']), expected)
@@ -1555,7 +1558,8 @@ class Closure(unittest.TestCase):
         unit = 'scripts/quota-watch.test.sh'
         expected = {'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
                     'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
-                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS',
+                    'SCRATCH_BUILD_CACHE_ROOT', 'SCRATCH_CARGO_TARGET_ROOTS'}  # the lander's build-cache step (2026-10-08)
         closure = graph.closure(unit)
         self.assertEqual(closure['fallback'], [])
         self.assertEqual(set(closure['keys']), expected)
@@ -1627,7 +1631,9 @@ class Closure(unittest.TestCase):
         unit = 'scripts/hooks/worker-lifecycle.test.sh'
         closure = graph.closure(unit)
         self.assertFalse(closure['whole'] or closure['fallback'], closure)
-        self.assertEqual(set(closure['keys']), set(graph.closure('scripts/lib/appinstances.py#workspace-cleanup')['keys']))
+        # The lander's cleanup also reaches its build-cache step (build_caches.py, 2026-10-08).
+        self.assertEqual(set(closure['keys']), set(graph.closure('scripts/lib/appinstances.py#workspace-cleanup')['keys'])
+                         | set(graph.closure('scripts/lib/build_caches.py')['keys']))
         unrelated = inputs.config_change('MODEL_TIERS=one', 'MODEL_TIERS=two')
         self.assertFalse(graph.config_units(unrelated, [unit]))
         self.assertIn(unit, graph.config_units(inputs.config_change('APP_TEST_INSTANCE_PROCESS_NAMES=one', 'APP_TEST_INSTANCE_PROCESS_NAMES=two'), [unit]))
@@ -2041,7 +2047,8 @@ class Closure(unittest.TestCase):
         unit = 'scripts/hooks/guard-resume-isolation.test.sh'
         expected = {'SESSION_TEAMS_DIR', 'APP_TEST_INSTANCE_PROCESS_NAMES',
                     'APP_TEST_INSTANCE_BUNDLE_ID', 'APP_TEST_INSTANCE_REAL_HOME_PATHS',
-                    'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS', 'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+                    'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS', 'APP_TEST_INSTANCE_KILL_GRACE_SECONDS',
+                    'SCRATCH_BUILD_CACHE_ROOT', 'SCRATCH_CARGO_TARGET_ROOTS'}  # the lander's build-cache step (2026-10-08)
         closure = graph.closure(unit)
         self.assertEqual(set(closure['keys']), expected)
         self.assertFalse(closure['whole'] or closure['fallback'], closure)
@@ -2065,7 +2072,8 @@ class Closure(unittest.TestCase):
                     'SESSION_TEAMS_DIR', 'ALLOWED_MODELS', 'MODEL_TIERS',
                     'AGENT_NAMESPACE_ROOTS', 'APP_TEST_INSTANCE_PROCESS_NAMES',
                     'APP_TEST_INSTANCE_BUNDLE_ID', 'APP_TEST_INSTANCE_REAL_HOME_PATHS',
-                    'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS', 'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+                    'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS', 'APP_TEST_INSTANCE_KILL_GRACE_SECONDS',
+                    'SCRATCH_BUILD_CACHE_ROOT', 'SCRATCH_CARGO_TARGET_ROOTS'}  # the lander's build-cache step (2026-10-08)
         closure = graph.closure(unit)
         self.assertEqual(set(closure['keys']), expected)
         self.assertFalse(closure['whole'] or closure['fallback'], closure)
@@ -2110,7 +2118,8 @@ class Closure(unittest.TestCase):
         closure = graph.closure(unit)
         expected = {'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
                     'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
-                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS',
+                    'SCRATCH_BUILD_CACHE_ROOT', 'SCRATCH_CARGO_TARGET_ROOTS'}  # the lander's build-cache step (2026-10-08)
         self.assertEqual(set(closure['keys']), expected)
         self.assertFalse(closure['whole'] or closure['presence'] or closure['fallback'], closure)
         for key in expected | {'INFLIGHT_ACK_TIMEOUT_MIN', 'PROTECTED_PATHS', 'SHOW_TURN_MANIFEST'}:
@@ -2736,7 +2745,8 @@ class Closure(unittest.TestCase):
         expected = {'READONLY_ALLOWLIST', 'HARNESS_UTILITY_TYPES', 'SEAL_READONLY_TOOLS',
                     'APP_TEST_INSTANCE_PROCESS_NAMES', 'APP_TEST_INSTANCE_BUNDLE_ID',
                     'APP_TEST_INSTANCE_REAL_HOME_PATHS', 'APP_TEST_INSTANCE_QUIT_GRACE_SECONDS',
-                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS'}
+                    'APP_TEST_INSTANCE_KILL_GRACE_SECONDS',
+                    'SCRATCH_BUILD_CACHE_ROOT', 'SCRATCH_CARGO_TARGET_ROOTS'}  # the lander's build-cache step (2026-10-08)
         closure = graph.closure(unit)
         self.assertEqual(closure['fallback'], [])
         self.assertEqual(set(closure['keys']), expected)
