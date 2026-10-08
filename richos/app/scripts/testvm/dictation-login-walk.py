@@ -443,6 +443,24 @@ class LoginWalk(bar_walk.BarWalk):
         prompt = self.no_prompt_on_screen('login')
         starts = self.launches_count()
         started = [started_line(x) for x in self.rdlog_lines() if started_line(x)]
+        # The tool's microphone is the sample only if launchd's user environment carried the
+        # variable across the reboot (stage: `launchctl config user environment`). Read off the
+        # tool's own environment; when it is not there, the variable is set for launchd now and
+        # the agent restarted by launchd (kickstart), which is said in the evidence: the login
+        # start itself is already proven above, and the dictation then still runs through a tool
+        # launchd started with no app.
+        env = guest(self.vm, f'ps -wwE -p {tools[0]["pid"]} -o command= 2>/dev/null || true')
+        sample_env = {'in_launchd_tool': 'RICHOS_VOICE_INPUT_WAV=' in env, 'kickstarted': False}
+        if not sample_env['in_launchd_tool']:
+            old_pid = tools[0]['pid']
+            since = len(self.rdlog_lines())
+            guest(self.vm, 'launchctl setenv RICHOS_VOICE_INPUT_WAV ' + shlex.quote(self.rwav))
+            guest(self.vm, f'launchctl kickstart -k gui/$(id -u)/{AGENT}')
+            sample_env.update({'kickstarted': True, 'old_pid': old_pid})
+            self.wait_rdlog('key tap created for F1', since, 60)
+            tools = self.tool()
+            if len(tools) != 1 or tools[0]['pid'] == old_pid or tools[0]['ppid'] != 1:
+                raise StepFailed(f'after kickstart the tool is not one new launchd child: {tools}')
         row = self.dictate_installed('login')
         if windows != 0:
             raise StepFailed(f'the tool has {windows} window(s) on screen after the login')
@@ -455,7 +473,8 @@ class LoginWalk(bar_walk.BarWalk):
         if starts != self.facts['starts_before_reboot']:
             raise StepFailed(f'launches.json gained a start at login: {self.facts["starts_before_reboot"]} -> {starts}')
         return {'tool': tools[0], 'tool_windows': windows, 'lsappinfo_type': kind, 'front': front, 'menu_bar_item': item,
-                'prompt_on_screen': prompt, 'launches_json_starts': starts, 'tool_started_lines': started[-1:], 'dictation': row}
+                'prompt_on_screen': prompt, 'launches_json_starts': starts, 'tool_started_lines': started[-1:],
+                'sample_in_launchd_environment': sample_env, 'dictation': row}
 
     def open_by(self, way):
         """One way back into the app, from a state where only the tool runs."""
@@ -646,9 +665,12 @@ class LoginWalk(bar_walk.BarWalk):
         script = self.payload + '/nightly-launch.sh'
         command([HERE / 'guest.sh', self.vm, '--push', str(HERE.parent / 'nightly-launch.sh'), script], 120)
         guest(self.vm, f'chmod 755 {q(script)}')
-        zips = guest(self.vm, 'find ' + q(self.payload) + ' -maxdepth 1 -name "*.zip" -print').splitlines()
-        if not zips:
-            raise StepFailed('no bundle zip in the payload for nightly-launch.sh')
+        # run.sh unpacks the bundle and removes its zip, and nightly-launch.sh takes a zip holding
+        # exactly one RichOS.app: made here from the payload's own bundle.
+        app = guest(self.vm, 'find ' + q(self.payload) + ' -maxdepth 1 -name "*.app" -type d -print').splitlines()[0]
+        zipped = self.payload + '/RichOS-folder-copy.zip'
+        guest(self.vm, f'rm -f {q(zipped)} && ditto -c -k --keepParent {q(app)} {q(zipped)}', 300)
+        zips = [zipped]
         # The script's own preconditions on the real home: the sign-in's three things and claude.
         guest(self.vm, f'test -f {q(self.real)}/.claude.json || echo "{{}}" > {q(self.real)}/.claude.json')
         guest(self.vm, f'rm -rf {q(self.real)}/myrichos-nightly-a')
