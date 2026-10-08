@@ -1784,7 +1784,17 @@ module.exports = [
   {
     s: "{FILE_NAME} could not be read: {e}",
     c: "NOT-RENDERED",
-    why: "`dictation_offer.rs`: the same, for a file that could not be opened; printed to the log, never on screen.",
+    why:
+      "Two sources, one string, never on screen from either. (1) `dictation_offer.rs:48`, for a " +
+      "dictation.json that could not be opened: `view` prints it to the log (`dictation_offer.rs:67`) " +
+      "and shows no offer; `mark_shown` returns it from `dictation_offer_shown` (main.rs), which " +
+      "logs it and whose only caller, `invokeQuiet` (ui/main.js), discards the error. (2) " +
+      "`dictation/store.rs:61`, dictation slice 1 (richos-hq docs/plans/2026-10-08-dictation-anywhere.md " +
+      "rev 2): the dictation tool is the same executable started with `--richos-dictation` " +
+      "(dictation/tool.rs), a separate process whose Tauri builder has no window, no plugin and no " +
+      "command; slice 1 has no screens (dictation/mod.rs). In the tool it is written to dictation.log " +
+      "(`log::line`, tool.rs:128 and :320); in the app `dictation_app` prints it with " +
+      "`eprintln!(\"[richos] dictation: {why}\")` (dictation_app.rs:200). Neither returns it to the webview.",
   },
   {
     s: "That's everything I could do. Something is still missing. That part is for whoever set RichOS up to look at.",
@@ -5292,5 +5302,4 @@ module.exports = [
   {"s": "the words could not be written to the clipboard", "c": "NOT-RENDERED", "why": "Dictation slice 1 (richos-hq docs/plans/2026-10-08-dictation-anywhere.md rev 2): the dictation tool is the same executable started with `--richos-dictation` (dictation/tool.rs), a separate process whose Tauri builder has no window, no plugin and no command; slice 1 has no screens (dictation/mod.rs), so nothing it says reaches this webview. `insert::insert` / `insert::copy_only` Err (insert.rs:457, :461, :483); `tool::write` writes it to dictation.log (`log::line`, tool.rs:456 and :460) and returns a `Problem` tag."},
   {"s": "{} is {why}; refusing to use it", "c": "NOT-RENDERED", "why": "Dictation slice 1 (richos-hq docs/plans/2026-10-08-dictation-anywhere.md rev 2): the dictation tool is the same executable started with `--richos-dictation` (dictation/tool.rs), a separate process whose Tauri builder has no window, no plugin and no command; slice 1 has no screens (dictation/mod.rs), so nothing it says reaches this webview. `ipc::prepare_dir` refusal of the runtime folder (ipc.rs:68), reached only through `ipc::claim`, so it is the `{e}` of the dictation.log line at tool.rs:143."},
   {"s": "not a directory", "c": "NOT-RENDERED", "why": "Dictation slice 1 (richos-hq docs/plans/2026-10-08-dictation-anywhere.md rev 2): the dictation tool is the same executable started with `--richos-dictation` (dictation/tool.rs), a separate process whose Tauri builder has no window, no plugin and no command; slice 1 has no screens (dictation/mod.rs), so nothing it says reaches this webview. The `{why}` of `ipc::prepare_dir`'s refusal (ipc.rs:70); see the row above: a dictation.log line through tool.rs:143."},
-  {"s": "{FILE_NAME} could not be read: {e}", "c": "NOT-RENDERED", "why": "Dictation slice 1 (richos-hq docs/plans/2026-10-08-dictation-anywhere.md rev 2): the dictation tool is the same executable started with `--richos-dictation` (dictation/tool.rs), a separate process whose Tauri builder has no window, no plugin and no command; slice 1 has no screens (dictation/mod.rs), so nothing it says reaches this webview. `store::read` Err (store.rs:61). In the tool it is written to dictation.log (`log::line`, tool.rs:128 and :320); in the app `dictation_app` prints it with `eprintln!(\"[richos] dictation: {why}\")` (dictation_app.rs:200). Neither returns it to the webview."},
 ];
