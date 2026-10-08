@@ -5419,6 +5419,12 @@ let setupRunning = false;
 /// The background download's latest line while it runs, else null. A sheet that opens or finishes
 /// meanwhile shows it at once rather than gaining a line a moment later under his cursor.
 let videoToolsLine = null;
+/// The background download's last state ("started", "done" or "failed") heard since the press
+/// began, else null: its end can arrive before `run_setup`'s answer does.
+let videoToolsHeard = null;
+/// True while a finished press waits for the video tools: the heading carries their progress
+/// line, and becomes "Setup is done." only when they are in (the CEO, 2026-10-07).
+let setupDoneWaitsForVideoTools = false;
 let providerAuth = null;
 let providerPoll = null;
 const providerConnectEl = el("provider-connect");
@@ -5494,6 +5500,7 @@ function maybeAskAboutSetup() {
 }
 
 function openSetupSheet(ask, opts) {
+  setupDoneWaitsForVideoTools = false;
   providerConnectEl.hidden = true;
   providerCancelEl.hidden = true;
   providerKindEl.hidden = true;
@@ -5550,6 +5557,7 @@ function openSetupSheet(ask, opts) {
 function closeSetupSheet() {
   if (providerAuth?.state === "connecting") return;
   if (providerPoll) { clearTimeout(providerPoll); providerPoll = null; }
+  setupDoneWaitsForVideoTools = false;
   setupSheetEl.hidden = true;
   // The question that was held back, asked now rather than never — the same handoff
   // `closeMemorySetup` performs for the company question. Without this line a fresh install
@@ -5576,6 +5584,7 @@ async function runSetup() {
   setupProgressEl.hidden = false;
   setupProgressEl.textContent = "Starting.";
   let next;
+  videoToolsHeard = null;
   setupRunning = true;
   try {
     next = await Bridge.invoke("run_setup");
@@ -5621,6 +5630,7 @@ async function runSetup() {
   // it read as a second dialog was this re-render.
   // -------------------------------------------------------------------------------------
   const providerView = next && next.complete ? await invokeQuiet("provider_auth_status") : null;
+  const lastLine = setupProgressEl.textContent;
   // The video tools still arriving keep their line, so it does not appear later under his cursor.
   setupProgressEl.hidden = !videoToolsLine;
   setupProgressEl.textContent = videoToolsLine || "";
@@ -5641,18 +5651,38 @@ async function runSetup() {
   // American English is "setup", and the product's own audience is non-technical CEOs in the
   // US. Ray's candidate .11 walk listed it at 17. The heading is the CEO's first sentence
   // after an install that takes minutes, so it is not a place to sound like somebody else.
-  setupTitleEl.textContent = next && next.complete
-    ? "Setup is done."
-    : "I couldn't finish the setup.";
-  setupNoteEl.textContent = next && next.complete
-    ? "The software is installed."
-    : "That's everything I could do. Something is still missing. That part is for whoever set RichOS up to look at.";
+  //
+  // NOT "Setup is done." WHILE THE VIDEO TOOLS ARE STILL ARRIVING (the CEO, 2026-10-07: they
+  // download "right away and independently of the other stuff"). `complete` is true with them
+  // missing exactly while their background download runs (`setup_view::sheet_needs`), and a
+  // press that found them alone on the sheet gets its answer before the download's first line
+  // reaches the window. So the backend's `media_tools.present` decides, not whether a line has
+  // been heard yet: the heading carries their progress line, and the listener below turns it
+  // into "Setup is done." on their done line. One heading line either way, so `Close` stays put.
+  const complete = !!(next && next.complete);
+  setupDoneWaitsForVideoTools = complete && next.status?.media_tools?.present === false
+    && videoToolsHeard !== "done" && videoToolsHeard !== "failed";
+  paintSetupOutcome(complete && videoToolsHeard !== "failed");
+  if (setupDoneWaitsForVideoTools) {
+    setupTitleEl.textContent = videoToolsLine || lastLine;
+    setupProgressEl.hidden = true;
+  }
   setupItemsEl.replaceChildren();
   setupAccountEl.hidden = false;
   // Synchronous now: the answer was fetched above, so this is the same paint as everything
   // else in the done state rather than a second one a moment later.
   if (providerView) renderProviderAuth(providerView);
   setupCloseEl.focus();
+}
+
+/// The finished sheet's heading and note, from the backend's answer.
+function paintSetupOutcome(complete) {
+  setupTitleEl.textContent = complete
+    ? "Setup is done."
+    : "I couldn't finish the setup.";
+  setupNoteEl.textContent = complete
+    ? "The software is installed."
+    : "That's everything I could do. Something is still missing. That part is for whoever set RichOS up to look at.";
 }
 
 setupGoEl.addEventListener("click", runSetup);
@@ -5703,8 +5733,20 @@ Bridge.listen("richos://setup", (payload) => {
   // again so it switches on without a relaunch.
   if (p.component === "media-tools") {
     videoToolsLine = p.state === "started" ? p.what : null;
+    videoToolsHeard = p.state;
     if (p.state === "done") refreshVoiceReadiness();
     if (setupRunning && p.state !== "failed") return;
+    // A finished press waiting for them: the heading moves with their line, and says
+    // "Setup is done." only once they are installed.
+    if (setupDoneWaitsForVideoTools) {
+      if (p.state === "started") {
+        setupTitleEl.textContent = p.what;
+        return;
+      }
+      setupDoneWaitsForVideoTools = false;
+      paintSetupOutcome(p.state === "done");
+      if (p.state === "done") return;
+    }
   }
   if (p.state === "failed") {
     setupProgressEl.hidden = true;

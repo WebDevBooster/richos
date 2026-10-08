@@ -4399,6 +4399,13 @@
       if (subs) subs.forEach((cb) => cb({ payload: { ...payload } }));
       return { ...payload };
     },
+    /// Emit one `richos://setup` event, exactly as the shell emits it: the video tools'
+    /// background download (`setup_view::start_video_tools_download`) is
+    /// `{state, component: "media-tools", what, ...}` with state started | done | failed.
+    setupEmit(payload) {
+      emit("richos://setup", { ...payload });
+      return { ...payload };
+    },
     /// Which provisioning commands the surface issued, in order.
     voiceModelCalls() { return mockVoiceModel.calls.slice(); },
     /// Make `provision_speech_model` reject with a sentence, the way the real command does
