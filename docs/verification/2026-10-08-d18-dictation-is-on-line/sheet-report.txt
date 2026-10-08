@@ -1,0 +1,128 @@
+{
+  "vm": "walk-5af47ac26ffd",
+  "expect_sha": "eb38ccb99",
+  "steps": [
+    {
+      "step": "identity",
+      "evidence": {
+        "built_from": "eb38ccb99c48547ed7e01fae076c830420f7a899"
+      },
+      "outcome": "PASS",
+      "seconds": 0.3
+    },
+    {
+      "step": "stage",
+      "evidence": {
+        "tcc": {
+          "user": [],
+          "system": []
+        },
+        "no_grants": true,
+        "dictation_json": "absent",
+        "wav": "/Users/admin/testvm/walk-5af47ac26ffd/home/dictation-sample.wav",
+        "model": "/Users/admin/testvm/walk-5af47ac26ffd/home/.config/richos/models/ggml-small.en.bin"
+      },
+      "outcome": "PASS",
+      "seconds": 10.3
+    },
+    {
+      "step": "relaunch",
+      "evidence": {
+        "app_pid": 1340,
+        "first_run_sheets_declined": 0
+      },
+      "outcome": "PASS",
+      "seconds": 75.8
+    },
+    {
+      "step": "switch-on",
+      "evidence": {
+        "sheet_said_off_first": true
+      },
+      "outcome": "PASS",
+      "seconds": 53.1
+    },
+    {
+      "step": "mic-prompt",
+      "evidence": {
+        "frame": "mic-prompt-1.png",
+        "iris_sentence_ocr": {
+          "talk instead of typing": true,
+          "only after you tap": true,
+          "press the talk": true
+        },
+        "allow_pressed_in": "UserNotificationCenter",
+        "fallback": null
+      },
+      "outcome": "PASS",
+      "seconds": 29.6
+    },
+    {
+      "step": "ax-prompt",
+      "evidence": {
+        "frame": "ax-prompt-0.png",
+        "mic_answer_in_log": [
+          "[richos] dictation: the microphone was allowed"
+        ],
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone=2"
+          ],
+          "system": [
+            "kTCCServiceAccessibility=0"
+          ]
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 4.9
+    },
+    {
+      "step": "granted-settings",
+      "evidence": {
+        "app_pid": 1835,
+        "first_run_sheets_declined": 0,
+        "prompt_frame": null,
+        "prompt_dismissed_in": null,
+        "system_settings": {
+          "pane_opened": true,
+          "row": {
+            "d": 11,
+            "role": "AXCheckBox",
+            "sub": "AXSwitch",
+            "title": "",
+            "desc": "switch",
+            "value": "0",
+            "enabled": true,
+            "current": null,
+            "selected": null,
+            "x": 1140,
+            "y": 274,
+            "w": 26,
+            "h": 15,
+            "help": ""
+          },
+          "switch_before": "0",
+          "password_asked": true,
+          "password_button": "Modify Settings in System Settings",
+          "switch_after": null,
+          "matched_by": "the only switch off in the list",
+          "way_in": "the sheet's Open System Settings"
+        },
+        "key_tap_after_switch_seconds": 0.09,
+        "sheet_says_on": true,
+        "sheet_says_feedback": true,
+        "same_app_pid": true,
+        "tcc": {
+          "user": [
+            "kTCCServiceMicrophone=2"
+          ],
+          "system": [
+            "kTCCServiceAccessibility=2"
+          ]
+        }
+      },
+      "outcome": "PASS",
+      "seconds": 385.5
+    }
+  ]
+}
