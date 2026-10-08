@@ -519,9 +519,12 @@ class SheetWalk(dictation_walk.DictationWalk):
         "Privacy & Security is trying to modify your system settings" is not in System Settings'
         own tree (walk-15d68ef48fc5: the press landed, the sheet was up, and a search of System
         Settings saw no secure field), so every process that can host it is asked."""
+        # A secure field's role is AXTextField with the subrole AXSecureTextField (walk-8dcad10d445b's
+        # sheet run: the sheet was up, and a search by the role AXSecureTextField found nothing in
+        # any process); the subrole is what names it.
         for process in (SYSTEM_SETTINGS,) + PASSWORD_PROCESSES:
             try:
-                nodes = [n for n in self.ax('find', '--role', 'AXSecureTextField', app=process, timeout=30) if not n.get('meta')]
+                nodes = [n for n in self.ax('find', '--subrole', 'AXSecureTextField', app=process, timeout=30) if not n.get('meta')]
             except StepFailed:
                 continue
             if nodes:
@@ -537,7 +540,7 @@ class SheetWalk(dictation_walk.DictationWalk):
         process = self.password_sheet_process() or SYSTEM_SETTINGS
         self.bring_front_app(process)
         try:
-            self.ax('click', '--role', 'AXSecureTextField', '--first', app=process)
+            self.ax('click', '--subrole', 'AXSecureTextField', '--first', app=process)
         except StepFailed:
             pass
         self.osa(f'tell application "System Events" to keystroke "{GUEST_PASS}"')
