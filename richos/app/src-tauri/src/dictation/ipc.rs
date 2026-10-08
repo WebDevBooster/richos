@@ -41,11 +41,33 @@ pub enum AppMessage {
 pub enum ToolMessage {
     /// Where dictation is. `owner` is the bundle of the copy whose tool holds the key, so an app
     /// can tell whether that is its own copy.
+    ///
+    /// `secureInput` is true while another app keeps Secure Event Input on, so the key cannot
+    /// reach the tool, and `secureApp` names that app where macOS says which it is (Frank's
+    /// minor 5; slice 3 reads it, the Settings row is slice 2's). Both default, so an app built
+    /// before them still reads the state.
     #[serde(rename_all = "camelCase")]
-    State { owner: String, on: bool, listening: bool, writing: bool, problem: Option<String>, key_tap: bool },
+    State {
+        owner: String,
+        on: bool,
+        listening: bool,
+        writing: bool,
+        problem: Option<String>,
+        key_tap: bool,
+        #[serde(default)]
+        secure_input: bool,
+        #[serde(default)]
+        secure_app: Option<String>,
+    },
     /// The microphone is about to open for a dictation: voice mode ends first, so the two never
     /// listen at once.
     WillListen,
+    /// The tool's menu bar menu changed `dictation.json` (Accuracy, or Turn dictation off): an
+    /// app re-reads it rather than writing back what it held (slice 3).
+    SettingsChanged,
+    /// Bring RichOS's window forward: **Open RichOS**, or with `sheet` on the Dictation sheet
+    /// (**Dictation settings…** and **Fix it**). Plan section 6.
+    ComeForward { sheet: bool },
 }
 
 /// `/private/tmp/richos-<uid>`, for this user.
@@ -313,6 +335,8 @@ mod tests {
             writing: false,
             problem: None,
             key_tap: true,
+            secure_input: false,
+            secure_app: None,
         };
         serve(&owner, hub.clone(), state, move |m| tx.send(m).unwrap()).unwrap();
         let mut app = UnixStream::connect(owner.socket()).unwrap();
@@ -325,6 +349,15 @@ mod tests {
         hub.broadcast(&ToolMessage::WillListen);
         let raw = lines.next().unwrap().unwrap();
         assert_eq!(raw, r#"{"type":"will-listen"}"#);
+        let come = serde_json::to_string(&ToolMessage::ComeForward { sheet: true }).unwrap();
+        assert_eq!(come, r#"{"type":"come-forward","sheet":true}"#);
+        assert_eq!(serde_json::to_string(&ToolMessage::SettingsChanged).unwrap(), r#"{"type":"settings-changed"}"#);
+        // A state from a tool built before the Secure Event Input fields still reads.
+        let older: ToolMessage = serde_json::from_str(
+            r#"{"type":"state","owner":"o","on":true,"listening":false,"writing":false,"problem":null,"keyTap":true}"#,
+        )
+        .unwrap();
+        assert!(matches!(older, ToolMessage::State { secure_input: false, secure_app: None, .. }));
         let hello = serde_json::to_string(&AppMessage::Hello { version: "1.2.0".into(), bundle: "b".into(), data_dir: "d".into() }).unwrap();
         assert_eq!(hello, r#"{"type":"hello","version":"1.2.0","bundle":"b","dataDir":"d"}"#);
         drop(owner);

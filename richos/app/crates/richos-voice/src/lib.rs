@@ -72,6 +72,9 @@ pub mod chunk;
 // evidence gate, the decode bound, the model, the paste), pure and unit-tested; the tool's macOS
 // edges live in the Tauri shell (`src-tauri/src/dictation/`).
 pub mod dictation;
+// The dictation bar, the words' flight and the menu bar item (dictation plan slice 3): what each
+// shows, how long, where it sits, the meter's rate and the item's picture, pure and unit-tested.
+pub mod dictation_bar;
 pub mod fft;
 pub mod endpoint;
 pub mod event;

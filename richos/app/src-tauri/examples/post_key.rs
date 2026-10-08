@@ -3,6 +3,10 @@
 //!   post_key --brightness-down      the Apple top row's F1: a system-defined event, subtype 8,
 //!                                   NX_KEYTYPE_BRIGHTNESS_DOWN (3), down then up
 //!   post_key --code <kVK>           a plain key code, down then up
+//!   post_key --click <x>,<y>        one left click at a screen point (top-left points), down
+//!                                   then up (slice 3: the bar's Fix it and the menu bar item,
+//!                                   which belong to the dictation tool and not to the app in
+//!                                   front, so `ax.sh click --at` refuses them)
 //!
 //! System Events can post a key code but not a system-defined event, and the test VM has no
 //! physical keyboard, so this is how the walk proves the tap matches and swallows the event a
@@ -38,6 +42,7 @@ fn main() {
     extern "C" {
         fn CGEventSourceCreate(state: i32) -> *mut c_void;
         fn CGEventCreateKeyboardEvent(source: *mut c_void, code: u16, down: bool) -> *mut CGEvent;
+        fn CGEventCreateMouseEvent(source: *mut c_void, kind: u32, at: Point, button: u32) -> *mut CGEvent;
         fn CGEventPost(tap: u32, event: *mut CGEvent);
         fn CFRelease(cf: *const c_void);
     }
@@ -86,8 +91,24 @@ fn main() {
             }
             println!("posted key code {code}, down and up");
         }
+        ["--click", at] => {
+            let (x, y) = parse_point(at).expect("--click takes x,y");
+            unsafe {
+                let source = CGEventSourceCreate(1);
+                // kCGEventMouseMoved (5) first, so the window under the point sees the pointer
+                // arrive, then kCGEventLeftMouseDown (1) and kCGEventLeftMouseUp (2).
+                for kind in [5u32, 1, 2] {
+                    let event = CGEventCreateMouseEvent(source, kind, Point { x, y }, 0);
+                    CGEventPost(0, event);
+                    CFRelease(event as *const c_void);
+                    std::thread::sleep(std::time::Duration::from_millis(if kind == 5 { 120 } else { 60 }));
+                }
+                CFRelease(source);
+            }
+            println!("posted a left click at {x},{y}");
+        }
         _ => {
-            eprintln!("usage: post_key --brightness-down | --code <kVK>");
+            eprintln!("usage: post_key --brightness-down | --code <kVK> | --click <x>,<y>");
             std::process::exit(2);
         }
     }
@@ -95,6 +116,12 @@ fn main() {
 
 #[cfg(not(target_os = "macos"))]
 fn main() {}
+
+/// `x,y` as two numbers.
+fn parse_point(at: &str) -> Option<(f64, f64)> {
+    let (x, y) = at.split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
 
 /// The system-defined event's data word: the key type in the high 16 bits, the key state (0x0A
 /// down, 0x0B up) in bits 8 to 15, the repeat bit clear.
@@ -108,6 +135,14 @@ mod tests {
 
     /// INVARIANT: what this posts is exactly what the tool's key match reads as F1 down and up,
     /// so the walk proves the event a physical Apple keyboard's F1 sends, not a look-alike.
+    #[test]
+    fn a_click_point_is_two_numbers() {
+        assert_eq!(super::parse_point("700,812.5"), Some((700.0, 812.5)));
+        assert_eq!(super::parse_point(" 3 , 4 "), Some((3.0, 4.0)));
+        assert_eq!(super::parse_point("700"), None);
+        assert_eq!(super::parse_point("a,b"), None);
+    }
+
     #[test]
     fn the_posted_brightness_down_is_what_the_tool_reads_as_f1() {
         for (state, down) in [(0x0A, true), (0x0B, false)] {

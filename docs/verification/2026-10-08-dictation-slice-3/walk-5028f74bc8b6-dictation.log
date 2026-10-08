@@ -1,0 +1,42 @@
+2026-10-08T09:12:33Z dictation tool started: key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock; PREVIEW of the no-microphone bar (window check only)
+2026-10-08T09:12:33Z the bar, the flight and the menu windows are built as the window type
+2026-10-08T09:12:33Z key tap created for F1
+2026-10-08T09:12:33Z menu bar item at 0,1050 34x24
+2026-10-08T09:12:33Z an app connected: version 1.2.0-dev.39c72531d, /Users/admin/testvm/walk-5028f74bc8b6/RichOS.app, data folder /Users/admin/testvm/walk-5028f74bc8b6/home/Library/Application Support/com.richos.app
+2026-10-08T09:12:34Z the menu page is ready
+2026-10-08T09:12:34Z the bar page is ready
+2026-10-08T09:12:34Z the flight page is ready
+2026-10-08T09:12:34Z bar shown: problem no-microphone at 587,815 507x138; Fix it at 970,852 62x32
+2026-10-08T09:12:44Z Fix it pressed (preview: nothing opens); the front app is pid Some(1578)
+2026-10-08T09:13:04Z the app that started this tool has ended; so does the tool
+2026-10-08T09:13:08Z dictation tool started: key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock; PREVIEW of the no-microphone bar (window check only)
+2026-10-08T09:13:08Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T09:13:08Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T09:13:08Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T09:13:08Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T09:13:08Z key tap created for F1
+2026-10-08T09:13:08Z menu bar item at 0,1050 34x24
+2026-10-08T09:13:08Z an app connected: version 1.2.0-dev.39c72531d, /Users/admin/testvm/walk-5028f74bc8b6/RichOS.app, data folder /Users/admin/testvm/walk-5028f74bc8b6/home/Library/Application Support/com.richos.app
+2026-10-08T09:13:09Z the menu page is ready
+2026-10-08T09:13:09Z the flight page is ready
+2026-10-08T09:13:09Z the bar page is ready
+2026-10-08T09:13:09Z bar shown: problem no-microphone at 587,817 507x138; Fix it at 970,854 62x32
+2026-10-08T09:13:19Z Fix it pressed (preview: nothing opens); the front app is pid Some(1632)
+2026-10-08T09:13:38Z the app that started this tool has ended; so does the tool
+2026-10-08T09:13:40Z dictation tool started: key F1, accuracy large-v3-turbo-q5_0, as the app's child, the key held at /private/tmp/richos-501/dictation.sock
+2026-10-08T09:13:41Z dictation-bar window: nonactivating panel, activation prevented at the window server
+2026-10-08T09:13:41Z dictation-flight window: nonactivating panel, activation prevented at the window server
+2026-10-08T09:13:41Z dictation-menu window: nonactivating panel, activation prevented at the window server
+2026-10-08T09:13:41Z the bar, the flight and the menu windows are built as the panel type
+2026-10-08T09:13:41Z key tap created for F1
+2026-10-08T09:13:41Z menu bar item at 0,1050 34x24
+2026-10-08T09:13:41Z an app connected: version 1.2.0-dev.39c72531d, /Users/admin/testvm/walk-5028f74bc8b6/RichOS.app, data folder /Users/admin/testvm/walk-5028f74bc8b6/home/Library/Application Support/com.richos.app
+2026-10-08T09:13:41Z the flight page is ready
+2026-10-08T09:13:41Z the bar page is ready
+2026-10-08T09:13:41Z the menu page is ready
+2026-10-08T09:13:52Z listening (injected wav (/Users/admin/testvm/walk-5028f74bc8b6/home/dictation-sample.wav))
+2026-10-08T09:13:52Z bar shown: listening at 579,817 523x138
+2026-10-08T09:13:58Z bar shown: writing at 692,817 296x138
+2026-10-08T09:14:03Z dictation: model large-v3-turbo-q5_0, 6.00 s of audio, written in 5191 ms, pasted, spacing read; into com.apple.TextEdit (from Accessibility), focused element yes (asked system-wide), window yes
+2026-10-08T09:14:03Z the words flew to 211,130 344x13 on the screen at 0,0
+2026-10-08T09:14:03Z bar shown: added at 732,817 216x138
