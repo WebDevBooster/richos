@@ -195,6 +195,13 @@ tauri-plugin-dialog = "2.7.1"
 # framework.
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
+# DICTATION IN ANY APP (src/dictation/, dictation plan rev 2 section 1): NSEvent's system-defined
+# data word for the Apple top row, NSPasteboard for the paste and its restore, NSProcessInfo's
+# activity against App Nap, NSRunningApplication for Finder's desktop. Reached through objc2's
+# runtime and `msg_send!` only, no framework crate and no feature: objc2 0.6.4 is already in the
+# lock beneath tauri, tao and wry (`cargo tree -i objc2`), so this is a direct edge onto an
+# existing node and the Cargo.lock diff adds no [[package]].
+objc2 = "0.6"
 
 # THE REAL DOWNLOAD, WITHOUT A WINDOW. Compiles src/voice_provision.rs by path, exactly as
 # examples/window_placement.rs compiles src/window_geometry.rs, and substitutes only the observer.

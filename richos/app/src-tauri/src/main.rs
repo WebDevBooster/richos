@@ -135,6 +135,12 @@ mod mobile_mac_server;
 mod opener;
 mod emission_trace;
 
+/// **DICTATION IN ANY APP** (`richos-hq/docs/plans/2026-10-08-dictation-anywhere.md`, rev 2).
+/// `dictation/` is the tool's macOS edges (the same executable started with `--richos-dictation`).
+/// Every decision is in `richos_voice::dictation`.
+#[cfg(target_os = "macos")]
+mod dictation;
+
 /// The live UI sink: forwards each spine turn event to the webview as a Tauri event.
 /// This is the ONLY place spine events become UI events — clean output is guaranteed by
 /// the spine (assistant text only), so this layer just relays name + payload verbatim.
@@ -2107,6 +2113,14 @@ fn main() {
     // `generate_context!()` on the line above is compile-generated construction with nothing
     // to fail at run time, which is why one line of `main` is deliberately outside the net.
     startup_alert::install(&context.config().identifier, &compiled_version);
+    // THE DICTATION TOOL (dictation plan section 6): after the alert's panic hook, so a panic is
+    // still recorded, and BEFORE `update_startup::prepare`, so the tool never takes the update
+    // lease, never opens a launch record and never builds the main window.
+    #[cfg(target_os = "macos")]
+    if std::env::args().nth(1).as_deref() == Some(dictation::tool::ARG) {
+        let rest: Vec<String> = std::env::args().skip(2).collect();
+        std::process::exit(dictation::tool::main(context, &rest));
+    }
     if update_startup::identity_probe(&compiled_version) {
         return;
     }
