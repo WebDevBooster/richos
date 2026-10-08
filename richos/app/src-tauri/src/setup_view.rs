@@ -11,6 +11,14 @@
 //! consent copy is [`richos_core::setup::Component::why`], and a test asserts it carries no
 //! slash, no dollar sign, no digit and no mention of Terminal.
 //!
+//! **Two sentences are his, and they and the counter are exempt from that floor.** Once
+//! dictation is there (`richos_core::dictation_ready`), the video tools' line is the CEO's own
+//! setup sentence ([`richos_core::setup::MEDIA_TOOLS_WHY`], "private/local", "$140+/year") and
+//! the download carries his line ([`SETUP_DOWNLOAD_LINE`], "$140+/year"), with the counter ("490
+//! MB of 1.06 GB", [`counter_line`]) beside it. `ui/tests/setup.js` case 2 removes exactly those
+//! three before it checks, compared against these constants so a changed word is not exempt, and
+//! holds every other word on the sheet to the full floor.
+//!
 //! **And it does not imply zero-touch.** RichOS is BYO-Anthropic: `open-items.md` row 3.14
 //! lists it as the second of the three things to settle — *"D removes one setup step of two,
 //! not all of them — RichOS is BYO-Anthropic, so the customer still needs an account and a
@@ -50,6 +58,90 @@ pub const EVENT_SETUP: &str = "richos://setup";
 /// before the button, not in a footnote afterwards.
 pub const SETUP_ACCOUNT_NOTE: &str =
     "You need your own Anthropic account. You can sign in through your browser after setup; I never see your password.";
+
+/// **His line while the speech models download**, as Rich says it on the sheet (round 19, state
+/// 2; the CEO wrote it on 2026-10-07 and approved round 19 on 2026-10-08). Word for word as round
+/// 19 draws it, "about 1 GB" and the thumbs-up included: Iris changed his "a few hundred MB" to
+/// "about 1 GB" because setup fetches both speech models, 1,061,655,396 B together
+/// (`model-pins.json`), and he approved that round.
+///
+/// **Shown only while BOTH speech models are being fetched** (dictation plan revision 2, minor
+/// 10): with one missing the download is 487,614,201 B or 574,041,195 B and "about 1 GB" is
+/// untrue, so the rows and the counter show without it ([`DownloadTally::both_models`]). And
+/// only once dictation is there (`richos_core::dictation_ready`), because it promises Wispr Flow
+/// is no longer needed.
+pub const SETUP_DOWNLOAD_LINE: &str = "Sit tight, we need to download about 1 GB of local voice AI so that you can just talk to Rich instead of typing. This will save you $140+/year👍 because you won't need Wispr Flow with this setup.";
+
+/// The voice row while the downloaded files are hashed against their pins (round 19, state 2).
+pub const COUNTER_CHECKING: &str = "Checking\u{2026}";
+
+/// **What the voice and video tools row counts**: everything this Mac is actually fetching for
+/// them, summed (dictation plan revision 2, section 2 row 2), so the row says "490 MB of 1.06 GB"
+/// for the whole download rather than a percent of one model.
+///
+/// The parts are the speech models still missing, in the order they are fetched (the one voice
+/// hears with, then the transcription model), each at its pinned size, and yt-dlp's bytes when
+/// it was fetched in this run (about 3 MB; already received by the time a model starts, because
+/// it comes first). A model's own event says how much of IT is on disk (`received`, a resumed
+/// partial included), so the bytes in hand are yt-dlp, every model before it in the order, and
+/// its own.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DownloadTally {
+    models: Vec<(String, u64)>,
+    tools_bytes: u64,
+}
+
+impl DownloadTally {
+    /// `models`: the missing models in fetch order with their pinned bytes; a model named twice
+    /// is counted once. `tools_bytes`: yt-dlp's size when it was fetched now, else 0.
+    pub fn new(models: Vec<(String, u64)>, tools_bytes: u64) -> Self {
+        let mut unique: Vec<(String, u64)> = Vec::new();
+        for (id, bytes) in models {
+            if !unique.iter().any(|(seen, _)| *seen == id) {
+                unique.push((id, bytes));
+            }
+        }
+        DownloadTally { models: unique, tools_bytes }
+    }
+
+    /// Every byte this download brings.
+    pub fn total(&self) -> u64 {
+        self.tools_bytes + self.models.iter().map(|(_, b)| b).sum::<u64>()
+    }
+
+    /// The bytes in hand when `model_id` has `received` of its own. A model this tally does not
+    /// name (the voice panel's own download) counts nothing of its own.
+    pub fn received(&self, model_id: &str, received: u64) -> u64 {
+        let mut before = self.tools_bytes;
+        for (id, bytes) in &self.models {
+            if id == model_id {
+                return before + received.min(*bytes);
+            }
+            before += bytes;
+        }
+        self.tools_bytes
+    }
+
+    /// Whether this download fetches both speech models: the one case [`SETUP_DOWNLOAD_LINE`]'s
+    /// "about 1 GB" is true of.
+    pub fn both_models(&self) -> bool {
+        self.models.len() >= 2
+    }
+}
+
+/// The voice row's counter, as round 19 draws it: "490 MB of 1.06 GB". Decimal units (a
+/// megabyte is 1,000,000 B, a gigabyte 1,000,000,000 B), the bytes in hand in whole megabytes,
+/// the whole in gigabytes to two places from 1 GB up and in whole megabytes below it (one model
+/// alone is "of 574 MB").
+pub fn counter_line(received: u64, total: u64) -> String {
+    let megabytes = |b: u64| format!("{} MB", (b + 500_000) / 1_000_000);
+    let whole = if total >= 1_000_000_000 {
+        format!("{:.2} GB", total as f64 / 1_000_000_000.0)
+    } else {
+        megabytes(total)
+    };
+    format!("{} of {whole}", megabytes(received.min(total)))
+}
 
 /// The sentence a build with no engine pin shows INSTEAD of a button.
 ///
@@ -159,6 +251,43 @@ pub struct SetupProgress {
     pub kind: Option<&'static str>,
     /// Whether his Mac is unchanged. Only meaningful with `state == "failed"`.
     pub machine_unchanged: Option<bool>,
+    /// **The voice and video tools' download, summed** ([`DownloadTally`]): the bytes in hand
+    /// and the whole, on the model download's own progress lines only. `None` on every other
+    /// line.
+    pub received: Option<u64>,
+    pub of: Option<u64>,
+    /// The voice row's words for it: [`counter_line`], or [`COUNTER_CHECKING`] while the file is
+    /// hashed against its pin.
+    pub counter: Option<String>,
+    /// Whether this download fetches both speech models, the one case his download line is
+    /// shown in ([`SETUP_DOWNLOAD_LINE`]).
+    pub both_models: Option<bool>,
+}
+
+impl SetupProgress {
+    /// A line with no download counter, which is every line but the model download's progress.
+    fn line(
+        state: &'static str,
+        component: Option<&'static str>,
+        what: String,
+        index: usize,
+        total: usize,
+    ) -> Self {
+        SetupProgress {
+            state,
+            component,
+            what,
+            index,
+            total,
+            detail: None,
+            kind: None,
+            machine_unchanged: None,
+            received: None,
+            of: None,
+            counter: None,
+            both_models: None,
+        }
+    }
 }
 
 fn emit(app: &AppHandle, p: SetupProgress) {
@@ -241,15 +370,8 @@ pub fn start_video_tools_download(app: &AppHandle) -> bool {
     let app = app.clone();
     let spawned = std::thread::Builder::new().name("video-tools-download".into()).spawn(move || {
         let running = Downloading;
-        let step = |state, what: String| SetupProgress {
-            state,
-            component: Some(Component::MediaTools.as_str()),
-            what,
-            index: 1,
-            total: 1,
-            detail: None,
-            kind: None,
-            machine_unchanged: None,
+        let step = |state, what: String| {
+            SetupProgress::line(state, Some(Component::MediaTools.as_str()), what, 1, 1)
         };
         emit_from(&app, step("started", started_line(Component::MediaTools)), true);
         let home = SetupPaths::from_process().home;
@@ -350,6 +472,13 @@ pub struct SetupAsk {
     pub can_install: bool,
     /// Why not, when `can_install` is false — the CEO-facing sentence, not a code.
     pub cannot_install_reason: Option<String>,
+    /// **Dictation is there** (`richos_core::dictation_ready`): the window draws round 19's
+    /// sheet (states 1 to 3: the setup, the progress rows with the counter, "You're all set."
+    /// with Start) and Rich's offer after it (state 4). `false` draws the sheet as it was.
+    pub dictation: bool,
+    /// [`SETUP_DOWNLOAD_LINE`] when `dictation`, else `None`. The window shows it only while a
+    /// download line says both speech models are being fetched (`both_models`).
+    pub download_line: Option<&'static str>,
 }
 
 /// One row of the consent sheet.
@@ -376,16 +505,35 @@ pub fn view_with(status: &SetupStatus, downloading: bool) -> serde_json::Value {
         "status": status,
         "ask": ask_for_with(status, downloading),
         "complete": sheet_needs(status, downloading).is_empty(),
+        // So a sheet that opens mid-download draws the voice row as counting at once.
+        "downloading": downloading,
     })
 }
 
 /// Turn a status into the sheet's contents, for a stated download state: the video tools are not
-/// on the sheet while their background download runs.
+/// on the sheet while their background download runs, until dictation is there.
 pub fn ask_for_with(status: &SetupStatus, downloading: bool) -> SetupAsk {
+    ask_for_gated(status, downloading, richos_core::dictation_ready())
+}
+
+/// [`ask_for_with`] with the dictation gate stated.
+///
+/// **ONCE DICTATION IS THERE, THE SHEET LISTS THE VIDEO TOOLS EVEN WHILE THEY DOWNLOAD**
+/// (dictation plan revision 2, section 2 row 1): the sheet is consent copy, and he is told what is
+/// being installed. Only on a sheet that asks for something else: with Claude Code and the engine
+/// in, nothing opens a sheet for a download already running, exactly as before. Listing them
+/// changes nothing a press waits for: `can_install` and `complete` still come from
+/// [`sheet_needs`], and a press never waits for them ([`foreground_steps`]).
+pub fn ask_for_gated(status: &SetupStatus, downloading: bool, dictation: bool) -> SetupAsk {
     let needs = sheet_needs(status, downloading);
-    let items = needs
+    let listed = if dictation && !needs.is_empty() { status.needs() } else { needs.clone() };
+    let items = listed
         .iter()
-        .map(|c| SetupAskItem { component: c.as_str(), name: c.display_name(), why: c.why() })
+        .map(|c| SetupAskItem {
+            component: c.as_str(),
+            name: c.display_name_for(dictation),
+            why: c.why_for(dictation),
+        })
         .collect();
     let blocked = status.blocked();
     SetupAsk {
@@ -393,6 +541,8 @@ pub fn ask_for_with(status: &SetupStatus, downloading: bool) -> SetupAsk {
         account_note: SETUP_ACCOUNT_NOTE,
         can_install: !needs.is_empty() && !blocked,
         cannot_install_reason: blocked.then(|| SETUP_UNPINNED_NOTE.to_string()),
+        dictation,
+        download_line: dictation.then_some(SETUP_DOWNLOAD_LINE),
     }
 }
 
@@ -433,16 +583,7 @@ pub fn run(
         let index = i + 1;
         emit(
             app,
-            SetupProgress {
-                state: "started",
-                component: Some(component.as_str()),
-                what: started_line(*component),
-                index,
-                total,
-                detail: None,
-                kind: None,
-                machine_unchanged: None,
-            },
+            SetupProgress::line("started", Some(component.as_str()), started_line(*component), index, total),
         );
 
         let outcome: Result<String, SetupError> = match component {
@@ -496,19 +637,7 @@ pub fn run(
         };
 
         match outcome {
-            Ok(what) => emit(
-                app,
-                SetupProgress {
-                    state: "done",
-                    component: Some(component.as_str()),
-                    what,
-                    index,
-                    total,
-                    detail: None,
-                    kind: None,
-                    machine_unchanged: None,
-                },
-            ),
+            Ok(what) => emit(app, SetupProgress::line("done", Some(component.as_str()), what, index, total)),
             Err(e) => {
                 emit_failure(app, *component, index, total, &e);
                 // STOP. A half-set-up machine that reports two successes and works for
@@ -526,20 +655,20 @@ pub fn run(
     emit(
         app,
         SetupProgress {
-            state: "finished",
-            component: None,
-            what: if sheet_needs(&after, video_tools_downloading()).is_empty() {
-                "The software is installed. Connect your account to start working.".to_string()
-            } else {
-                // Reached only if something removed a component between the install and this
-                // line. It is still not reported as a success.
-                "Something is still missing.".to_string()
-            },
-            index: total,
-            total,
-            detail: None,
-            kind: None,
             machine_unchanged: Some(true),
+            ..SetupProgress::line(
+                "finished",
+                None,
+                if sheet_needs(&after, video_tools_downloading()).is_empty() {
+                    "The software is installed. Connect your account to start working.".to_string()
+                } else {
+                    // Reached only if something removed a component between the install and this
+                    // line. It is still not reported as a success.
+                    "Something is still missing.".to_string()
+                },
+                total,
+                total,
+            )
         },
     );
     Ok(after)
@@ -557,14 +686,16 @@ fn emit_failure(
 
 fn failure(component: Component, index: usize, total: usize, e: &SetupError) -> SetupProgress {
     SetupProgress {
-        state: "failed",
-        component: Some(component.as_str()),
-        what: format!("{} could not be installed.", component.display_name()),
-        index,
-        total,
         detail: Some(e.to_string()),
         kind: Some(e.kind()),
         machine_unchanged: Some(e.machine_unchanged()),
+        ..SetupProgress::line(
+            "failed",
+            Some(component.as_str()),
+            format!("{} could not be installed.", component.display_name()),
+            index,
+            total,
+        )
     }
 }
 
@@ -605,11 +736,17 @@ fn install_media_tools(
 
     let home = home.ok_or(SetupError::NoHome)?;
     let tools = media_tools::tools_dir(home);
+    // yt-dlp's bytes when it is fetched in this run, for the voice row's counter.
+    let mut tools_bytes = 0;
     match media_tools::installed(&tools) {
         Some(i) => eprintln!("[richos] setup: yt-dlp nightly {} already installed", i.tag),
         None => match media_tools::refresh_with_curl(&tools)? {
             media_tools::Refreshed::Installed { tag, sha256, .. } => {
-                eprintln!("[richos] setup: yt-dlp nightly {tag} installed — sha256 {sha256}")
+                eprintln!("[richos] setup: yt-dlp nightly {tag} installed — sha256 {sha256}");
+                tools_bytes = media_tools::installed(&tools)
+                    .and_then(|i| std::fs::metadata(&i.file).ok())
+                    .map(|m| m.len())
+                    .unwrap_or(0);
             }
             media_tools::Refreshed::Unchanged { tag } => {
                 eprintln!("[richos] setup: yt-dlp nightly {tag} already the newest")
@@ -617,21 +754,48 @@ fn install_media_tools(
         },
     }
 
-    let observer = SetupModelObserver { app: app.clone(), index, total };
+    // WHAT THIS MAC FETCHES, decided before the first byte, so the counter's whole is right from
+    // its first line: the models missing now, in the order they are fetched below.
+    let voice_missing = stt::voice_model_installed().map_err(|why| (voice_model_to_fetch(), why));
+    let transcription_missing = stt::model_verified(stt::TRANSCRIPTION_MODEL_ID).err();
+    let mut fetching = Vec::new();
+    if let Err((id, _)) = &voice_missing {
+        fetching.push(id.clone());
+    }
+    if transcription_missing.is_some() {
+        fetching.push(stt::TRANSCRIPTION_MODEL_ID.to_string());
+    }
+    let tally = DownloadTally::new(
+        fetching
+            .into_iter()
+            .map(|id| {
+                let bytes = richos_voice::provision::pin_for(&id).map(|p| p.bytes).unwrap_or(0);
+                (id, bytes)
+            })
+            .collect(),
+        tools_bytes,
+    );
+    eprintln!(
+        "[richos] setup: the voice and video tools download brings {} bytes ({})",
+        tally.total(),
+        if tally.both_models() { "both speech models" } else { "not both speech models" }
+    );
+
+    let observer = SetupModelObserver { app: app.clone(), index, total, tally };
     let state = crate::ensure_model_fetch_state(app);
 
     // 1. THE MODEL VOICE HEARS WITH, first: with only the large model installed, voice would take
     //    it whatever its speed (the ladder always accepts its last installed rung).
-    match stt::voice_model_installed() {
+    match voice_missing {
         Ok(id) => eprintln!("[richos] setup: voice speech model {id} already installed and verified"),
-        Err(why) => {
-            let id = voice_model_to_fetch();
+        Err((id, why)) => {
             eprintln!("[richos] setup: voice speech model missing ({why}); fetching {id}");
             fetch_verified(&observer, &state, &id)?;
         }
     }
 
-    // 2. THE TRANSCRIPTION MODEL, whatever voice chose (the CEO, 2026-10-07: "Both").
+    // 2. THE TRANSCRIPTION MODEL, whatever voice chose (the CEO, 2026-10-07: "Both"). Asked again
+    //    rather than taken from above: voice's fetch may have been this very model.
     let id = stt::TRANSCRIPTION_MODEL_ID;
     match stt::model_verified(id) {
         Ok(path) => eprintln!("[richos] setup: transcription model {id} already installed and verified at {}", path.display()),
@@ -740,6 +904,8 @@ struct SetupModelObserver {
     app: AppHandle,
     index: usize,
     total: usize,
+    /// What this download brings in all, for the voice row's counter.
+    tally: DownloadTally,
 }
 
 impl crate::voice_provision::ModelObserver for SetupModelObserver {
@@ -750,31 +916,43 @@ impl crate::voice_provision::ModelObserver for SetupModelObserver {
         if let Err(e) = self.app.emit(name, payload.clone()) {
             eprintln!("[richos] setup: the voice panel missed a model event ({e})");
         }
-        let phase = payload.get("phase").and_then(|p| p.as_str()).unwrap_or("");
-        let received = payload.get("received").and_then(|v| v.as_u64()).unwrap_or(0);
-        let whole = payload.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-        let what = match phase {
-            "started" | "progress" if whole > 0 => {
-                format!("{} {}%", started_line(Component::MediaTools), received.saturating_mul(100) / whole)
-            }
-            "verifying" => format!("{} 100%", started_line(Component::MediaTools)),
-            _ => return,
-        };
-        emit_from(
-            &self.app,
-            SetupProgress {
-                state: "started",
-                component: Some(Component::MediaTools.as_str()),
-                what,
-                index: self.index,
-                total: self.total,
-                detail: None,
-                kind: None,
-                machine_unchanged: None,
-            },
-            true,
-        );
+        if let Some(line) = model_progress(&self.tally, &payload, self.index, self.total) {
+            emit_from(&self.app, line, true);
+        }
     }
+}
+
+/// **One model event as the setup step's progress line**, or `None` for an event that is not
+/// progress. The line keeps its words ("Getting my video tools. 43%", that model's own share) and
+/// carries the whole download summed for the voice row ([`DownloadTally`]): `received` and `of`,
+/// the counter's words, and whether both speech models are being fetched. While the file is
+/// hashed against its pin the counter says [`COUNTER_CHECKING`].
+fn model_progress(
+    tally: &DownloadTally,
+    payload: &serde_json::Value,
+    index: usize,
+    total: usize,
+) -> Option<SetupProgress> {
+    let phase = payload.get("phase").and_then(|p| p.as_str()).unwrap_or("");
+    let model_id = payload.get("modelId").and_then(|v| v.as_str()).unwrap_or("");
+    let received = payload.get("received").and_then(|v| v.as_u64()).unwrap_or(0);
+    let whole = payload.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+    let (what, counter) = match phase {
+        "started" | "progress" if whole > 0 => (
+            format!("{} {}%", started_line(Component::MediaTools), received.saturating_mul(100) / whole),
+            None,
+        ),
+        "verifying" => (format!("{} 100%", started_line(Component::MediaTools)), Some(COUNTER_CHECKING.to_string())),
+        _ => return None,
+    };
+    let (sum, of) = (tally.received(model_id, received), tally.total());
+    Some(SetupProgress {
+        received: Some(sum),
+        of: Some(of),
+        counter: Some(counter.unwrap_or_else(|| counter_line(sum, of))),
+        both_models: Some(tally.both_models()),
+        ..SetupProgress::line("started", Some(Component::MediaTools.as_str()), what, index, total)
+    })
 }
 
 #[cfg(test)]
@@ -833,7 +1011,7 @@ mod tests {
         let ask = ask_for_with(&st, false);
         let items: Vec<&str> = ask.items.iter().map(|i| i.component).collect();
         assert_eq!(items, vec!["media-tools"]);
-        assert_eq!(ask.items[0].name, "my video tools");
+        assert_eq!(ask.items[0].name, Component::MediaTools.display_name());
         assert!(ask.can_install, "the video tools are always installable");
         assert!(!view_with(&st, false)["complete"].as_bool().unwrap(), "setup is not complete without them");
         // An unpinned build still offers them when the engine is already there.
@@ -960,5 +1138,128 @@ mod tests {
             assert!(!line.contains('~'), "{line}");
             assert!(!line.chars().any(|ch| ch.is_ascii_digit()), "{line}");
         }
+    }
+
+    // --- the dictation plan's slice 4: round 19, states 1 to 3 ---------------------------------
+
+    const SMALL: (&str, u64) = ("small.en", 487_614_201);
+    const LARGE: (&str, u64) = ("large-v3-turbo-q5_0", 574_041_195);
+
+    fn tally(models: &[(&str, u64)], tools: u64) -> DownloadTally {
+        DownloadTally::new(models.iter().map(|(id, b)| (id.to_string(), *b)).collect(), tools)
+    }
+
+    /// **HIS DOWNLOAD LINE, WORD FOR WORD** as round 19 draws it ("about 1 GB" and the thumbs-up
+    /// included), Rich's line while the speech models download.
+    #[test]
+    fn his_download_line_is_word_for_word() {
+        assert_eq!(
+            SETUP_DOWNLOAD_LINE,
+            "Sit tight, we need to download about 1 GB of local voice AI so that you can just talk to Rich instead of typing. This will save you $140+/year👍 because you won't need Wispr Flow with this setup."
+        );
+        assert_eq!(COUNTER_CHECKING, "Checking…");
+    }
+
+    /// **THE VOICE ROW COUNTS THE WHOLE DOWNLOAD** (dictation plan revision 2, section 2 row 2):
+    /// yt-dlp and every missing speech model, summed, in round 19's words.
+    #[test]
+    fn the_counter_sums_what_this_mac_fetches_in_megabytes_and_gigabytes() {
+        let both = tally(&[SMALL, LARGE], 3_000_000);
+        assert_eq!(both.total(), 3_000_000 + 487_614_201 + 574_041_195);
+        // The first model's own bytes, after yt-dlp.
+        assert_eq!(both.received("small.en", 100), 3_000_100);
+        // The second model's, after yt-dlp and the whole first model.
+        assert_eq!(both.received("large-v3-turbo-q5_0", 1_000), 3_000_000 + 487_614_201 + 1_000);
+        // A model's received never counts past its pinned size, and a model the tally does not
+        // name adds nothing of its own.
+        assert_eq!(both.received("small.en", u64::MAX), 3_000_000 + 487_614_201);
+        assert_eq!(both.received("tiny.en", 5), 3_000_000);
+        // A model named twice is fetched, and counted, once.
+        assert_eq!(tally(&[SMALL, SMALL], 0).total(), 487_614_201);
+
+        // Round 19's own reading, and the ends of the range.
+        assert_eq!(counter_line(490_000_000, 1_061_655_396), "490 MB of 1.06 GB");
+        assert_eq!(counter_line(0, 1_064_655_396), "0 MB of 1.06 GB");
+        assert_eq!(counter_line(1_064_655_396, 1_064_655_396), "1065 MB of 1.06 GB");
+        assert_eq!(counter_line(489_500_000, 1_061_655_396), "490 MB of 1.06 GB", "rounded, not truncated");
+        // Below 1 GB the whole is in megabytes: one model alone.
+        assert_eq!(counter_line(100_000_000, 574_041_195), "100 MB of 574 MB");
+        assert_eq!(counter_line(200_000_000, 487_614_201), "200 MB of 488 MB");
+    }
+
+    /// **HIS LINE ONLY WHILE BOTH SPEECH MODELS ARE FETCHED** (minor 10): with one missing,
+    /// "about 1 GB" is untrue, so the progress lines say so and the window leaves it out. The
+    /// counter rides on every progress line, and says "Checking…" while the file is hashed.
+    #[test]
+    fn the_progress_line_carries_the_sum_and_whether_both_models_are_fetched() {
+        let event = |phase: &str, id: &str, received: u64, total: u64| {
+            serde_json::json!({ "phase": phase, "modelId": id, "received": received, "total": total })
+        };
+        let both = tally(&[SMALL, LARGE], 0);
+        assert!(both.both_models());
+        let line = model_progress(&both, &event("progress", "large-v3-turbo-q5_0", 2_385_195, LARGE.1), 1, 1).unwrap();
+        assert_eq!(line.both_models, Some(true));
+        assert_eq!(line.received, Some(487_614_201 + 2_385_195));
+        assert_eq!(line.of, Some(1_061_655_396));
+        assert_eq!(line.counter.as_deref(), Some("490 MB of 1.06 GB"));
+        assert_eq!(line.component, Some("media-tools"));
+        assert_eq!(line.state, "started");
+        // The words stay that model's own share, as before.
+        assert!(line.what.ends_with(" 0%"), "{}", line.what);
+
+        for one in [tally(&[SMALL], 0), tally(&[LARGE], 3_000_000), tally(&[], 3_000_000)] {
+            assert!(!one.both_models());
+        }
+        let one = tally(&[LARGE], 0);
+        let line = model_progress(&one, &event("started", "large-v3-turbo-q5_0", 0, LARGE.1), 1, 1).unwrap();
+        assert_eq!(line.both_models, Some(false));
+        assert_eq!(line.counter.as_deref(), Some("0 MB of 574 MB"));
+
+        let checking = model_progress(&both, &event("verifying", "large-v3-turbo-q5_0", LARGE.1, LARGE.1), 1, 1).unwrap();
+        assert_eq!(checking.counter.as_deref(), Some("Checking…"));
+        assert_eq!(checking.received, Some(1_061_655_396));
+        // Not progress: nothing to relay (installed, failed, a started with no size).
+        assert!(model_progress(&both, &event("installed", "small.en", SMALL.1, SMALL.1), 1, 1).is_none());
+        assert!(model_progress(&both, &event("failed", "small.en", 0, SMALL.1), 1, 1).is_none());
+        assert!(model_progress(&both, &event("started", "small.en", 0, 0), 1, 1).is_none());
+        // Every other line carries no counter.
+        let plain = SetupProgress::line("done", Some("engine"), "Your engine is installed.".into(), 2, 2);
+        assert_eq!((plain.received, plain.of, plain.counter, plain.both_models), (None, None, None, None));
+    }
+
+    /// **ONCE DICTATION IS THERE, THE SHEET IS ROUND 19'S** (section 2 row 1): his name and line
+    /// for the video tools, and the video tools listed even while they download, because the
+    /// sheet is consent copy; nothing a press waits for changes. Until then, the sheet as it was.
+    #[test]
+    fn once_dictation_is_there_the_sheet_lists_the_video_tools_while_they_download() {
+        let fresh = status_with_video_tools(false, false, true, false);
+        let on = ask_for_gated(&fresh, true, true);
+        let names: Vec<&str> = on.items.iter().map(|i| i.component).collect();
+        assert_eq!(names, vec!["claude-code", "engine", "media-tools"]);
+        assert_eq!(on.items[2].name, richos_core::setup::MEDIA_TOOLS_NAME);
+        assert_eq!(on.items[2].why, richos_core::setup::MEDIA_TOOLS_WHY);
+        assert!(on.can_install);
+        assert!(on.dictation);
+        assert_eq!(on.download_line, Some(SETUP_DOWNLOAD_LINE));
+        // A press still waits for Claude Code and the engine only.
+        assert_eq!(foreground_steps(&sheet_needs(&fresh, true)), vec![Component::ClaudeCode, Component::Engine]);
+
+        // Off: exactly the sheet as it was.
+        let off = ask_for_gated(&fresh, true, false);
+        let names: Vec<&str> = off.items.iter().map(|i| i.component).collect();
+        assert_eq!(names, vec!["claude-code", "engine"]);
+        assert!(!off.dictation);
+        assert_eq!(off.download_line, None);
+        let not_downloading = ask_for_gated(&fresh, false, false);
+        assert_eq!(not_downloading.items[2].name, "my video tools");
+
+        // With Claude Code and the engine in, a running download opens no sheet, on or off.
+        let lease_ready = status_with_video_tools(true, true, true, false);
+        assert!(ask_for_gated(&lease_ready, true, true).items.is_empty());
+        assert!(!ask_for_gated(&lease_ready, true, true).can_install);
+        // Not downloading (the launch's download failed): offered alone, under his name.
+        let alone = ask_for_gated(&lease_ready, false, true);
+        assert_eq!(alone.items.len(), 1);
+        assert_eq!(alone.items[0].name, "my voice and video tools");
     }
 }

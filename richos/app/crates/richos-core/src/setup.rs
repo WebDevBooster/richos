@@ -587,19 +587,54 @@ pub enum Component {
     MediaTools,
 }
 
+/// **His name for the video tools step**, from round 19 (the CEO, 2026-10-08: *"I'm already seeing
+/// it as "My voice and video tools" there. So, yes, keep that."*). The sheet capitalizes it.
+pub const MEDIA_TOOLS_NAME: &str = "my voice and video tools";
+
+/// **His line for that step, verbatim**: the CEO's setup sentence (2026-10-08) after its colon,
+/// *"My voice and video tools: the tools I use to watch and download videos for you. Plus, it gives
+/// you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year👍 and allows
+/// you to talk instead of typing anywhere on this computer."* It carries a slash and a dollar sign,
+/// so it is the one consent line exempt from the sheet's no-path, no-dollar floor, and the
+/// exemption is declared where that floor is checked (`ui/tests/setup.js` case 2), compared
+/// against this constant so a changed word is not exempt.
+///
+/// **It no longer mentions the refreshes.** The line it replaces ended "which I keep up to date
+/// myself", and that clause was the one ask for yt-dlp's silent refreshes (media-tools plan Q1,
+/// option A). His line drops it, and his text is used exactly as he wrote it. The refreshes are
+/// unchanged (`media_tools.rs` still keeps yt-dlp current by itself, as Q1 decided); the sheet
+/// just no longer says so.
+pub const MEDIA_TOOLS_WHY: &str = "the tools I use to watch and download videos for you. Plus, it gives you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year👍 and allows you to talk instead of typing anywhere on this computer.";
+
 impl Component {
-    /// The name the CEO sees. Plain text, no mark — the license's fourth condition.
+    /// The name the CEO sees. Plain text, no mark — the license's fourth condition. The video
+    /// tools take his name, [`MEDIA_TOOLS_NAME`], only once dictation is there to stand behind it
+    /// ([`crate::dictation_ready`]).
     pub fn display_name(self) -> &'static str {
+        self.display_name_for(crate::dictation_ready())
+    }
+
+    /// [`Self::display_name`] with the dictation gate stated, so both names are unit tests.
+    pub fn display_name_for(self, dictation: bool) -> &'static str {
         match self {
             Component::ClaudeCode => "Claude Code",
             Component::Engine => "the RichOS engine",
+            Component::MediaTools if dictation => MEDIA_TOOLS_NAME,
             Component::MediaTools => "my video tools",
         }
     }
 
-    /// **What it is for, in his language, with no path and no version number.** This is the
-    /// consent copy: he is told what is about to be installed and why, once.
+    /// **What it is for, in his language.** This is the consent copy: he is told what is about to
+    /// be installed and why, once. No path and no version number, except his own line for the
+    /// video tools ([`MEDIA_TOOLS_WHY`]), shown once dictation is there ([`crate::dictation_ready`]):
+    /// it promises talking instead of typing anywhere, so it must not reach a nightly before that
+    /// is true.
     pub fn why(self) -> &'static str {
+        self.why_for(crate::dictation_ready())
+    }
+
+    /// [`Self::why`] with the dictation gate stated.
+    pub fn why_for(self, dictation: bool) -> &'static str {
         match self {
             Component::ClaudeCode => {
                 "the program I think with. It comes from Anthropic and installs itself; \
@@ -608,8 +643,10 @@ impl Component {
             Component::Engine => {
                 "the part of me that knows how I work: my instructions and my team."
             }
-            // The plan's consent line, verbatim (§2). It is the one ask for yt-dlp's silent
-            // refreshes afterwards (plan Q1, option A).
+            Component::MediaTools if dictation => MEDIA_TOOLS_WHY,
+            // The media-tools plan's consent line, verbatim (§2), until dictation is there. It is
+            // the one ask for yt-dlp's silent refreshes afterwards (plan Q1, option A); his line
+            // above drops that clause.
             Component::MediaTools => {
                 "the tools I use to watch, hear and download videos for you, which I keep up to \
                  date myself."

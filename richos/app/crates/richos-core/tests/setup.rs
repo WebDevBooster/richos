@@ -333,19 +333,44 @@ fn the_video_tools_with_no_home_name_nowhere_rather_than_nothing() {
     let status = find_media_tools(&SetupPaths::default(), &a_speech_model);
     assert!(!status.present);
     assert_eq!(status.looked_in.len(), 1, "{:?}", status.looked_in);
-    assert!(status.looked_in[0].contains("my video tools"), "{:?}", status.looked_in);
+    assert!(status.looked_in[0].contains(Component::MediaTools.display_name()), "{:?}", status.looked_in);
 }
 
-/// **THE CONSENT LINE IS THE PLAN'S, AND MEETS THE SHEET'S FLOOR**: no path, no digit, no
-/// terminal (the same rule `setup_view.rs` holds the other two components to).
+/// **UNTIL DICTATION IS THERE, THE CONSENT LINE IS THE MEDIA-TOOLS PLAN'S, AND MEETS THE SHEET'S
+/// FLOOR**: no path, no digit, no terminal (the same rule `setup_view.rs` holds the other two
+/// components to). `DICTATION_READY` is false until slice 5, so it is also what ships today.
 #[test]
 fn the_video_tools_consent_line_is_the_plans() {
-    assert_eq!(Component::MediaTools.display_name(), "my video tools");
+    assert_eq!(Component::MediaTools.display_name_for(false), "my video tools");
     assert_eq!(
-        Component::MediaTools.why(),
+        Component::MediaTools.why_for(false),
         "the tools I use to watch, hear and download videos for you, which I keep up to date myself."
     );
     assert_eq!(Component::MediaTools.as_str(), "media-tools");
+    assert_eq!(
+        Component::MediaTools.display_name(),
+        Component::MediaTools.display_name_for(richos_core::dictation_ready())
+    );
+}
+
+/// **ONCE DICTATION IS THERE, THE STEP IS HIS, WORD FOR WORD** (round 19, the CEO, 2026-10-08):
+/// *"My voice and video tools: the tools I use to watch and download videos for you. Plus, it
+/// gives you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year👍 and
+/// allows you to talk instead of typing anywhere on this computer."* The sheet renders the name,
+/// capitalized, then the line, so the two together are his sentence.
+#[test]
+fn the_voice_and_video_tools_step_is_his_sentence_word_for_word() {
+    let his = "My voice and video tools: the tools I use to watch and download videos for you. Plus, it gives you a free & private/local replacement for Wispr Flow. So, it saves you $140+/year👍 and allows you to talk instead of typing anywhere on this computer.";
+    assert_eq!(Component::MediaTools.display_name_for(true), "my voice and video tools");
+    assert_eq!(Component::MediaTools.why_for(true), richos_core::setup::MEDIA_TOOLS_WHY);
+    let name = Component::MediaTools.display_name_for(true);
+    let rendered = format!("{}{}: {}", name[..1].to_uppercase(), &name[1..], Component::MediaTools.why_for(true));
+    assert_eq!(rendered, his);
+    // The other two steps keep their copy either way.
+    for c in [Component::ClaudeCode, Component::Engine] {
+        assert_eq!(c.display_name_for(true), c.display_name_for(false));
+        assert_eq!(c.why_for(true), c.why_for(false));
+    }
 }
 
 /// **A FETCHED ENGINE IS FOUND WHERE IT WAS PUT.** The install location and the resolver's

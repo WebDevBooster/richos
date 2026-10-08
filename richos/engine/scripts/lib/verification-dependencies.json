@@ -14647,12 +14647,6 @@
         },
         {
           "root": "repository",
-          "path": "richos/app/scripts/lib/runtime_cache.py",
-          "sha256": "a6ebf2fba093e53540f69610cd99b9b465c414949bf1c335d88e0bc385cd716c",
-          "evidence": "Imported by proof-run.py supply_runtime and nightly-local.py Runner.runtime_path: hashes the bytes of runtime-sources.json to name the nightly's recipe-keyed runtime cache directory, and (gui_speech_models) checks whether ~/Models/Whisper/ggml-small.en.bin and ggml-large-v3-turbo-q5_0.bin under HOME are files, the speech models gui-boot's fixture needs. Stdlib only; reads no configuration and no file contents."
-        },
-        {
-          "root": "repository",
           "path": "richos/app/scripts/lib/rerun_tree.py",
           "sha256": "139649a8a41a954f7a371824db72537277cb76abf5083912914e5c69b822a101",
           "evidence": "Imported by proof-run.py write_rerun when a check starts: reads the checkout's tree with git (a scratch index, add -A, write-tree) and copies itself beside the run's rerun files. Stdlib only; reads no configuration."
@@ -14782,6 +14776,12 @@
           "path": "richos/app/scripts/lib/cargo_identity.py",
           "sha256": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
           "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/runtime_cache.py",
+          "sha256": "1795b481afe2193c7432dc22d9ff9571b0b5a47475ded48e2c0317ed05c60c49",
+          "evidence": "Imported by proof-run.py supply_runtime and nightly-local.py Runner.runtime_path: hashes the bytes of runtime-sources.json to name the nightly's recipe-keyed runtime cache directory, and (gui_speech_models) checks whether ~/Models/Whisper/ggml-small.en.bin and ggml-large-v3-turbo-q5_0.bin under HOME are files, the speech models gui-boot's fixture needs. Stdlib only; reads no configuration and no file contents."
         }
       ]
     },
@@ -14878,12 +14878,6 @@
         },
         {
           "root": "repository",
-          "path": "richos/app/scripts/lib/runtime_cache.py",
-          "sha256": "a6ebf2fba093e53540f69610cd99b9b465c414949bf1c335d88e0bc385cd716c",
-          "evidence": "Imported by proof-run.py supply_runtime and nightly-local.py Runner.runtime_path: hashes the bytes of runtime-sources.json to name the nightly's recipe-keyed runtime cache directory, and (gui_speech_models) checks whether ~/Models/Whisper/ggml-small.en.bin and ggml-large-v3-turbo-q5_0.bin under HOME are files, the speech models gui-boot's fixture needs. Stdlib only; reads no configuration and no file contents."
-        },
-        {
-          "root": "repository",
           "path": "richos/app/scripts/lib/rerun_tree.py",
           "sha256": "139649a8a41a954f7a371824db72537277cb76abf5083912914e5c69b822a101",
           "evidence": "Imported by proof-run.py write_rerun when a check starts: reads the checkout's tree with git (a scratch index, add -A, write-tree) and copies itself beside the run's rerun files. Stdlib only; reads no configuration."
@@ -14917,6 +14911,12 @@
           "path": "richos/app/scripts/lib/cargo_identity.py",
           "sha256": "aa27b4bde9896202d4449df61884fc7514dbe78a7e29964125b1d976aa40a6a1",
           "evidence": "Private-output dispatcher used by the bound app runner. Reads Cargo manifests only for its selected workspace or private fixture; fixture imports that do not enter main execute no Cargo command."
+        },
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/runtime_cache.py",
+          "sha256": "1795b481afe2193c7432dc22d9ff9571b0b5a47475ded48e2c0317ed05c60c49",
+          "evidence": "Imported by proof-run.py supply_runtime and nightly-local.py Runner.runtime_path: hashes the bytes of runtime-sources.json to name the nightly's recipe-keyed runtime cache directory, and (gui_speech_models) checks whether ~/Models/Whisper/ggml-small.en.bin and ggml-large-v3-turbo-q5_0.bin under HOME are files, the speech models gui-boot's fixture needs. Stdlib only; reads no configuration and no file contents."
         }
       ]
     },

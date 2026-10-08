@@ -98,6 +98,10 @@ use memory::MemoryStatus;
 /// `richos_core::setup` holds the decisions; this file holds the window's side of them.
 mod setup_view;
 
+/// RICH'S ONE OFFER OF DICTATION after setup (round 19, state 4): whether it may be shown, and
+/// the record that it was, as `offered` in `<data dir>/dictation.json`.
+mod dictation_offer;
+
 /// GETTING THE SPEECH MODEL, so ".github/README.md: Voice does not work yet" can stop being
 /// true. The transport only — every rule about what the bytes are, whether there is room and
 /// whether what arrived is the model RichOS pinned lives in `richos_voice::provision`, which is
@@ -3245,12 +3249,9 @@ fn main() {
                         // what it was; `setup.rs` now guarantees the list is non-empty, and
                         // this prints it a place at a time so a rejection reason (which
                         // carries its own em dash) is legible rather than run together with
-                        // the next path.
-                        eprintln!(
-                            "[richos] first-run setup: {} is NOT installed — {} place(s) looked:",
-                            c.display_name(),
-                            what.looked_in.len()
-                        );
+                        // the next path. It names the component by its machine name
+                        // (`setup_missing_line`), never by the name on the sheet.
+                        eprintln!("{}", setup_missing_line(c, what.looked_in.len()));
                         for place in &what.looked_in {
                             eprintln!("[richos]   looked in {place}");
                         }
@@ -3861,7 +3862,10 @@ fn main() {
             output_files::output_preview,
             output_files::output_open,
             output_files::output_reveal,
-            output_files::output_save_copy
+            output_files::output_save_copy,
+            // --- Rich's one offer of dictation (dictation plan slice 4) — appended ---
+            dictation_offer,
+            dictation_offer_shown
         ])
         .build(context)
         .expect("error while building RichOS")
@@ -5666,6 +5670,22 @@ fn setup_status(state: State<AppState>) -> serde_json::Value {
     setup_view::view(&setup_view::detect(Some(&state.engine_dir.lock().unwrap())))
 }
 
+/// **May Rich offer dictation now?** (round 19, state 4) Dictation is there, the offer was never
+/// made, and which key to name. The window asks after Start, once voice is ready.
+#[tauri::command(async)]
+fn dictation_offer(state: State<AppState>) -> dictation_offer::OfferView {
+    dictation_offer::view(&state.data_dir, richos_core::dictation_ready())
+}
+
+/// **The offer was shown**: `offered: true` in `<data dir>/dictation.json`, so it is never made
+/// again.
+#[tauri::command(async)]
+fn dictation_offer_shown(state: State<AppState>) -> Result<(), String> {
+    dictation_offer::mark_shown(&state.data_dir).inspect_err(|why| {
+        eprintln!("[richos] dictation offer: the offer was shown and could not be recorded: {why}")
+    })
+}
+
 /// **THE CEO PRESSES "Set it up".** Install what is missing, reporting each step on
 /// `richos://setup`, and re-point this session at what was installed.
 ///
@@ -6880,6 +6900,38 @@ mod lease_gate_tests {
                 "the first-run sentence is behind `&& !has_lease_factory()` again, where a \
                  factory that is always configured means it can never be said"
             );
+        }
+    }
+}
+
+/// The boot's line for one missing setup component. **The machine name, never the on-screen
+/// one** (dictation plan revision 2, M8). It printed `display_name()`, so renaming "my video
+/// tools" on the sheet would have broken the nightly gate (`gui-boot.test.sh` B6a and B9a) and
+/// every walk that reads this log. `as_str()` ("claude-code", "engine", "media-tools") is fixed,
+/// so on-screen copy never again reaches a harness through this line.
+fn setup_missing_line(c: richos_core::setup::Component, places: usize) -> String {
+    format!("[richos] first-run setup: {} is NOT installed — {places} place(s) looked:", c.as_str())
+}
+
+#[cfg(test)]
+mod setup_missing_line_tests {
+    use super::setup_missing_line;
+    use richos_core::setup::Component;
+
+    /// INVARIANT: the boot names each missing component by `Component::as_str`, which no copy
+    /// change can move, and never by the name the sheet shows.
+    #[test]
+    fn the_boot_line_names_the_component_by_its_machine_name() {
+        assert_eq!(
+            setup_missing_line(Component::MediaTools, 2),
+            "[richos] first-run setup: media-tools is NOT installed — 2 place(s) looked:"
+        );
+        assert_eq!(
+            setup_missing_line(Component::ClaudeCode, 1),
+            "[richos] first-run setup: claude-code is NOT installed — 1 place(s) looked:"
+        );
+        for c in [Component::ClaudeCode, Component::Engine, Component::MediaTools] {
+            assert!(!setup_missing_line(c, 1).contains(c.display_name()), "{}", c.display_name());
         }
     }
 }

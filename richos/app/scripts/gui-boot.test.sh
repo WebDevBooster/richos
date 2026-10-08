@@ -653,7 +653,7 @@ declare_rules() {
 
   # --- first-run setup, on every path that is not "nothing missing" -----------------------
   refused 'first-run setup missing' \
-    '[richos] first-run setup: Claude Code is NOT installed — looked in: /a; /b' \
+    '[richos] first-run setup: claude-code is NOT installed — looked in: /a; /b' \
     'The counterpart of the `first-run setup` proof. §19 says RichOS "would not run on
        anyone else'"'"'s" Mac; this line is that condition speaking, and a check that accepted
        it would be certifying a machine the product cannot run on.'
@@ -1390,7 +1390,7 @@ break_and_boot "the claude stand-in is removed -> caught"     B6 rm -f  .local/b
 # Require the intended readiness detector, not an unrelated boot failure. The deferred
 # compute-policy line alone must never certify a machine with no executable to connect to.
 if grep -Fq 'NOT RESOLVED  first-run setup' "$TMP/broken-B6.report" \
-  && grep -Fq '[richos] first-run setup: Claude Code is NOT installed' "$TMP/broken-B6.log"; then
+  && grep -Fq '[richos] first-run setup: claude-code is NOT installed' "$TMP/broken-B6.log"; then
   ok "B6a missing Claude is rejected specifically by first-run setup"
 else
   bad "B6a missing Claude is rejected specifically by first-run setup" \
@@ -1399,10 +1399,12 @@ fi
 break_and_boot "the saved company is removed -> caught"       B7 rm -f  "Library/Application Support/com.richos.app/config.json"
 
 # B9 — the video tools, a setup essential since 2026-10-07 (media-tools plan, slice 3). With the
-# speech model gone, setup is incomplete, and it must be first-run setup that says so.
+# speech model gone, setup is incomplete, and it must be first-run setup that says so. The boot
+# line names the component by its machine name (`Component::as_str`, "media-tools"), never by the
+# name on the sheet, so a rename on screen cannot break this check (dictation plan revision 2, M8).
 break_and_boot "the speech model is removed -> caught"        B9 rm -rf .config/richos/models
 if grep -Fq 'NOT RESOLVED  first-run setup' "$TMP/broken-B9.report" \
-  && grep -Fq '[richos] first-run setup: my video tools is NOT installed' "$TMP/broken-B9.log"; then
+  && grep -Fq '[richos] first-run setup: media-tools is NOT installed' "$TMP/broken-B9.log"; then
   ok "B9a a missing speech model is rejected specifically by first-run setup, as the video tools"
 else
   bad "B9a a missing speech model is rejected specifically by first-run setup, as the video tools" \
