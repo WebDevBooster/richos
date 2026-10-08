@@ -255,6 +255,9 @@ for line in lines:
                          **({"invalid": ended[0][1]} if len(ended[0]) > 1 else {})})
         else:
             rows.append({"check": line, "result": "passed", "not_run": None})
+        # Each check that ran has its own log in this run's directory, as the real runner's does.
+        rows[-1]["log"] = str(directory / ("%02d.log" % len(rows)))
+        Path(rows[-1]["log"]).write_text(done.stdout)
 (directory / "outcomes.json").write_text(json.dumps({row["check"]: row for row in rows}))
 if "--summary-out" in sys.argv:
     with open(sys.argv[sys.argv.index("--summary-out") + 1], "w") as out:
@@ -1146,6 +1149,80 @@ class Land(Fixture):
     def test_a_check_ended_at_the_gate_cap_and_passing_on_the_retry_lands(self):
         self.landed_after_retry(ENDED)
 
+    # 2026-10-08, two merges: the gate refused on one timing check (setup.js case 24, splash.js
+    # case 10b) while its own parallel checks held the Mac at 97-99% CPU, and the same check passed
+    # when Rich reran it alone on the same tree. The gate now does that step itself: a check that
+    # failed runs again alone, once, after the rest has finished, before the gate decides.
+    STATE_CHECK = "cd richos/app && bash scripts/state.sh"
+
+    def test_a_check_that_fails_only_under_the_gates_load_passes_alone_and_lands_saying_so(self):
+        self.make_two_slow_checks("once-failed")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        state = self.STATE_CHECK
+        self.assertEqual(self.tools().count("run " + state), 2)
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 1,
+                         "the retry alone ran a check that had passed")
+        calls = self.runner_calls()
+        self.assertEqual(len(calls), 2, calls)
+        first = calls[0].split("--log-dir ")[1].split()[0]
+        self.assertIn("--resume " + first, calls[1])
+        self.assertIn("--only-check " + state, calls[1])
+        self.assertIn("--retry-reason", calls[1])
+        self.assertEqual(calls[1].count("--only-check"), 1, "alone means only this check")
+        self.assertIn("--cap 600", calls[1])
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        self.assertEqual(receipt["not_run"], [])
+        [record] = receipt["failed_under_load_passed_alone"]
+        self.assertEqual(record["check"], state)
+        self.assertEqual((record["under_load"]["result"], record["alone"]["result"]), ("failed", "passed"))
+        self.assertTrue(record["under_load"]["log"].startswith(first), record)
+        self.assertNotEqual(Path(record["under_load"]["log"]).parent, Path(record["alone"]["log"]).parent)
+        self.assertIn("STATE failed", Path(record["under_load"]["log"]).read_text())
+        self.assertTrue(Path(record["alone"]["log"]).is_file())
+        self.assertIn("FAILED UNDER LOAD, PASSED ALONE: " + state, out.stderr)
+        self.assertIn(record["under_load"]["log"], out.stderr)
+        self.assertIn(record["alone"]["log"], out.stderr)
+        self.assertIn("failed under load and passed alone: " + state, out.stderr)
+
+    def test_a_check_that_fails_alone_too_refuses_the_merge_naming_both_logs(self):
+        self.make_two_slow_checks("failed")
+        before = self.head("main")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        self.assertIn("MERGE INTO MAIN REFUSED: a check it owns failed", out.stderr)
+        self.assertIn(f"FAILED: {self.STATE_CHECK} (failed)", out.stderr)
+        self.assertIn("under the gate's load: failed, log ", out.stderr)
+        self.assertIn("alone: failed, log ", out.stderr)
+        self.assertEqual(self.head("main"), before)
+        self.assertEqual(self.tools().count("run " + self.STATE_CHECK), 2)
+        self.git("merge", "--abort")
+
+    def test_never_a_second_retry_alone(self):
+        # Fails in the gate and fails alone; it would pass a third time, which is never tried.
+        self.make_two_slow_checks("twice-failed")
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        self.assertIn("MERGE INTO MAIN REFUSED: a check it owns failed", out.stderr)
+        self.assertEqual(self.tools().count("run " + self.STATE_CHECK), 2)
+        self.assertEqual(len(self.runner_calls()), 2, self.runner_calls())
+        self.git("merge", "--abort")
+
+    def test_a_check_passed_alone_then_the_rounds_finish_the_checks_with_no_verdict(self):
+        # `state` fails under load and `later` is ended at the round's cap in the same round: the
+        # alone retry passes `state`, then round 2 runs `later`, and the merge lands.
+        self.make_two_slow_checks("once-failed", "once-" + ENDED)
+        later = "cd richos/app && bash scripts/later.sh"
+        out = self.git("merge", "--no-ff", "-m", "land feature", "feature")
+        calls = self.runner_calls()
+        self.assertEqual(len(calls), 3, calls)
+        self.assertIn("--only-check " + self.STATE_CHECK, calls[1])
+        self.assertNotIn(later, calls[1])
+        self.assertIn("--only-check " + later, calls[2])
+        self.assertIn("--resume " + calls[1].split("--log-dir ")[1].split()[0], calls[2])
+        self.assertEqual((self.tools().count("run " + self.STATE_CHECK), self.tools().count("run " + later)), (2, 2))
+        receipt = json.loads((self.repo / ".git/richos-autocheck/land" / self.head("HEAD^{tree}")).read_text())
+        self.assertEqual((receipt["not_run"], receipt["rounds"]), ([], 2))
+        self.assertEqual([r["check"] for r in receipt["failed_under_load_passed_alone"]], [self.STATE_CHECK])
+        self.assertIn("FAILED UNDER LOAD, PASSED ALONE", out.stderr)
+
     def test_simulator_and_screen_suites_are_left_to_the_nightly_and_named(self):
         # 2026-09-30: the iPhone suites fought over the one simulator in merge after merge. The
         # merge never runs a suite that needs a device this Mac has one of: the simulator, or a
@@ -1205,7 +1282,8 @@ class Land(Fixture):
         out = self.run_(measure)
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertIn("autocheck: measure: every selected check passed", out.stderr)
-        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 2)
+        # The broken run, its one retry alone (it fails there too), and the fixed run.
+        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 3)
         self.assertFalse((self.repo / ".git/richos-autocheck/land").exists())
 
     def test_a_failing_check_blocks_and_so_does_an_invalid_result_that_hid_a_failure(self):
@@ -1227,23 +1305,28 @@ class Land(Fixture):
         self.assertEqual(first.count("run cd richos/app && bash scripts/lint.sh --changed"), 1)
         self.git("commit", "-m", "land feature", expect=1)
         second = self.tools()
-        self.assertIn("resume ", second)
+        self.assertIn("resume ", second[len(first):])
         self.assertEqual(second.count("run cd richos/app && bash scripts/lint.sh --changed"), 1)
-        self.assertEqual(second.count("run cd richos/app && bash scripts/suite.sh"), 2)
+        # Each attempt runs the failing suite and then once more alone (retry_failed_alone).
+        self.assertEqual(first.count("run cd richos/app && bash scripts/suite.sh"), 2)
+        self.assertEqual(second.count("run cd richos/app && bash scripts/suite.sh"), 4)
         attempts = list((self.base / "proof-runs").glob("*/attempt-*/plan.json"))
-        self.assertEqual(len(attempts), 2)
+        self.assertEqual(len(attempts), 4)
         self.git("merge", "--abort")
 
     def test_fixed_merge_tree_selects_new_plan_and_offers_old_evidence_for_validation(self):
         self.make()
         self.branch_with("feature", "richos/app/src/thing.txt", "BROKEN\n")
         self.git("merge", "--no-ff", "-m", "land feature", "feature", expect=1)
+        first = self.tools()   # the failing suite, and its one retry alone (a resume)
         (self.repo / "richos/app/src/thing.txt").write_text("fixed\n")
         self.git("add", "richos/app/src/thing.txt")
         self.git("commit", "-m", "land fixed feature")
-        self.assertIn("reuse ", self.tools())
-        self.assertNotIn("resume ", self.tools())
-        self.assertEqual(self.tools().count("run cd richos/app && bash scripts/suite.sh"), 2)
+        second = self.tools()[len(first):]
+        self.assertIn("reuse ", second)
+        self.assertNotIn("resume ", second)
+        self.assertEqual(first.count("run cd richos/app && bash scripts/suite.sh"), 2)
+        self.assertEqual(second.count("run cd richos/app && bash scripts/suite.sh"), 1)
 
     def test_missing_retry_plan_refuses_without_restarting_passing_work(self):
         self.make()
