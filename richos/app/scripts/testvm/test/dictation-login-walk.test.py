@@ -68,6 +68,12 @@ class TheSteps(unittest.TestCase):
             self.assertTrue(hasattr(walk.LoginWalk, step.replace('-', '_')), step)
         self.assertEqual(walk.WAYS, ['open-a', 'finder', 'dock', 'menu'])
 
+    def test_finder_is_never_sent_an_apple_event(self):
+        # walk-d94269c3a41c: 'tell application "Finder"' put up a consent prompt nobody answers;
+        # the Finder way in is open -R plus Command-O through System Events.
+        source = (HERE / 'dictation-login-walk.py').read_text()
+        self.assertNotIn('tell application "Finder"', source)
+
     def test_the_installed_copy_is_on_the_real_home(self):
         self.assertEqual(walk.REAL_HOME, '/Users/admin')
         self.assertTrue(walk.INSTALLED.startswith(walk.REAL_HOME + '/Applications/'))

@@ -425,8 +425,11 @@ class BarWalk(dictation_walk.DictationWalk):
 
     def nofield(self):
         self.use_sample(self.spoken)
-        self.osa('tell application "Finder" to close every window')
-        self.osa('tell application "Finder" to activate')
+        # The desktop in front through System Events, the one app the session may drive
+        # (dictation-walk.osa): an Apple event to Finder itself puts up a consent prompt nobody
+        # answers (walk-d94269c3a41c, nofield: 40 s timeout under "sshd-keygen-wrapper wants
+        # access to control Finder").
+        self.osa('tell application "System Events" to set frontmost of process "Finder" to true')
         time.sleep(2)
         front = self.front_bundle()
         since = len(self.dlog_lines())

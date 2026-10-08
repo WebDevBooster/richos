@@ -497,7 +497,13 @@ class LoginWalk(bar_walk.BarWalk):
         if way == 'open-a':
             guest(self.vm, 'open -a ' + shlex.quote(self.installed))
         elif way == 'finder':
-            self.osa(f'tell application "Finder" to open POSIX file "{self.installed}"')
+            # Finder's own open, by the keyboard: the app revealed and selected in a Finder
+            # window (open -R, LaunchServices), then Command-O to Finder through System Events.
+            # Finder is never sent an Apple event: the guest has no Automation grant for it, and
+            # the consent prompt that asks for one has nobody to answer it (walk-d94269c3a41c).
+            guest(self.vm, 'open -R ' + shlex.quote(self.installed))
+            time.sleep(3)
+            self.osa('tell application "System Events" to tell process "Finder" to keystroke "o" using command down')
         elif way == 'dock':
             tile = ('<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key>'
                     f'<string>{self.installed}</string><key>_CFURLStringType</key><integer>0</integer></dict></dict></dict>')

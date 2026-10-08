@@ -59,6 +59,11 @@ class ReadingFrames(unittest.TestCase):
 
 
 class TheSteps(unittest.TestCase):
+    def test_finder_is_never_sent_an_apple_event(self):
+        # walk-d94269c3a41c: 'tell application "Finder"' put up a consent prompt nobody answers.
+        source = (HERE / 'dictation-bar-walk.py').read_text()
+        self.assertNotIn('tell application "Finder"', source)
+
     def test_the_window_check_comes_before_the_bar_steps(self):
         steps = walk.STEPS
         self.assertLess(steps.index('check-panel'), steps.index('frames'))
