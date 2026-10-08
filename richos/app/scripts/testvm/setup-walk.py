@@ -93,7 +93,9 @@ QA = HERE.parent / 'qa'
 # What OCR must read in each state: fragments of his two lines short enough to sit on one line
 # of the sheet (setup.rs MEDIA_TOOLS_WHY, setup_view.rs SETUP_DOWNLOAD_LINE).
 R19_STATE1_OCR = ('Wispr Flow', 'voice and video tools')
-R19_STATE2_OCR = ('Sit tight', 'local voice AI')
+# Measured on the guest (walk of 76167734c): the sheet breaks his download line after "local voice",
+# so "local voice AI" is never one OCR line; "Sit tight" and "Wispr Flow" each are.
+R19_STATE2_OCR = ('Sit tight', 'Wispr Flow')
 # The accessibility tree carries the exact words.
 R19_STATE1_AX = 'a free & private/local replacement for Wispr Flow'
 R19_OFFER_AX = 'I can also type for you in any other app on your Mac'
