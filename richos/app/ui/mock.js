@@ -1430,6 +1430,14 @@
   // Rich's one offer: whether it was made already (a relaunch), and every call the window made.
   let dictationOffered = !!preset.dictationOffered;
   const dictationOfferCalls = [];
+  // THE DICTATION SHEET AND ROW (dictation plan slice 2): `dictation_status`, as
+  // `dictation_app.rs` `view_of` reports it. `preset.dictationView` overrides any fact; what macOS
+  // and the tool answer later (a prompt allowed, System Settings, a captured key, another app
+  // hiding keys) is driven through `__RICHOS_MOCK__.dictationSet` and `dictationKey`.
+  const dictationView = Object.assign({ ready: setupDictationOn, on: false, key: preset.dictationKey || 1, accuracy: "accurate",
+    mic: "unknown", ax: "unknown", owner: "none", keyTap: false, secure: null, copy: "open-only" }, preset.dictationView || {});
+  let dictationAxAsked = !!preset.dictationAxAsked;
+  const dictationCalls = [];
 
   // The strings are the BACKEND'S, copied verbatim from `Component::why` and
   // `SETUP_ACCOUNT_NOTE`. A mock that paraphrased them would rehearse the surface against
@@ -2860,6 +2868,48 @@
         case "dictation_offer":
           dictationOfferCalls.push("dictation_offer");
           return { ready: setupDictationOn, offered: dictationOffered, key: preset.dictationKey || 1 };
+        // THE DICTATION SHEET (`dictation_app.rs`): the same facts and the same refusals.
+        case "dictation_status":
+          dictationCalls.push({ cmd });
+          return structuredClone(dictationView);
+        case "dictation_set_on":
+          dictationCalls.push({ cmd, on: !!args.on });
+          dictationView.on = !!args.on;
+          if (args.on && dictationView.owner === "none") dictationView.owner = preset.dictationOwner || "self";
+          dictationView.keyTap = dictationView.on && dictationView.owner === "self" && dictationView.ax === "allowed";
+          return structuredClone(dictationView);
+        case "dictation_set_key":
+          dictationCalls.push({ cmd, key: args.key });
+          if (!(Number.isInteger(args.key) && args.key >= 1 && args.key <= 19)) throw `F${args.key} is not a key dictation can use`;
+          dictationView.key = args.key;
+          return structuredClone(dictationView);
+        case "dictation_set_accuracy":
+          dictationCalls.push({ cmd, accuracy: args.accuracy });
+          if (args.accuracy !== "accurate" && args.accuracy !== "fast") throw `${args.accuracy} is not an accuracy dictation offers`;
+          dictationView.accuracy = args.accuracy;
+          return structuredClone(dictationView);
+        case "dictation_ask_microphone":
+          dictationCalls.push({ cmd });
+          if (dictationView.mic === "unknown") dictationView.mic = "asking";
+          return structuredClone(dictationView);
+        case "dictation_ask_accessibility":
+          dictationCalls.push({ cmd });
+          if (dictationView.ax === "allowed" || dictationAxAsked) return false;
+          // Asked once: from here macOS's "not trusted" reads as denied (`ax_word`).
+          dictationAxAsked = true;
+          dictationView.ax = "denied";
+          return true;
+        case "dictation_permissions_changed":
+          dictationCalls.push({ cmd, forward: args.forward });
+          dictationView.keyTap = dictationView.on && dictationView.owner === "self" && dictationView.ax === "allowed";
+          return null;
+        case "dictation_open_settings":
+          dictationCalls.push({ cmd, pane: args.pane });
+          if (args.pane !== "microphone" && args.pane !== "accessibility") throw `${args.pane} is not a pane dictation opens`;
+          return null;
+        case "dictation_capture_key":
+          dictationCalls.push({ cmd, on: !!args.on });
+          return !!args.on && dictationView.keyTap;
         case "dictation_offer_shown":
           dictationOfferCalls.push("dictation_offer_shown");
           dictationOffered = true;
@@ -4473,6 +4523,13 @@
     },
     /// Rich's offer of dictation: every `dictation_offer` / `dictation_offer_shown` call, in order.
     dictationOfferCalls() { return dictationOfferCalls.slice(); },
+    /// The Dictation sheet's calls, in order, each with its arguments.
+    dictationCalls() { return dictationCalls.slice(); },
+    /// What macOS or the tool says now (a prompt answered, System Settings, another app hiding
+    /// keys, another copy's tool): merged into `dictation_status`, and the window told.
+    dictationSet(patch) { Object.assign(dictationView, patch || {}); emit("rich://dictation", { changed: true }); },
+    /// The tool's key tap answered "Press a different key" with F`n`.
+    dictationKey(n) { emit("rich://dictation", { key: n }); },
     /// Which provisioning commands the surface issued, in order.
     voiceModelCalls() { return mockVoiceModel.calls.slice(); },
     /// Make `provision_speech_model` reject with a sentence, the way the real command does

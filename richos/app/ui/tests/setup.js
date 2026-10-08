@@ -1771,14 +1771,15 @@ async function main() {
     assert(await page.isHidden("#dictation-offer-yes"), "answered, the buttons go");
     await page.close();
 
-    // Turn on dictation, handed to the Dictation sheet's turn-on: on, then off.
-    const on = await finish({}, null, () => { window.RichDictation = { turnOn: async () => ({ on: true }) }; });
+    // Turn on dictation, handed to the Dictation sheet's own turn-on (slice 2, `dictation.js`):
+    // on when both permissions are allowed, not on when macOS refused the microphone.
+    const on = await finish({ dictationView: { mic: "allowed", ax: "allowed" } });
     await on.waitForSelector("#dictation-offer-yes");
     await on.click("#dictation-offer-yes");
     await on.waitForSelector("#dictation-offer-after");
     assertEqual((await on.textContent("#dictation-offer-after")).trim(), "Dictation is on. Tap F1 in any app.", "on, both allowed");
     await on.close();
-    const later = await finish({ dictationKey: 5 });
+    const later = await finish({ dictationKey: 5, dictationView: { mic: "denied" } });
     await later.waitForSelector("#dictation-offer-yes");
     assert((await later.textContent("#dictation-offer")).includes("Tap F5,"), "the chosen key is named");
     await later.click("#dictation-offer-yes");

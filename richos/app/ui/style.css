@@ -9578,3 +9578,146 @@ body.panel-full .op-body {
 .acc-note-acts { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .acc-after { font-size: 1rem; color: var(--ink-soft); margin: 12px 0 0; }
 @media (prefers-reduced-motion: reduce) { #accounts-sheet, #accounts-sheet * { animation: none !important; transition: none !important; } }
+
+/* =====================================================================================
+   DICTATION: the Settings row and the Dictation sheet (round 19, states 5 to 12, and round
+   19's more lines 1, 2 and 4; richos-hq design/mockups/rounds/round-19/dictation.html and
+   dictation-more-lines.html; dictation plan revision 2, slice 2). `ui/dictation.js` draws it.
+
+   Round 19's CSS, ported into the app's tokens: its --surface is --surface-raised, --inset is
+   --surface-sunk, every other name is the app's own. The two bar tokens are the bar's (round
+   19's --hud-bg and --hud-line), scoped to the sheet, where the three sample bars show what the
+   bar looks like. No new RichOS hue.
+
+   TYPE (CEO §15): everything meant to be read is 16px or larger; the title 32px, the switch's
+   card title 26px. ONE DECLARED 14px NODE, a claim that it is skippable: the "Settings"
+   breadcrumb (`.dict-eyebrow`) above the 32px title, which says where you are. Contrast is
+   computed in WebKit, both themes, by `ui/tests/dictation.js`.
+   ===================================================================================== */
+/* Above the home screen (150), so the sheet opened from Settings there is the sheet he sees; below the
+   opening curtain (200) and the settings button and its notices (300, 301). */
+#dictation-sheet { z-index: 160; padding: 16px; align-items: center; justify-content: center; }
+#dictation-sheet [hidden] { display: none !important; }
+.dict-panel { --hud-bg: rgba(18, 27, 47, .97); --hud-line: rgba(194, 163, 92, .42);
+  width: min(1200px, 94vw); max-width: none; max-height: calc(100vh - 32px); padding: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--surface-raised); border-radius: 16px; }
+:root[data-theme="light"] .dict-panel { --hud-bg: rgba(253, 252, 248, .97); --hud-line: rgba(156, 124, 52, .55); }
+.dict-panel p, .dict-panel h2, .dict-panel h3, .dict-panel h4 { margin: 0; }
+.dict-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 24px 32px 0; }
+.dict-eyebrow { font-size: .875rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--trim-text); margin-bottom: 4px; } /* 14px caps, declared skippable: the breadcrumb word; the title under it says where you are */
+#dict-title { font: 400 2rem/1.1 var(--font-serif); letter-spacing: -.01em; color: var(--ink); }
+.dict-lede { margin-top: 8px; font-size: 1.0625rem; color: var(--ink-soft); max-width: 74ch; }
+#dict-close { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; color: var(--ink-soft); border: 1px solid var(--line-control); background: transparent; margin-top: 2px; cursor: pointer; }
+#dict-close svg { width: 14px; height: 14px; }
+#dict-close:hover { border-color: var(--gold); color: var(--ink); background: var(--gold-soft); }
+.dict-panel :is(button, [contenteditable]):focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.dict-body { display: grid; grid-template-columns: minmax(0, 1fr) 420px; padding: 16px 32px 22px; overflow-y: auto; min-height: 0; }
+.dict-col { padding-right: 32px; border-right: 1px solid var(--line-soft); min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.dict-how { padding-left: 32px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 1100px) {
+  .dict-body { grid-template-columns: minmax(0, 1fr) 340px; padding: 16px 24px 22px; }
+  .dict-col { padding-right: 22px; } .dict-how { padding-left: 22px; }
+  .dict-heading { padding: 24px 24px 0; }
+}
+.dict-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line-control); border-radius: 9px; padding: 7px 14px; font: inherit; font-size: 1rem; color: var(--ink-soft); background: transparent; white-space: nowrap; cursor: pointer; } /* no color transition: the frame right after a theme switch must already meet AA (contrast.js 19) */
+.dict-btn:hover { border-color: var(--gold); color: var(--ink); }
+.dict-btn-quiet { border-color: transparent; padding-left: 8px; padding-right: 8px; color: var(--gold-text); font-weight: 600; }
+.dict-btn-quiet:hover { border-color: transparent; background: var(--gold-soft); color: var(--gold-text); }
+
+/* the switch's card */
+.dict-card { position: relative; display: flex; align-items: center; gap: 20px; background: var(--card); border: 1px solid var(--line-soft); border-radius: 14px; padding: 16px 22px 16px 26px; box-shadow: 0 18px 40px -26px var(--shadow-soft); }
+.dict-spine { position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: transparent; }
+.dict-card.is-on { border-color: var(--gold); }
+.dict-card.is-on .dict-spine { background: var(--gold); }
+.dict-card.is-warn .dict-spine { color: var(--gold-text); background: repeating-linear-gradient(180deg, currentColor 0 4px, transparent 4px 8px); }
+.dict-card-main { flex: 1; min-width: 0; }
+.dict-card-title { font: 400 1.625rem/1.15 var(--font-serif); color: var(--ink); }
+.dict-card-sub { margin-top: 4px; font-size: 1rem; color: var(--ink-soft); }
+.dict-card-sub.is-on { color: var(--ink); }
+.dict-card-sub.is-attention { color: var(--gold-text); font-weight: 600; }
+.dict-card-sub .dict-fix { color: var(--ink); font-weight: 400; }
+.dict-who { font-weight: 700; }
+.dict-kcap { display: inline-block; min-width: 2.1em; text-align: center; font-size: 1rem; font-weight: 600; line-height: 1.35; padding: 0 6px; margin: 0 2px; border-radius: 6px; border: 1px solid var(--line-control); border-bottom-width: 2px; background: var(--surface-raised); color: var(--ink); vertical-align: 1px; }
+.dict-switch { position: relative; width: 64px; height: 36px; border-radius: 999px; background: var(--tint-gold-weak); border: 1px solid var(--line-control); flex-shrink: 0; cursor: pointer; padding: 0; }
+.dict-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 28px; height: 28px; border-radius: 50%; background: var(--ink-soft); transition: transform .3s cubic-bezier(.3, 1.4, .5, 1); box-shadow: 0 2px 6px rgba(0, 0, 0, .25); }
+.dict-switch[aria-checked="true"] { background: var(--gold); border-color: var(--gold); }
+.dict-switch[aria-checked="true"]::after { transform: translateX(28px); background: var(--on-gold); }
+.dict-switch:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.dict-feedback { font-size: 1rem; color: var(--ink); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -4px 0 0 4px; }
+.dict-feedback svg { width: 18px; height: 18px; color: var(--gold-text); flex-shrink: 0; }
+/* more lines, line 2: dictation works only while RichOS is open */
+.dict-copy-note { display: flex; align-items: flex-start; gap: 10px; margin: -4px 0 0 4px; font-size: 1rem; color: var(--ink-soft); }
+.dict-copy-note svg { width: 18px; height: 18px; color: var(--trim-text); flex-shrink: 0; margin-top: 3px; }
+.dict-copy-note b { font-weight: 600; color: var(--ink); }
+
+/* sections */
+.dict-sec { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.dict-sec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.dict-sec-t { font-size: 1.0625rem; font-weight: 600; color: var(--ink); }
+.dict-sec-note { font-size: 1rem; color: var(--ink-soft); }
+/* the keyboard strip: esc, then the function row, the chosen key in gold */
+.dict-keys { display: flex; align-items: flex-end; gap: 7px; flex-wrap: wrap; }
+.dict-key { position: relative; width: 54px; height: 46px; border-radius: 9px; border: 1px solid var(--line-control); border-bottom-width: 3px; background: var(--card); display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; padding: 0 0 4px 8px; font: inherit; font-size: 1rem; font-weight: 500; color: var(--ink-soft); text-align: left; cursor: pointer; }
+.dict-key:hover { border-color: var(--gold); color: var(--ink); }
+.dict-key.is-esc { cursor: default; border-style: dashed; border-bottom-width: 1px; height: 42px; background: transparent; }
+.dict-key.is-esc:hover { border-color: var(--line-control); color: var(--ink-soft); }
+.dict-key[aria-checked="true"] { background: var(--gold); border-color: var(--gold); color: var(--on-gold); font-weight: 700; box-shadow: 0 0 0 4px var(--gold-soft); }
+.dict-key-wait { display: flex; align-items: center; gap: 14px; min-height: 46px; flex-wrap: wrap; }
+.dict-key-wait .dict-key { width: 92px; border-style: dashed; border-color: var(--gold); color: var(--gold-text); cursor: default; animation: dict-keywait 1.2s ease-in-out infinite; }
+@keyframes dict-keywait { 0%, 100% { box-shadow: 0 0 0 0 var(--gold-soft); } 50% { box-shadow: 0 0 0 6px var(--gold-soft); } }
+.dict-key-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dict-key-say { font-size: 1rem; color: var(--ink); flex: 1; min-width: 260px; }
+.dict-key-say.is-soft { color: var(--ink-soft); }
+.dict-key-say b { font-weight: 600; }
+.dict-key-err { font-size: 1rem; color: var(--gold-text); font-weight: 600; }
+/* the two macOS permissions */
+.dict-perm { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid var(--line-soft); border-radius: 12px; background: var(--card); }
+.dict-perm-ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--gold-soft); color: var(--gold-text); }
+.dict-perm-ic svg { width: 20px; height: 20px; }
+.dict-perm-t { display: block; font-size: 1rem; font-weight: 600; color: var(--ink); }
+.dict-perm-s { display: block; font-size: 1rem; color: var(--ink-soft); }
+.dict-perm-state { display: flex; align-items: center; gap: 10px; justify-content: flex-end; font-size: 1rem; flex-wrap: wrap; }
+.dict-perm-wait { color: var(--ink-soft); display: inline-flex; align-items: center; gap: 8px; }
+.dict-perm-ok { display: inline-flex; align-items: center; gap: 6px; color: var(--gold-text); font-weight: 600; }
+.dict-perm-ok svg { width: 16px; height: 16px; }
+.dict-perm-no { color: var(--gold-text); font-weight: 600; }
+.dict-ring { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid var(--line); border-top-color: var(--gold); animation: dict-spin 1s linear infinite; flex-shrink: 0; display: inline-block; }
+@keyframes dict-spin { to { transform: rotate(360deg); } }
+/* accuracy */
+.dict-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dict-opt { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; border: 1px solid var(--line-soft); border-radius: 10px; padding: 10px 14px; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.dict-opt:hover { border-color: var(--line-control); }
+.dict-opt[aria-checked="true"] { border-color: var(--line-control); background: var(--card); }
+.dict-radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--ink-soft); flex-shrink: 0; margin-top: 3px; display: grid; place-items: center; }
+.dict-opt[aria-checked="true"] .dict-radio { border-color: var(--gold); }
+.dict-opt[aria-checked="true"] .dict-radio::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+.dict-opt-t { display: block; font-size: 1rem; font-weight: 600; color: var(--ink); }
+.dict-opt-s { display: block; font-size: 1rem; color: var(--ink-soft); }
+.dict-saved { font-size: 1rem; color: var(--ink-soft); }
+
+/* the right column: Try it here, the three bar states, the difference, privacy */
+.dict-how-title { font-size: 1.25rem; font-weight: 600; color: var(--ink); line-height: 1.35; }
+.dict-how-p { font-size: 1rem; color: var(--ink); line-height: 1.55; }
+.dict-how-p.is-soft { color: var(--ink-soft); }
+.dict-how-p b { font-weight: 600; }
+.dict-how-sec { padding-top: 12px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 8px; }
+.dict-how-h { font-size: 1.0625rem; font-weight: 600; color: var(--ink); }
+.dict-try { min-height: 104px; max-height: 150px; overflow: auto; background: var(--surface-sunk); border: 1px solid var(--line-control); border-radius: 12px; padding: 12px 14px; font-size: 1.0625rem; line-height: 1.55; color: var(--ink); cursor: text; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dict-try:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
+.dict-try:empty::before { content: attr(data-ph); color: var(--ink-soft); pointer-events: none; }
+.dict-samples { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.dict-bar { --lvl: .6; display: inline-flex; align-items: center; gap: 14px; height: 46px; padding: 0 16px 0 7px; border-radius: 999px; background: var(--hud-bg); outline: 1px solid var(--hud-line); white-space: nowrap; }
+.dict-orb { position: relative; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--gold); color: var(--on-gold); flex-shrink: 0; }
+.dict-orb svg { width: 15px; height: 15px; position: relative; z-index: 1; }
+.dict-bar.is-listen .dict-orb::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--gold); opacity: calc(.15 + var(--lvl) * .85); }
+.dict-meter { display: flex; align-items: center; gap: 3px; height: 30px; }
+.dict-meter i { display: block; width: 4px; height: 30px; border-radius: 2px; background: var(--gold); transform: scaleY(.5); transform-origin: center; }
+.dict-label { font-weight: 600; font-size: 1rem; color: var(--ink); }
+.dict-time { font-size: 1rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; min-width: 2.4em; }
+.dict-bar.is-write .dict-orb { background: transparent; border: 2.5px solid var(--line); border-top-color: var(--gold); animation: dict-spin .9s linear infinite; }
+.dict-priv { flex-direction: row; gap: 12px; align-items: flex-start; }
+.dict-priv svg { width: 20px; height: 20px; color: var(--gold-text); flex-shrink: 0; margin-top: 2px; }
+
+/* the Settings row's line */
+#set-dictation-state.is-attention { color: var(--gold-text); font-weight: 600; }
+.bugbtn:hover #set-dictation-state.is-attention { color: inherit; }
+@media (prefers-reduced-motion: reduce) { #dictation-sheet, #dictation-sheet * { animation: none !important; transition: none !important; } }
