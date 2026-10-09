@@ -412,15 +412,39 @@ window.RichBug = (function () {
     return out.trim();
   }
 
+  /// **A SECTION'S OWN FIELDS, EACH ONCE**: its paragraphs and its list's steps, as the card
+  /// draws them (`buildCard`), and never an element inside one of them. Whatever a field holds is
+  /// read with it by `wordsOf`; reading every `li` as well read a list inside a step twice, so
+  /// Send read words the card showed once (review rv-20261009T225657Z-b3b5c573-96c0).
+  function fieldsIn(sec) {
+    var paragraphs = [], steps = [];
+    Array.prototype.forEach.call(sec.children, function (n) {
+      if (n.nodeName === "P") paragraphs.push(n);
+      else if (n.nodeName === "OL") Array.prototype.forEach.call(n.children, function (li) { if (li.nodeName === "LI") steps.push(li); });
+    });
+    return { paragraphs: paragraphs, steps: steps };
+  }
+  /// Every field of the card (or of a copy of its `.bug-doc`): what can be changed by hand, what
+  /// the heads-up reads and what Send reads are the same fields.
+  function fieldsOf(root) {
+    var all = [root.querySelector(".bug-title")];
+    Array.prototype.forEach.call(root.querySelectorAll(".bug-sec"), function (s) {
+      var own = fieldsIn(s);
+      all = all.concat(own.paragraphs, own.steps);
+    });
+    return all;
+  }
+
   function sheetOf(f) {
     var c = f.card;
     return {
       title: wordsOf(c.querySelector(".bug-title")),
       sections: Array.prototype.map.call(c.querySelectorAll(".bug-sec"), function (s) {
+        var own = fieldsIn(s);
         return {
           heading: s.querySelector("h4").textContent.trim(),
-          paragraphs: Array.prototype.map.call(s.querySelectorAll(":scope > p"), wordsOf).filter(Boolean),
-          steps: Array.prototype.map.call(s.querySelectorAll("li"), wordsOf).filter(Boolean),
+          paragraphs: own.paragraphs.map(wordsOf).filter(Boolean),
+          steps: own.steps.map(wordsOf).filter(Boolean),
         };
       }),
     };
@@ -850,7 +874,7 @@ window.RichBug = (function () {
     // here too: "Jane" and "Doe" on two lines are not asked about as "JaneDoe" (review of 665df1bb3).
     var doc = f.card.querySelector(".bug-doc").cloneNode(true);
     doc.querySelectorAll(".bug-sub").forEach(function (s) { s.remove(); });
-    var text = Array.prototype.map.call(doc.querySelectorAll(".bug-title,.bug-sec p,.bug-sec li"), wordsOf).join("\n");
+    var text = fieldsOf(doc).map(wordsOf).join("\n");
     var asked = (f.warnAsked = (f.warnAsked || 0) + 1);
     askPrivate(text, f).then(function (all) {
       if (asked !== f.warnAsked || !warns(f)) return;
@@ -873,6 +897,28 @@ window.RichBug = (function () {
     });
   }
 
+  /// **THE CARD TAKES PLAIN TEXT ONLY** (review rv-20261009T225657Z-b3b5c573-96c0). A rich-text
+  /// field let a paste bring its markup onto the card (a list inside a step, a table, styled
+  /// words), and what Send read of it was not what the card showed. `plaintext-only` (WebKit, and
+  /// WebView2's Chromium) refuses markup from every way in: paste, drop and the formatting keys.
+  /// Where an engine does not know it, the field is ordinary rich text and `pastePlain` still
+  /// keeps a paste's markup out.
+  function plainTextOnly(n) {
+    n.setAttribute("contenteditable", "plaintext-only");
+    if (n.contentEditable !== "plaintext-only") n.setAttribute("contenteditable", "true");
+  }
+  /// A paste into a field being changed is the clipboard's plain text, put in as if typed: a
+  /// line is a line (WebKit makes each one a `<div>`, which `wordsOf` reads as a break) and a tab
+  /// is a space, so a pasted table's cells are words apart on the card and in what Send reads.
+  function pastePlain(e) {
+    var t = e.target && (e.target.nodeType === 1 ? e.target : e.target.parentElement);
+    if (!t || !t.closest || !t.closest(".bugcard.is-editing [contenteditable]")) return;
+    e.preventDefault();
+    var text = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
+    text = text.replace(/\r\n?/g, "\n").replace(/\t/g, " ");
+    if (text) document.execCommand("insertText", false, text);
+  }
+
   function button(label, primary, fn, id) {
     var b = node("button", "desk-btn" + (primary ? " desk-btn--confirm" : ""), label);
     b.type = "button";
@@ -893,8 +939,8 @@ window.RichBug = (function () {
     if (f.step !== "sent" && f.step !== "sending") paintFrom(c.querySelector(".r-from"));
     c.querySelector(".lo-text").textContent = leftOutText(f);
     var editable = f.step === "editing";
-    c.querySelectorAll(".bug-title,.bug-sec p,.bug-sec li").forEach(function (n) {
-      if (editable) n.setAttribute("contenteditable", "true");
+    fieldsOf(c).forEach(function (n) {
+      if (editable) plainTextOnly(n);
       else n.removeAttribute("contenteditable");
     });
     switch (f.step) {
@@ -1300,6 +1346,7 @@ window.RichBug = (function () {
     document.addEventListener("focusin", function (e) { if (e.target.classList && e.target.classList.contains("bug-sub")) showSubTip(e.target); });
     document.addEventListener("focusout", function (e) { if (e.target.classList && e.target.classList.contains("bug-sub")) hideSubTip(); });
     document.addEventListener("scroll", hideSubTip, true);
+    document.addEventListener("paste", pastePlain, true);
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest(".bug-link");
       if (!a) return;

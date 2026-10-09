@@ -10135,12 +10135,12 @@ body.panel-full .op-body {
   border: 1.5px dashed var(--gold);
   background: var(--card);
 }
-.bugcard.is-editing [contenteditable="true"] {
+.bugcard.is-editing [contenteditable] {
   outline: none;
   border-radius: 4px;
   cursor: text;
 }
-.bugcard.is-editing [contenteditable="true"]:focus {
+.bugcard.is-editing [contenteditable]:focus {
   box-shadow: 0 2px 0 -1px var(--gold);
 }
 .bugcard.is-editing .bug-sub {
