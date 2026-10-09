@@ -59,6 +59,9 @@
 #        stops that review and settles it as stopped
 #   W17  a verdict goes to the review's recorded owner first; a registry fallback
 #        needs the same work, never another work holding the reviewed commit
+#   W18  a SIGTERM while second-review starts its reviewer (fork done, Popen not
+#        returned): the reviewer's group is registered first, then stopped; a
+#        launcher wedged there past the grace is reached by a second read
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -904,6 +907,115 @@ sys.exit(0 if got == want else 1)
 PY
 check "W17 the recorded owner comes first, and a registry fallback needs the same work, never another work at the tip" \
     $? "see above"
+
+# --- W18 ---------------------------------------------------------------------
+# Second review of 783a8dba1, finding 1 (fixtures/reviewer_spawn_at_quit.py): run_bounded forked
+# the reviewer, which leads its own session, before saving its group in _REVIEWER; a SIGTERM in
+# between made _on_stop exit with no group to end, and the watcher, whose one read of the process
+# table came before the fork, returned no review left running over a reviewer that ran on. The
+# real second_review.run_bounded and _on_stop under the real Watcher.stop_all; the process table is
+# read for real, before the reviewer exists, and the SIGTERM lands while Popen has not returned.
+# Two windows: "brief" (0.3 s, as a real Popen: second-review registers its reviewer, then ends it
+# itself) and "wedged" (10 s, longer than the watcher's 2 s SIGTERM grace, the reviewer's fixture
+# as written: only the watcher's second read of the process table, before SIGKILL, can reach it).
+cat >"$SB/w18.py" <<'PY'
+import os, select, signal, subprocess, sys, time
+lib, window = sys.argv[1], sys.argv[2]
+role = sys.argv[3] if len(sys.argv) > 3 else ""
+sys.path.insert(0, lib)
+WINDOW = {"brief": 0.3, "wedged": 10.0}[window]    # the fork and exec are done; Popen returns after this
+
+def line(stream):
+    if not select.select([stream], [], [], 5)[0]:
+        raise RuntimeError("fixture synchronization timed out")
+    return stream.readline().strip()
+
+if role == "launcher":
+    import second_review as sr
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, sr._on_stop)
+    original = subprocess.Popen
+    ready_read, ready_write = os.pipe()
+    heartbeat_write = int(sys.argv[4])
+    reviewer_code = ("import os,signal,sys,time\n"
+                     "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+                     "os.write(int(sys.argv[1]),b'R')\n"
+                     "while True:\n"
+                     " os.write(int(sys.argv[2]),b'H'); time.sleep(0.05)\n")
+
+    def spawning(*args, **kwargs):
+        print("before reviewer fork", flush=True)
+        assert sys.stdin.readline().strip() == "spawn"
+        kwargs["pass_fds"] = (ready_write, heartbeat_write)
+        child = original(*args, **kwargs)
+        assert os.read(ready_read, 1) == b"R"
+        print(child.pid, flush=True)
+        time.sleep(WINDOW)                          # the SIGTERM lands here, before run_bounded saves the group
+        return child
+    sr.subprocess.Popen = spawning
+    sr.run_bounded([sys.executable, "-B", "-c", reviewer_code, str(ready_write), str(heartbeat_write)],
+                   os.getcwd(), "", os.devnull, os.devnull, 60)
+    sys.exit(0)
+
+import review_watch as rw
+heartbeat_read, heartbeat_write = os.pipe()
+launcher = subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__), lib, window, "launcher",
+                             str(heartbeat_write)],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
+                            start_new_session=True, pass_fds=(heartbeat_write,))
+os.close(heartbeat_write)
+reviewer, ok = None, False
+try:
+    assert line(launcher.stdout) == "before reviewer fork"
+    watcher = rw.Watcher("/fixture/engine", "", world=object())
+    watcher.children[launcher.pid] = launcher
+    real_below = rw.Watcher.groups_below
+
+    def read_then_spawn(pids):
+        global reviewer
+        snapshot = real_below(pids)                 # the first read of the process table, before the fork
+        if reviewer is not None:
+            return snapshot                         # a later read: the reviewer exists by now
+        launcher.stdin.write("spawn\n")
+        launcher.stdin.flush()
+        reviewer = int(line(launcher.stdout))
+        return snapshot
+    watcher.groups_below = read_then_spawn
+    remaining = watcher.stop_all([{"pid": launcher.pid}], rw.QUIT_TERM_SECONDS, rw.QUIT_KILL_SECONDS)
+    launcher.wait(timeout=5)
+    os.set_blocking(heartbeat_read, False)
+    try:
+        os.read(heartbeat_read, 4096)               # beats written before the launcher exited
+    except BlockingIOError:
+        pass
+    time.sleep(0.2)
+    try:
+        advanced = bool(os.read(heartbeat_read, 4096))   # b"" (end of file): every writer is gone
+    except BlockingIOError:
+        advanced = False
+    gone = rw.group_gone(reviewer)
+    print("SIGTERM while run_bounded's Popen has not returned (%s, %.1f s): launcher exit=%s, stop_all remaining=%s, "
+          "reviewer heartbeat advanced=%s, reviewer group gone=%s" % (window, WINDOW, launcher.returncode, remaining,
+                                                                      advanced, gone))
+    # brief: second-review ends its own reviewer and exits 143; wedged: the watcher's SIGKILL (-9) ends both.
+    ok = launcher.returncode == {"brief": 143, "wedged": -9}[window] and remaining == [] and not advanced and gone
+finally:
+    for pid in (reviewer, launcher.pid):
+        if pid:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+    launcher.wait(timeout=5)
+    os.close(heartbeat_read)
+sys.exit(0 if ok else 1)
+PY
+for window in brief wedged; do
+    W18OUT="$(python3 "$SB/w18.py" "$LIB" "$window" 2>&1)"; W18RC=$?
+    printf '    %s\n' "$W18OUT"
+    check "W18 a SIGTERM while second-review starts its reviewer ($window): no reviewer is left running" \
+        $W18RC "$W18OUT"
+done
 
 # --- W04 ---------------------------------------------------------------------
 resetstate

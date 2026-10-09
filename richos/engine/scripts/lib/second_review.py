@@ -136,6 +136,10 @@ FIXTURE_FILE_BYTES = 1024 * 1024
 FIXTURE_TOTAL_BYTES = 20 * 1024 * 1024
 REVIEW_BUILD_JOBS = 2
 _REVIEWER = {"pgid": None}
+# A stop that lands while run_bounded is starting the reviewer (its fork done, its group not yet
+# in _REVIEWER) is held (depth > 0, the signal in "held") and taken the moment the group is
+# registered, so _on_stop always has the group to end (second review of 783a8dba1, finding 1).
+_HOLD = {"depth": 0, "held": 0}
 # Stopped from outside, the reviewer's own group is stopped and seen gone before this process
 # exits: 1.0 s after SIGTERM, then SIGKILL and 0.5 s more. 1.5 s in all, inside review_watch.py's
 # quit grace (QUIT_TERM_SECONDS, 2 s), so the watcher never SIGKILLs this process mid-wait.
@@ -673,9 +677,21 @@ def run_bounded(argv, cwd, prompt, out_path, err_path, limit, env=None):
     that group, is stopped."""
     start = time.monotonic()
     with open(out_path, "wb") as out, open(err_path, "wb") as err:
-        p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=out, stderr=err,
-                             start_new_session=True, env=build_env(env))
-        _REVIEWER["pgid"] = p.pid
+        # REGISTERED BEFORE A STOP CAN ACT (second review of 783a8dba1, finding 1): the reviewer
+        # leads its own session, so a SIGTERM inside Popen (fork done, Popen not yet returned)
+        # would find no group in _REVIEWER and exit, leaving the reviewer running. The stop is
+        # held until the group is registered, then taken. No signal mask: a blocked mask would be
+        # inherited by the reviewer across exec.
+        _HOLD["depth"] += 1
+        try:
+            p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=out, stderr=err,
+                                 start_new_session=True, env=build_env(env))
+            _REVIEWER["pgid"] = p.pid
+        finally:
+            _HOLD["depth"] -= 1
+            if _HOLD["held"] and not _HOLD["depth"]:
+                signum, _HOLD["held"] = _HOLD["held"], 0
+                _on_stop(signum, None)
         try:
             p.communicate(prompt.encode("utf-8"), timeout=limit)
             return p.returncode, time.monotonic() - start
@@ -725,7 +741,12 @@ def _on_stop(signum, _frame):
     """Stopped from outside: the reviewer leads its own session, out of reach of any signal to
     this process's group, so it is stopped here and this process exits only once its group is
     gone: SIGTERM, STOP_REVIEWER_TERM_SECONDS, SIGKILL, STOP_REVIEWER_KILL_SECONDS. A stopped
-    review leaves no reviewer running on its own (second review of f14155545, finding 1)."""
+    review leaves no reviewer running on its own (second review of f14155545, finding 1).
+    While run_bounded is starting the reviewer the stop is held, and run_bounded calls this
+    again once the reviewer's group is registered (second review of 783a8dba1, finding 1)."""
+    if _HOLD["depth"]:
+        _HOLD["held"] = signum
+        return
     pgid = _REVIEWER.get("pgid")
     if pgid:
         for sig, grace in ((signal.SIGTERM, STOP_REVIEWER_TERM_SECONDS),

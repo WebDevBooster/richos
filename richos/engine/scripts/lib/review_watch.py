@@ -874,7 +874,13 @@ class Watcher(object):
         the recorded group, and a launcher that exits first would leave it running. So the groups
         of every process below each recorded pid are read once, before any signal, and each is
         signaled and waited for beside the recorded one. Returns the infos NOT seen gone inside
-        the bound (normally none), so a caller never records a running review as stopped."""
+        the bound (normally none), so a caller never records a running review as stopped.
+
+        READ AGAIN BEFORE SIGKILL (second review of 783a8dba1, finding 1): a review still running
+        after the SIGTERM grace may have started its reviewer since the first read (second-review
+        holds a stop that lands while it starts one, until it is registered). The process table
+        is read once more for those reviews, so the SIGKILL reaches that new group while its
+        parent still names it, before the parent dies and it is out of reach."""
         live = [i for i in infos if i.get("pid") and self.alive(i)]
         below = self.groups_below([int(i["pid"]) for i in live]) if live else {}
         groups = dict((id(i), [int(i["pid"])] + below.get(int(i["pid"]), [])) for i in live)
@@ -884,6 +890,10 @@ class Watcher(object):
                 return True
             return any(not group_gone(g) for g in groups[id(info)][1:])
         for sig, grace in ((signal.SIGTERM, term_seconds), (signal.SIGKILL, kill_seconds)):
+            if sig == signal.SIGKILL:
+                again = self.groups_below([int(i["pid"]) for i in live])
+                for info in live:
+                    groups[id(info)] += [g for g in again.get(int(info["pid"]), []) if g not in groups[id(info)]]
             for info in live:
                 for g in groups[id(info)]:
                     try:
