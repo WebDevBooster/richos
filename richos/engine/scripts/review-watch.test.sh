@@ -95,6 +95,9 @@
 #   W30  a process table that cannot be read is never an empty session: the quit
 #        keeps the review's lock until a read sees its tool gone (the reviewer's
 #        fixture process_table_failure.py)
+#   W31  the host's watcher knows its host before the first look: a host that died
+#        while it started means no look and an exit (the reviewer's fixture
+#        parent_exit_before_init.py)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -2033,6 +2036,55 @@ PY
 check "W30 a process table that cannot be read is never an empty session: the tool is ended before the lock is settled" \
     $? "see above"
 
+# --- W31 ---------------------------------------------------------------------
+# The real second review of 16c154f5a, finding 2 (fixtures/parent_exit_before_init.py): the host's
+# watcher read its parent only after it started, so a host that died while it started left it
+# reparented, it took that new parent for the host, looked, and ran on. Now the host passes its own
+# pid at spawn (RICHOS_REVIEW_WATCH_HOST, set by richos-core review_watch.rs) and the watcher checks
+# it before the first look. The real watcher (--monitor --app-state), started 200 ms late by a
+# stand-in host that has exited by then.
+python3 - "$ENGINE" "$SB/w31" <<'PY'
+import json, os, signal, subprocess, sys, time
+engine, root = sys.argv[1:3]
+os.makedirs(root)
+argv = [sys.executable, "-B", os.path.join(engine, "scripts/lib/review_watch.py"), "--monitor",
+        "--engine-root", engine, "--app-state", root]
+late = "import os, sys, time; time.sleep(0.2); os.execv(sys.executable, sys.argv[1:])"
+host = ("import os, subprocess, sys\n"
+        "p = subprocess.Popen([sys.executable, '-B', '-c', sys.argv[1]] + sys.argv[2:], stdin=subprocess.DEVNULL,\n"
+        "                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,\n"
+        "                     env=dict(os.environ, RICHOS_REVIEW_WATCH_HOST=str(os.getpid())))\n"
+        "print(p.pid, flush=True)\n")
+
+
+def exists(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+got, child = {}, None
+try:
+    out = subprocess.run([sys.executable, "-B", "-c", host, late] + argv, capture_output=True, text=True,
+                         timeout=10, check=True, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+    child = int(out.stdout.strip())
+    end = time.monotonic() + 6                  # past _nap's five-second parent check
+    while exists(child) and time.monotonic() < end:
+        time.sleep(0.05)
+    got["the watcher has exited"] = not exists(child)
+    got["it looked"] = os.path.exists(os.path.join(root, "review-watch/sessions/app/told.json"))
+finally:
+    if child and exists(child):
+        os.kill(child, signal.SIGKILL)
+print("    %s" % json.dumps(got, sort_keys=True))
+sys.exit(0 if got == {"the watcher has exited": True, "it looked": False} else 1)
+PY
+check "W31 the host's watcher knows its host before the first look: a host gone while it started means no look and an exit" \
+    $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate

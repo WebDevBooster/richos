@@ -30,7 +30,9 @@
 //! runs, and the record goes when it has been stopped and reaped. **Stopping** is SIGTERM to
 //! the leader, which stops the reviews it started (each in its own session, out of this
 //! group's reach) and exits; the group SIGKILL follows only after [`STOP_BOUND`]. A child whose
-//! app died without a quit notices on its own: it exits when its parent process id changes.
+//! app died without a quit notices on its own: it exits when its parent process id is no longer
+//! this host's, which it is given at spawn ([`HOST_ENV`]), so an app that dies while the child is
+//! still starting is noticed before its first look too.
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -58,6 +60,11 @@ static WATCHERS: SupervisedSet = SupervisedSet::new();
 /// child records a verdict delivered only on that acknowledgment (`review_watch.py` `host_acks`).
 /// An engine that predates it ignores the variable, and its lines carry no ids to acknowledge.
 pub const ACKS_ENV: &str = "RICHOS_REVIEW_WATCH_ACKS";
+
+/// Set in every child's environment: this host's own process id, which the child checks its
+/// parent against before its first look (`review_watch.py` `run_host_loop`; the real second
+/// review of 16c154f5a, finding 2).
+pub const HOST_ENV: &str = "RICHOS_REVIEW_WATCH_HOST";
 
 /// One notice for one lead, from the operator child's JSON line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,7 +158,8 @@ impl ReviewWatch {
             }
         }
         command.env_clear().envs(&launch.environment)
-            .env("PYTHONDONTWRITEBYTECODE", "1").env("PYTHONNOUSERSITE", "1");
+            .env("PYTHONDONTWRITEBYTECODE", "1").env("PYTHONNOUSERSITE", "1")
+            .env(HOST_ENV, std::process::id().to_string());
         let reads = matches!(launch.mode, Mode::Operator { .. });
         if reads {
             command.env(ACKS_ENV, "1");

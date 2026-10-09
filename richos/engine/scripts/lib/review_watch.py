@@ -1771,6 +1771,10 @@ def run_loop(watcher, engine_root):
     return 0
 
 
+# The host's own process id, which richos-core review_watch.rs sets in its child's environment.
+HOST_ENV = "RICHOS_REVIEW_WATCH_HOST"
+
+
 def run_host_loop(watcher, name):
     """A watcher that is the app host's own child (richos-core review_watch.rs): the app's
     (--app-state, name "app") or the operator install's (--host-json, name "operator-host").
@@ -1778,15 +1782,24 @@ def run_host_loop(watcher, name):
     It ends with the app, three ways, and each one stops the reviews it started first:
     SIGTERM (the host's quit path), SIGHUP, and its parent going away (an app that crashed or
     was killed: the parent process id changes when the host dies, so a review never runs on for
-    an app that is gone)."""
+    an app that is gone).
+
+    THE HOST IS KNOWN BEFORE THE FIRST LOOK (the real second review of 16c154f5a, finding 2): the
+    host passes its own pid at spawn (HOST_ENV), so a host that died while this process started,
+    which leaves it reparented already, is seen gone here and nothing is looked at or started.
+    Without it (a direct run), the parent at this point is the host."""
+    host = os.environ.pop(HOST_ENV, "").strip()     # never inherited by the reviews
+    parent = int(host) if host.isdigit() else os.getppid()
+
+    def alive():
+        return os.getppid() == parent
+
+    if not alive():
+        return 0                                    # its host is gone already
     sd = session_dir(name)
     fd = stall_watch._try_lock(os.path.join(sd, "monitor.lock"))
     if fd is None:
         return 0                                    # another copy of the app already watches
-    parent = os.getppid()
-
-    def alive():
-        return os.getppid() == parent
 
     def ended(signum, _frame):
         if getattr(watcher, "hold_quit", 0):
