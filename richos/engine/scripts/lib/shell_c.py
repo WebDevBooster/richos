@@ -40,19 +40,27 @@ MESSAGE = (
 
 def _has_c_option(rest):
     """rest: the text after the shell. True when an option word before the first non-option word is a
-    short-option group containing c. Quotes around a word are ignored; any whitespace separates words."""
-    words = rest.split()
-    k = 0
-    while k < len(words):
-        a = words[k].strip("'\"")
-        if a in ("-o", "+o"):
-            k += 2
-            continue
-        if not a.startswith("-"):
+    short-option group containing c. An option word ends at the first character that is not a letter,
+    digit or -, so -c</dev/null, -c; and -c' all count as -c. Quotes around a word are ignored. The
+    operand of -o/+o (the option name) is skipped."""
+    pos = 0
+    n = len(rest)
+    while pos < n:
+        while pos < n and (rest[pos].isspace() or rest[pos] in "'\""):
+            pos += 1
+        m = re.compile(r"-[A-Za-z0-9-]*|\+o(?![A-Za-z0-9-])").match(rest, pos)
+        if not m:
             return False
+        a = m.group(0)
+        pos = m.end()
+        if a in ("-o", "+o"):
+            while pos < n and (rest[pos].isspace() or rest[pos] in "'\""):
+                pos += 1
+            while pos < n and re.match(r"[A-Za-z0-9_-]", rest[pos]):
+                pos += 1
+            continue
         if re.match(r"^-[A-Za-z]+$", a) and "c" in a:
             return True
-        k += 1
     return False
 
 
