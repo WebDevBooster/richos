@@ -17,9 +17,10 @@
 #        effort, a workspace-write sandbox rooted at the export, outside a git
 #        repository and --ephemeral (no entry in the user's Codex app); the
 #        export is not the author's workspace; one ledger row with both models
-#        (Codex's from its own logged session start), the CLI version and the
-#        token count; the fixture is kept; the scratch is gone
-#   C02  a P1 finding forces changes-requested whatever the reviewer wrote
+#        (Codex's from its own logged session start), the CLI version, the token
+#        count and the meter; the fixture is kept; the scratch is gone
+#   C02  one blocking finding forces changes-requested whatever the reviewer
+#        wrote, and nothing is filed as a follow-up (ruling §116)
 #   C03  a recheck of the same work carries the earlier finding into the input
 #   C04  a verdict naming another commit is refused: no verdict
 #   C05  an answer outside the fixed shape is no verdict
@@ -33,12 +34,20 @@
 #        2026-10-09 the CPU breaker stopped a reviewer's rustc at 5.08 cores
 #   C13  second-review stopped from outside (review-watch replacing a mid-job
 #        review) stops its reviewer too, and its scratch is released
-#   C14  the reviewer never runs the user's own setup: Codex --ephemeral (no
+#   C14  ruling §116: only non-blocking findings (one of them a P1) pass,
+#        whatever the reviewer wrote, mid-job too, and each is filed in
+#        <state>/review-follow-ups.jsonl; the result line says how many, where
+#   C15  a recheck marks filed findings as already on the list; a pass with
+#        them still open does not file them twice
+#   C16  an earlier finding still open that blocks requests changes
+#   C17  one work in two repositories: each repository's review carries and
+#        files only its own repository's findings
+#   C18  the reviewer never runs the user's own setup: Codex --ephemeral (no
 #        session or history entry his Codex or ChatGPT app shows), without his
 #        config.toml (its notify program made macOS ask the CEO, 2026-10-09) or
 #        his exec-policy rules, notify empty, plugins, apps, hooks, computer use
 #        and browser use off; Claude with no MCP server (--strict-mcp-config)
-#   C15  an app review runs Claude on the account the app's work runs on when the
+#   C19  an app review runs Claude on the account the app's work runs on when the
 #        reviewer starts: started by the app's watcher (review_watch.py's spawn of
 #        an app item) through this command, the reviewer gets the added account's
 #        folder as CLAUDE_CONFIG_DIR and its id; after a switch back, Account 1's
@@ -125,13 +134,30 @@ if mode == "fail" and kind == "codex":
     sys.stderr.write("ERROR: You've hit your usage limit.\n")
     sys.exit(1)
 m = re.search(r"^TIP: ([0-9a-f]{40})$", prompt, re.M)
+# Every earlier finding the input lists is answered: FAKE_EARLIER (fixed by
+# default) and FAKE_EARLIER_BLOCKS=1 to say it still blocks.
+earlier = [{"id": i, "status": os.environ.get("FAKE_EARLIER", "fixed"),
+            "blocks": os.environ.get("FAKE_EARLIER_BLOCKS") == "1", "note": "fake"}
+           for i in re.findall(r"^- \*\*(\S+)\*\* \[", prompt, re.M)]
 answer = {"reviewed_commit": m.group(1) if m else "", "verdict": "passed", "summary": "fake review",
-          "checks": ["fake check"], "findings": [], "earlier_findings": [], "not_yet_claimed": []}
+          "checks": ["fake check"], "findings": [], "earlier_findings": earlier, "not_yet_claimed": []}
 if mode == "other-commit":
     answer["reviewed_commit"] = "0123456789abcdef0123456789abcdef01234567"
-if mode == "p1-passed":
-    answer["findings"] = [{"priority": 1, "title": "Shutdown leaves audio on disk", "files": ["a.txt:1"],
-                           "evidence": "the fixture kept the file", "fixture": "fixtures/witness.txt"}]
+if mode == "blocking-passed":
+    answer["findings"] = [{"priority": 2, "blocks": True, "title": "Shutdown leaves audio on disk",
+                           "files": ["a.txt:1"], "evidence": "the fixture kept the file",
+                           "fixture": "fixtures/witness.txt"},
+                          {"priority": 3, "blocks": False, "title": "A rare race at exit", "files": ["a.txt:2"],
+                           "evidence": "needs two shutdowns in one millisecond", "fixture": ""}]
+if mode == "nonblocking":
+    answer["verdict"] = "changes-requested"
+    answer["findings"] = [{"priority": 1, "blocks": False, "title": "A folder name with spaces breaks the export",
+                           "files": ["a.txt:1"], "evidence": "needs a hand-made folder name", "fixture": ""},
+                          {"priority": 3, "blocks": False, "title": "CRLF line endings are kept",
+                           "files": ["a.txt:2"], "evidence": "needs a hand-edited file", "fixture": ""}]
+if mode == "no-blocks":
+    answer["findings"] = [{"priority": 3, "title": "a finding that does not say whether it blocks",
+                           "files": [], "evidence": "", "fixture": ""}]
 if mode == "malformed":
     answer = {"verdict": "passed"}
 os.makedirs("fixtures", exist_ok=True)
@@ -234,6 +260,9 @@ has "$P" "BASE: $BASE"; check "C01 the input names the base" $? "base $BASE"
 has "$P" "COMMIT-MESSAGE-LINE"; check "C01 the input holds the author's commit message" $? ""
 has "$P" "LAST-REPORT-LINE: 12 tests green."; check "C01 the input holds the author's last report" $? ""
 has "$P" "AGENTS-RULE-LINE"; check "C01 the input holds the repository's own rules" $? ""
+has "$P" "a user could hit it in normal use of this work, AND it breaks what the work promises" \
+  && has "$P" "a deliberately hostile local process or a rare race does not block"
+check "C01 the input gives the reviewer the blocking test" $? ""
 ARGV="$(field "$(cat "$C/call.json")" '" ".join(r["argv"])')"
 CWD="$(field "$(cat "$C/call.json")" 'r["cwd"]')"
 has " $ARGV " " exec "; check "C01 Codex runs as codex exec" $? "$ARGV"
@@ -242,10 +271,10 @@ has "$ARGV" "--skip-git-repo-check"; check "C01 --skip-git-repo-check" $? "$ARGV
 has "$ARGV" "-m gpt-6.1-sol"; check "C01 the model is pinned to gpt-6.1-sol" $? "$ARGV"
 has "$ARGV" '-c model_reasoning_effort="high"'; check "C01 the effort is pinned to high" $? "$ARGV"
 has "$ARGV" "exec --ephemeral "
-check "C14 Codex runs --ephemeral: no session or history entry the user's Codex or ChatGPT app shows" $? "$ARGV"
+check "C18 Codex runs --ephemeral: no session or history entry the user's Codex or ChatGPT app shows" $? "$ARGV"
 has "$ARGV" "-C $CWD"; check "C01 the sandbox is rooted where the reviewer runs" $? "cwd=$CWD argv=$ARGV"
 has "$ARGV" "--ignore-user-config --ignore-rules -c notify=[] --disable plugins --disable apps --disable hooks --disable computer_use --disable browser_use --sandbox"
-check "C14 Codex runs isolated from the user's own Codex setup: no config.toml, no rules, no notify, no plugins, apps, hooks, computer or browser use" $? "$ARGV"
+check "C18 Codex runs isolated from the user's own Codex setup: no config.toml, no rules, no notify, no plugins, apps, hooks, computer or browser use" $? "$ARGV"
 TREE_A="$(field "$(cat "$C/call.json")" 'r["tree_a"]')"
 [ -n "$CWD" ] && [ "${CWD#"$REPO"}" = "$CWD" ] && has "$TREE_A" "slice one"
 check "C01 the reviewer works in an export of the tip, never in the author's workspace" $? "cwd=$CWD tree_a=$TREE_A"
@@ -270,10 +299,13 @@ check "C01 the full text and the fixtures are kept under reviews/<id>/" $? "id=$
 has "$OUT" "SECOND-REVIEW passed"; check "C01 the verdict is printed once" $? "$OUT"
 
 # --- C02 ---------------------------------------------------------------------
-FAKE_MODE=p1-passed run --name echo-sonnet-x1 --repo "$REPO"
+FAKE_MODE=blocking-passed run --name echo-sonnet-x1 --repo "$REPO"
 ROW="$(last_row)"
-[ "$RC" -eq 1 ] && [ "$(field "$ROW" 'r["verdict"]')" = "changes-requested" ] && [ "$(field "$ROW" 'r["forced"]')" = "True" ]
-check "C02 a P1 forces changes-requested though the reviewer wrote passed" $? "rc=$RC row=$ROW"
+[ "$RC" -eq 1 ] && [ "$(field "$ROW" 'r["verdict"]')" = "changes-requested" ] && [ "$(field "$ROW" 'r["forced"]')" = "True" ] \
+  && [ "$(field "$ROW" 'r["blocking"]')" = "1" ]
+check "C02 one blocking finding forces changes-requested though the reviewer wrote passed" $? "rc=$RC row=$ROW"
+[ ! -e "$SB/state/review-follow-ups.jsonl" ] && [ "$(field "$ROW" 'r["follow_ups"]')" = "0" ] && ! has "$OUT" "follow-up"
+check "C02 a review that requests changes files nothing, not even its non-blocking finding" $? "out=$OUT row=$ROW"
 P1ID="$(field "$ROW" 'r["id"]')"
 
 # --- C03 ---------------------------------------------------------------------
@@ -284,7 +316,7 @@ FAKE_MODE=pass run --name echo-sonnet-x1 --repo "$REPO" --trigger handover
 P="$(cat "$(last_call)/prompt.md" 2>/dev/null)"
 has "$P" "TIP: $TIP2" && has "$P" "$P1ID#1" && has "$P" "Shutdown leaves audio on disk"
 check "C03 the recheck's input carries the earlier finding, by id, and the new tip" $? "id=$P1ID"
-[ "$(field "$(last_row)" 'r["earlier_findings"]')" = "1" ]; check "C03 the row counts the earlier findings it asked about" $? "$(last_row)"
+[ "$(field "$(last_row)" 'r["earlier_findings"]')" = "2" ]; check "C03 the row counts the earlier findings it asked about" $? "$(last_row)"
 
 # --- C04 ---------------------------------------------------------------------
 FAKE_MODE=other-commit run --name echo-sonnet-x1 --repo "$REPO"
@@ -297,6 +329,10 @@ FAKE_MODE=malformed run --name echo-sonnet-x1 --repo "$REPO"
 ROW="$(last_row)"
 [ "$RC" -eq 2 ] && [ "$(field "$ROW" 'r["verdict"]')" = "None" ] && has "$(field "$ROW" 'r["why"]')" "shape"
 check "C05 an answer outside the fixed shape is no verdict" $? "rc=$RC row=$ROW"
+FAKE_MODE=no-blocks run --name echo-sonnet-x1 --repo "$REPO"
+ROW="$(last_row)"
+[ "$RC" -eq 2 ] && [ "$(field "$ROW" 'r["verdict"]')" = "None" ] && has "$(field "$ROW" 'r["why"]')" "'blocks'"
+check "C05 a finding that does not say whether it blocks is outside the fixed shape" $? "rc=$RC row=$ROW"
 
 # --- C06 ---------------------------------------------------------------------
 N0="$(calls)"
@@ -310,11 +346,13 @@ CARGV="$(field "$(cat "$CL/call.json")" '" ".join(r["argv"])')"
 check "C06 Codex at its usage limit: the Claude fallback reviews on Opus, and says why" $? "rc=$RC row=$ROW argv=$CARGV"
 [ "$(field "$ROW" 'r["reviewer_model"]')" = "claude-opus-5-5" ] && [ "$(field "$ROW" 'r["author_model"]')" = "sonnet" ]
 check "C06 the verdict says which model reviewed" $? "$ROW"
+has "$(cat "$CL/prompt.md")" "a user could hit it in normal use of this work, AND it breaks what the work promises"
+check "C06 the Claude fallback gets the same blocking test as Codex" $? "$CL/prompt.md"
 has "$CARGV" '"sandbox": {"enabled": true' && has "$CARGV" '"allowUnsandboxedCommands": false' \
   && has "$CARGV" "--disallowedTools Edit,Write,NotebookEdit" && has "$CARGV" "--setting-sources  "
 check "C06 the Claude reviewer writes only through sandboxed Bash, with none of the lead's settings" $? "$CARGV"
 has "$CARGV" "--setting-sources  --strict-mcp-config "
-check "C14 the Claude reviewer starts no MCP server of the user's (--strict-mcp-config)" $? "$CARGV"
+check "C18 the Claude reviewer starts no MCP server of the user's (--strict-mcp-config)" $? "$CARGV"
 
 # --- C07 ---------------------------------------------------------------------
 N0="$(calls)"
@@ -386,7 +424,93 @@ check "C13 stopped from outside, second-review stops its reviewer and releases i
     "second-review pid=$SRPID reviewer pid=$RPID gone=$GONE scratch_left=$(scratch_left)"
 [ -n "$RPID" ] && kill -0 "$RPID" 2>/dev/null && kill -KILL "$RPID" 2>/dev/null
 
+# --- C14 ---------------------------------------------------------------------
+FU="$SB/state/review-follow-ups.jsonl"
+FAKE_MODE=nonblocking run --name echo-sonnet-x1 --repo "$REPO" --trigger long-job
+ROW="$(last_row)"
+RID14="$(field "$ROW" 'r["id"]')"
+[ "$RC" -eq 0 ] && [ "$(field "$ROW" 'r["verdict"]')" = "passed" ] && [ "$(field "$ROW" 'r["forced"]')" = "True" ] \
+  && [ "$(field "$ROW" 'r["blocking"]')" = "0" ] && [ "$(field "$ROW" 'r["p1"]')" = "1" ]
+check "C14 only non-blocking findings (one a P1): passed, though the reviewer wrote changes-requested" $? "rc=$RC row=$ROW"
+python3 - "$FU" "$RID14" "$TIP2" "$REPO" <<'PY'
+import json, sys
+path, rid, tip, repo = sys.argv[1:5]
+rows = [json.loads(l) for l in open(path)]
+mine = [r for r in rows if r["review"] == rid]
+ok = (len(rows) == 2 and len(mine) == 2 and all(r["tip"] == tip and r["repo"] == repo for r in mine)
+      and [r["title"] for r in mine] == ["A folder name with spaces breaks the export", "CRLF line endings are kept"]
+      and mine[0]["files"] == ["a.txt:1"] and mine[0]["evidence"] == "needs a hand-made folder name"
+      and [r["finding"] for r in mine] == [rid + "#1", rid + "#2"])
+sys.exit(0 if ok else 1)
+PY
+check "C14 a mid-job pass files each non-blocking finding in the follow-up ledger: review id, repository, tip, title, files, evidence" $? "$(cat "$FU" 2>/dev/null)"
+has "$OUT" "2 follow-up(s) filed in $FU" && [ "$(field "$ROW" 'r["follow_ups"]')" = "2" ]
+check "C14 the one-line result says how many were filed and where" $? "$OUT"
+
 # --- C15 ---------------------------------------------------------------------
+FAKE_EARLIER=still-open FAKE_MODE=pass run --name echo-sonnet-x1 --repo "$REPO"
+P="$(cat "$(last_call)/prompt.md" 2>/dev/null)"
+ROW="$(last_row)"
+[ "$RC" -eq 0 ] && has "$P" "**$RID14#1** [P1; already on the follow-up list]" \
+  && [ "$(wc -l <"$FU" | tr -d ' ')" = "2" ] && [ "$(field "$ROW" 'r["follow_ups"]')" = "0" ]
+check "C15 a recheck shows filed findings as already on the list, and a pass with them still open files nothing twice" $? \
+    "rc=$RC row=$ROW ledger=$(cat "$FU" 2>/dev/null)"
+
+# --- C16 ---------------------------------------------------------------------
+FAKE_EARLIER=still-open FAKE_EARLIER_BLOCKS=1 FAKE_MODE=pass run --name echo-sonnet-x1 --repo "$REPO"
+ROW="$(last_row)"
+[ "$RC" -eq 1 ] && [ "$(field "$ROW" 'r["verdict"]')" = "changes-requested" ] && [ "$(field "$ROW" 'r["forced"]')" = "True" ] \
+  && [ "$(wc -l <"$FU" | tr -d ' ')" = "2" ]
+check "C16 an earlier finding the reviewer says is still open and blocks requests changes; nothing is filed" $? "rc=$RC row=$ROW"
+
+# --- C17 ---------------------------------------------------------------------
+# One teammate with workspaces in two repositories: the watcher gives both one
+# work key. Review rv-20261009T104053Z-8662354d-47b2 filed a finding of the
+# first repository under the second, and the first never filed it after that.
+REPO2="$SB/repo2"
+G2() { git -C "$REPO2" -c core.hooksPath=/dev/null -c user.name=Author -c user.email=author@example.invalid -c commit.gpgsign=false "$@"; }
+mkdir -p "$REPO2"
+G2 init -q -b main
+printf 'hq base\n' >"$REPO2/b.txt"
+G2 add -A; G2 commit -qm "hq base"
+G2 checkout -qb cc/echo-sonnet-x1
+printf 'hq base\nhq change\n' >"$REPO2/b.txt"
+G2 commit -qam "hq: the change"
+python3 - "$SB" "$SID" "$REPO2" <<'PY'
+import json, os, sys
+sb, sid, repo2 = sys.argv[1:4]
+p = os.path.join(sb, "workspaces", "agents", sid + "--echo-sonnet-x1.json")
+rec = json.load(open(p))
+rec["workspaces"].append({"repo": repo2, "path": repo2, "branch": "cc/echo-sonnet-x1", "kind": "cc", "deleted_at": None})
+json.dump(rec, open(p, "w"))
+PY
+printf 'base\nslice one\nfix\nmore\n' >"$REPO/a.txt"
+G commit -qam "Dictation slice 1: more"
+FU_BEFORE="$(wc -l <"$FU" | tr -d ' ')"
+FAKE_MODE=blocking-passed run --name echo-sonnet-x1 --repo "$REPO" --work teammate:cross-repo
+RID17="$(field "$(last_row)" 'r["id"]')"
+FAKE_EARLIER=still-open FAKE_MODE=pass run --name echo-sonnet-x1 --repo "$REPO2" --work teammate:cross-repo
+P="$(cat "$(last_call)/prompt.md" 2>/dev/null)"
+ROW="$(last_row)"
+[ "$RC" -eq 0 ] && ! has "$P" "$RID17#" && [ "$(field "$ROW" 'r["earlier_findings"]')" = "0" ] \
+  && [ "$(field "$ROW" 'r["follow_ups"]')" = "0" ] && [ "$(wc -l <"$FU" | tr -d ' ')" = "$FU_BEFORE" ]
+check "C17 a review in a second repository of the same work is not asked about, and files nothing of, the first repository's findings" $? \
+    "rc=$RC row=$ROW ledger=$(cat "$FU" 2>/dev/null)"
+FAKE_EARLIER=still-open FAKE_MODE=pass run --name echo-sonnet-x1 --repo "$REPO" --work teammate:cross-repo
+ROW="$(last_row)"
+python3 - "$FU" "$RID17" "$REPO" "$(field "$ROW" 'r["id"]')" <<'PY'
+import json, os, sys
+path, rid, repo, now = sys.argv[1:5]
+rows = [json.loads(l) for l in open(path)]
+mine = [r for r in rows if r["finding"].startswith(rid + "#")]
+ok = (sorted(r["finding"] for r in mine) == [rid + "#1", rid + "#2"]
+      and all(r["review"] == now and os.path.realpath(r["repo"]) == os.path.realpath(repo) for r in mine))
+sys.exit(0 if ok else 1)
+PY
+check "C17 the first repository's recheck files its own findings, under its own repository" $? \
+    "rc=$RC row=$ROW ledger=$(cat "$FU" 2>/dev/null)"
+
+# --- C19 ---------------------------------------------------------------------
 # The real second review of 802194f0e, finding 1: the app's watcher starts with a cleared
 # environment, so after the user switched to an added Claude account its reviews still ran on
 # the default one. Now it passes the app's account list (claude-accounts.json, which the app's
@@ -426,10 +550,10 @@ cfg = os.environ["CLAUDE_CONFIG_DIR"]
 sys.exit(0 if got == [{"in use": "2", "reviewer": "claude", "config": folder, "account": "2"},
                       {"in use": "1", "reviewer": "claude", "config": cfg, "account": "1"}] else 1)
 PY
-check "C15 an app review runs Claude on the account in use when the reviewer starts: the added account's folder, then Account 1's after a switch" \
+check "C19 an app review runs Claude on the account in use when the reviewer starts: the added account's folder, then Account 1's after a switch" \
     $? "$(cat "$SB/c15.out")"
 [ "$(( $(wc -l <"$SB/state/reviews.jsonl" | tr -d ' ') - ROWS0 ))" = "2" ]
-check "C15 both reviews are in the same ledger: the account's folder moves only the reviewer" $? "rows before=$ROWS0"
+check "C19 both reviews are in the same ledger: the account's folder moves only the reviewer" $? "rows before=$ROWS0"
 
 echo
 echo "second-review.test.sh: $PASS passed, $FAIL failed"

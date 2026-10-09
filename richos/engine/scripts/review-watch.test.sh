@@ -39,7 +39,8 @@
 #   W07  Codex's READY entry starts a review of its codex/ branch, with the
 #        to-codex.md entry that named the branch as the original words
 #   W08  a finding still open through two rechecks in a row is told once as
-#        not converging
+#        not converging; never one filed as a follow-up (blocks false); one
+#        work in two repositories is compared repository by repository
 #   W09  a repository not in SECOND_REVIEW_REPOS is never reviewed; with the
 #        key absent it says so once and starts nothing; a value bash sets that
 #        is not names (review_repos in scripts/lib/operator_fences.py, the one
@@ -2562,6 +2563,58 @@ tickrw
 N2="$(printf '%s' "$OUT" | grep -c 'NOT CONVERGING')"
 [ "$N1" = "1" ] && [ "$N2" = "0" ]
 check "W08 a finding still open through two rechecks in a row is told once as not converging" $? "first=$N1 again=$N2"
+
+# Review rv-20261009T104053Z-8662354d-47b2: two passed rechecks of a finding
+# already filed as a follow-up (blocks false) were told as not converging. And
+# one work in two repositories: each repository's rechecks are compared only
+# with that repository's, so a finding still open in richos through two richos
+# rechecks is told though a richos-hq review came between them.
+resetstate
+reg echo-sonnet-w1 600 30
+tickrw
+python3 - "$SB" "$REPO" "$SB/w08-rows.jsonl" <<'PY'
+import json, os, sys
+sb, repo, out = sys.argv[1:4]
+st = os.path.join(sb, "sr")
+richos, hq = os.path.realpath(repo), os.path.realpath(repo) + "-hq"
+rows = []
+def add(rid, work, where, verdict, findings=(), earlier=(), blocks=None):
+    rec = os.path.join(st, "reviews", rid)
+    os.makedirs(rec, exist_ok=True)
+    ans = {"findings": [dict(f, blocks=True) for f in findings], "earlier_findings": []}
+    ein = []
+    for fid, title in earlier:
+        ans["earlier_findings"].append({"id": fid, "status": "still-open", "blocks": blocks, "note": ""})
+        ein.append({"id": fid, "title": title})
+    json.dump({"answer": ans, "earlier_findings_in": ein}, open(os.path.join(rec, "verdict.json"), "w"))
+    rows.append({"id": rid, "at": "2026-10-09T0%d:00:00Z" % len(rows), "repo": where, "tip": "e" * 38 + "%02d" % len(rows),
+                 "work": work, "trigger": "long-job", "verdict": verdict, "findings": len(findings), "p1": 0,
+                 "reviewer": "codex", "reviewer_model": "m", "record": rec})
+fu = [{"priority": 3, "title": "Filed follow-up", "files": [], "evidence": "", "fixture": ""}]
+add("rv-fu-0", "teammate:fu", richos, "passed", fu)
+add("rv-fu-1", "teammate:fu", richos, "passed", earlier=[("rv-fu-0#1", "Filed follow-up")], blocks=False)
+xr = [{"priority": 2, "title": "Blocker in richos", "files": [], "evidence": "", "fixture": ""}]
+add("rv-xr-0", "teammate:xr", richos, "changes-requested", xr)
+add("rv-xr-1", "teammate:xr", hq, "passed")
+add("rv-xr-2", "teammate:xr", richos, "changes-requested", earlier=[("rv-xr-0#1", "Blocker in richos")], blocks=True)
+add("rv-xr-3", "teammate:xr", hq, "passed")
+# The two rows that decide come last, in a look of their own: one look's block
+# is capped at BLOCK_CHARS.
+add("rv-fu-2", "teammate:fu", richos, "passed", earlier=[("rv-fu-0#1", "Filed follow-up")], blocks=False)
+add("rv-xr-4", "teammate:xr", richos, "changes-requested", earlier=[("rv-xr-0#1", "Blocker in richos")], blocks=True)
+with open(out, "w") as f:
+    for r in rows:
+        f.write(json.dumps(r) + "\n")
+PY
+head -n 6 "$SB/w08-rows.jsonl" >>"$SB/sr/reviews.jsonl"
+tickrw
+tail -n 2 "$SB/w08-rows.jsonl" >>"$SB/sr/reviews.jsonl"
+tickrw
+NC="$(printf '%s' "$OUT" | grep 'NOT CONVERGING')"
+has "$OUT" "reviews/rv-xr-4/verdict.json" && ! has "$OUT" "... more in the next look" && ! has "$NC" "rv-fu-0#1"
+check "W08 a finding filed as a follow-up (blocks false) is never told as not converging" $? "$NC"
+[ "$(printf '%s\n' "$NC" | grep -c 'rv-xr-0#1')" = "1" ]
+check "W08 one work in two repositories: a finding still open through two rechecks of its own repository is told" $? "$NC"
 
 # --- W09 ---------------------------------------------------------------------
 resetstate
