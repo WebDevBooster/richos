@@ -4854,6 +4854,109 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         _merged, res = ws.merge_and_land("zach-opus-rv29", self.sid)
         self.assertTrue(res["landed"])
 
+    # -- one reader, one form -----------------------------------------------------------
+    # Review rv-20261009T050654Z-e21238ff-7685: install still skipped the forms the
+    # land refused, so it installed the fence with no review ledger (finding 1), and
+    # both readers took `other;` for the value where a shell sets `other` (finding 2).
+    # One function, operator_fences.review_repos, now reads SECOND_REVIEW_REPOS for
+    # install, the land and review-watch, and it accepts exactly
+    # SECOND_REVIEW_REPOS="name name ...".
+
+    UNREADABLE_FORMS = ('readonly SECOND_REVIEW_REPOS="other"', 'declare -x SECOND_REVIEW_REPOS="other"',
+                        'OPERATOR_FENCES="on"; SECOND_REVIEW_REPOS="other"', 'SECOND_REVIEW_REPOS=other;',
+                        'SECOND_REVIEW_REPOS=other;:', 'SECOND_REVIEW_REPOS=other&&:')
+
+    def test_second_review_the_reader_accepts_one_form_only(self):
+        """Names of letters, digits, `.`, `_` and `-` in double quotes, comment
+        lines and no line at all; every other non-comment line naming the key
+        is an error naming its line."""
+        F = ws._fence_program()
+        for text, names in (("", None), ('# SECOND_REVIEW_REPOS="other"\n', None),
+                            ('  # SECOND_REVIEW_REPOS=other;\nSECOND_REVIEW_REPOS_NOTE="x"\n', None),
+                            ('SECOND_REVIEW_REPOS="richos"\n', ["richos"]),
+                            ('SECOND_REVIEW_REPOS="a.b  c_d e-f 9"\n', ["a.b", "c_d", "e-f", "9"]),
+                            ('SECOND_REVIEW_REPOS=""\n', []),
+                            ('SECOND_REVIEW_REPOS="one"\nSECOND_REVIEW_REPOS="two"\n', ["two"])):
+            self.assertEqual(F.review_repos(text), (names, ""), text)
+        for line in self.UNREADABLE_FORMS + (
+                "SECOND_REVIEW_REPOS='other'", "SECOND_REVIEW_REPOS=other", ' SECOND_REVIEW_REPOS="other"',
+                'SECOND_REVIEW_REPOS="other" # a note', 'SECOND_REVIEW_REPOS="/abs/other"',
+                'SECOND_REVIEW_REPOS="~/other"', 'SECOND_REVIEW_REPOS="$HOME"', 'SECOND_REVIEW_REPOS="other"\r',
+                'SECOND_REVIEW_REPOS="other', 'export SECOND_REVIEW_REPOS="other"', 'NOTE="see SECOND_REVIEW_REPOS"'):
+            names, why = F.review_repos('OPERATOR_FENCES="on"\n%s\n' % line)
+            self.assertIsNone(names, line)
+            self.assertIn("line 2", why, line)
+
+    def test_second_review_install_and_the_land_refuse_every_other_form(self):
+        """The review's fixture install_and_assignment.py: READONLY_INSTALL,
+        DECLARE_INSTALL and SEMICOLON_PREFIX_INSTALL installed with no review
+        ledger and recorded "not reviewed"; SEMICOLON_TERMINATOR,
+        SEMICOLON_COMMAND and LOGICAL_COMMAND did that and landed unreviewed
+        work as well. Now install refuses each before it changes the registry
+        or the launcher, and the land refuses each too."""
+        config = os.path.join(self.decl, "orchestration.config")
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        registry = os.path.join(ws.land_locks_dir(), "operator-fences.json")
+
+        def installed():
+            with open(hook) as h, open(registry) as r:
+                return h.read(), r.read()
+
+        _cc, (tip,) = self.finished("zach-opus-rv30")
+        for line in self.UNREADABLE_FORMS:
+            with open(config, "w") as f:
+                f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n%s\n' % line)
+            before = installed()
+            r = run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl, check=False)
+            self.assertNotEqual(r.returncode, 0, "%s: %s" % (line, r.stdout))
+            self.assertIn("nothing installed. %s assigns SECOND_REVIEW_REPOS" % config, r.stdout + r.stderr, line)
+            self.assertEqual(installed(), before, line)
+            self.refused_unread("zach-opus-rv30", "%s assigns SECOND_REVIEW_REPOS" % config)
+        self.declare("other")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        self.refused_unread("zach-opus-rv30", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv30", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_install_and_the_land_check_call_the_same_reader(self):
+        """install (operator_fences_admin), the land check (workspaces) and
+        review-watch read SECOND_REVIEW_REPOS through one function of the one
+        operator_fences.py: what that function says decides all three."""
+        lib = os.path.join(ENGINE, "scripts", "lib")
+        spec = importlib.util.spec_from_file_location("srv_admin", os.path.join(lib, "operator_fences_admin.py"))
+        A = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(A)
+        spec = importlib.util.spec_from_file_location("srv_review_watch", os.path.join(lib, "review_watch.py"))
+        RW = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(RW)
+        F = ws._fence_program()
+        self.assertIs(RW.F, A.F)
+        self.assertEqual(os.path.realpath(A.F.__file__), os.path.realpath(F.__file__))
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        registry = os.path.join(ws.land_locks_dir(), "operator-fences.json")
+
+        def installed():
+            with open(hook) as h, open(registry) as r:
+                return h.read(), r.read()
+
+        why = "line 7 is the reader's own sentinel"
+        before = installed()
+        with patch.object(A.F, "review_repos", return_value=(None, why)) as at_install:
+            with self.assertRaises(SystemExit) as e:
+                A.cmd_install({"--entity": self.decl}, [self.other])
+            self.assertEqual(RW.configured_repos(os.path.join(self.decl, "orchestration.config")), (None, why))
+        self.assertTrue(at_install.called)
+        self.assertIn(why, str(e.exception))
+        self.assertEqual(installed(), before)
+        todo = [(self.other, "cc/same-reader", self.other, "b" * 40)]
+        with patch.object(ws, "_fence_program", return_value=F), \
+                patch.object(F, "review_repos", return_value=(None, why)) as at_land:
+            with self.assertRaises(ws.SpecError) as e:
+                ws._review_check(todo, [self.entity])
+        self.assertTrue(at_land.called)
+        self.assertIn(why, str(e.exception))
+
     def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
         r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
         self.assertNotIn("SECOND_REVIEW_REPOS", r.stdout)

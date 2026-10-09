@@ -664,15 +664,22 @@ mutant sr-dangling-launcher-absent "test_second_review_a_registry_or_launcher_th
     '        if False:{NL}            return [], ("%s'"'"'s fence launcher %s is a link to nothing' \
     "a fence launcher whose target is gone would read as no launcher, hiding the review ledger it carries (review rv-20261009T044823Z-fc8c7569-5919, finding 2)."
 
-mutant sr-unsupported-assignment-skipped "test_second_review_an_assignment_in_an_unsupported_form_is_refused" "$W" \
-    "_REVIEW_ASSIGNMENT = re.compile(r'(?m)^(?![ \\t]*#).*(?<![A-Za-z0-9_])SECOND_REVIEW_REPOS(?![A-Za-z0-9_]).*\$')" \
-    "_REVIEW_ASSIGNMENT = re.compile(r'(?m)^[ \\t]*(?:export[ \\t]+)?SECOND_REVIEW_REPOS[ \\t]*=.*\$')" \
+# ONE READER, ONE FORM (review rv-20261009T050654Z-e21238ff-7685): F.review_repos
+# is the only reader of SECOND_REVIEW_REPOS, for install, the land and review-watch.
+mutant sr-unsupported-assignment-skipped "test_second_review_an_assignment_in_an_unsupported_form_is_refused" "scripts/lib/operator_fences.py" \
+    '        if line.lstrip(" \t").startswith("#") or not _REVIEW_MENTION.search(line):' \
+    '        if not line.startswith(REVIEW_KEY):' \
     "a readonly, declare or after-a-semicolon assignment of SECOND_REVIEW_REPOS would be skipped and the declaration read as listing nothing (review rv-20261009T044823Z-fc8c7569-5919, finding 3)."
 
-mutant sr-unplain-assignment-skipped "test_second_review_a_declaration_whose_assignment_cannot_be_read_is_refused" "$W" \
-    '            continue{NL}        return None, ("the governing declaration %s assigns' \
-    '            continue{NL}        continue{NL}        return None, ("the governing declaration %s assigns' \
-    "a SECOND_REVIEW_REPOS line that is not a plain assignment would be read as listing nothing (review rv-20261009T042243Z-42ecc969-5f85)."
+mutant sr-unplain-assignment-skipped "test_second_review_a_declaration_whose_assignment_cannot_be_read_is_refused" "scripts/lib/operator_fences.py" \
+    '        if not m:{NL}            return None, ("line %d' \
+    '        if not m:{NL}            continue{NL}            return None, ("line %d' \
+    "a SECOND_REVIEW_REPOS line that is not the one form would be read as listing nothing (review rv-20261009T042243Z-42ecc969-5f85; rv-20261009T050654Z-e21238ff-7685, finding 2: other; and other&&: taken for a value)."
+
+mutant sr-install-skips-unreadable-form "test_second_review_install_and_the_land_refuse_every_other_form" "scripts/lib/operator_fences_admin.py" \
+    '    if unreadable:{NL}        # Before any launcher or registry entry is written' \
+    '    if False:{NL}        # Before any launcher or registry entry is written' \
+    "install would go on past a SECOND_REVIEW_REPOS line it cannot read, moving an existing hook aside before refusing (review rv-20261009T050654Z-e21238ff-7685, finding 1)."
 
 mutant sr-registry-without-repositories-names-nothing "test_second_review_a_fence_registry_without_its_repositories_is_unknown" "$W" \
     '    if not isinstance(reg, dict) or not isinstance(reg.get("repositories"), dict):' \

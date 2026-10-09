@@ -52,17 +52,31 @@ def say(text):
 
 
 def declaration(entity):
-    """KEY -> value for the plain assignments of <entity>/orchestration.config."""
-    out = {}
+    """KEY -> value for the plain assignments of <entity>/orchestration.config,
+    except SECOND_REVIEW_REPOS: its key holds what F.review_repos, its one
+    reader, returns, ([name] or None, why)."""
     try:
         with open(os.path.join(entity, "orchestration.config"), encoding="utf-8") as fh:
-            for line in fh:
-                m = _ASSIGN.match(line)
-                if m:
-                    out[m.group(1)] = next(g for g in m.groups()[1:] if g is not None)
+            text = fh.read()
     except OSError:
         return None
+    out = {}
+    for line in text.splitlines():
+        m = _ASSIGN.match(line)
+        if m and m.group(1) != F.REVIEW_KEY:
+            out[m.group(1)] = next(g for g in m.groups()[1:] if g is not None)
+    out[F.REVIEW_KEY] = F.review_repos(text)
     return out
+
+
+def review_unreadable(decl, config):
+    """Why the declaration's SECOND_REVIEW_REPOS cannot be read, or "".
+    `config` names the declaration in the sentence."""
+    why = ((decl or {}).get(F.REVIEW_KEY) or (None, ""))[1]
+    if not why:
+        return ""
+    return ("%s assigns %s in a form that cannot be read: %s; write it as %s=\"<names>\""
+            % (config, F.REVIEW_KEY, why, F.REVIEW_KEY))
 
 
 def registry_path():
@@ -95,8 +109,13 @@ def declared_repos(decl):
 
 def declared_reviews(decl, main):
     """The review ledger the launcher of `main` must carry: the second review's
-    ledger when the declaration's SECOND_REVIEW_REPOS lists it, else ""."""
-    if F.review_listed((decl or {}).get("SECOND_REVIEW_REPOS", ""), main):
+    ledger when the declaration's SECOND_REVIEW_REPOS lists it, else "". A
+    declaration whose SECOND_REVIEW_REPOS cannot be read never gets here:
+    cmd_install refuses it first and review_problems reports it."""
+    names, why = (decl or {}).get(F.REVIEW_KEY) or (None, "")
+    if why:
+        raise SystemExit("operator-fences: REFUSED. SECOND_REVIEW_REPOS cannot be read: %s" % why)
+    if F.review_listed(names, main):
         return F.review_ledger_default()
     return ""
 
@@ -107,6 +126,10 @@ def review_problems(repo, conf, decl):
     copies it, as for LAND_LEASE_HOLDERS."""
     if decl is None:
         return []
+    unreadable = review_unreadable(decl, "the entity's orchestration.config")
+    if unreadable:
+        return ["%s: %s, so whether it is reviewed cannot be established; fix it, then run operator-fences.sh "
+                "install" % (repo, unreadable)]
     paths = F.repo_paths(repo)
     want = declared_reviews(decl, paths["main"] if paths else repo)
     have = conf.get("REVIEWS") or ""
@@ -228,6 +251,11 @@ def cmd_install(opts, repos):
     reg = read_registry()
     entity = resolve_entity(opts, reg)
     decl = declaration(entity)
+    unreadable = review_unreadable(decl, os.path.join(entity, "orchestration.config"))
+    if unreadable:
+        # Before any launcher or registry entry is written: installing now would
+        # record "not reviewed" from a line a shell may read as listing it.
+        raise SystemExit("operator-fences: REFUSED, nothing installed. %s." % unreadable)
     repos = repos or declared_repos(decl)
     if not repos:
         raise SystemExit("operator-fences: no repositories: pass --repo or declare OPERATOR_FENCES_REPOS in %s"

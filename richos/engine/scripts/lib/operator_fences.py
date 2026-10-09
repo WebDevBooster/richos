@@ -830,18 +830,41 @@ def review_ledger_default():
     return os.path.join(d, "reviews.jsonl")
 
 
-def review_listed(value, main):
-    """Is the main checkout `main` listed in a SECOND_REVIEW_REPOS value?
-    Entries are folder names or paths (review_watch.py's own rule)."""
-    real = os.path.realpath(main or "")
-    for entry in (value or "").split():
-        entry = os.path.expanduser(entry)
-        if entry.startswith(os.sep):
-            if os.path.realpath(entry) == real:
-                return True
-        elif entry == os.path.basename(real):
-            return True
-    return False
+# ONE READER, ONE FORM (review rv-20261009T050654Z-e21238ff-7685). review_repos
+# is the only code that reads SECOND_REVIEW_REPOS: `operator-fences.sh install`
+# (operator_fences_admin.py), the land check (workspaces.py) and review-watch
+# (review_watch.py) all call it. It accepts exactly SECOND_REVIEW_REPOS="name
+# name ..." (each name the main checkout's folder name: letters, digits, `.`, `_`
+# and `-`), comment lines and no line at all. Any other non-comment line naming
+# the key (`readonly`, `declare -x`, after a semicolon, unquoted, `other;`,
+# `other&&:`, a path, a trailing comment, ...) is an error: install refuses before
+# it changes anything and the land refuses, because a shell may read that line
+# differently from any text reader.
+REVIEW_KEY = "SECOND_REVIEW_REPOS"
+_REVIEW_MENTION = re.compile(r'(?<![A-Za-z0-9_])SECOND_REVIEW_REPOS(?![A-Za-z0-9_])')
+_REVIEW_FORM = re.compile(r'SECOND_REVIEW_REPOS="([A-Za-z0-9._ -]*)"')
+
+
+def review_repos(text):
+    """([name, ...], "") from the text of an orchestration.config: the last
+    SECOND_REVIEW_REPOS="..." line, [] when it is empty; (None, "") when no
+    line assigns it; (None, why) when a non-comment line naming the key is not
+    that one form."""
+    names = None
+    for number, line in enumerate((text or "").split("\n"), 1):
+        if line.lstrip(" \t").startswith("#") or not _REVIEW_MENTION.search(line):
+            continue
+        m = _REVIEW_FORM.fullmatch(line)
+        if not m:
+            return None, ("line %d (%s) is not the one form %s=\"name name ...\" (names of letters, digits, "
+                          "'.', '_' and '-')" % (number, line.strip()[:120], REVIEW_KEY))
+        names = m.group(1).split()
+    return names, ""
+
+
+def review_listed(names, main):
+    """Is the main checkout `main` listed in `names` (review_repos)?"""
+    return os.path.basename(os.path.realpath(main or "")) in (names or ())
 
 
 def landed_tips(cwd, old, new, keep_git_env=False):

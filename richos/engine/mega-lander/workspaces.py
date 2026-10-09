@@ -5088,20 +5088,8 @@ def _registry_entity_map(F):
     return F.registry_entities(reg), [], F.registry_reviewed(reg)
 
 
-# Every line that mentions SECOND_REVIEW_REPOS, other than a comment line (a
-# shell never runs one), and the only shape of one that is read: a plain
-# KEY=value at the start of its line whose value review_watch.configured_repos
-# reads the same way (quoted, or one word with nothing after it but a comment).
-# Any other line naming the key (`readonly`, `declare -x`, `export`, after a
-# semicolon, ...) leaves what it lists unknown (review
-# rv-20261009T044823Z-fc8c7569-5919, finding 3).
-_REVIEW_ASSIGNMENT = re.compile(r'(?m)^(?![ \t]*#).*(?<![A-Za-z0-9_])SECOND_REVIEW_REPOS(?![A-Za-z0-9_]).*$')
-_REVIEW_PLAIN = re.compile(r'[ \t]*SECOND_REVIEW_REPOS[ \t]*=[ \t]*'
-                           r'(?:"([^"\n]*)"|\'([^\'\n]*)\'|([^\s#"\'`$\\]*))[ \t\r]*(?:#.*)?$')
-
-
-def _review_declaration(entity, recorded, key):
-    """(the SECOND_REVIEW_REPOS value or None, why unknown or "") of the
+def _review_declaration(F, entity, recorded, key):
+    """(the SECOND_REVIEW_REPOS names or None, why unknown or "") of the
     declaration of one governing `entity` of the main checkout `key`.
     `recorded`: the fence registry records `entity` as the one `key`'s fence
     was installed from.
@@ -5119,10 +5107,9 @@ def _review_declaration(entity, recorded, key):
       * a spawning entity whose directory is gone or is not a directory;
       * a declaration that is a link to nothing (something was there);
       * a declaration that exists and cannot be read;
-      * a line naming SECOND_REVIEW_REPOS that is not a plain assignment (an
-        unterminated quote, `export`, `readonly`, `declare`, an assignment
-        after a semicolon, a shell expansion, words after the value): neither
-        review-watch nor this can say what it lists."""
+      * a line naming SECOND_REVIEW_REPOS that is not the one form
+        F.review_repos, its only reader, accepts (review
+        rv-20261009T050654Z-e21238ff-7685): install refuses it as well."""
     config = os.path.join(entity, "orchestration.config")
     try:
         with open(config, encoding="utf-8", errors="replace") as f:
@@ -5150,25 +5137,20 @@ def _review_declaration(entity, recorded, key):
         # `git merge` either, so the land asks no more of it than that (review
         # rv-20261009T044823Z-fc8c7569-5919, finding 1).
         return None, ""
-    value = None
-    for line in _REVIEW_ASSIGNMENT.findall(text):
-        m = _REVIEW_PLAIN.match(line)
-        if m and not re.search(r'[$`\\]', m.group(1) or ""):    # a shell would expand "$HOME", not read it
-            value = next(g for g in m.groups() if g is not None)
-            continue
+    names, why = F.review_repos(text)
+    if why:
         return None, ("the governing declaration %s assigns SECOND_REVIEW_REPOS in a form that cannot be read "
-                      "as a plain assignment (%s); write it as SECOND_REVIEW_REPOS=\"<names or paths>\""
-                      % (config, line.strip()[:120]))
-    return value, ""
+                      "(%s); write it as SECOND_REVIEW_REPOS=\"<names>\"" % (config, why))
+    return names, ""
 
 
 def _declared_review_listing(F, entities, main, registry):
-    """([SECOND_REVIEW_REPOS value], [why unknown], the install recorded that
+    """([SECOND_REVIEW_REPOS names], [why unknown], the install recorded that
     `main` requires review) for every declaration
     governing the main checkout `main`: those of `entities`
     (_governing_entities: the work's own and this run's) and the entity the
     fence registry records for `main` (`registry`, _registry_entity_map), the
-    last assignment of each, as review_watch.configured_repos reads it.
+    last assignment of each, as F.review_repos (the one reader) reads it.
     WHETHER A REPOSITORY IS REVIEWED IS DECIDED FROM THESE (review
     rv-20261009T031207Z-ba444a8a-607a, finding 1): the fence launcher is only
     the copy `operator-fences.sh install` makes of the declaration, and reading
@@ -5215,7 +5197,7 @@ def _declared_review_listing(F, entities, main, registry):
                        % key)
     values = []
     for e, recorded in governing.items():
-        value, why = _review_declaration(e, recorded, key)
+        value, why = _review_declaration(F, e, recorded, key)
         if why:
             unknown.append(why)
         elif value is not None:

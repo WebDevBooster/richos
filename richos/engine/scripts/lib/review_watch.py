@@ -119,6 +119,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import stall_watch  # noqa: E402  (sibling: session, lock, JSON and silent-teammate helpers)
+import operator_fences as F  # noqa: E402  (sibling: review_repos, the one reader of SECOND_REVIEW_REPOS)
 
 POLL_SECONDS = 60
 LONG_JOB_MINUTES = 60
@@ -234,23 +235,19 @@ def repo_tag(repo):
 
 
 def configured_repos(config):
-    """The SECOND_REVIEW_REPOS entries (names or absolute paths), or None when
-    the key is absent or blank. Read as text; the config is never executed."""
+    """([repository name], "") from SECOND_REVIEW_REPOS, read by
+    F.review_repos, the one reader install and the land check use too; (None,
+    "") when the key is absent or blank; (None, why) when the config cannot be
+    read or the key is not in its one form. Read as text; never executed."""
     if not config or not os.path.isfile(config):
-        return None
+        return None, ""
     try:
         with open(config, encoding="utf-8") as f:
             text = f.read()
-    except OSError:
-        return None
-    m = None
-    for m in re.finditer(r'^[ \t]*%s[ \t]*=[ \t]*(?:"([^"\n]*)"|\'([^\'\n]*)\'|([^\s#]*))' % CONFIG_KEY, text, re.M):
-        pass
-    if m is None:
-        return None
-    value = next((g for g in m.groups() if g is not None), "")
-    names = [os.path.expanduser(n) for n in value.split()]
-    return names or None
+    except (OSError, ValueError) as exc:
+        return None, "it cannot be read (%s)" % (getattr(exc, "strerror", None) or exc)
+    names, why = F.review_repos(text)
+    return (names or None), why
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +288,7 @@ class World(object):
     def __init__(self, engine_root, config):
         self.engine_root = engine_root
         self.config = config
-        self.repos = configured_repos(config)
+        self.repos, self.repos_error = configured_repos(config)
         self.ws = stall_watch._load("review_watch_workspaces",
                                     os.path.join(engine_root, "mega-lander", "workspaces.py"))
         self.src = stall_watch.Sources(engine_root)
@@ -299,20 +296,9 @@ class World(object):
 
     # -- which repositories ---------------------------------------------------
     def wanted(self, repo):
-        if not self.repos:
-            return False
-        real = os.path.realpath(repo)
-        for r in self.repos:
-            if r.startswith(os.sep) and os.path.realpath(r) == real:
-                return True
-            if not r.startswith(os.sep) and os.path.basename(real) == r:
-                return True
-        return False
+        return F.review_listed(self.repos, repo)
 
     def repo_named(self, name):
-        for r in self.repos or []:
-            if r.startswith(os.sep) and os.path.basename(os.path.realpath(r)) == name:
-                return os.path.realpath(r)
         try:
             known = self.ws.known_repos() if self.ws else []
         except Exception:  # noqa: BLE001
@@ -480,9 +466,9 @@ class World(object):
         rm = re.search(r"Repositor(?:y|ies):\s*([^\n]+)", text)
         if rm:
             names = [n for n in re.findall(r"[A-Za-z0-9._-]+", rm.group(1))
-                     if any(n == os.path.basename(r.rstrip(os.sep)) for r in self.repos or [])]
+                     if n in (self.repos or [])]
         if not names and self.repos and len(self.repos) == 1:
-            names = [os.path.basename(self.repos[0].rstrip(os.sep))]
+            names = [self.repos[0]]
         repo = self.repo_named(names[0]) if names else ""
         if not repo or not self.wanted(repo):
             return None
@@ -824,6 +810,13 @@ class Watcher(object):
     # -- one look --------------------------------------------------------------------
     def look(self, now, session_state):
         """Lines to print. Starts what is due; settles what ended."""
+        if self.world.repos_error:
+            if session_state.get("told_unreadable_repos") == self.world.repos_error:
+                return []
+            session_state["told_unreadable_repos"] = self.world.repos_error
+            return ["REVIEW-WATCH %s: %s in %s cannot be read: %s. No second review starts by itself until it "
+                    "reads %s=\"name name ...\"." % (hhmm(now), CONFIG_KEY, self.config, self.world.repos_error,
+                                                     CONFIG_KEY)]
         if not self.world.repos:
             if session_state.get("told_no_repos"):
                 return []
