@@ -4179,6 +4179,38 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         run("git", "-C", self.other, "reset", "-q", "--hard", tip)
         self.assertEqual(self.head(), tip)
 
+    def test_second_review_an_update_ref_with_no_old_value_is_judged_from_the_real_main(self):
+        """Review rv-20261009T025426Z-15dae5ca-3cc1, finding 1: `git update-ref
+        refs/heads/main <tip>` with no expected old value hands the fence an
+        all-zero old value although main exists, and it was taken for a
+        creation, so a divergent replacement landed unreviewed. Deleting main and
+        creating it again did the same."""
+        base = self.head()
+        side = os.path.join(self.env.root, "update-ref-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "update-side", side, base)
+        self.commit(side, "never-reviewed.txt", "unreviewed replacement\n")
+        tip = run("git", "-C", side, "rev-parse", "HEAD").stdout.strip()
+        run("git", "-C", self.other, "commit", "-q", "--allow-empty", "-m", "advance main divergently")
+        moved = self.head()
+        r = run("git", "-C", self.other, "update-ref", "refs/heads/main", tip, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), moved)
+        # The same rule as any other move: back to a commit main held lands nothing.
+        run("git", "-C", self.other, "update-ref", "refs/heads/main", base)
+        self.assertEqual(self.head(), base)
+        run("git", "-C", self.other, "update-ref", "refs/heads/main", moved)
+        # Deleted and created again: nothing says main ever held the new commit.
+        run("git", "-C", self.other, "update-ref", "-d", "refs/heads/main")
+        r = run("git", "-C", self.other, "update-ref", "refs/heads/main", tip, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertNotEqual(run("git", "-C", self.other, "rev-parse", "-q", "--verify", "refs/heads/main",
+                                check=False).stdout.strip(), tip)
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "update-ref", "refs/heads/main", tip)
+        self.assertEqual(self.head(), tip)
+
     def test_second_review_a_merge_with_changes_of_its_own_needs_a_review_of_the_merge_itself(self):
         """Review rv-20261009T023055Z-b51ebb97-bc65, finding 2: a merge made
         elsewhere, whose first parent is main, carried an extra unreviewed file;

@@ -810,8 +810,15 @@ def landed_tips(cwd, old, new, keep_git_env=False):
     """The commits whose work a move of main from `old` to `new` lands; each
     needs a passing review of exactly itself. [] when the move lands nothing.
 
-      * a create, a delete, or a rollback (main goes back to a commit it
-        already held): [] - the lease rule is the fence for those;
+      * a delete, or a rollback (main goes back to a commit it already
+        held): [] - the lease rule is the fence for those;
+      * a creation of main where there is none (`old` all zeros, as after a
+        deletion): [new], the whole move, because nothing says main ever held
+        it (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1). The engine's
+        own create-only restore never gets here: fence_decide lets it through
+        before it asks. A caller whose Git handed it an all-zero old value for
+        a main that exists (`git update-ref` with no expected old value) passes
+        the real current main as `old` instead;
       * a replacement (main moves to a commit that holds work main did not
         hold, and is not a fast-forward): [new], the whole move (review
         rv-20261009T023055Z-b51ebb97-bc65, finding 1: a `git reset --hard` to
@@ -826,8 +833,10 @@ def landed_tips(cwd, old, new, keep_git_env=False):
       * a fast-forward to work made elsewhere, or any commit on main's line
         that is not a merge and changes a file: [new], the whole move;
       * a commit on main's line that changes no file lands nothing."""
-    if is_zero(old) or is_zero(new) or old == new:
+    if is_zero(new) or old == new:
         return []
+    if is_zero(old):
+        return [new]
     rc, _o, err = git(cwd, "merge-base", "--is-ancestor", old, new, keep_git_env=keep_git_env)
     if rc not in (0, 1):
         raise RuntimeError("git merge-base --is-ancestor %s %s failed: %s" % (old[:12], new[:12], err.strip()))
@@ -1181,8 +1190,13 @@ def fence_decide(lines, common, gitdir, files, chain, argv_of_writer=None):
                 refused.append(((old, new, ref), "a move of main over a refused writer's residue", detail))
         if need and ref == MAIN and files.reviews and not is_zero(new):
             # Lease or no lease: the second review is not the lease's question.
+            # Git hands an all-zero old value for an update with no expected
+            # old value (`git update-ref refs/heads/main <tip>`) even when main
+            # exists, so the move is judged from the main there really is
+            # (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1).
+            moved_from = current if is_zero(old) and current is not None else old
             try:
-                gaps = review_gaps(files.reviews, landed_tips(os.getcwd(), old, new, keep_git_env=True))
+                gaps = review_gaps(files.reviews, landed_tips(os.getcwd(), moved_from, new, keep_git_env=True))
             except Exception as error:  # noqa: BLE001: a check that cannot decide refuses, and says so
                 gaps = {new: ["the second review of this move could not be checked (%s: %s), so it is refused"
                               % (error.__class__.__name__, error)]}

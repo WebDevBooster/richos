@@ -550,6 +550,16 @@ mutant sr-merge-own-changes-unseen "test_second_review_a_merge_with_changes_of_i
     '        if False:{NL}            return [new]' \
     "a merge carrying a file of its own would land on its branch's review alone (review rv-20261009T023055Z-b51ebb97-bc65, finding 2)."
 
+mutant sr-unspecified-old-not-read "test_second_review_an_update_ref_with_no_old_value_is_judged_from_the_real_main" "$F" \
+    '            moved_from = current if is_zero(old) and current is not None else old' \
+    '            moved_from = old' \
+    "a move of main by \`git update-ref\` with no expected old value would be judged without the real main, so a rollback is refused (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1)."
+
+mutant sr-creation-lands-nothing "test_second_review_an_update_ref_with_no_old_value_is_judged_from_the_real_main" "$F" \
+    '    if is_zero(old):{NL}        return [new]' \
+    '    if is_zero(old):{NL}        return []' \
+    "main deleted and created again on an unreviewed commit would land it (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1)."
+
 mutant sr-old-verdict-dropped "test_second_review_a_verdict_waits_for_the_teammates_next_call_however_late" "scripts/lib/review_delivery.py" \
     '                if done is not None:{NL}                    r["_done"] = done' \
     '                if done is not None and time.time() - done <= 24 * 3600:{NL}                    r["_done"] = done' \
