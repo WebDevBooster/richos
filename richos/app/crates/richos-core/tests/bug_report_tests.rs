@@ -1055,3 +1055,52 @@ fn a_line_with_a_path_in_it_is_left_out_whole() {
     let (text, _) = paths_left_out("It froze.\n  Open SecretCo Plans/budget.xlsx please.\nThen it closed.");
     assert_eq!(text, "It froze.\n  [a file on this Mac].\nThen it closed.");
 }
+
+// ---- the review of 63b3f5101 (rv-20261009T172237Z-63b3f510-acf4), fixture `privacy-terms.py` ----
+
+/// Rich's answer: `said` as what happened, and `private` (a JSON list) as his private words.
+fn answer_naming(said: &str, private: &str) -> String {
+    format!(r#"{{"title": "Conversation disappeared", "what_happened": "{said}", "private": {private}}}"#)
+}
+
+/// A change adding `said` to What happened, with `private` (a JSON list) as his private words.
+fn change_naming(said: &str, private: &str) -> Change {
+    parse_change(&format!(r#"{{"section": "What happened", "add": "{said}", "private": {private}}}"#)).unwrap()
+}
+
+#[test]
+fn a_one_word_name_rich_lists_as_private_is_left_out_of_the_draft_and_every_change() {
+    // On 63b3f5101 "Zephyr", which Rich named a private conversation, went public in the draft
+    // and in a change, with no heads-up: a one-word conversation name was dropped from the list
+    // whoever named it.
+    let said = "The Zephyr conversation disappeared.";
+    let private = r#"[{"text": "Zephyr", "kind": "conversation"}]"#;
+    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap();
+    assert_eq!(joined(&checked.draft.sections[0].paragraphs[0]), "The [a conversation] conversation disappeared.");
+    let (add, kept) = scrub_change(&change_naming(said, private), &[], &[]);
+    assert_eq!(joined(&add), "The [a conversation] conversation disappeared.");
+    // On every later change, in any capitals, and in the heads-up on the user's own words.
+    let later = change_naming("the zephyr one and ZEPHYR too.", "[]");
+    assert_eq!(joined(&scrub_change(&later, &[], &kept).0), "the [a conversation] one and [a conversation] too.");
+    assert_eq!(private_in_edit(said, &[], &checked.draft.private), ["Zephyr"]);
+    // The app's own one-word conversation names keep their rule: "Running" is also a word.
+    assert_eq!(joined(&Scrubber::new(terms()).scrub("It keeps Running.")), "It keeps Running.");
+}
+
+#[test]
+fn a_name_rich_lists_in_lower_case_is_left_out_when_the_app_holds_it_capitalized() {
+    // On 63b3f5101, with "SecretCo" held by the app, Rich's "secretco" was dropped as a repeat,
+    // and the app's capital-only rule for "SecretCo" then left "secretco" public.
+    let known = vec![PrivateTerm::new("SecretCo", Kind::CompanyName)];
+    let said = "The secretco conversation disappeared.";
+    let private = r#"[{"text": "secretco", "kind": "company"}]"#;
+    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::new(known.clone())).unwrap();
+    assert_eq!(joined(&checked.draft.sections[0].paragraphs[0]), "The [a company] conversation disappeared.");
+    let (add, kept) = scrub_change(&change_naming(said, private), &known, &[]);
+    assert_eq!(joined(&add), "The [a company] conversation disappeared.");
+    let later = change_naming("SecretCo, secretco and SECRETCO.", "[]");
+    assert_eq!(joined(&scrub_change(&later, &known, &kept).0), "[a company], [a company] and [a company].");
+    assert_eq!(private_in_edit(said, &known, &checked.draft.private), ["secretco"]);
+    // Without Rich's word the app's rule stands: its capitalized one-word name is matched capitalized.
+    assert_eq!(joined(&Scrubber::new(known).scrub(said)), said);
+}

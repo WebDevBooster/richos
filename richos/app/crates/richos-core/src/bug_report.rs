@@ -178,6 +178,13 @@ impl Segment {
 ///
 /// THE MATCHING RULES, each one a trade stated rather than a default inherited:
 ///
+///   - **A word Rich names as private** (his write-up's and his changes' `private` list,
+///     [`Scrubber::with_rich`]) is matched in any letter case, however many words it is and
+///     however it is written: "Zephyr" is a conversation's name when he says it is, and "secretco"
+///     when he writes it so. The two rules below are guesses about names nobody has looked at,
+///     and his word overrides them; where RichOS holds the same name in other capitals, his entry
+///     is the one kept (review rv-20261009T172237Z-63b3f510-acf4 finding 1: on 63b3f5101 both
+///     guesses left a name he had listed in the public report).
 ///   - A name of **two or more words** is matched in any letter case, in every alphabet ("acme
 ///     deal", "CAFÉ NORTH" for "Café North", [`fold_char`]).
 ///   - A **one-word conversation name** is not matched at all (round 21 `privateTerms` does the
@@ -194,29 +201,48 @@ impl Segment {
 ///     **Email addresses** are `local@host.tld`.
 #[derive(Debug, Clone, Default)]
 pub struct Scrubber {
+    /// The names RichOS holds, after the rules above dropped what they drop.
     terms: Vec<PrivateTerm>,
+    /// The words Rich named as private, every one kept and matched in any letter case.
+    rich: Vec<PrivateTerm>,
 }
 
 impl Scrubber {
+    /// The names RichOS holds (`terms`), under the rules above.
     pub fn new(terms: Vec<PrivateTerm>) -> Self {
+        Self::with_rich(terms, Vec::new())
+    }
+
+    /// The names RichOS holds (`app`), under the rules above, and the words Rich named as private
+    /// (`rich`), every one of them, in any letter case. A name RichOS holds that Rich also named,
+    /// in any capitals, is matched as his.
+    pub fn with_rich(app: Vec<PrivateTerm>, rich: Vec<PrivateTerm>) -> Self {
+        let mut rich = distinct(rich);
         let mut kept: Vec<PrivateTerm> = Vec::new();
-        for term in terms {
+        for term in app {
             let one_word = !term.text.contains(char::is_whitespace);
             if term.text.chars().count() < 2 || (one_word && term.kind == Kind::ConversationName) {
                 continue;
             }
-            if !kept.iter().any(|k| folded(&k.text) == folded(&term.text)) {
+            if !kept.iter().chain(&rich).any(|k| folded(&k.text) == folded(&term.text)) {
                 kept.push(term);
             }
         }
         // Longest first, so "Acme deal" wins over "Acme" where both match.
         kept.sort_by_key(|t| std::cmp::Reverse(t.text.len()));
-        Scrubber { terms: kept }
+        rich.sort_by_key(|t| std::cmp::Reverse(t.text.len()));
+        Scrubber { terms: kept, rich }
     }
 
-    /// The terms in force, after the rules above dropped what they drop.
+    /// The names RichOS holds in force, after the rules above dropped what they drop. Rich's own
+    /// words are not among them: they are never put through those rules.
     pub fn terms(&self) -> &[PrivateTerm] {
         &self.terms
+    }
+
+    /// This scrubber with `rich` added to the words Rich named as private.
+    fn and_rich(&self, rich: impl IntoIterator<Item = PrivateTerm>) -> Self {
+        Self::with_rich(self.terms.clone(), self.rich.iter().cloned().chain(rich).collect())
     }
 
     /// Every private span in `text`, as (start, end, kind), non-overlapping and in order. Spans
@@ -225,8 +251,10 @@ impl Scrubber {
     /// in "Mary Jane Smith", or a company name that runs past the end of a path it starts in).
     fn spans(&self, text: &str) -> Vec<(usize, usize, Kind)> {
         let mut found: Vec<(usize, usize, Kind)> = Vec::new();
-        for term in &self.terms {
-            for (start, end) in find_term(text, &term.text) {
+        // Rich's words first, so at the same span his kind is the one shown.
+        let terms = self.rich.iter().map(|t| (t, true)).chain(self.terms.iter().map(|t| (t, false)));
+        for (term, his) in terms {
+            for (start, end) in find_term(text, &term.text, his) {
                 found.push((start, end, term.kind));
             }
         }
@@ -324,8 +352,9 @@ fn folded_match_end(text: &str, start: usize, needle: &[char]) -> Option<usize> 
 /// Whole-word, letter-case-aware occurrences of `term` in `text` (see [`Scrubber`]'s rules).
 /// Letter case is compared in every alphabet ([`fold_char`]); every offset is a character
 /// boundary of `text`, so the stand-in replaces exactly the words as the user wrote them.
-fn find_term(text: &str, term: &str) -> Vec<(usize, usize)> {
-    let one_word = !term.contains(char::is_whitespace);
+/// `his`: Rich named it private, so it is matched in any letter case, one word or several.
+fn find_term(text: &str, term: &str, his: bool) -> Vec<(usize, usize)> {
+    let one_word = !his && !term.contains(char::is_whitespace);
     let capitalized = term.chars().next().is_some_and(char::is_uppercase);
     let needle: Vec<char> = folded(term).chars().collect();
     let mut out = Vec::new();
@@ -946,7 +975,7 @@ pub fn parse_change(raw: &str) -> Result<Change, String> {
 /// (second review finding 4: on 1c3dda1dc his names applied to the first draft only).
 pub fn scrub_change(change: &Change, app: &[PrivateTerm], report: &[PrivateTerm]) -> (Vec<Segment>, Vec<PrivateTerm>) {
     let report = distinct(report.iter().chain(&change.private).cloned());
-    let scrubber = Scrubber::new(app.iter().chain(&report).cloned().collect());
+    let scrubber = Scrubber::with_rich(app.to_vec(), report.clone());
     (scrubber.scrub(&change.add), report)
 }
 
@@ -957,7 +986,7 @@ pub fn scrub_change(change: &Change, app: &[PrivateTerm], report: &[PrivateTerm]
 /// review finding 2: its own ASCII-only email pattern missed `alice@büro.de`, which this catches).
 /// It decides nothing: the user may send anyway, having been told.
 pub fn private_in_edit(text: &str, app: &[PrivateTerm], report: &[PrivateTerm]) -> Vec<String> {
-    Scrubber::new(app.iter().chain(report).cloned().collect()).private_in(text)
+    Scrubber::with_rich(app.to_vec(), report.to_vec()).private_in(text)
 }
 
 /// One section of the draft card, with stand-ins in place.
@@ -981,9 +1010,7 @@ pub struct Draft {
 
 /// Rich's write-up as a draft: every section scrubbed, the version line added as it is.
 pub fn draft_from(written: &Written, version: &str, scrubber: &Scrubber) -> Draft {
-    let mut terms = scrubber.terms().to_vec();
-    terms.extend(written.private.iter().cloned());
-    let scrubber = Scrubber::new(terms);
+    let scrubber = scrubber.and_rich(written.private.iter().cloned());
     let paragraphs = |text: &str| -> Vec<Vec<Segment>> {
         text.split("\n\n").map(str::trim).filter(|p| !p.is_empty()).map(|p| scrubber.scrub(&p.replace('\n', " "))).collect()
     };
