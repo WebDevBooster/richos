@@ -1,0 +1,173 @@
+#!/bin/bash
+# bug-report-walk.sh — Bust a bug on the real app, in one guest run, against a local stand-in
+# for GitHub's issues endpoint.
+#
+#   run-walk.py --bundle <RichOS.app.zip> --home <empty dir> --engine <engine.tar.gz> \
+#     --report <json> -- bug-report-walk.sh <out-dir>
+#
+# The CEO's §115 (2026-10-09), built to round 21: the user says what is wrong, Rich writes it
+# up, the user reads the whole report and sends it, and it is filed as a GitHub issue; a failed
+# send is kept on the Mac and sent once the connection is back. This walk drives exactly that,
+# with the guest's own `claude` replaced by fake-claude-bug-report.py (Rich's write-up names
+# the walk's company and a person) and RICHOS_BUG_REPORT_API pointed at github-stand-in.py on
+# 127.0.0.1:8765. The reporting account's token is a throwaway put into the GUEST's login
+# keychain under the app's own name (com.richos.app.bug-reports / github-reporting-token).
+#
+# PASS when:
+#   1  Bust a bug (Settings) starts the exchange in the conversation: Rich asks what went wrong;
+#   2  the answer typed in the composer comes back as the report card, "Not sent yet", with the
+#      company and the person replaced by stand-ins, and nothing has reached the endpoint;
+#   3  Send with the endpoint down leaves the card "Waiting to send · saved on this Mac", with
+#      Rich's offline line, and the report on disk under bug-reports/waiting;
+#   4  once the endpoint is up, the report goes out BY ITSELF: the card says "Sent · #412",
+#      Rich says "You're back online, so I sent your bug report.", the endpoint received one
+#      POST to /repos/WebDevBooster/richos/issues with "Bearer <the keychain token>", and its
+#      body carries neither the company nor the person;
+#   5  screenshots of the report, the waiting card and the sent card in the dark theme and the
+#      light theme, for comparison with round 21.
+#
+# run-walk.py passes the VM name first, and quits the app, stops the guest and deletes the
+# clone when this returns (CEO §54). EXIT STATUS: 0 only when every capture was saved and
+# every check passed.
+set -u
+VM="$1"
+S="${2:?usage: bug-report-walk.sh <vm> <out-dir>}"
+T="$(cd "$(dirname "$0")" && pwd)"
+G=/Users/admin/fill-first
+PORT=8765
+TOKEN="walk-stand-in-token-$RANDOM$RANDOM"
+COMPANY='Northwind Traders'
+PERSON='Dana Whitfield'
+mkdir -p "$S"
+note() { echo "[walk] $(date -u +%H:%M:%SZ) $*" | tee -a "$S/walk.log"; }
+FAILS=()
+fail() { note "FAILED: $1"; FAILS+=("$1"); }
+setup_failed() { note "FAILED: $1; nothing to walk"; exit 1; }
+finish() {
+  "$T/guest.sh" "$VM" "cat $G/stand-in.log 2>/dev/null; true" > "$S/stand-in.log" 2>&1
+  "$T/guest.sh" "$VM" "cat $G/writer-prompts.log 2>/dev/null; true" > "$S/writer-prompts.log" 2>&1
+  if [ "${#FAILS[@]}" -gt 0 ]; then
+    note "done, with ${#FAILS[@]} failed step(s): $(printf '%s; ' "${FAILS[@]}")"
+    exit 1
+  fi
+  note "done"
+  exit 0
+}
+# Wait (at most $2 x 3 s, default 90 s) until the app's screen has a node whose value or title
+# contains $1.
+wait_text() {
+  for _ in $(seq 1 "${2:-30}"); do
+    "$T/ax.sh" "$VM" find --value "$1" --contains --first >/dev/null 2>&1 && return 0
+    "$T/ax.sh" "$VM" find --title "$1" --contains --first >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  return 1
+}
+theme() { # dark | light, through the Settings button's own theme row
+  "$T/ax.sh" "$VM" click --title "Settings" --first >/dev/null 2>&1 || true
+  sleep 1
+  if [ "$1" = light ]; then "$T/ax.sh" "$VM" click --title "Light theme" >/dev/null 2>&1; else "$T/ax.sh" "$VM" click --title "Dark theme" >/dev/null 2>&1; fi
+  sleep 2
+}
+both() { # $1 name: one capture in each theme, dark first, and back to dark
+  theme dark; "$T/shot.sh" "$VM" "$S/$1-dark.png" || fail "capture $1-dark"
+  theme light; "$T/shot.sh" "$VM" "$S/$1-light.png" || fail "capture $1-light"
+  theme dark
+}
+
+# ---- the fixture: the fake claude, the stand-in, the token in the guest's keychain ----
+"$T/guest.sh" "$VM" "mkdir -p $G" || setup_failed "the fixture folder"
+"$T/guest.sh" "$VM" --push "$T/fake-claude-fill-first.pl" $G/claude-fill-first || setup_failed "pushing the fill-first fake"
+"$T/guest.sh" "$VM" --push "$T/fake-claude-bug-report.py" $G/claude || setup_failed "pushing the bug report fake"
+"$T/guest.sh" "$VM" --push "$T/github-stand-in.py" $G/github-stand-in.py || setup_failed "pushing the stand-in"
+"$T/guest.sh" "$VM" "chmod 755 $G/claude $G/claude-fill-first; printf '{\"five\":10,\"weekly\":20}' > $G/usage-1.json; printf 'Noted.' > $G/reply.txt" \
+  || setup_failed "the fixture files"
+PAYLOAD=$(cat "${TESTVM_ROOT:-$HOME/.richos-testvm}/run/$VM/payload")
+case "$PAYLOAD" in /Users/admin/*/testvm/*) ;; *) setup_failed "the guest payload ($PAYLOAD)" ;; esac
+GHOME="$PAYLOAD/home"
+# The token goes into the keychain the app reads: the GUI session's default keychain for this
+# fixture HOME, which keychain.sh made at boot.
+"$T/guest.sh" "$VM" "sudo launchctl asuser \$(id -u admin) sudo -u admin env HOME='$GHOME' security add-generic-password -s com.richos.app.bug-reports -a github-reporting-token -w '$TOKEN' -U" \
+  || setup_failed "the reporting token in the guest's keychain"
+python3 - "$VM" "$T" "$PORT" <<'PY' || setup_failed "relaunching the app with the fake claude and the stand-in endpoint"
+import sys
+sys.path.insert(0, sys.argv[2])
+from relaunch import relaunch
+print(relaunch(sys.argv[1], environment={'RICHOS_CLAUDE_BIN': '/Users/admin/fill-first/claude',
+                                         'RICHOS_BUG_REPORT_API': 'http://127.0.0.1:' + sys.argv[3]}))
+PY
+
+# ---- a company and a conversation, as a first run makes them ----
+wait_text 'Not now' 20 || true
+for _ in 1 2 3; do
+  "$T/ax.sh" "$VM" find --title 'Add this company' --first >/dev/null 2>&1 && break
+  "$T/ax.sh" "$VM" click --title 'Not now' --first >/dev/null 2>&1 || true
+  sleep 4
+done
+wait_text 'Add this company' 20 || true
+for attempt in 1 2 3; do
+  "$T/ax.sh" "$VM" type "$COMPANY" --role AXTextField --first --replace || true
+  sleep 1
+  "$T/ax.sh" "$VM" click --title 'Add this company' || true
+  sleep 6
+  "$T/ax.sh" "$VM" find --title 'Add this company' --first >/dev/null 2>&1 || break
+  note "company not added yet (attempt $attempt)"
+done
+"$T/ax.sh" "$VM" type "Good morning." --role AXTextArea --first --replace || true
+"$T/ax.sh" "$VM" click --title 'Send' --first || true
+wait_text 'Noted.' 40 || setup_failed "the conversation never answered (no 'Noted.')"
+note "ok: a conversation in $COMPANY"
+
+# One check: run the command; "ok: $1" when it succeeds, a failure named $2 when it does not.
+check() { local ok="$1" bad="$2"; shift 2; if "$@"; then note "ok: $ok"; else fail "$bad"; fi; }
+# The reverse: a failure named $1 when the command succeeds.
+refuse() { local bad="$1"; shift; if "$@"; then fail "$bad"; fi; }
+# shellcheck disable=SC2329  # called through check and refuse, which shellcheck cannot follow
+has() { grep -q -- "$1" "$2"; }
+
+# ---- 1. Bust a bug starts the exchange ----
+"$T/ax.sh" "$VM" click --title 'Settings' --first || fail "the Settings button"
+sleep 1
+"$T/ax.sh" "$VM" click --title 'Bust a bug!' --contains || fail "the Bust a bug button"
+check "Rich asks what went wrong" "Rich did not ask" wait_text 'What went wrong? Tell me in your own words' 10
+"$T/shot.sh" "$VM" "$S/1-ask-dark.png" || fail "capture 1-ask-dark"
+
+# ---- 2. the answer, Rich's write-up, the card ----
+"$T/ax.sh" "$VM" type "In the $COMPANY chat the names on the left get cut off when I make the text bigger." --role AXTextArea --first --replace || fail "typing the answer"
+"$T/ax.sh" "$VM" --key 36 || fail "Return"
+check "the report card, not sent yet" "no report card" wait_text 'Not sent yet' 40
+"$T/ax.sh" "$VM" tree > "$S/2-report.tree" 2>&1 || true
+check "the company is a stand-in" "no [a company] stand-in on the card" has '\[a company\]' "$S/2-report.tree"
+check "the person is a stand-in" "no [a person] stand-in on the card" has '\[a person\]' "$S/2-report.tree"
+refuse "the person's name is on the card" has "$PERSON" "$S/2-report.tree"
+check "From the RichOS reporting account" "no From line" has 'the RichOS reporting account' "$S/2-report.tree"
+refuse "something reached the endpoint before Send" "$T/guest.sh" "$VM" "test -s $G/stand-in.log"
+"$T/guest.sh" "$VM" "cat $G/writer-prompts.log" > "$S/writer-prompts.log" 2>&1 || true
+check "Rich was given the user's words" "Rich was not given the user's words" has 'cut off when I make the text bigger' "$S/writer-prompts.log"
+both 2-report
+
+# ---- 3. Send while the endpoint is down: kept on this Mac ----
+"$T/ax.sh" "$VM" click --title 'Send report' || fail "Send report"
+check "waiting to send, saved on this Mac" "the card never said Waiting to send" wait_text 'Waiting to send' 30
+check "Rich's offline line" "no offline line" wait_text "This Mac is offline, so the report didn't go out" 5
+# shellcheck disable=SC2016  # the $(...) is meant to expand in the guest's shell, not here
+DATA=$("$T/guest.sh" "$VM" 'd="$(find /Users/admin -type d -name bug-reports -path "*com.richos.app*" 2>/dev/null | head -1)"; echo "$d"')
+"$T/guest.sh" "$VM" "ls '$DATA/waiting'; cat '$DATA'/waiting/*.json" > "$S/3-waiting.txt" 2>&1 || true
+check "on disk, waiting, offline ($DATA/waiting)" "the waiting report is not on disk" has '"reason":"offline"' "$S/3-waiting.txt"
+both 3-waiting
+
+# ---- 4. the endpoint comes up: it goes out by itself ----
+"$T/guest.sh" "$VM" "nohup python3 $G/github-stand-in.py $PORT $G/stand-in.log >/dev/null 2>&1 & echo started" || fail "starting the stand-in"
+note "the stand-in endpoint is up; waiting for the report to go out by itself"
+check "Sent · #412, by itself" "the card never said Sent · #412" wait_text 'Sent · #412' 40
+check "Rich says it went out" "Rich did not say it went out" wait_text "You're back online, so I sent your bug report" 5
+"$T/guest.sh" "$VM" "cat $G/stand-in.log" > "$S/stand-in.log" 2>&1 || true
+posts=$(grep -c '"path": "/repos/WebDevBooster/richos/issues"' "$S/stand-in.log" || true)
+check "one POST to /repos/WebDevBooster/richos/issues" "$posts POSTs to the issues endpoint, not 1" test "$posts" = 1
+check "the keychain's token, read at send time" "the request did not carry the keychain's token" has "\"Authorization\": \"Bearer $TOKEN\"" "$S/stand-in.log"
+refuse "a private name reached the endpoint" grep -q -e "$COMPANY" -e "$PERSON" -e Northwind -e Dana "$S/stand-in.log"
+check "the title Rich wrote" "the title is not Rich's" has 'Conversation names in the sidebar are cut off' "$S/stand-in.log"
+"$T/guest.sh" "$VM" "ls '$DATA/waiting' | wc -l; cat '$DATA/sent.jsonl'" > "$S/4-store.txt" 2>&1 || true
+check "recorded as sent" "not recorded as sent" has '"number":412' "$S/4-store.txt"
+both 4-sent
+finish
