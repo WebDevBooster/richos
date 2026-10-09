@@ -405,6 +405,7 @@ class Item(object):
     session = ""        # the lead session that registered the work (the operator host delivers to it)
     claude = ""         # app mode: the Claude CLI the app ships
     accounts = ""       # app mode: the app's account list (claude-accounts.json), read when the reviewer starts
+    codex_reviews = ""  # app mode: the app's Codex review switch (codex-reviews.json), read when the review starts
 
     def args(self, trigger):
         """second-review's arguments for this item."""
@@ -412,8 +413,9 @@ class Item(object):
         if self.source == "app":
             # A regular RichOS user: Claude reviews (plan §2.3, "RichOS is Claude", §16), on the
             # CLI the app ships, with the user's own turn as the original words beside the
-            # brief the worker received.
-            a = ["--name", self.ref] + a + ["--reviewer", "claude"]
+            # brief the worker received. Unless the user turned on "Let Codex review your team's
+            # work" in Settings (round 20.2, ruling §114): then Codex, whenever it can (app_reviewer).
+            a = ["--name", self.ref] + a + ["--reviewer", app_reviewer(self.codex_reviews)]
             for w in self.words:
                 a += ["--words-file", w]
             if self.claude:
@@ -430,6 +432,24 @@ class Item(object):
         else:
             a = ["--name", self.ref] + a
         return a
+
+
+def app_reviewer(setting):
+    """second-review's --reviewer for an app review: "auto" when the user turned on the Codex
+    review switch in Settings (round 20.2; his words, ruling §114: "we should give the user a
+    toggle/switch to manually enable that"), "claude" otherwise. Read when the review starts, so
+    a flip counts from the next review. Off on first run: no file, an unreadable one, or anything
+    but {"on": true} is off. "auto" is Codex when second-review finds it and Codex itself says it
+    is signed in, with CODEX_ISOLATION (no session in the user's Codex or ChatGPT app), and Claude
+    otherwise, which is the row's "Claude is reviewing in the meantime"."""
+    if not setting:
+        return "claude"
+    try:
+        with open(setting, encoding="utf-8") as f:
+            on = json.load(f).get("on") is True
+    except (OSError, ValueError, AttributeError):
+        on = False
+    return "auto" if on else "claude"
 
 
 class World(object):
@@ -669,15 +689,21 @@ class AppWorld(World):
         beside the worker's receipt by app.py prepare, as the original words. Each review runs on
         the Claude account the app's work runs on when its reviewer starts: second-review reads
         the app's account list (--accounts) then, as a work lease is given the account in use.
+      * Codex reviews instead when the user turned on the Settings switch "Let Codex review
+        your team's work" (round 20.2, ruling §114; --codex-reviews, read when each review
+        starts, app_reviewer), whenever Codex is installed and signed in; Claude otherwise.
       * No Codex channel: that is his team's.
     """
 
-    def __init__(self, engine_root, app_state, claude="", accounts=""):
+    codex_reviews = ""  # the Codex switch's file; none (a world built without it) is the switch off
+
+    def __init__(self, engine_root, app_state, claude="", accounts="", codex_reviews=""):
         self.engine_root = engine_root
         self.config = ""
         self.app_state = os.path.realpath(app_state)
         self.claude = claude
         self.accounts = accounts
+        self.codex_reviews = codex_reviews
         self.repos, self.repos_error = ["(every connected repository)"], ""
         self.ws = stall_watch._load("review_watch_workspaces",
                                     os.path.join(engine_root, "mega-lander", "workspaces.py"))
@@ -739,7 +765,7 @@ class AppWorld(World):
                     if not self.is_worker(receipt):
                         continue
                     it.source, it.env, it.claude = "app", {"RICHOS_WORKSPACES_DIR": part}, self.claude
-                    it.accounts = self.accounts
+                    it.accounts, it.codex_reviews = self.accounts, self.codex_reviews
                     it.words = self.words_for(part, it.name)
                     items.append(it)
                 problems += probs
@@ -1869,7 +1895,7 @@ def app_mode(a, engine_root):
     os.environ["SECOND_REVIEW_STATE_DIR"] = paths["reviews"]
     if not (os.environ.get("RICHOS_PROJECTS_DIR") or "").strip():
         os.environ["RICHOS_PROJECTS_DIR"] = os.path.join(os.path.realpath(a.app_state), "platform-projects")
-    watcher = Watcher(engine_root, "", AppWorld(engine_root, a.app_state, a.claude, a.accounts))
+    watcher = Watcher(engine_root, "", AppWorld(engine_root, a.app_state, a.claude, a.accounts, a.codex_reviews))
     if a.status:
         for path in sorted(glob.glob(_p("locks", "*.lock"))):
             info = stall_watch._read_json(path)
@@ -1910,6 +1936,8 @@ def main(argv):
     ap.add_argument("--claude", default="", help="app mode: the Claude CLI the app ships")
     ap.add_argument("--accounts", default="",
                     help="app mode: the app's Claude account list; each review runs on the account in use")
+    ap.add_argument("--codex-reviews", default="",
+                    help="app mode: the app's Codex review switch (codex-reviews.json); on, Codex reviews when it can")
     ap.add_argument("--host-json", action="store_true",
                     help="the operator host's child: notices as JSON lines, one per lead session")
     a = ap.parse_args(argv)

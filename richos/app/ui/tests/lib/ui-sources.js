@@ -109,6 +109,7 @@ const ROLES = {
   "accounts.js": { role: "ui", why: "Claude accounts for everyone (round 18): the Settings row, the account cards, adding a second account and the buttons under Rich's lines about accounts" },
   "bug-report.js": { role: "ui", why: "Bust a bug (round 21): Rich's question, the report card with Send report, Change it and Cancel, the stand-in tooltip, Rich's lines about sending, and the Rich panel beside a window" },
   "dictation.js": { role: "ui", why: "Dictation (round 19, dictation plan slice 2): the Settings row, the Dictation sheet, the off notice and the composer's line once dictation is on" },
+  "codex-reviews.js": { role: "ui", why: "Let Codex review your team's work (round 20.2): the Settings row below Technical view, its five states, the ⓘ's tooltip and the nudge" },
   "settings-button.js": { role: "ui", why: "the universal settings button — CEO ruling §15" },
   "splash.js": { role: "ui", why: "the opening curtain's renderer" },
   "splash-library.js": { role: "ui", why: "the two approved splash compositions — data, with prose in it" },

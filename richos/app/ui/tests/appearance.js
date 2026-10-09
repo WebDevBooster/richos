@@ -352,7 +352,8 @@ const menuRows = (page) =>
     [...document.querySelectorAll("#set-menu > *")]
       .filter((n) => !n.classList.contains("setmenu-title"))
       .map((n) =>
-        n.querySelector(".set-name") ? n.querySelector(".set-name").textContent.trim() : n.textContent.trim()
+        // The Codex row's name is its title; the rest of its text is its tooltip's words.
+        n.querySelector(".set-name, #cx-title") ? n.querySelector(".set-name, #cx-title").textContent.trim() : n.textContent.trim()
       )
   );
 
@@ -973,6 +974,13 @@ async function main() {
         why: "the company-buttons dialog the menu's own Home screen row opens (aria-modal, with its own Done)",
         proof: "aria-modal-opened-from-the-menu",
       },
+      {
+        // Since round 20.2 (2026-10-09): the menu widened to 372px for the Codex row and, kept open
+        // under this sheet, covered its Turn it on at 1024 by 700 (tests/quota.js).
+        sel: "#techy-scope",
+        why: "the Technical view question the menu's own Technical view switch opens over it (aria-modal, with its own Cancel)",
+        proof: "aria-modal-opened-from-the-menu",
+      },
     ];
 
     const zOf = (sel) => {
@@ -1031,7 +1039,28 @@ async function main() {
         done: !!document.getElementById("home-prefs-done"),
       };
     });
+    // And `#techy-scope`: opened by the Technical view switch inside the menu, over the menu.
+    await owner.click("#home-prefs-done");
+    await owner.waitForSelector("#home-prefs", { state: "hidden" });
+    if (await owner.locator("#set-menu").isHidden()) await owner.click("#set-btn");
+    await owner.waitForSelector("#set-menu", { state: "visible" });
+    const techyInMenu = await owner.evaluate(() => !!document.querySelector("#set-menu #set-techy"));
+    await owner.click("#set-techy");
+    await owner.waitForSelector("#techy-scope:not([hidden])");
+    const scope = await owner.evaluate(() => {
+      const sheet = document.getElementById("techy-scope");
+      const b = document.getElementById("techy-scope-confirm").getBoundingClientRect();
+      const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return { role: sheet.getAttribute("role"), ariaModal: sheet.getAttribute("aria-modal"),
+        cancel: !!document.getElementById("techy-scope-cancel"), confirmOnTop: !!(top && top.closest("#techy-scope")) };
+    });
+    await owner.click("#techy-scope-cancel");
     await owner.close();
+    assert(techyInMenu, "`#techy-scope` is excused as 'the question the menu's Technical view switch opens' and the menu has no such switch");
+    assertEqual(scope.role, "dialog", "`#techy-scope` is excused as a modal and is not a dialog");
+    assertEqual(scope.ariaModal, "true", "`#techy-scope` is excused as a modal and does not claim aria-modal");
+    assert(scope.cancel, "`#techy-scope` is excused as a modal and has no control to close it");
+    assert(scope.confirmOnTop, "`#techy-scope`'s Turn it on is covered by something while the sheet is open");
     assertEqual(modal.role, "dialog", "`.home-prefs` is excused as a modal and is not a dialog");
     assertEqual(modal.ariaModal, "true", "`.home-prefs` is excused as a modal and does not claim aria-modal");
     assert(modal.done, "`.home-prefs` is excused as a modal the CEO opened and has no control to close it");
@@ -1063,7 +1092,7 @@ async function main() {
       // defect A. One setting carried two names: this row said "Techy Mode" while the gear
       // panel said "Technical view" and THIS toggle's own modal is headed "Turn off the
       // technical view". The ORDER is untouched; only the third row's words changed.
-      ["Theme", "Text size", "Technical view", "Claude Code quota", "Company", "Home screen", "Claude accounts", "Connected folders (repositories)", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
+      ["Theme", "Text size", "Technical view", "Let Codex review your team’s work", "Claude Code quota", "Company", "Home screen", "Claude accounts", "Connected folders (repositories)", "Memory folder", "Use Rich from your phone", "Updates", "Bust a bug!"],
       "§15 fixes the first three: Text size 'directly under the theme switch', and 'directly under " +
         "that, a Techy Mode toggle'. The technical-only Claude Code quota row follows that toggle. The splash screen's off switch is not in this menu " +
         "since the CEO's 2026-10-06 feedback item 7 (it is in the gear's general settings), and Bust a bug is always the floor. " +
@@ -1089,7 +1118,9 @@ async function main() {
         "the ruling does not name it, the floor stays the floor. It is the ONE ROW IN THIS MENU " +
         "THAT IS NOT A PREFERENCE — it is a thing he does once, ever — and that is why it sits " +
         "at the bottom of the preferences rather than among them, next to the other rows that " +
-        "open a sheet about an arrangement rather than flipping a switch."
+        "open a sheet about an arrangement rather than flipping a switch. " +
+        "Let Codex review your team's work (2026-10-09, round 20.2, the CEO's ruling §114) sits " +
+        "directly below Technical view, between two rules, as round 20.2 draws it, for everyone."
     );
     await page.close();
     return rows.join(" -> ");
