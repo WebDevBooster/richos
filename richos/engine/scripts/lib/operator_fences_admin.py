@@ -52,17 +52,32 @@ def say(text):
 
 
 def declaration(entity):
-    """KEY -> value for the plain assignments of <entity>/orchestration.config."""
-    out = {}
+    """KEY -> value for the plain assignments of <entity>/orchestration.config,
+    except SECOND_REVIEW_REPOS: its key holds what F.review_repos, its one
+    reader, returns from bash sourcing the file, ([name] or None, why)."""
+    config = os.path.join(entity, "orchestration.config")
     try:
-        with open(os.path.join(entity, "orchestration.config"), encoding="utf-8") as fh:
-            for line in fh:
-                m = _ASSIGN.match(line)
-                if m:
-                    out[m.group(1)] = next(g for g in m.groups()[1:] if g is not None)
+        with open(config, encoding="utf-8") as fh:
+            text = fh.read()
     except OSError:
         return None
+    out = {}
+    for line in text.splitlines():
+        m = _ASSIGN.match(line)
+        if m and m.group(1) != F.REVIEW_KEY:
+            out[m.group(1)] = next(g for g in m.groups()[1:] if g is not None)
+    out[F.REVIEW_KEY] = F.review_repos(config)
     return out
+
+
+def review_unreadable(decl, config):
+    """Why the declaration's SECOND_REVIEW_REPOS cannot be read, or "".
+    `config` names the declaration in the sentence."""
+    why = ((decl or {}).get(F.REVIEW_KEY) or (None, ""))[1]
+    if not why:
+        return ""
+    return ("%s in %s cannot be read: %s; it must source cleanly in bash and set %s=\"<names>\""
+            % (F.REVIEW_KEY, config, why, F.REVIEW_KEY))
 
 
 def registry_path():
@@ -91,6 +106,44 @@ def resolve_entity(opts, reg):
 def declared_repos(decl):
     raw = (decl or {}).get("OPERATOR_FENCES_REPOS", "")
     return [os.path.realpath(os.path.expanduser(p)) for p in raw.split()]
+
+
+def declared_reviews(decl, main):
+    """The review ledger the launcher of `main` must carry: the second review's
+    ledger when the declaration's SECOND_REVIEW_REPOS lists it, else "". A
+    declaration whose SECOND_REVIEW_REPOS cannot be read never gets here:
+    cmd_install refuses it first and review_problems reports it."""
+    names, why = (decl or {}).get(F.REVIEW_KEY) or (None, "")
+    if why:
+        raise SystemExit("operator-fences: REFUSED. SECOND_REVIEW_REPOS cannot be read: %s" % why)
+    if F.review_listed(names, main):
+        return F.review_ledger_default()
+    return ""
+
+
+def review_problems(repo, conf, decl):
+    """[problem] when the launcher's review ledger disagrees with the
+    declaration: an edited SECOND_REVIEW_REPOS does nothing until `install`
+    copies it, as for LAND_LEASE_HOLDERS."""
+    if decl is None:
+        return []
+    unreadable = review_unreadable(decl, "the entity's orchestration.config")
+    if unreadable:
+        return ["%s: %s, so whether it is reviewed cannot be established; fix it, then run operator-fences.sh "
+                "install" % (repo, unreadable)]
+    paths = F.repo_paths(repo)
+    want = declared_reviews(decl, paths["main"] if paths else repo)
+    have = conf.get("REVIEWS") or ""
+    if want == have:
+        return []
+    if want and not have:
+        return ["%s: SECOND_REVIEW_REPOS lists it but its launcher does not refuse unreviewed work; run "
+                "operator-fences.sh install" % repo]
+    if have and not want:
+        return ["%s: its launcher refuses unreviewed work but SECOND_REVIEW_REPOS does not list it; run "
+                "operator-fences.sh install" % repo]
+    return ["%s: its launcher reads the review ledger %s, not %s; run operator-fences.sh install"
+            % (repo, have, want)]
 
 
 def chain_reachable(main):
@@ -190,7 +243,7 @@ def install_one(repo, entity, decl):
     holders = " ".join(decl.get("LAND_LEASE_HOLDERS", "").split())
     write_executable(target, launcher_text({
         "STATE": state, "REPO": main, "COMMON": common, "HOME": home, "KEY": key, "HOLDERS": holders,
-        "ENGINE": ENGINE, "PROGRAM": program, "DIGEST": digest}))
+        "REVIEWS": declared_reviews(decl, main), "ENGINE": ENGINE, "PROGRAM": program, "DIGEST": digest}))
     return {"main": main, "common": common, "state": state, "moved": moved, "chain": chain_members(common),
             "hooks_path": hooks_path}
 
@@ -199,6 +252,11 @@ def cmd_install(opts, repos):
     reg = read_registry()
     entity = resolve_entity(opts, reg)
     decl = declaration(entity)
+    unreadable = review_unreadable(decl, os.path.join(entity, "orchestration.config"))
+    if unreadable:
+        # Before any launcher or registry entry is written: installing now would
+        # record "not reviewed" from a line a shell may read as listing it.
+        raise SystemExit("operator-fences: REFUSED, nothing installed. %s." % unreadable)
     repos = repos or declared_repos(decl)
     if not repos:
         raise SystemExit("operator-fences: no repositories: pass --repo or declare OPERATOR_FENCES_REPOS in %s"
@@ -206,7 +264,12 @@ def cmd_install(opts, repos):
     reg["entity"] = entity
     for repo in repos:
         r = install_one(repo, entity, decl)
-        reg["repositories"][r["main"]] = {"common": r["common"], "chain": r["chain"], "installed": F.iso()}
+        # The land command reads "entity" and "reviewed" (workspaces.py). "reviewed" is
+        # THE DURABLE RECORD that this repository requires a second review, taken from
+        # the declaration now: removing or breaking that declaration later never
+        # switches the review off at the land; only the next install does (CEO §113).
+        reg["repositories"][r["main"]] = {"common": r["common"], "chain": r["chain"], "installed": F.iso(),
+                                          "entity": entity, "reviewed": bool(declared_reviews(decl, r["main"]))}
         say("installed  %s  state=%s  chain=%s%s" % (r["main"], r["state"], ",".join(r["chain"]) or "(empty)",
                                                     "  (moved the existing hook to %s)" % r["moved"] if r["moved"]
                                                     else ""))
@@ -296,6 +359,7 @@ def check_one(repo, mode, decl=None):
         problems.append("%s: cannot compute the lease home (%s)" % (repo, error))
     if mode != "on-ready":
         problems.extend(holder_problems(repo, conf, decl)[0])
+        problems.extend(review_problems(repo, conf, decl))
     return problems
 
 

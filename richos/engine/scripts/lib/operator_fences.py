@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""operator_fences.py: the land lease, the Git fence and the merge-ownership record.
+"""operator_fences.py: the land lease, the Git fence and the merge-ownership record,
+and the second review's land rule (no work lands without a passing review of
+exactly its tip, CEO §113; its section below says where it applies).
 
 Spec: richos-hq docs/plans/2026-09-24-operator-back-end-spec-r3.md (Sage, e1, e2,
 e6, e7, e8), with Frank's final check G1-G12 applied on top of it
@@ -244,6 +246,44 @@ def write_json_atomic(path, value):
     os.replace(tmp, path)
 
 
+def registry_entities(reg):
+    """{main checkout: the entity its fence was installed from, or "" when the
+    entry does not record one} for every repository in the fence registry
+    `reg` (operator_fences_admin.read_registry(); the land command reads it,
+    mega-lander/workspaces.py _registry_entity_map).
+
+    An entry the installer writes now carries its own "entity". AN ENTRY FROM
+    BEFORE THAT carries only common, chain and installed, and its entity is
+    UNKNOWN (""): it is never inferred from the top-level entity or the
+    `installed` times (review rv-20261009T040812Z-9efed042-d03e, finding 1).
+    The earlier installer overwrote the top-level entity at every install and
+    left it unchanged at uninstall, and its times have one-second resolution,
+    so neither establishes which entity installed an entry; inferring credited
+    the wrong one. The land command refuses a repository whose entry is
+    unknown, naming the `operator-fences.sh install` that records it."""
+    repos = reg.get("repositories") if isinstance(reg, dict) else None
+    if not isinstance(repos, dict):
+        return {}
+    out = {}
+    for main, entry in repos.items():
+        v = entry.get("entity") if isinstance(entry, dict) else None
+        out[main] = v if isinstance(v, str) and v.strip() else ""
+    return out
+
+
+def registry_reviewed(reg):
+    """{main checkout} of every repository whose fence registry entry records,
+    from its declaration at `operator-fences.sh install`, that it requires a
+    second review ("reviewed": true). The land command requires a review for
+    such a repository whatever its declarations say now, until the next
+    install records otherwise (CEO §113). An entry without the field (written
+    before install recorded it) records nothing; the declarations decide."""
+    repos = reg.get("repositories") if isinstance(reg, dict) else None
+    if not isinstance(repos, dict):
+        return set()
+    return {main for main, entry in repos.items() if isinstance(entry, dict) and entry.get("reviewed") is True}
+
+
 def append_jsonl(path, value):
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
@@ -260,10 +300,10 @@ def git(cwd, *args, **kw):
             break
         env.pop(name, None)
     try:
-        r = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True, text=True,
+        r = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True, text=not kw.get("raw"),
                            timeout=kw.get("timeout", 60), env=env)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return 127, "", str(error)
+        return 127, (b"" if kw.get("raw") else ""), str(error)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -341,6 +381,10 @@ class Files(object):
         self.restore_intent = os.path.join(self.home, "restore-intents", self.key + ".json")
         self.refusals = os.path.join(self.home, "fence-refusals.jsonl")
         self.preserved = os.path.join(self.home, "preserved")
+        # The second review's ledger, for a repository in SECOND_REVIEW_REPOS
+        # only ("" otherwise, and in a launcher installed before it existed).
+        self.reviews = conf.get("REVIEWS") or ""
+        self.engine = conf.get("ENGINE") or ""
         # The repository name a refusal record carries (cmd_fence writes the same value).
         self.repo = conf.get("REPO") or conf.get("COMMON") or ""
 
@@ -745,6 +789,343 @@ def preservation_problems(target):
 
 
 # ---------------------------------------------------------------------------
+# the second review: no work lands without a passing review of exactly its tip
+# ---------------------------------------------------------------------------
+# Ruling §113 (2026-10-08): "A regular RichOS user can never be expected
+# anything even remotely close to that. So, this all must be completely
+# automated." Slice 3 of richos-hq docs/plans/2026-10-09-automatic-second-
+# review-and-t3-ideas.md (§2.4, §2.5, §4 row 3) with Sage's check (§2 catches 1
+# and 8): scripts/second-review.sh writes the verdicts, review-watch starts
+# them, and THIS refuses a move of main that lands work whose tip has no
+# passing verdict. It lives here, in the fence, because the fence sees every
+# move of main whoever makes it: `workspaces.sh merge`, a plain `git merge`, a
+# fast-forward, and Rich's land of a codex/ branch (a plain merge in the main
+# checkout, which never enters the workspace registry). workspaces.py's
+# merge_and_land asks the same functions BEFORE it merges, so its refusal comes
+# before git's merge gate runs, and also with the fence switched off.
+#
+# WHICH REPOSITORIES: only those listed in the entity's SECOND_REVIEW_REPOS.
+# `operator-fences.sh install` bakes the review ledger's path into the launcher
+# (OPERATOR_FENCES_REVIEWS) for a listed repository and leaves it empty for any
+# other, exactly as it copies LAND_LEASE_HOLDERS; `status` reports a launcher
+# that disagrees with the declaration.
+#
+# WHICH VERDICT COUNTS: the NEWEST handover or by-hand verdict whose tip is
+# exactly the commit landed, and it must say `passed`. A mid-job verdict never
+# counts (its reviewer was told to list what is not yet claimed instead of
+# reporting it). A commit is matched by its full ID alone, never by the path
+# the review ran in: the ID names the content and its whole history, and the
+# path is often a workspace that no longer exists.
+
+REVIEW_LAND_KINDS = ("handover", "manual")
+REVIEW_MID_JOB = ("long-job", "quiet")
+
+
+def review_ledger_default():
+    """The path second_review.py's state_root() gives, plus reviews.jsonl."""
+    d = (os.environ.get("SECOND_REVIEW_STATE_DIR") or "").strip()
+    if not d:
+        base = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() or os.path.join(os.path.expanduser("~"), ".claude")
+        d = os.path.join(base, "state")
+    return os.path.join(d, "reviews.jsonl")
+
+
+# ONE READER, AND IT ASKS THE SHELL (reviews rv-20261009T050654Z-e21238ff-7685
+# and rv-20261009T052655Z-daf09e19-0bc6). review_repos is the only code that
+# reads SECOND_REVIEW_REPOS: `operator-fences.sh install` (operator_fences_admin.py),
+# the land check (workspaces.py) and review-watch (review_watch.py) all call it.
+# It parses no shell: a reader of lines took a key split by a backslash-newline
+# for no assignment, and an assignment inside a skipped `if` or a heredoc for the
+# value. orchestration.config is a shell file the engine already sources (the
+# hooks do), so review_repos sources it in a clean bash, the way
+# disk-watchdog.test.sh (W22d) reads DISK_CONSUMER_CANDIDATES, and takes the
+# value bash sets. Then it checks what bash returned: unset is no value; set, it
+# must be names of letters, digits, `.`, `_` and `-` separated by spaces (each
+# the main checkout's folder name). A bash that exits non-zero (a syntax error,
+# a last command that failed, an `exit`), does not finish within
+# REVIEW_READ_SECONDS, cannot be run, or prints anything besides the value is an
+# error: install refuses before it writes, and the land refuses.
+REVIEW_KEY = "SECOND_REVIEW_REPOS"
+REVIEW_READ_SECONDS = 10
+_REVIEW_NAMES = re.compile(r'[A-Za-z0-9._ -]*')
+_REVIEW_OUTPUT = re.compile(r'read\|(set|)\|(.*)\|done', re.S)
+# `|| exit` exits with the failed `.`'s own status. What the config prints while
+# it is sourced goes nowhere, so the one printf is all bash prints unless the
+# config left something behind (an EXIT trap, a redirect), and the strict match
+# of _REVIEW_OUTPUT refuses that.
+_REVIEW_READ = ('. "$1" >/dev/null </dev/null || exit\n'
+                'printf "read|%s|%s|done" "${SECOND_REVIEW_REPOS+set}" "${SECOND_REVIEW_REPOS-}"')
+
+
+def review_repos(config):
+    """([name, ...], "") for the orchestration.config at path `config`: the
+    value of SECOND_REVIEW_REPOS once bash has sourced it, [] when it is set
+    and empty; (None, "") when bash leaves it unset; (None, why) when bash
+    cannot source it cleanly or the value is not names."""
+    config = os.path.abspath(config)
+    env = {"HOME": os.environ.get("HOME") or os.path.expanduser("~"),
+           "PATH": os.environ.get("PATH") or "/usr/bin:/bin", "LC_ALL": "C"}
+    if os.environ.get("TMPDIR"):
+        env["TMPDIR"] = os.environ["TMPDIR"]
+    try:
+        # Its own process group, so a timeout stops whatever the config started
+        # too (the group of the pid captured here, never a name match).
+        p = subprocess.Popen(["bash", "--noprofile", "--norc", "-c", _REVIEW_READ, "_", config],
+                             cwd=os.path.dirname(config), env=env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    except OSError as exc:
+        return None, "bash could not be run to source it (%s)" % (exc.strerror or exc)
+    try:
+        out, err = p.communicate(timeout=REVIEW_READ_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, 9)
+        except OSError:
+            pass
+        p.stdout.close()
+        p.stderr.close()
+        p.wait()
+        return None, "bash did not finish sourcing it within %s seconds" % REVIEW_READ_SECONDS
+    if p.returncode != 0:
+        lines = [x.strip() for x in err.decode("utf-8", "replace").splitlines() if x.strip()]
+        return None, "sourcing it in bash exits %d%s" % (p.returncode, ": " + lines[-1][:200] if lines else "")
+    m = _REVIEW_OUTPUT.fullmatch(out.decode("utf-8", "replace"))
+    if not m:
+        return None, "sourcing it in bash printed something besides the value (%r)" % out[:120]
+    if not m.group(1):
+        return None, ""
+    if not _REVIEW_NAMES.fullmatch(m.group(2)):
+        return None, ("bash reads it as %r, which is not names of letters, digits, '.', '_' and '-' separated "
+                      "by spaces" % m.group(2)[:120])
+    return m.group(2).split(), ""
+
+
+def review_listed(names, main):
+    """Is the main checkout `main` listed in `names` (review_repos)?"""
+    return os.path.basename(os.path.realpath(main or "")) in (names or ())
+
+
+def landed_tips(cwd, old, new, keep_git_env=False):
+    """The commits whose work a move of main from `old` to `new` lands; each
+    needs a passing review of exactly itself. [] when the move lands nothing.
+
+      * a delete, or a rollback (main goes back to a commit it already
+        held): [] - the lease rule is the fence for those;
+      * a creation of main where there is none (`old` all zeros, as after a
+        deletion): [new], the whole move, because nothing says main ever held
+        it (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1). The engine's
+        own create-only restore never gets here: fence_decide lets it through
+        before it asks. A caller whose Git handed it an all-zero old value for
+        a main that exists (`git update-ref` with no expected old value) passes
+        the real current main as `old` instead;
+      * a replacement (main moves to a commit that holds work main did not
+        hold, and is not a fast-forward): [new], the whole move (review
+        rv-20261009T023055Z-b51ebb97-bc65, finding 1: a `git reset --hard` to
+        an unreviewed divergent branch was taken for a rollback);
+      * merge commits on main's own line whose files are exactly the clean
+        merge of their two parents: each parent after the first that main did
+        not already hold (the branch tip the merge brings in);
+      * a merge with changes of its own (a conflict resolved by hand, a file
+        added while merging, more than two parents), wherever it was made:
+        [new], the whole move, because no branch review saw those changes
+        (the same review, finding 2);
+      * a fast-forward to work made elsewhere, or any commit on main's line
+        that is not a merge and changes a file: [new], the whole move;
+      * a commit on main's line that changes no file lands nothing."""
+    if is_zero(new) or old == new:
+        return []
+    if is_zero(old):
+        return [new]
+    rc, _o, err = git(cwd, "merge-base", "--is-ancestor", old, new, keep_git_env=keep_git_env)
+    if rc not in (0, 1):
+        raise RuntimeError("git merge-base --is-ancestor %s %s failed: %s" % (old[:12], new[:12], err.strip()))
+    if rc == 1:
+        rc, _o, err = git(cwd, "merge-base", "--is-ancestor", new, old, keep_git_env=keep_git_env)
+        if rc not in (0, 1):
+            raise RuntimeError("git merge-base --is-ancestor %s %s failed: %s" % (new[:12], old[:12], err.strip()))
+        return [] if rc == 0 else [new]
+    rc, out, err = git(cwd, "rev-list", "--first-parent", "--parents", "%s..%s" % (old, new),
+                       keep_git_env=keep_git_env)
+    if rc != 0:
+        raise RuntimeError("git rev-list %s..%s failed: %s" % (old[:12], new[:12], err.strip()))
+    line = [ln.split() for ln in out.splitlines() if ln.strip()]
+    if not line:
+        return []
+    if len(line[-1]) < 2 or line[-1][1] != old:
+        return [new]
+    tips = []
+    for commit in line:
+        c, parents = commit[0], commit[1:]
+        if len(parents) == 1:
+            rc, out, _e = git(cwd, "rev-parse", c + "^{tree}", parents[0] + "^{tree}", keep_git_env=keep_git_env)
+            trees = out.split()
+            if rc == 0 and len(trees) == 2 and trees[0] == trees[1]:
+                continue
+            return [new]
+        if not clean_merge(cwd, c, parents, keep_git_env):
+            return [new]
+        for p in parents[1:]:
+            rc, _o, _e = git(cwd, "merge-base", "--is-ancestor", p, old, keep_git_env=keep_git_env)
+            if rc != 0 and p not in tips:
+                tips.append(p)
+    return tips
+
+
+def clean_merge(cwd, commit, parents, keep_git_env=False):
+    """Are the files of the merge `commit` exactly what Git's own merge of its
+    two parents makes? Then it brings in its second parent's work and nothing
+    else, wherever and whenever it was made. A merge Git could not make by
+    itself (a conflict resolved by hand), one with a file changed while
+    merging, or one with more than two parents is not."""
+    if len(parents) != 2:
+        return False
+    rc, out, err = git(cwd, "merge-tree", "--write-tree", parents[0], parents[1], keep_git_env=keep_git_env)
+    if rc not in (0, 1):
+        raise RuntimeError("git merge-tree %s %s failed: %s" % (parents[0][:12], parents[1][:12], err.strip()))
+    if rc == 1:
+        return False
+    merged = (out.split() or [""])[0]
+    rc, tree, err = git(cwd, "rev-parse", commit + "^{tree}", keep_git_env=keep_git_env)
+    if rc != 0:
+        raise RuntimeError("git rev-parse %s^{tree} failed: %s" % (commit[:12], err.strip()))
+    return bool(merged) and merged == tree.strip()
+
+
+def read_reviews(ledger):
+    rows = []
+    try:
+        with open(ledger, encoding="utf-8") as fh:
+            for raw in fh:
+                try:
+                    r = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and r.get("verdict"):
+                    rows.append(r)
+    except OSError:
+        pass
+    return rows
+
+
+def review_repo_resolved(repo):
+    """(the canonical identity of a repository for matching verdicts, whether Git
+    resolved it). The identity is the real path of its main checkout; Git decides
+    it (the common git directory), so every linked worktree of a repository has
+    the identity of that repository while an independent clone stays distinct. A
+    path Git cannot resolve (gone, moved, or not a repository) is its own real
+    path and is reported as unresolved. The common directory is stored and compared
+    exactly as Git reports it, never rewritten (a bare clone at `storage` and a
+    separate-git-dir clone at `storage/.git` are two repositories)."""
+    real = os.path.realpath(repo or "")
+    resolved = False
+    if repo and os.path.isdir(real):
+        code, out, _e = git(real, "rev-parse", "--git-common-dir", raw=True)
+        common = os.fsdecode(out[:-1] if out.endswith(b"\n") else out)
+        if code == 0 and common:
+            real = os.path.realpath(os.path.join(real, common))
+            resolved = True
+    return real, resolved
+
+
+def review_repo_identity(repo):
+    return review_repo_resolved(repo)[0]
+
+
+def review_row_belongs(row, ident):
+    """Whether a verdict row counts for the repository `ident`. A row stores the
+    identity second-review resolved when it WROTE the review (`repo_id`), so a
+    worktree that is later moved or removed still resolves. A row without it
+    (written before that) is resolved from its path; if the path no longer
+    resolves, its repository is unknown, so it counts against a land whatever its
+    verdict (see review_row_standing)."""
+    if not ident or not row.get("repo"):
+        return False
+    stored = row.get("repo_id")
+    if stored:
+        return stored == ident
+    found, resolved = review_repo_resolved(row["repo"])
+    if resolved:
+        return found == ident
+    return True
+
+
+def review_row_standing(row):
+    """The row as it counts: an unresolved legacy row (no stored identity, path no
+    longer resolves) blocks like a changes-requested, even if it says passed."""
+    if row.get("repo_id") or review_repo_resolved(row.get("repo"))[1] or row.get("verdict") != "passed":
+        return row
+    return dict(row, verdict="changes-requested", unresolved_legacy_pass=True)
+
+
+def review_of(rows, tip, repo):
+    """(the verdict row that decides `tip` in `repo`, the newest mid-job row on
+    it). A row of another repository, or with no repository, never counts: the
+    ledger is shared, and independent clones or forks can hold the same commit."""
+    ident = review_repo_identity(repo) if repo else ""
+    mine = [review_row_standing(r) for r in rows if review_row_belongs(r, ident)]
+    land = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]
+    mid = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_MID_JOB]
+    return (land[-1] if land else None), (mid[-1] if mid else None)
+
+
+def review_findings(row, limit=6):
+    """[(priority, title, files)] of a verdict, from its record."""
+    try:
+        with open(os.path.join(row.get("record") or "", "verdict.json"), encoding="utf-8") as fh:
+            answer = (json.load(fh) or {}).get("answer") or {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    out = []
+    for f in (answer.get("findings") or [])[:limit]:
+        if isinstance(f, dict):
+            out.append((f.get("priority"), " ".join(str(f.get("title") or "").split())[:140],
+                        ", ".join(str(x) for x in (f.get("files") or []))[:100]))
+    return out
+
+
+def review_gaps(ledger, tips, repo):
+    """{tip: why} for every tip with no passing verdict; {} when all pass."""
+    rows = read_reviews(ledger)
+    gaps = {}
+    for tip in tips:
+        row, mid = review_of(rows, tip, repo)
+        if row and row.get("verdict") == "passed":
+            continue
+        if row is None:
+            why = ["no second review of %s has a verdict yet" % tip[:12]]
+            if mid:
+                why[0] += (" (a mid-job review %s said %s; only the review at its handover counts)"
+                           % (mid.get("id"), mid.get("verdict")))
+        else:
+            why = ["the second review %s of %s says %s: %s finding(s), %s P1, by %s (%s). Record: %s" % (
+                row.get("id"), tip[:12], row.get("verdict"), row.get("findings"), row.get("p1"),
+                row.get("reviewer"), row.get("reviewer_model"), os.path.join(row.get("record") or "?", "verdict.json"))]
+            why += ["  P%s %s (%s)" % f for f in review_findings(row)]
+        gaps[tip] = why
+    return gaps
+
+
+def review_refusal_text(repo, gaps, engine, in_git=False):
+    lines = ["=== SECOND REVIEW: refused in %s ===" % repo,
+             "  Work lands only with a passing second review of exactly its tip (CEO §113)."]
+    for tip in sorted(gaps):
+        lines += ["  " + w for w in gaps[tip]]
+    if in_git:
+        # Measured: Git asks this fence after it has written the merged files.
+        lines += ["  Main did not move, but Git had already staged the merged files in the main checkout:",
+                  "  a refused merge is left in progress (end it with: git merge --abort) and a refused",
+                  "  fast-forward leaves them staged (git reset --hard HEAD). You hold the land lease for both."]
+    lines += [
+        "  The way through: review-watch starts the review by itself when a teammate hands over",
+        "  (and at Codex's READY entry); its verdict reaches the lead. For changes requested, start a",
+        "  fresh continuation with the findings as its input; its own handover is reviewed again.",
+        "  To review a tip now: %s/scripts/second-review.sh --repo %s --tip <commit> --words-file <request>"
+        % (engine or "<engine>", repo),
+        "  Only the repositories in SECOND_REVIEW_REPOS (orchestration.config) are refused."]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # the fence (e2, F2, G1, G3, G4; Frank §4 (B) HEAD)
 # ---------------------------------------------------------------------------
 
@@ -960,7 +1341,26 @@ def fence_decide(lines, common, gitdir, files, chain, argv_of_writer=None):
             detail = _holder_refusal(files, gitdir, lease, new)
             if detail:
                 refused.append(((old, new, ref), "a move of main over a refused writer's residue", detail))
+        if need and ref == MAIN and files.reviews and not is_zero(new):
+            # Lease or no lease: the second review is not the lease's question.
+            # Git hands an all-zero old value for an update with no expected
+            # old value (`git update-ref refs/heads/main <tip>`) even when main
+            # exists, so the move is judged from the main there really is
+            # (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1).
+            moved_from = current if is_zero(old) and current is not None else old
+            try:
+                gaps = review_gaps(files.reviews, landed_tips(os.getcwd(), moved_from, new, keep_git_env=True),
+                                   files.repo)
+            except Exception as error:  # noqa: BLE001: a check that cannot decide refuses, and says so
+                gaps = {new: ["the second review of this move could not be checked (%s: %s), so it is refused"
+                              % (error.__class__.__name__, error)]}
+            if gaps:
+                refused.append(((old, new, ref), REVIEW_WHY,
+                                review_refusal_text(files.repo, gaps, files.engine, in_git=True)))
     return refused
+
+
+REVIEW_WHY = "a move of main that lands work with no passing second review of its tip"
 
 
 def _holder_refusal(files, gitdir, lease, new):
@@ -999,6 +1399,13 @@ def _restore_intent_matches(files, new, chain):
 
 def fence_refusal_text(conf, files, refused, lease, repo, rewrote=None):
     engine = conf.get("ENGINE") or "<engine>"
+    reviews = [detail for _l, why, detail in refused if detail and why == REVIEW_WHY]
+    if reviews:
+        others = [r for r in refused if r[1] != REVIEW_WHY]
+        tail = ["  Also: " + fence_refusal_text(conf, files, others, lease, repo, rewrote)] if others else []
+        return "\n".join(reviews[:1] + tail + [
+            "  If this refusal is a defect in the fence itself, Rich turns it off with one",
+            "  command: %s/scripts/operator-fences.sh off" % engine])
     held_over = [detail for _l, _w, detail in refused if detail]
     if held_over:
         return "\n".join(["=== OPERATOR FENCE: refused in %s, even for the lease holder ===" % repo]

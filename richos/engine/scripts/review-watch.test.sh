@@ -41,7 +41,10 @@
 #   W08  a finding still open through two rechecks in a row is told once as
 #        not converging
 #   W09  a repository not in SECOND_REVIEW_REPOS is never reviewed; with the
-#        key absent it says so once and starts nothing
+#        key absent it says so once and starts nothing; a value bash sets that
+#        is not names (review_repos in scripts/lib/operator_fences.py, the one
+#        reader install and the land use too, sources the config in bash) is
+#        said once and starts nothing
 #   W10  monitors.json starts review-watch.sh --monitor always
 #   W11  --host-json (the operator install's host child, slice 4): a look's notices
 #        are one JSON line per lead session, for the host to send to that lead
@@ -204,6 +207,7 @@ def root_of(t):
 
 class ReplayWorld(object):
     repos = ["richos"]
+    repos_error = ""
     def __init__(self):
         self.now = 0
     def registry_items(self, now, seen):
@@ -2573,6 +2577,14 @@ O1="$OUT"
 tickrw
 [ "$(ncalls)" = "0" ] && has "$O1" "no repository is listed in SECOND_REVIEW_REPOS" && [ -z "$OUT" ]
 check "W09 with SECOND_REVIEW_REPOS absent it says so once and starts nothing" $? "calls=$(ncalls) first=$O1 second=$OUT"
+resetstate
+cfg 'SECOND_REVIEW_REPOS="/abs/richos"'
+reg echo-sonnet-w1 600 30
+tickrw
+O1="$OUT"
+tickrw
+[ "$(ncalls)" = "0" ] && has "$O1" "orchestration.config cannot be read: bash reads it as '/abs/richos'" && [ -z "$OUT" ]
+check "W09 a SECOND_REVIEW_REPOS value that is not names is said once and starts nothing" $? "calls=$(ncalls) first=$O1 second=$OUT"
 cfg 'SECOND_REVIEW_REPOS="richos"'
 
 # --- W10 ---------------------------------------------------------------------
