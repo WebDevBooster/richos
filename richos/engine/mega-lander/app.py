@@ -1176,6 +1176,10 @@ def validate_shell_target(payload):
     if payload.get("tool_name") != "Bash": return
     command = payload.get("tool_input", {}).get("command", "")
     if not isinstance(command, str): return
+    # An inline `bash -c '...'` script cannot be checked by Claude Code, which then asks the person.
+    # Same rule as the operator install's guard-no-shell-c.sh, loaded from the one shared file.
+    shell_c = load("richos_shell_c", ENGINE / "scripts/lib/shell_c.py").refusal(command)
+    if shell_c: raise ValueError(shell_c)
     variable_target = re.search(r'\bgit\s+-C\s+(?:"\s*)?\$(?:[A-Za-z_{(])', command)
     substituted_git = re.search(r"\bgit\s", command) and shell_substitution(command)
     if variable_target or substituted_git:

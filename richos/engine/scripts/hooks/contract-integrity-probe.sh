@@ -475,7 +475,8 @@ run_layer_R() {
     notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota session-start-stall shell-evidence strip-ack-lines \
     task-completed-handoff teammate-idle-handoff \
     worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
-    guard-ci-red-lands guard-land-lease-commands guard-foreign-app-data guard-shared-scratchpad guard-unguarded-rm"
+    guard-ci-red-lands guard-land-lease-commands guard-foreign-app-data guard-shared-scratchpad guard-unguarded-rm \
+    guard-no-shell-c"
 
     # FAIL LOUD, NEVER FALL BACK. A typed list kept here "in case the derivation
     # cannot run" would be the second inventory this change exists to delete, and
@@ -1252,6 +1253,7 @@ guard-land-lease-commands.sh|PreToolUse
 guard-foreign-app-data.sh|PreToolUse
 guard-shared-scratchpad.sh|PreToolUse
 guard-unguarded-rm.sh|PreToolUse
+guard-no-shell-c.sh|PreToolUse
 guard-stop-live-work.sh|PreToolUse
 observe-created-refs.sh|PostToolUse
 detect-nonnative-worktree.sh|PostToolUse
