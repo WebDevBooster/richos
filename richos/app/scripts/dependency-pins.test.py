@@ -198,6 +198,62 @@ class Passes(Fixture):
         self.assertNotIn("COMMIT REFUSED", out.stdout + out.stderr)
 
 
+class Floor(Fixture):
+    """The selector's own floor refusals, taken at the commit: `omitted known key reads` and
+    `unqualified reader`, for a reader the commit changed (2026-10-09: two branches reached the
+    land's merge gate and were refused there for them)."""
+    LIB = "richos/engine/scripts/lib/verification_inputs.py"
+
+    def declare(self, **row):
+        path = self.repo / DECLARATION
+        declaration = json.loads(path.read_text())
+        declaration["config_keys"] = ["TOKEN"]
+        declaration["nodes"]["scripts/reader.sh"].update(row)
+        path.write_text(json.dumps(declaration, indent=2) + "\n")
+
+    def start(self):
+        self.make()
+        self.write(self.LIB, (ENGINE_LIB / "verification_inputs.py").read_text())
+        self.declare()
+        self.renew(NODE)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "the selector joins the fixture")
+
+    def test_an_undeclared_known_key_read_is_refused_and_the_declaration_passes(self):
+        self.start()
+        before = self.head()
+        self.write(NODE, 'echo "$TOKEN"\n')
+        self.renew(NODE)
+        self.git("add", "-A")
+        text = self.git("commit", "-m", "read TOKEN", expect=1)
+        text = text.stdout + text.stderr
+        self.assertIn("omitted known key reads in scripts/reader.sh: TOKEN", text)
+        self.assertEqual(self.head(), before)
+        self.declare(keys=["TOKEN"])
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "read TOKEN, declared")
+        self.assertNotEqual(self.head(), before)
+
+    def test_an_edge_to_a_reader_with_no_node_is_refused_and_the_node_passes(self):
+        self.start()
+        before = self.head()
+        self.declare(edges=[{"to": "scripts/new-helper.py"}])
+        self.git("add", "-A")
+        text = self.git("commit", "-m", "edge to nothing", expect=1)
+        self.assertIn("unqualified reader scripts/new-helper.py", text.stdout + text.stderr)
+        self.assertEqual(self.head(), before)
+        self.write("richos/engine/scripts/new-helper.py", "print(1)\n")
+        path = self.repo / DECLARATION
+        declaration = json.loads(path.read_text())
+        declaration["nodes"]["scripts/new-helper.py"] = {
+            "source": "scripts/new-helper.py", "sha256": "0" * 64, "evidence": "fixture helper", "keys": []}
+        path.write_text(json.dumps(declaration, indent=2) + "\n")
+        self.renew("richos/engine/scripts/new-helper.py")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "edge and node")
+        self.assertNotEqual(self.head(), before)
+
+
 class Parity(Fixture):
     """The digests --renew writes are the ones the selector itself checks."""
 

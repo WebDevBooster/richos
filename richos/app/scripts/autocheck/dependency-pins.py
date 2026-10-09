@@ -29,11 +29,16 @@ import hashlib
 import json
 import subprocess
 import sys
+import types
+from pathlib import Path
 
 DECLARATION = "richos/engine/scripts/lib/verification-dependencies.json"
 ENGINE = "richos/engine/"
 LAND_BRANCH = "main"
 SELF = "richos/app/scripts/autocheck/dependency-pins.py"
+INPUTS = ENGINE + "scripts/lib/verification_inputs.py"
+OMITTED = "omitted known key reads in "
+UNQUALIFIED = "unqualified reader "
 
 
 def git(*args, check=True, text=True):
@@ -130,6 +135,58 @@ def report(found, title):
     say("")
 
 
+def reader_floor(declaration, old, paths):
+    """The selector's own refusals for a changed reader, from the selector's own code and with its
+    message: `omitted known key reads` (a known config key the file reads that its row does not
+    declare) and `unqualified reader` (an edge to a node that does not exist). Only readers this
+    commit changed (their source, or their row) are asked, and an edge unqualified at the
+    merge-base is not this commit's. Dependencies.node stops at a reader's first problem (a stale
+    pin is reported before this runs), so only the omitted-key message is taken from it."""
+    nodes, before = declaration.get("nodes") or {}, (old or {}).get("nodes") or {}
+    todo = [name for name, row in nodes.items()
+            if isinstance(row, dict) and (ENGINE + str(row.get("source", "")) in paths or row != before.get(name))]
+    if not todo:
+        return []
+    code = read_blob(None, INPUTS)
+    if code is None:
+        return []
+    module = types.ModuleType("verification_inputs")
+    exec(compile(code.decode("utf-8"), INPUTS, "exec"), module.__dict__)
+
+    def read(path):
+        blob = read_blob(None, ENGINE + path)
+        if blob is None:
+            raise FileNotFoundError(path)
+        return blob.decode("utf-8", errors="surrogateescape")
+
+    top = git("rev-parse", "--show-toplevel").stdout.strip()
+    graph = module.Dependencies(Path(top) / ENGINE.rstrip("/"), declaration, read)
+    found = []
+    for name in sorted(todo):
+        try:
+            graph.node(name)
+        except module.Unsupported as exc:
+            if str(exc).startswith(OMITTED):
+                found.append((nodes[name]["source"], str(exc)))
+        had = {e["to"] for e in (before.get(name) or {}).get("edges") or []}
+        for edge in nodes[name].get("edges") or []:
+            if edge["to"] not in nodes and edge["to"] not in had:
+                found.append((nodes[name]["source"], UNQUALIFIED + edge["to"]))
+    return found
+
+
+def report_floor(found):
+    say("")
+    say("=== COMMIT REFUSED: a changed reader is not fully declared in verification-dependencies.json ===")
+    for source, message in found:
+        say(f"  {source}: {message}")
+    say("")
+    say("  verification-inputs.test.sh refuses this once it reaches main. Fix, in this commit: declare each")
+    say("  config key the file reads in its row's keys (or literal_keys, with a reason), and give every edge")
+    say(f"  target a node of its own in {DECLARATION}; then renew the pin with --renew and stage it.")
+    say("")
+
+
 def check():
     paths, base = branch_paths()
     if not paths:
@@ -157,10 +214,18 @@ def check():
             old = set()
         also = {(p, w, d) for p, w, d, _ in pins(declaration)} - old
     found = stale(declaration, None, only=set(paths), also=also)
-    if not found:
-        return 0
-    report(found, "COMMIT REFUSED: a changed file is pinned in verification-dependencies.json")
-    return 1
+    if found:
+        report(found, "COMMIT REFUSED: a changed file is pinned in verification-dependencies.json")
+        return 1
+    try:
+        old = json.loads(read_blob(base, DECLARATION) or b"{}") if base else {}
+    except ValueError:
+        old = {}
+    floor = reader_floor(declaration, old, set(paths))
+    if floor:
+        report_floor(floor)
+        return 1
+    return 0
 
 
 def renew(targets):
