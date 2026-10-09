@@ -345,7 +345,14 @@ async function measureDerived(page) {
       vh: window.innerHeight,
     };
   });
-  await page.click("#bug-btn");
+  // SINCE ROUND 21 (CEO §115) BUST A BUG OPENS THE REPORT, NOT THE TOAST, so pressing it raises
+  // nothing to measure here and this waited out 30 s on all six surfaces (red on f619e9e5f). The
+  // toast is still the menu's (`RichSettings.toast`): it is what says a report went out and what
+  // dictation's notices use. So the menu is closed, as Bust a bug closed it, and the toast is
+  // raised the way those callers raise it, with words they really show.
+  await page.click("#set-btn");
+  await page.waitForSelector("#set-menu", { state: "hidden" });
+  await page.evaluate(() => window.RichSettings.toast("Your bug report went out: issue #412 on GitHub."));
   await page.waitForSelector("#bug-toast", { state: "visible" });
   await page.evaluate(async () => {
     const t = document.getElementById("bug-toast");
