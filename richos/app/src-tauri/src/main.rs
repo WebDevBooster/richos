@@ -287,6 +287,66 @@ fn engine_store_call(engine_cell: Arc<Mutex<PathBuf>>, data_dir: &Path) -> richo
 /// record's §7 items 1-3). Returns the desk, the socket its front-desk tools reach it through,
 /// and the access the front desk's lease is given. A socket that cannot be served costs the
 /// front desk its three tools and is said on the boot log; the desk itself still takes work.
+/// **THE SECOND REVIEW STARTS BY ITSELF, IN THE APP** (automatic second review, slice 4;
+/// richos-hq `docs/plans/2026-10-09-automatic-second-review-and-t3-ideas.md` §4 row 4 and Sage's
+/// check beside it). The engine's review-watch runs as this host's own child
+/// (`richos_core::review_watch`): mid-job reviews of the app's running workers, whose verdicts
+/// reach the worker through the app's hook. Started at launch when the engine verifies, and
+/// again (a no-op while it runs) whenever a work lease opens, which covers an engine first-run
+/// setup installs after launch. Ended by the quit path. Quiet when already running.
+fn ensure_app_review_watch(engine: &Path, data_dir: &Path, claude: &Path, at_launch: bool) {
+    let runtime = match richos_core::runtime::verify_engine(engine) {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            if at_launch {
+                eprintln!("[richos] second review: not watching yet, the engine is not verified ({e})");
+            }
+            return;
+        }
+    };
+    let launch = richos_core::review_watch::Launch {
+        python: runtime.python.clone(),
+        engine: engine.to_path_buf(),
+        state: data_dir.join("engine-state"),
+        environment: richos_core::review_watch::environment(&runtime.path()),
+        mode: richos_core::review_watch::Mode::App { claude: claude.is_absolute().then(|| claude.to_path_buf()) },
+    };
+    match richos_core::review_watch::ensure(&launch) {
+        Ok(pid) if at_launch => eprintln!("[richos] second review: the app's review-watch runs as pid {pid}"),
+        Ok(_) => {}
+        Err(e) => eprintln!("[richos] second review: the app's review-watch could not start ({e})"),
+    }
+}
+
+/// **His team's install: the same watcher over his team's registry, its notices delivered by
+/// this host** (Sage's check §1.3). Each notice goes to the lead whose session started the work,
+/// as a message the host sends ([`richos_core::operator_desk::OperatorDesk::tell_lead`]), so the
+/// turn it starts is one the host can attribute.
+fn ensure_operator_review_watch(desk: &Arc<richos_core::operator_desk::OperatorDesk>, data_dir: &Path) {
+    let declaration = desk.declaration().clone();
+    let weak = Arc::downgrade(desk);
+    let sink: richos_core::review_watch::NoticeSink = Arc::new(move |notice: richos_core::review_watch::Notice| {
+        let Some(desk) = weak.upgrade() else { return };
+        if let Err(e) = desk.tell_lead(&notice.session, &notice.text) {
+            eprintln!("[richos] his team: a second-review notice was not delivered ({e})");
+        }
+    });
+    let launch = richos_core::review_watch::Launch {
+        python: PathBuf::from("python3"),
+        engine: declaration.engine_root.clone(),
+        state: data_dir.join("engine-state"),
+        environment: declaration.environment.clone(),
+        mode: richos_core::review_watch::Mode::Operator {
+            config: declaration.entity_root.join("orchestration.config"),
+            sink,
+        },
+    };
+    match richos_core::review_watch::ensure(&launch) {
+        Ok(pid) => eprintln!("[richos] his team: the second review's watcher runs as pid {pid}"),
+        Err(e) => eprintln!("[richos] his team: the second review's watcher could not start ({e})"),
+    }
+}
+
 fn operator_desk_at_boot(
     declaration: richos_core::operator_declaration::Declaration,
     data_dir: &Path,
@@ -577,6 +637,8 @@ impl LeaseFactory for EngineLeaseFactory {
         }
         let runtime = richos_core::runtime::verify_engine(&dir)
             .map_err(|e| CognitionError::Io(e.to_string()))?;
+        // The second review's watcher, if launch could not start it (an engine set up since).
+        ensure_app_review_watch(&dir, &self.data_dir, &bin, false);
         let mut profile = richos_core::engine_profile::EngineProfile::prepare(&dir, &self.data_dir, runtime.clone())
             .map_err(|e| CognitionError::Io(e.to_string()))?;
         profile.scope_to(binding).map_err(|e| CognitionError::Io(e.to_string()))?;
@@ -3174,6 +3236,13 @@ fn main() {
             }
             work.start();
             eprintln!("[richos] compute connection: starts with the first cancellable request over {}", claude_bin.display());
+            // The second review's watcher, the host's own child, from launch to quit (slice 4).
+            if let Some(dir) = boot_engine.as_deref() {
+                ensure_app_review_watch(dir, &data_dir, &claude_bin, true);
+            }
+            if let Some(desk) = &operator_desk {
+                ensure_operator_review_watch(desk, &data_dir);
+            }
 
             // ==============================================================================
             // ROW 9 — WHAT A RELAUNCH MAY SAY ABOUT WORK IT DID NOT SEE END
@@ -4031,6 +4100,13 @@ fn main() {
                     let settled = richos_core::owned_process::SupervisedSet::process().settle(quit_bound);
                     eprintln!("[richos] quit: {} lease(s) ended their tool commands; {} stopped at the bound.",
                               settled.leases, settled.escalated);
+                    // **THE SECOND REVIEW'S WATCHERS END WITH THE APP** (slice 4): each stops the
+                    // reviews it started, then exits; its recorded pid is reaped and the record
+                    // removed, within `review_watch::STOP_BOUND`.
+                    let watchers = richos_core::review_watch::stop_all();
+                    if !watchers.is_empty() {
+                        eprintln!("[richos] quit: the second review's watcher(s) {watchers:?} ended.");
+                    }
                     if let Err(e) = state.launch.lock().unwrap().note_clean_exit() {
                         eprintln!("[richos] launch record: could not mark a clean exit: {e}");
                     }

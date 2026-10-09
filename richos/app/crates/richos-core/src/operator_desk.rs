@@ -354,6 +354,23 @@ impl OperatorDesk {
         self.host.stop_named(names, words, origin)
     }
 
+    /// **A review-watch notice for the lead whose session started the work it is about**
+    /// (second review, slice 4): sent by this desk's host as a message of its own
+    /// ([`OperatorHost::tell_lead`]). The host's review-watch child calls it.
+    pub fn tell_lead(&self, session: &str, text: &str) -> Result<String, String> {
+        // After quit nothing wakes a lead: the quit has just ended them all.
+        if *self.quit.lock().unwrap() {
+            return Err("RichOS is quitting; the notice was not delivered.".into());
+        }
+        self.host.tell_lead(session, text)
+    }
+
+    /// The declaration this desk runs under: where the host's review-watch child finds the
+    /// engine and the governed repository's orchestration.config.
+    pub fn declaration(&self) -> &Declaration {
+        &self.declaration
+    }
+
     /// **His Esc** ((d) item 6): the lead's turn ends, its agents keep running. The sentence
     /// is said on the conversation and returned.
     pub fn interrupt(&self, key: &ConversationKey) -> String {
