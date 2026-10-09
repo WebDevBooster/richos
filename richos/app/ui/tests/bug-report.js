@@ -265,6 +265,46 @@ async function main() {
     return warn;
   });
 
+  // ---- a line break typed in a change (CEO §115 brief, item 4) ----
+  for (const key of ["Enter", "Shift+Enter"]) {
+    await run.check(`a line break typed with ${key} in a change joins no two words, on the card or in what is sent`, async () => {
+      // On a1d158b35 both keys made WebKit put "Send does nothing twice." in a <div> inside the
+      // paragraph, `textContent` dropped the break, and the sheet sent read "ClickSend".
+      const page = await open("dark");
+      await bustABug(page);
+      await answer(page, "The window froze while opening the plan.");
+      await page.click("#bug-change");
+      await page.waitForSelector(".bugcard.is-editing");
+      // The cursor at the end of the first paragraph, as a click after its last word puts it.
+      await page.evaluate(() => {
+        const p = document.querySelector(".bugcard .bug-sec p");
+        p.focus();
+        const r = document.createRange();
+        r.selectNodeContents(p);
+        r.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      });
+      await page.keyboard.type(" Click");
+      await page.keyboard.press(key);
+      await page.keyboard.type("Send does nothing twice.");
+      const html = await page.locator(".bugcard .bug-sec p").first().evaluate((p) => p.innerHTML);
+      await page.click("#bug-done");
+      await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet · changed')");
+      await page.click("#bug-send");
+      await page.waitForSelector(".bugcard.is-sent");
+      const sent = (await calls(page, "bug_report_send"))[0].sheet.sections[0].paragraphs.join("\n");
+      const words = sent.split(/\s+/);
+      for (const w of ["Click", "Send"]) assert(words.includes(w), `"${w}" is not a word of what was sent: ${JSON.stringify(words)} (the paragraph was ${html})`);
+      assert(!sent.includes("ClickSend"), "two words were joined: " + JSON.stringify(sent));
+      const out = JSON.stringify(await filed(page));
+      assert(!out.includes("ClickSend") && out.includes("Click\\nSend"), "what went out: " + out);
+      await page.close();
+      return `${key}: ${html} sent as ${JSON.stringify(sent)}`;
+    });
+  }
+
   // ---- the second review's cases (rv-20261009T102303Z-1c3dda1d-4c78, on 1c3dda1dc) ----
   const prose = (page) => page.locator("#bug-flows .bug-rich .tl-prose").allInnerTexts().then((t) => t.join("\n"));
 

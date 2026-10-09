@@ -359,15 +359,36 @@ window.RichBug = (function () {
     paintComposers();
   }
 
+  /// **THE WORDS OF ONE PART OF THE CARD, WITH ITS LINE BREAKS KEPT.** A line break typed while
+  /// changing it is a `<br>` or a new `<div>` (WebKit makes a `<div>` for both Enter and
+  /// Shift+Enter inside a paragraph), and `textContent` drops both, so "Click" and "Send" on two
+  /// lines were read, and sent, as "ClickSend". Each is read as a line break here.
+  function wordsOf(el) {
+    var out = "";
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) out += c.data;
+        else if (c.nodeName === "BR") out += "\n";
+        else if (c.nodeType === 1) {
+          var block = /^(DIV|P|LI)$/.test(c.nodeName);
+          if (block && out && out.slice(-1) !== "\n") out += "\n";
+          walk(c);
+          if (block && out && out.slice(-1) !== "\n") out += "\n";
+        }
+      }
+    })(el);
+    return out.trim();
+  }
+
   function sheetOf(f) {
     var c = f.card;
     return {
-      title: c.querySelector(".bug-title").textContent.trim(),
+      title: wordsOf(c.querySelector(".bug-title")),
       sections: Array.prototype.map.call(c.querySelectorAll(".bug-sec"), function (s) {
         return {
           heading: s.querySelector("h4").textContent.trim(),
-          paragraphs: Array.prototype.map.call(s.querySelectorAll("p"), function (p) { return p.textContent.trim(); }).filter(Boolean),
-          steps: Array.prototype.map.call(s.querySelectorAll("li"), function (li) { return li.textContent.trim(); }).filter(Boolean),
+          paragraphs: Array.prototype.map.call(s.querySelectorAll(":scope > p"), wordsOf).filter(Boolean),
+          steps: Array.prototype.map.call(s.querySelectorAll("li"), wordsOf).filter(Boolean),
         };
       }),
     };
