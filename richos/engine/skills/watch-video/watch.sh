@@ -7,11 +7,19 @@
 # Read the frame files it names. Everything is already installed; nothing is
 # ever downloaded.
 #
-#   watch.sh <video-file> <output-dir> [--every <seconds>] [--lang <code>|auto]
+#   watch.sh <video-file-or-url> <output-dir> [--every <seconds>] [--budget <N>]
+#            [--sheet <frames-per-sheet>] [--height <pixels>] [--lang <code>|auto]
+#   frames-at.sh <video-file> <output-dir> --at <time>[,<time>...]
+#   frames-at.sh <video-file> <output-dir> --window <start> <end> [--step <seconds>]
+#
+# frames-at.sh (a sibling script) cuts frames at chosen times or inside a window of
+# a file already watched, so a long video is read as transcript first, then zoomed.
 #
 # Writes:
 #   <output-dir>/watched.md            THE INDEX: frames and transcript lines in time order
 #   <output-dir>/frames/frame-NNNN-tMMmSS.Ss.png   one PNG per kept moment, at most 1920 px wide
+#   <output-dir>/sheets/sheet-NN-tMMmSS.Ss.jpg   (--sheet N only) N frames tiled in one image
+#   <output-dir>/video.<ext>         (a URL only) the downloaded video, for frames-at.sh
 #   <output-dir>/transcript.md       the transcript (see the audio-transcription skill)
 #   <output-dir>/pipeline/, pipeline.log   the transcription pipeline's own record
 #
@@ -32,18 +40,28 @@
 #   slow scroll, the pointer showing what the speaker means) are never more than
 #   5 s stale, which is about one spoken sentence (150 words a minute is 12 words
 #   in 5 s), so every transcript line has a frame from inside its own sentence.
-#   That costs at most 12 frames a minute; for recordings much over 10 minutes
-#   pass --every 15 or read only the frames the index places where it matters.
+#   The floor alone costs at most 12 frames a minute, but scene changes come ON TOP of
+#   it and --every does not limit them: the CEO's 8.1-minute edited video of 2026-10-09
+#   gave 153 frames (110 of them scene changes), 18.8 a minute. To cap the count pass
+#   --budget N: the video's time is cut into N equal stretches and each keeps its
+#   biggest scene change (the first frame always), so the kept ones cover the whole video,
+#   a long static stretch included. --sheet N tiles N frames into one image so a long video can
+#   be skimmed in a few images; the full frames stay. URL input is downloaded by the
+#   installed yt-dlp at --height (default 720: on-screen text stays readable, files stay
+#   small), never installed or fetched any other way.
 set -euo pipefail
 
 usage() {
-    echo "usage: watch.sh <video-file> <output-dir> [--every <seconds>] [--lang <code>|auto]" >&2
+    echo "usage: watch.sh <video-file-or-url> <output-dir> [--every <seconds>] [--budget <N>] [--sheet <frames-per-sheet>] [--height <pixels>] [--lang <code>|auto]" >&2
     exit 1
 }
 
 SCENE=0.05
 GAP=1
 EVERY=5
+BUDGET=0
+SHEET=0
+HEIGHT=720
 [ "$#" -ge 2 ] || usage
 INPUT="$1"
 OUT="$2"
@@ -52,29 +70,61 @@ LANG_ARGS=()
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --every) [ "$#" -ge 2 ] || usage; EVERY="$2"; shift 2 ;;
+        --budget) [ "$#" -ge 2 ] || usage; BUDGET="$2"; shift 2 ;;
+        --sheet) [ "$#" -ge 2 ] || usage; SHEET="$2"; shift 2 ;;
+        --height) [ "$#" -ge 2 ] || usage; HEIGHT="$2"; shift 2 ;;
         --lang) [ "$#" -ge 2 ] || usage; LANG_ARGS=(--lang "$2"); shift 2 ;;
         *) usage ;;
     esac
 done
 case "$EVERY" in ''|*[!0-9.]*) echo "watch: --every takes a number of seconds" >&2; exit 1 ;; esac
+case "$BUDGET" in ''|*[!0-9]*) echo "watch: --budget takes a whole number of frames" >&2; exit 1 ;; esac
+case "$SHEET" in ''|*[!0-9]*) echo "watch: --sheet takes a whole number of frames per sheet" >&2; exit 1 ;; esac
+case "$HEIGHT" in ''|*[!0-9]*) echo "watch: --height takes a number of pixels" >&2; exit 1 ;; esac
+if [ "$SHEET" -gt 24 ]; then echo "watch: --sheet takes at most 24 frames per sheet (more is not legible)" >&2; exit 1; fi
 
-[ -f "$INPUT" ] || { echo "watch: no such file: $INPUT" >&2; exit 1; }
 HERE="$(cd -P "$(dirname "$0")" && pwd -P)"
 TRANSCRIBE="$HERE/../audio-transcription/transcribe.sh"
 [ -x "$TRANSCRIBE" ] || { echo "watch: transcribe script not found at $TRANSCRIBE" >&2; exit 1; }
-for tool in ffmpeg ffprobe; do
+for tool in ffmpeg ffprobe python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "watch: $tool is not on PATH. It is installed under /opt/homebrew/bin; fix PATH," >&2
         echo "watch: never install or download anything. Report it to the lead." >&2
         exit 1
     fi
 done
-if [ -z "$(ffprobe -v error -select_streams v -show_entries stream=index -of csv=p=0 "$INPUT")" ]; then
-    echo "watch: $INPUT has no video track; use the audio-transcription skill instead" >&2
-    exit 1
-fi
 if [ -e "$OUT" ] && [ -n "$(ls -A "$OUT")" ]; then
     echo "watch: output directory is not empty: $OUT (give a new or empty one)" >&2
+    exit 1
+fi
+
+# ---- 0. a URL is downloaded first, by the installed yt-dlp, into a scratch directory
+# (the output directory must stay empty until the transcript is made), then moved
+# into the output directory as video.<ext> so frames-at.sh can zoom into it later.
+SOURCE_URL=""
+DL=""
+cleanup() { if [ -n "$DL" ]; then rm -rf "$DL"; fi; }
+trap cleanup EXIT
+case "$INPUT" in
+    http://*|https://*)
+        command -v yt-dlp >/dev/null 2>&1 || {
+            echo "watch: yt-dlp is not on PATH (installed at /opt/homebrew/bin/yt-dlp); never install anything, report it to the lead" >&2
+            exit 1
+        }
+        SOURCE_URL="$INPUT"
+        DL="$(mktemp -d "${TMPDIR:-/tmp}/watch-dl.XXXXXX")"
+        echo "watch: downloading $SOURCE_URL at up to ${HEIGHT}p" >&2
+        yt-dlp --no-playlist --no-progress --quiet --no-warnings \
+            -f "bv*[height<=$HEIGHT]+ba/b[height<=$HEIGHT]" --merge-output-format mp4 \
+            -o "$DL/video.%(ext)s" "$SOURCE_URL" >&2 || { echo "watch: download failed (or nothing at or below ${HEIGHT}p is offered; try --height): $SOURCE_URL" >&2; exit 1; }
+        INPUT="$(ls "$DL"/video.* 2>/dev/null | head -1)"
+        [ -n "$INPUT" ] || { echo "watch: yt-dlp wrote no video file" >&2; exit 1; }
+        ;;
+esac
+
+[ -f "$INPUT" ] || { echo "watch: no such file: $INPUT" >&2; exit 1; }
+if [ -z "$(ffprobe -v error -select_streams v -show_entries stream=index -of csv=p=0 "$INPUT")" ]; then
+    echo "watch: $INPUT has no video track; use the audio-transcription skill instead" >&2
     exit 1
 fi
 mkdir -p "$OUT"
@@ -94,8 +144,17 @@ case "$TSTATUS" in
     3) TNOTE="This recording has no audio track, so there is no transcript." ;;
     *) TNOTE="TRANSCRIPTION FAILED (exit $TSTATUS); see $OUT/pipeline.log. Frames are still below." ;;
 esac
+# The header's "LEFT = me, RIGHT = others" line describes the pipeline's call mode;
+# a file is downmixed to one channel, so say what is true instead.
+if [ -f "$OUT/transcript.md" ]; then
+    sed -i '' -e 's/^- \*\*Speaker attribution:\*\* LEFT channel.*$/- **Speaker attribution:** none - one channel, speakers are not separated ("Me" is the recording'"'"'s sound)/' "$OUT/transcript.md"
+fi
 # frames/ is made only now: transcribe.sh refuses a directory that is not empty.
 mkdir -p "$FRAMES"
+if [ -n "$DL" ]; then
+    mv "$INPUT" "$OUT/$(basename "$INPUT")"
+    INPUT="$OUT/$(basename "$INPUT")"
+fi
 
 # ---- 2. the frames
 # select keeps a frame when it is the first one, when the scene changed by more
@@ -115,32 +174,115 @@ fmt_time() {  # seconds (float) -> MMmSS.Ss
     s=$((tenths % 600))
     printf '%02dm%02d.%ds' "$m" "$((s / 10))" "$((s % 10))"
 }
-ROWS="$OUT/.rows"
-: > "$ROWS"
-n=0
+
+# 3a. read what ffmpeg kept: time, score and the reason, in order.
+TOTAL=0
 prev=""
 t=""
+T_OF=(); SCORE_OF=(); WHY_OF=()
 while IFS= read -r line; do
     case "$line" in
         frame:*)
             t="$(printf '%s\n' "$line" | sed -E 's/.*pts_time:([0-9.]+).*/\1/')" ;;
         lavfi.scene_score=*)
             score="${line#lavfi.scene_score=}"
-            n=$((n + 1))
-            num="$(printf '%04d' "$n")"
-            stamp="$(fmt_time "$t")"
+            TOTAL=$((TOTAL + 1))
             if [ -z "$prev" ]; then why="start"
             elif [ "$(echo "$score > $SCENE && $t - $prev >= $GAP" | bc -l)" = 1 ]; then why="scene change ($score)"
             else why="no change for ${EVERY}s"
             fi
-            name="frame-$num-t$stamp.png"
-            mv "$FRAMES/raw-$num.png" "$FRAMES/$name"
-            printf '%010.2f\t[%s] FRAME %s  (%s)\n' "$t" "$stamp" "$FRAMES/$name" "$why" >> "$ROWS"
+            T_OF[TOTAL]="$t"; SCORE_OF[TOTAL]="$score"; WHY_OF[TOTAL]="$why"
             prev="$t" ;;
     esac
 done < "$KEPT"
 rm -f "$KEPT"
 
+# 3b. a budget keeps only BUDGET frames: the video's TIME is cut into BUDGET equal
+# stretches and each stretch keeps its biggest scene change (the first frame always
+# counts as the biggest), so a flood of scene changes cannot swamp the index and a long
+# static stretch still gets a frame; the kept frames cover the whole video.
+KEEP_OF=()
+i=1
+while [ "$i" -le "$TOTAL" ]; do KEEP_OF[i]=1; i=$((i + 1)); done
+if [ "$BUDGET" -gt 0 ] && [ "$TOTAL" -gt "$BUDGET" ]; then
+    DURATION="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$INPUT" 2>/dev/null | head -1 || true)"
+    case "$DURATION" in ''|*[!0-9.]*) DURATION="" ;; esac
+    # no usable length: fall back to just past the last kept frame
+    if [ -z "$DURATION" ] || [ "$(echo "$DURATION <= ${T_OF[TOTAL]}" | bc -l)" = 1 ]; then
+        DURATION="$(echo "${T_OF[TOTAL]} + 0.2" | bc -l)"
+    fi
+    i=1
+    while [ "$i" -le "$TOTAL" ]; do KEEP_OF[i]=0; i=$((i + 1)); done
+    i=1
+    while [ "$i" -le "$TOTAL" ]; do
+        if [ "$i" -eq 1 ]; then printf '%d\t%s\t9.000000\n' "$i" "${T_OF[i]}"; else printf '%d\t%s\t%s\n' "$i" "${T_OF[i]}" "${SCORE_OF[i]}"; fi
+        i=$((i + 1))
+    done | awk -F '\t' -v dur="$DURATION" -v budget="$BUDGET" '
+        # BUDGET equal stretches of time; the biggest score in each stretch (the earliest
+        # on a tie) is kept, so the keepers spread over the whole video.
+        { g = int($2 * budget / dur); if (g >= budget) g = budget - 1
+          if (!(g in best) || $3 + 0 > bs[g] + 0) { best[g] = $1; bs[g] = $3 } }
+        END { for (g in best) printf "x\t%d\n", best[g] }' > "$OUT/.top"
+    while IFS="$(printf '\t')" read -r _ idx; do KEEP_OF[idx]=1; done < "$OUT/.top"
+    rm -f "$OUT/.top"
+fi
+
+# 3c. name the kept frames in order; drop the rest.
+ROWS="$OUT/.rows"
+: > "$ROWS"
+n=0
+FILES=(); FSTAMP=()
+i=1
+while [ "$i" -le "$TOTAL" ]; do
+    raw="$FRAMES/raw-$(printf '%04d' "$i").png"
+    if [ "${KEEP_OF[i]}" = 1 ]; then
+        n=$((n + 1))
+        stamp="$(fmt_time "${T_OF[i]}")"
+        name="frame-$(printf '%04d' "$n")-t$stamp.png"
+        mv "$raw" "$FRAMES/$name"
+        printf '%010.2f\t[%s] FRAME %s  (%s)\n' "${T_OF[i]}" "$stamp" "$FRAMES/$name" "${WHY_OF[i]}" >> "$ROWS"
+        FILES[n]="$FRAMES/$name"; FSTAMP[n]="$stamp"
+    else
+        rm -f "$raw"
+    fi
+    i=$((i + 1))
+done
+
+# 3d. contact sheets: SHEET frames tiled in one JPEG (ffmpeg's tile filter); the full
+# frames stay where they are.
+NSHEETS=0
+if [ "$SHEET" -gt 0 ] && [ "$n" -gt 0 ]; then
+    mkdir -p "$OUT/sheets"
+    cols=1
+    while [ $((cols * cols)) -lt "$SHEET" ]; do cols=$((cols + 1)); done
+    first=1
+    while [ "$first" -le "$n" ]; do
+        last=$((first + SHEET - 1)); if [ "$last" -gt "$n" ]; then last="$n"; fi
+        count=$((last - first + 1))
+        c=$cols; if [ "$count" -lt "$c" ]; then c="$count"; fi
+        r=$(( (count + c - 1) / c ))
+        NSHEETS=$((NSHEETS + 1))
+        sheet="$OUT/sheets/sheet-$(printf '%02d' "$NSHEETS")-t${FSTAMP[first]}.jpg"
+        list="$OUT/sheets/.list"
+        : > "$list"
+        k=$first
+        while [ "$k" -le "$last" ]; do
+            printf "file '%s'\nduration 1\n" "${FILES[k]}" >> "$list"
+            k=$((k + 1))
+        done
+        printf "file '%s'\n" "${FILES[last]}" >> "$list"
+        ffmpeg -hide_banner -nostdin -nostats -loglevel error -y -f concat -safe 0 -i "$list" \
+            -vf "scale=480:-2,tile=${c}x${r}:padding=4:margin=4" -frames:v 1 -q:v 3 "$sheet"
+        rm -f "$list"
+        # The sheet sorts just before its first frame (C before F on a tie).
+        tf="$(grep -F "FRAME ${FILES[first]}" "$ROWS" | cut -f1)"
+        printf '%s\t[%s] CONTACT SHEET %s  (frames %d-%d of %d, left to right, top to bottom; the full frames are the FRAME rows)\n' \
+            "$tf" "${FSTAMP[first]}" "$sheet" "$first" "$last" "$n" >> "$ROWS"
+        first=$((last + 1))
+    done
+fi
+
+# 3e. the transcript, one row per paragraph, keyed by its whole-second stamp.
 if [ -f "$OUT/transcript.md" ]; then
     while IFS= read -r line; do
         case "$line" in
@@ -160,16 +302,26 @@ fi
 {
     echo "# Watch: $(basename "$INPUT")"
     echo
-    echo "- Frames: $n in $FRAMES (scene change over $SCENE, or every ${EVERY}s without one)"
-    if [ -f "$OUT/transcript.md" ]; then echo "- Transcript: $OUT/transcript.md (\"Me\" is the recording's sound, not a speaker)"; fi
+    if [ -n "$SOURCE_URL" ]; then echo "- Source: $SOURCE_URL (downloaded at up to ${HEIGHT}p)"; fi
+    echo "- Video file: $INPUT (cut more frames from it with $HERE/frames-at.sh)"
+    if [ "$n" -lt "$TOTAL" ]; then
+        echo "- Frames: $n of $TOTAL kept by --budget $BUDGET, in $FRAMES (scene change over $SCENE, or every ${EVERY}s without one)"
+    else
+        echo "- Frames: $n in $FRAMES (scene change over $SCENE, or every ${EVERY}s without one)"
+    fi
+    if [ "$NSHEETS" -gt 0 ]; then echo "- Contact sheets: $NSHEETS in $OUT/sheets, $SHEET frames each; each sheet's row comes just before its first frame. Read a sheet to skim, then Read only the full FRAMEs you need."; fi
+    if [ -f "$OUT/transcript.md" ]; then echo "- Transcript: $OUT/transcript.md (one channel, speakers not separated; \"Me\" is the recording's sound, not a speaker)"; fi
     if [ -n "$TNOTE" ]; then echo "- $TNOTE"; fi
     echo "- Read this file top to bottom; Read each FRAME path to see the screen at that moment."
     echo
-    sort "$ROWS" | cut -f2- | awk '{ print; print "" }'
+    # By exact time; the row text breaks a tie (a contact sheet's C before its frame's F).
+    LC_ALL=C sort -t "$(printf '\t')" -k1,1 -k2,2 "$ROWS" | cut -f2- | awk '{ print; print "" }'
 } > "$OUT/watched.md"
 rm -f "$ROWS"
 
-echo "watch: $n frames, index $OUT/watched.md" >&2
+if [ -n "$DL" ]; then rm -rf "$DL"; DL=""; fi
+if [ "$NSHEETS" -gt 0 ]; then echo "watch: $n frames, $NSHEETS sheets, index $OUT/watched.md" >&2
+else echo "watch: $n frames, index $OUT/watched.md" >&2; fi
 [ -n "$TNOTE" ] && echo "watch: $TNOTE" >&2
 echo "$OUT/watched.md"
 if [ "$TSTATUS" -ne 0 ] && [ "$TSTATUS" -ne 3 ]; then exit 2; fi
