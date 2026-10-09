@@ -4226,6 +4226,26 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         chosen, _ = F.review_of(rows, tip, local)
         self.assertEqual(chosen["id"], "local-refusal")
 
+    def test_second_review_repositories_whose_paths_differ_only_by_trailing_space_are_two_repositories(self):
+        spec = importlib.util.spec_from_file_location(
+            "srv_ident_ws", os.path.join(ENGINE, "scripts", "lib", "second_review.py"))
+        sr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sr)
+        base = os.path.join(self.env.root, "identws")
+        plain, spaced = os.path.join(base, "storage"), os.path.join(base, "storage ")
+        local, foreign = os.path.join(base, "local"), os.path.join(base, "foreign")
+        run("git", "clone", "-q", "--bare", "--no-hardlinks", self.other, plain)
+        run("git", "clone", "-q", "--bare", "--no-hardlinks", self.other, spaced)
+        run("git", "-C", plain, "worktree", "add", "-q", "--detach", local, "HEAD")
+        run("git", "-C", spaced, "worktree", "add", "-q", "--detach", foreign, "HEAD")
+        a, b = sr.repo_identity(local), sr.repo_identity(foreign)
+        self.assertEqual(a, os.path.realpath(plain))
+        self.assertEqual(b, os.path.realpath(spaced))
+        self.assertNotEqual(a, b)
+        F = ws._fence_program()
+        self.assertEqual(F.review_repo_identity(local), a)
+        self.assertEqual(F.review_repo_identity(foreign), b)
+
     def test_second_review_an_unlisted_repository_is_not_refused(self):
         self.declare("")
         run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)

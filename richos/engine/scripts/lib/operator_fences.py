@@ -1020,7 +1020,7 @@ def review_repo_resolved(repo):
     resolved = False
     if repo and os.path.isdir(real):
         code, out, _err = git(real, "rev-parse", "--git-common-dir")
-        common = out.strip()
+        common = out[:-1] if out.endswith("\n") else out
         if code == 0 and common:
             real = os.path.realpath(os.path.join(real, common))
             resolved = True

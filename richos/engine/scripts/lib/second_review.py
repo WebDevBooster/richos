@@ -951,7 +951,7 @@ def repo_identity(path):
     try:
         r = subprocess.run(["git", "-C", real, "rev-parse", "--git-common-dir"], capture_output=True,
                            text=True, timeout=30)
-        common = r.stdout.strip()
+        common = r.stdout[:-1] if r.stdout.endswith("\n") else r.stdout
         if r.returncode == 0 and common:
             real = os.path.realpath(os.path.join(real, common))
     except (OSError, subprocess.TimeoutExpired):
