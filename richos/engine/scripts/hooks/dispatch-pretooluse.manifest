@@ -43,6 +43,7 @@ Bash|guard-foreign-app-data.sh
 Bash|guard-unguarded-rm.sh
 Bash|guard-operator-claim.sh
 Bash|guard-shared-scratchpad.sh
+Bash|guard-no-shell-c.sh
 
 Write|guard-main-checkout-writes.sh
 Write|scan-secrets.sh
