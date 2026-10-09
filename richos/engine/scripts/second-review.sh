@@ -37,8 +37,9 @@ command -v git >/dev/null 2>&1 || { echo "second-review.sh: git is required" >&2
 # 150 minutes: the 60-minute review limit, a 30-minute admission wait and a
 # Claude fallback after a failed Codex start, with room to spare.
 SCRATCH="$(scratch_new second-review --ttl 150)" || { echo "second-review.sh: no scratch folder" >&2; exit 2; }
-# Stopped from outside (review-watch replacing a mid-job review): the Python
-# side stops its reviewer first; this releases the scratch once it has.
+# Stopped from outside (review-watch signals this script's process group, which
+# holds the Python side and its reviewer alike): this releases the scratch once
+# the Python side has exited.
 trap 'scratch_release "$SCRATCH" >/dev/null 2>&1; exit 143' TERM HUP
 
 python3 "$LIB" --scratch "$SCRATCH" --engine-root "$(cd "$SCRIPT_DIR/.." && pwd)" "$@"

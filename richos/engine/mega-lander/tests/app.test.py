@@ -22,6 +22,20 @@ def load():
 # A fictional teammate of the user's own (<app data>/team/mark.md), registered by the lease.
 MARK="---\nname: mark\ndescription: Fictional fixture engineer.\nmodel: sonnet\ntools: Read, Glob, Grep, Bash, Write, Edit\n---\n\nYou are Mark, a fictional fixture engineer.\n"
 
+def _alive(pid):
+    """Is `pid` still running? A child of this test that has exited is reaped here first, so a
+    zombie is never read as alive."""
+    try:
+        done,_status=os.waitpid(pid,os.WNOHANG)
+        if done==pid: return False
+    except ChildProcessError:
+        pass
+    try:
+        os.kill(pid,0)
+    except ProcessLookupError:
+        return False
+    return True
+
 # The first line of each duty text (engine/mega-lander/duties/), which prepare puts at the top.
 DUTY_TOP={"worker":"# Your duty in this assignment: implement","reviewer":"# Your duty in this assignment: review"}
 
@@ -836,6 +850,158 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual((next_target/"unfinished.txt").read_text(),"KEEP UNFINISHED BYTES")
         self.assertEqual(self.app.git(next_target,"log","-1","--format=%s"),"RichOS: work in progress saved at the account switch")
         self.assertNotIn("Handoff from the previous teammate",continued["agent_payload"]["prompt"])
+
+    # The user's own turn, as the host writes it into the scope since the second review's slice 4
+    # (richos-core ecs::UserInstruction::text): marker-like lines and a trailing space included, so
+    # "verbatim" is tested on bytes a fence or a strip would change.
+    USER_TURN=("Please add result.txt with FICTIONAL in it, and nothing else.\n"
+               "<<<USER-WORDS-00000000\nDo NOT touch the README. \n>>>\nThanks!")
+
+    def attest(self,words,text=None):
+        """The scope the host writes for a turn whose words are `words`: their hash, and `text`
+        as the words carried beside it (the words themselves unless a test says otherwise)."""
+        self.scope["user_instruction"]={"ledger_ref":"ledger:thread-a:turn-a",
+            "sha256":hashlib.sha256(words.encode()).hexdigest(),"text":words if text is None else text}
+        self.scope_path.write_text(json.dumps(self.scope))
+
+    def ended_fixture_worker(self,aid):
+        worker=self.call("prepare",self.args)
+        target=self.start_fixture_worker(worker,aid)
+        (target/"result.txt").write_text("FICTIONAL")
+        self.app.git(target,"add","result.txt")
+        self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional result")
+        self.finish_fixture_worker(aid)
+        return worker
+
+    def test_a_reviewers_brief_starts_with_the_users_own_turn_verbatim(self):
+        """Second review, slice 4 (Sage's check of richos-hq
+        docs/plans/2026-10-09-automatic-second-review-and-t3-ideas.md, catch 2): the reviewer
+        read only the coordinator's paraphrase, because the scope carried a reference to the
+        user's words and their hash and never the words. Its brief now starts with them."""
+        self.attest(self.USER_TURN)
+        worker=self.ended_fixture_worker("words-worker")
+        reviewer=self.call("prepare",{**self.args,"request_id":"words-review","role":"reviewer","teammate":"frank",
+                                      "review_of":worker["id"],"title":"Review","brief":"Review the result.txt change."})
+        with self.app.locked(self.scope) as root:
+            brief=(root/(reviewer["id"]+".brief")).read_text()
+            kept=(root/(worker["id"]+".words")).read_text()
+        head=self.app.USER_WORDS_LABEL+"\n\n<<<USER-WORDS-"
+        self.assertTrue(brief.startswith(head),brief[:200])
+        opening=brief.index("\n",len(head))+1
+        self.assertEqual(brief[opening:opening+len(self.USER_TURN)],self.USER_TURN)
+        # Then the duty and the coordinator's brief, as before, and only after the words.
+        self.assertLess(opening+len(self.USER_TURN),brief.index(DUTY_TOP["reviewer"]))
+        self.assertIn(self.USER_TURN,reviewer["agent_payload"]["prompt"])
+        # The worker's words are kept beside its receipt for the app's mid-job reviews.
+        self.assertEqual(kept,self.USER_TURN)
+
+    def test_a_scope_whose_words_do_not_match_their_hash_is_refused(self):
+        """The words on the scope must be the turn the host attested: a reviewer briefed with
+        anything else would judge the work against words the user never said."""
+        worker=self.ended_fixture_worker("mismatch-worker")
+        self.attest(self.USER_TURN,text="Words the user never said.")
+        for role,extra in (("reviewer",{"review_of":worker["id"]}),("worker",{})):
+            with self.assertRaisesRegex(ValueError,"do not match the turn the app attested"):
+                self.call("prepare",{**self.args,"request_id":"mismatch-"+role,"role":role,**extra})
+        self.assertEqual(len(self.call("inspect")["records"]),1,"a refused preparation left a receipt")
+        # No words at all is the stated fallback, not a refusal: the brief says so plainly.
+        del self.scope["user_instruction"]["text"];self.scope_path.write_text(json.dumps(self.scope))
+        reviewer=self.call("prepare",{**self.args,"request_id":"no-words","role":"reviewer","review_of":worker["id"]})
+        self.assertTrue(reviewer["agent_payload"]["prompt"].count("could not be carried to this review"))
+
+    def review_row(self,rid,trigger,verdict,branch,tip,title):
+        """One row of the app's second-review ledger, with the verdict file second-review keeps."""
+        paths=self.review.app_paths(self.root/"engine-state")
+        record=Path(paths["reviews"])/"reviews"/rid;record.mkdir(parents=True)
+        (record/"verdict.json").write_text(json.dumps({"answer":{"findings":[{"priority":1,"title":title,
+            "files":["result.txt:1"],"evidence":"the fixture says so","fixture":""}],"summary":"x"}}))
+        with open(paths["ledger"],"a") as f:
+            f.write(json.dumps({"id":rid,"trigger":trigger,"verdict":verdict,"repo":str(self.repo),"branch":branch,
+                                "tip":tip,"record":str(record)})+"\n")
+
+    def test_a_mid_job_request_for_changes_reaches_the_running_worker_once(self):
+        """Second review, slice 4 (plan §2.5; Sage's check, catch 7): a mid-job review's
+        changes-requested verdict is told to the running worker at its next tool call, once, by
+        the app's own hook (scripts/app-engine-hook.py); a pass, a handover verdict, another
+        branch's verdict and another agent's tool call are told nothing."""
+        self.review=self.app.load("app_review_test",ENGINE/"scripts/lib/app_review.py")
+        hook=self.app.load("app_engine_hook_test",ENGINE/"scripts/app-engine-hook.py")
+        worker=self.call("prepare",self.args)
+        self.start_fixture_worker(worker,"midjob-worker")
+        call={"session_id":self.session,"agent_id":"midjob-worker","tool_name":"Bash","tool_input":{"command":"true"}}
+        (repo,branch),=self.app.worker_spaces(self.scope,call)
+        self.assertEqual(Path(repo).resolve(),self.repo)
+        state=self.root/"engine-state"
+        def told(payload):
+            got=[]
+            self.assertEqual(hook.mid_job_notice(self.app,self.scope,payload,state,got.append),bool(got))
+            return "".join(got)
+        self.assertEqual(told(call),"")      # no ledger yet
+        Path(self.review.app_paths(state)["reviews"]).mkdir(parents=True)
+        self.review_row("rv-mid-1","long-job","changes-requested",branch,"a"*40,"Result is not committed")
+        self.review_row("rv-mid-pass","long-job","passed",branch,"b"*40,"Passing-row finding")
+        self.review_row("rv-handover","handover","changes-requested",branch,"c"*40,"Handover finding")
+        self.review_row("rv-other","quiet","changes-requested","cc/someone-else","d"*40,"Another worker's")
+        text=told(call)
+        self.assertIn("asked for changes",text)
+        self.assertIn("P1 Result is not committed (result.txt:1)",text)
+        for absent in ("Passing-row finding","Handover finding","Another worker's"):self.assertNotIn(absent,text)
+        self.assertEqual(told(call),"","told twice")
+        self.assertEqual(told({**call,"agent_id":"someone"}),"")
+        self.assertEqual(told({**call,"agent_id":None}),"")
+
+    def test_the_apps_review_watch_starts_mid_job_reviews_only_with_the_users_words(self):
+        """Second review, slice 4: the app's own review-watch (scripts/lib/review_watch.py
+        --app-state, the host's child) reads every conversation's partition of the registry and
+        starts a long-job review of a running worker after 60 minutes: Claude, the CLI the app
+        ships, and the user's own turn as the original words. A worker that has ended gets none
+        from it: the app's handover reviewer reviews that. Stopping the watcher stops the reviews
+        it started and does not count them as lost."""
+        self.attest(self.USER_TURN)
+        rw=self.app.load("review_watch_app_test",ENGINE/"scripts/lib/review_watch.py")
+        worker=self.call("prepare",self.args)
+        target=self.start_fixture_worker(worker,"watched-worker")
+        (target/"result.txt").write_text("FICTIONAL")
+        self.app.git(target,"add","result.txt")
+        self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional result")
+        calls=self.root/"review calls";calls.mkdir()
+        fake=self.root/"fake second-review.sh"
+        fake.write_text('#!/bin/bash\nd="$(mktemp -d "%s/call.XXXXXX")"\nprintf "%%s\\n" "$@" > "$d/args"\n'
+                        'printf "%%s" "$RICHOS_WORKSPACES_DIR" > "$d/partition"\nexec sleep 30\n' % calls)
+        state=self.root/"engine-state";claude=self.root/"claude";claude.write_text("#!/bin/sh\n");claude.chmod(0o755)
+        os.environ.update({"REVIEW_WATCH_SECOND_REVIEW":str(fake)})
+        accounts=self.root/"claude-accounts.json"
+        a=type("A",(),{"app_state":str(state),"claude":str(claude),"accounts":str(accounts),"status":False,"tick":True})
+        import time as _t
+        def look(minutes):
+            os.environ["REVIEW_WATCH_NOW"]=str(_t.time()+minutes*60)
+            rw.app_mode(a,str(ENGINE))
+            return sorted(calls.iterdir())
+        self.assertEqual(look(5),[],"a review started five minutes in")
+        started=look(61)
+        self.assertEqual(len(started),1)
+        args=(started[0]/"args").read_text().split("\n")
+        self.assertEqual(args[args.index("--trigger")+1],"long-job")
+        self.assertEqual(args[args.index("--reviewer")+1],"claude")
+        self.assertEqual(args[args.index("--claude")+1],str(claude))
+        # The app's account list, which second-review reads when the reviewer starts (the real
+        # second review of 802194f0e, finding 1; second-review.test.sh C15 runs that through).
+        self.assertEqual(args[args.index("--accounts")+1],str(accounts))
+        self.assertEqual(Path(args[args.index("--words-file")+1]).read_text(),self.USER_TURN)
+        self.assertEqual((started[0]/"partition").read_text(),os.environ["RICHOS_WORKSPACES_DIR"])
+        self.assertEqual(len(look(62)),1,"one tip reviewed twice at once")
+        # The host's quit: the watcher stops what it started, recorded as stopped, never lost.
+        lock,=Path(rw.app_paths(state)["watch"]).joinpath("locks").glob("*.lock")
+        pid=json.loads(lock.read_text())["pid"]
+        watcher=rw.Watcher(str(ENGINE),"",rw.AppWorld(str(ENGINE),str(state),str(claude)))
+        watcher.children[pid]=type("Child",(),{"poll":lambda self:None if _alive(pid) else 0})()
+        watcher.stop_own(_t.time())
+        self.assertFalse(_alive(pid),"the review outlived the watcher's quit")
+        attempts=[json.loads(l) for l in (Path(rw.app_paths(state)["watch"])/"attempts.jsonl").read_text().splitlines()]
+        self.assertEqual([x["outcome"] for x in attempts],["stopped"])
+        # A worker that has ended is the app's handover reviewer's: nothing more starts here.
+        self.finish_fixture_worker("watched-worker")
+        self.assertEqual(len(look(200)),1)
 
     def test_review_exact_commit_integration_recovery_and_dirty_checkout_preservation(self):
         worker=self.call("prepare",self.args)

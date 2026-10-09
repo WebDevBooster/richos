@@ -78,6 +78,12 @@ pub const RETIRE_EVERY: Duration = Duration::from_secs(60);
 /// How long quit waits for a hand-over already under way (a lead mid-start) before it ends
 /// every lead, so a lead that finishes starting after quit began is still ended by it.
 const QUIT_WAITS_FOR_HAND_OVER: Duration = Duration::from_secs(45);
+
+#[cfg(test)]
+thread_local! {
+    /// A test's pause inside an admitted review-watch notice, on the calling thread only.
+    static ADMITTED: std::cell::RefCell<Option<Box<dyn Fn()>>> = const { std::cell::RefCell::new(None) };
+}
 /// The ECS store's status for a withdrawn obligation (zach's contract §2.5).
 const ECS_WITHDRAWN: &str = "cancelled"; // dialect-exempt: the ECS store's own protocol literal, engine-rest-2026-09-25.md §2.5
 
@@ -354,6 +360,31 @@ impl OperatorDesk {
         self.host.stop_named(names, words, origin)
     }
 
+    /// **A review-watch notice for the lead whose session started the work it is about**
+    /// (second review, slice 4): sent by this desk's host as a message of its own
+    /// ([`OperatorHost::tell_lead`]). The host's review-watch child calls it.
+    pub fn tell_lead(&self, session: &str, text: &str) -> Result<String, String> {
+        // After quit nothing wakes a lead: the quit has just ended them all. A notice admitted
+        // before quit holds the quit flag's guard until the host is done with it (the real
+        // second review of 0be50ade1, finding 2), so quit waits for it and then ends the lead
+        // it told; released between the two, the notice resumed a lead after quit ended the team.
+        let quitting = self.quit.lock().unwrap();
+        if *quitting {
+            return Err("RichOS is quitting; the notice was not delivered.".into());
+        }
+        #[cfg(test)]
+        ADMITTED.with(|pause| if let Some(pause) = pause.borrow().as_ref() { pause() });
+        let told = self.host.tell_lead(session, text);
+        drop(quitting);
+        told
+    }
+
+    /// The declaration this desk runs under: where the host's review-watch child finds the
+    /// engine and the governed repository's orchestration.config.
+    pub fn declaration(&self) -> &Declaration {
+        &self.declaration
+    }
+
     /// **His Esc** ((d) item 6): the lead's turn ends, its agents keep running. The sentence
     /// is said on the conversation and returned.
     pub fn interrupt(&self, key: &ConversationKey) -> String {
@@ -585,6 +616,7 @@ impl OperatorDesk {
     /// the claim given up. Once; a second call does nothing.
     pub fn quit(&self) -> Vec<(ConversationKey, Quit)> {
         {
+            // Taken only once a review-watch notice already admitted is done (`tell_lead`).
             let mut done = self.quit.lock().unwrap();
             if *done {
                 return Vec::new();
@@ -1252,6 +1284,47 @@ mod tests {
         d.desk.take(late.clone());
         assert_eq!(state_of(&d, &late), (AssignmentState::Failed, CLOSING.into()));
         assert_eq!(d.launcher.leads.lock().unwrap().len(), 2, "nothing was started after quit");
+    }
+
+    /// **A review-watch notice admitted before quit never resumes a lead after it** (the real
+    /// second review of 0be50ade1, finding 2). The notice pauses just after its admission; quit
+    /// is given every chance to end the team meanwhile; then the notice goes on. The notice is
+    /// told to the lead that was running, quit ends that lead, and no lead runs once both are done.
+    #[test]
+    fn a_notice_admitted_before_quit_never_resumes_a_lead_after_it() {
+        let d = desk();
+        let a = assignment(&d, "t-1", "go", Source::Text, Some("desk"));
+        d.desk.take(a);
+        assert!(d.desk.wait_quiet(Duration::from_secs(10)));
+        let session = d.launcher.leads.lock().unwrap()[0].2.session.clone();
+        let (admitted, was_admitted) = std::sync::mpsc::channel();
+        let (go, may_go) = std::sync::mpsc::channel::<()>();
+        let desk = d.desk.clone();
+        let notice = std::thread::spawn(move || {
+            ADMITTED.with(|pause| *pause.borrow_mut() = Some(Box::new(move || {
+                admitted.send(()).unwrap();
+                may_go.recv().unwrap();
+            })));
+            desk.tell_lead(&session, "REVIEW-WATCH 10:00Z: 1 second-review notice")
+        });
+        was_admitted.recv().expect("the notice was admitted");
+        let desk = d.desk.clone();
+        let quit = std::thread::spawn(move || desk.quit());
+        // Room for a quit that does not wait for the notice to finish first (the defect); with
+        // the fix it cannot, so the verdict below never depends on how long this waits.
+        let began = Instant::now();
+        while !quit.is_finished() && began.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        go.send(()).unwrap();
+        let told = notice.join().unwrap();
+        assert_eq!(quit.join().unwrap().len(), 1, "quit ended the one lead");
+        let leads = d.launcher.leads.lock().unwrap();
+        assert_eq!(leads.len(), 1, "no lead was started or resumed after quit: {:?}",
+                   leads.iter().map(|(_, start, _)| start.clone()).collect::<Vec<_>>());
+        assert_eq!(*leads[0].2.quits.lock().unwrap(), 1, "the lead that was told is ended");
+        assert!(told.is_ok(), "the notice admitted before quit was told: {told:?}");
+        assert_eq!(*d.released.lock().unwrap(), 1, "the claim was released once, after the notice");
     }
 
     // ---- rule 7 ------------------------------------------------------------------------------

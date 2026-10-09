@@ -221,6 +221,10 @@ pub mod assignment;
 pub mod assignment_tools;
 pub mod status_tools;
 pub mod work_host;
+/// `review_watch` — the engine's review-watch run as the HOST's own child (automatic second
+/// review, slice 4): mid-job reviews of the app's workers, and on an operator install the
+/// notices for his team's leads, sent as messages of the host's own.
+pub mod review_watch;
 
 /// **THE OPENING OF HIS TURN** (the CEO's ruling §55, 2026-09-18):
 ///   - `first_reply` — what the model did before he heard a word, and whether it was allowed

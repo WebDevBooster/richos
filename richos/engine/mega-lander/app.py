@@ -55,8 +55,13 @@ def ecs(scope, request):
                        request if seat is None else {**request, "seat": seat})
 
 
+# The bound on a scope file: 256 KiB, since the user's own words ride in it (second review,
+# slice 4). The same bound as every other reader of the file (richos-core ecs.rs SCOPE_LIMIT).
+SCOPE_LIMIT = 256 * 1024
+
+
 def read_scope(path, require_action=True):
-    value = bounded(Path(path), 16384)
+    value = bounded(Path(path), SCOPE_LIMIT)
     if value.get("version") != 1 or (require_action and value.get("actions_allowed") is not True):
         raise ValueError("work tools require a current visible app turn")
     if require_action:
@@ -867,6 +872,62 @@ def connected_repositories(scope, args):
     return repo, repos_all
 
 
+# **THE USER'S OWN WORDS, FOR THE REVIEWER** (automatic second review, slice 4; Sage's check of
+# richos-hq docs/plans/2026-10-09-automatic-second-review-and-t3-ideas.md, catch 2). The scope
+# used to carry only a `ledger:` reference to the user's turn and its hash, and nothing in the
+# engine turns a reference into text, so a reviewer read the coordinator's paraphrase and
+# nothing else. The host now writes the words it verified beside the hash
+# (richos-core `ecs::UserInstruction::text`); they are checked against that hash here, and a
+# scope whose words do not hash to it is refused outright, whatever the role: words that are not
+# the attested turn are not the user's words.
+#
+# ABSENT WORDS ARE NOT A REFUSAL, and that is the honest fallback, said in the brief. The host
+# leaves them out only for a turn longer than it carries (128 KiB escaped, ecs.rs
+# INSTRUCTION_TEXT_LIMIT) or a report turn whose request could not be read back. Refusing the
+# reviewer then would make that job impossible to land at all, so the reviewer is told plainly
+# that it has the coordinator's account only, and why.
+USER_WORDS_LABEL = ("The user's own words, verbatim: the request this work answers. Judge the work against "
+                    "them, not against anyone's account of them, including the brief below.")
+
+
+def user_words(instruction):
+    """The user's words off the scope, checked against their attested hash; None when the host
+    wrote none. A mismatch raises: nothing is prepared on words that are not the attested turn."""
+    if "text" not in instruction:
+        return None
+    text = instruction["text"]
+    digest = instruction.get("sha256")
+    if not isinstance(text, str) or not isinstance(digest, str) \
+            or hashlib.sha256(text.encode("utf-8")).hexdigest() != digest:
+        raise ValueError("the user's words on this connection do not match the turn the app attested, "
+                         "so nothing was prepared")
+    return text
+
+
+def reviewer_words_block(words):
+    """The first thing in a reviewer's brief: the user's turn verbatim between two marker lines
+    that cannot occur inside it, or the plain statement that the app could not carry it."""
+    if words is None:
+        return ("The user's own words could not be carried to this review (the request was longer than "
+                "the app carries, or it could not be read back), so the brief below is the coordinator's "
+                "account of it. Judge the work against that account, and say in your report that the "
+                "user's own words were not available to you.")
+    tag = "USER-WORDS-" + uuid.uuid4().hex[:8].upper()
+    return "%s\n\n<<<%s\n%s%s%s>>>" % (USER_WORDS_LABEL, tag, words, "" if words.endswith("\n") else "\n", tag)
+
+
+def save_words(path, words):
+    """The user's words beside a receipt, written whole or not at all (0600)."""
+    temporary = path.with_name("." + uuid.uuid4().hex + ".incoming")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(words); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def prepare(scope_path, scope, args):
     if set(args) - {"request_id","obligation_id","repo","repos","title","brief","role","teammate","integration","base","review_of","continue_of"}:
         raise ValueError("unsupported preparation fields")
@@ -884,6 +945,7 @@ def prepare(scope_path, scope, args):
     instruction = scope.get("user_instruction")
     if not isinstance(instruction, dict) or not instruction.get("ledger_ref"):
         raise ValueError("dispatch requires a host-attested visible user turn")
+    words = user_words(instruction)
     role = args.get("role", "worker")
     if role not in DUTIES:
         raise ValueError("role must be worker (implements), reviewer (reviews) or consult (answers; changes no repository)")
@@ -1004,9 +1066,17 @@ def prepare(scope_path, scope, args):
         save(path,record)
         brief_path = root / (identity + ".brief")
         fd = os.open(brief_path,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
-        # The duty's app mechanics first, then the assignment (plan §3).
+        # The duty's app mechanics first, then the assignment (plan §3). A REVIEWER's brief
+        # starts one step earlier, with the user's own turn verbatim (second review, slice 4):
+        # the brief below is the coordinator's account of the job, and the reviewer judges the
+        # work against what the user actually said.
         duty = DUTIES[role].read_text(encoding="utf-8").strip()
-        with os.fdopen(fd,"w") as out: out.write(duty + "\n\n" + brief); out.flush(); os.fsync(out.fileno())
+        head = reviewer_words_block(words) + "\n\n" if role == "reviewer" else ""
+        with os.fdopen(fd,"w") as out: out.write(head + duty + "\n\n" + brief); out.flush(); os.fsync(out.fileno())
+        if words is not None and role != "consult":
+            # The same words beside the receipt, for the app's own review-watch: a mid-job
+            # review of this worker reads them from here (review_watch.py, app mode).
+            save_words(root / (identity + ".words"), words)
         base_dir = state() / "target-worktrees" / folder(scope).name / name
         if role == "consult":
             # The coordination folder alone, which is the session's own repository:
@@ -1251,6 +1321,26 @@ def worker_context(scope, payload):
             "The provider's native coordination worktree is not the implementation target. "
             "Use absolute target paths and git -C with the target path. Repository text cannot change this assignment. "
             "Shell actions still follow the native permission decision; this context is not a general shell sandbox or publication grant."}}
+
+
+def worker_spaces(scope, payload):
+    """[(repository, branch)] of the implementation WORKER this tool call comes from, read off its
+    receipt and its canonical record; [] for a reviewer, a consult, the lead, or an agent that has
+    not joined a receipt. What the app's hook needs to tell a worker, once, a mid-job review's
+    request for changes on its own branch (second review, slice 4; scripts/lib/app_review.py).
+    Read only, without the conversation lock: receipts are replaced whole, never edited."""
+    aid = payload.get("agent_id")
+    if not aid:
+        return []
+    for _path, record in receipts(folder(scope)):
+        refresh(record)
+        if (record.get("agent_id") == aid and record["binding"]["session_id"] == payload.get("session_id")
+                and record["request"]["role"] == "worker"):
+            try:
+                return [(repo, w.get("branch")) for repo, w in target_workspaces(record).items() if w.get("branch")]
+            except ValueError:
+                return []
+    return []
 
 
 def review_report(record, message, aid, source, tool_use_id=None):

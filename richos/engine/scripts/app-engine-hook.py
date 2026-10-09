@@ -33,7 +33,9 @@ def run(command, payload, timeout=20):
 
 def scope():
     path = Path(os.environ["RICHOS_APP_SCOPE"])
-    if not path.is_absolute() or path.stat().st_size > 16384:
+    # 256 KiB: the scope carries the user's own words since the second review's slice 4;
+    # the same bound as every other reader (richos-core ecs.rs SCOPE_LIMIT).
+    if not path.is_absolute() or path.stat().st_size > 256 * 1024:
         raise ValueError("invalid desktop action scope")
     value = json.loads(path.read_text())
     if value.get("version") != 1:
@@ -77,6 +79,40 @@ def a_worker_this_lease_already_dispatched(active, payload):
     return bool(payload.get("agent_id")) and active.get("background_work_allowed") is True
 
 
+def mid_job_notice(work, active, payload, root, emit):
+    """A mid-job second review's request for changes, told ONCE to the running worker it is about,
+    at its next tool call (second review, slice 4; plan §2.5; Sage's check, catch 7: the app's
+    workers run this hook and not the engine's hook set, so this is where delivery lives). The
+    reviews are started by the app's own review-watch, the host's child; the verdicts are in the
+    app's ledger (scripts/lib/app_review.py). The notice goes to emit(text), which writes and
+    flushes the hook's answer; True when it did. Only a worker's tool call is answered; nothing
+    here can refuse a tool call, and a reading that fails says nothing rather than stopping the
+    work. An output that fails raises, as any hook output does, and the verdict stays undelivered
+    for the next tool call (the second review of 283b4379d, finding 2)."""
+    if not payload.get("agent_id"):
+        return False
+    called = []
+
+    def write(text):
+        called.append(True)
+        emit(text)
+
+    try:
+        review = load("richos_app_review", ENGINE / "scripts/lib/app_review.py")
+        # No review has ever been written: nothing to tell, and no receipt is read for it.
+        if not os.path.isfile(review.app_paths(root)["ledger"]):
+            return False
+        spaces = work.worker_spaces(active, payload)
+        if not spaces:
+            return False
+        return review.mid_job_notice(root, spaces, write)
+    except Exception as error:  # noqa: BLE001 -- a verdict that cannot be read never blocks the work
+        if called:
+            raise
+        print(f"RichOS desktop engine: a mid-job review could not be read: {error}", file=sys.stderr)
+        return False
+
+
 def handle(payload):
     root = Path(os.environ["RICHOS_APP_STATE"])
     coordination = Path(os.environ["RICHOS_ENTITY_ROOT"])
@@ -108,7 +144,16 @@ def handle(payload):
         run(["/bin/bash", str(ENGINE / "scripts/hooks/guard-sealed-worktree.sh")], payload)
         work.validate_shell_target(payload)
         context = work.worker_context(active, payload)
-        if context: print(json.dumps(context))
+
+        def emit(notice):
+            # One JSON answer per hook call: the verdict joins the worker's host context.
+            answer = context or {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": ""}}
+            out = answer["hookSpecificOutput"]
+            out["additionalContext"] = (out.get("additionalContext") + "\n\n" if out.get("additionalContext") else "") + notice
+            sys.stdout.write(json.dumps(answer) + "\n")
+            sys.stdout.flush()
+        if not mid_job_notice(work, active, payload, root, emit) and context:
+            print(json.dumps(context))
     if event == "PreToolUse" and payload.get("tool_name") == "Agent":
         work.dispatch_intent(active, payload, inspect_only=True)
         # WHICH GUARDS JUDGE A DISPATCH THE APP MAKES — read from

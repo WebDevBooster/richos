@@ -16,6 +16,9 @@
 #       yet in its integration branch (git merge --no-ff, in that repository's
 #       main checkout, with git's own checks), then land it as above. Ignored
 #       files it left are kept under <state>/kept/, never a reason to stay.
+#       In a repository listed in SECOND_REVIEW_REPOS it REFUSES, merging
+#       nothing, unless a passing second review of exactly each tip exists
+#       (CEO §113); the merge message names that review.
 #   workspaces.sh discard <agent> --reason '<why>' (--ceo-word '<his words>' | --not-ceo-ordered '<why>')
 #       work that must not go into main: every workspace and branch deleted,
 #       the reason and the branch tips recorded (point 7)

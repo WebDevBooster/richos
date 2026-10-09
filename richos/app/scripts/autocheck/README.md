@@ -63,6 +63,15 @@ every stale pin in the file. It parses the declaration only when a changed path 
 and takes under a second on a branch that renewed 274 pins. `../dependency-pins.test.sh` proves
 it with throwaway repositories and checks its digests against `verification_inputs.py`.
 
+**The commit also runs every selected check that is fast (2026-10-09, section 97).** After the
+selection, the commit runs each selected check whose recorded duration is under 10 seconds,
+fastest first, until 40 seconds of recorded time are spent (about 30 s of wall clock at most; a
+commit that selects none adds nothing), and refuses on a failure; slower ones stay at the land.
+The durations are the merge gate's own medians (`weights.tsv` under the proof-runs folder, the
+main checkout's), and a check with no record is not assumed fast. It also runs
+`mutation-anchors.py` when the change touches the engine. Cause: a merge refused after 25
+minutes by two 3-4 second checks.
+
 **A routine pin renewal uses the fast validator (2026-10-05).** A changed pinned reader selects
 `scripts/verification-pins.test.sh`, which uses the selector's existing node and hook-reader
 validation over all reviewed source and external pins, directory inventories and known

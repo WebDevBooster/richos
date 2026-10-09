@@ -175,6 +175,22 @@ class AppProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "stale app binding"):
             tool_call(path, "inspect", {})
 
+    def test_a_scope_carrying_the_users_words_is_still_read(self):
+        """Second review, slice 4: the scope now carries the user's own words beside their hash
+        (richos-core ecs.rs UserInstruction::text, up to 128 KiB escaped). The continuity tools
+        read the same file, so their 16 KiB bound would have refused every call on a long turn."""
+        path = self.root / "scope.json"
+        words = "Please do exactly this. " * 4000           # about 96 KB, over the old 16 KiB bound
+        path.write_text(json.dumps({"version": 1, "actions_allowed": True, "bridge": {"state_root": str(self.store)},
+                                    "binding": self.binding, "user_instruction": {
+                                        "ledger_ref": "ledger:t:1", "sha256": "x", "text": words}}))
+        self.assertGreater(path.stat().st_size, 16384)
+        self.assertTrue(tool_call(path, "checkpoint", {"request_id": "long-turn",
+                                                       "checkpoint": {"no_changes": True, "reason": "Test"}})["accepted"])
+        path.write_text(json.dumps({"version": 1, "actions_allowed": True, "padding": "x" * (256 * 1024)}))
+        with self.assertRaisesRegex(ValueError, "invalid app continuity scope"):
+            tool_call(path, "inspect", {})
+
 
 class WorkSeatTests(unittest.TestCase):
     """The tenth turn gate: a background assignment gets its own cursor.

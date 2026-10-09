@@ -3961,6 +3961,1378 @@ class MergeGateRefusal_LeavesTheMainCheckoutAsItWas(Base):
         self.assertIn("cc/" + name, branches(self.other))
 
 
+ENGINE = os.path.realpath(os.path.join(HERE, "..", ".."))
+
+
+class SecondReview_NoWorkLandsUnreviewed(Base):
+    """CEO §113 (2026-10-08): "A regular RichOS user can never be expected
+    anything even remotely close to that. So, this all must be completely
+    automated." Slice 3 of richos-hq docs/plans/2026-10-09-automatic-second-
+    review-and-t3-ideas.md (§2.5, §4 row 3) with Sage's check (§2 catches 1, 8):
+    in a repository listed in SECOND_REVIEW_REPOS, work lands only with a
+    passing second review of exactly its tip, whether it lands through
+    `workspaces.sh merge`, a plain `git merge`, a fast-forward or a codex/
+    branch. The fence is ON here, as on the operator's Mac, and this test
+    process holds the land lease, so every refusal below is the review's."""
+
+    def setUp(self):
+        super().setUp()
+        self.saved_env = {k: os.environ.pop(k, None) for k in
+                          ("CLAUDE_PID", "CLAUDE_CODE_ENTRYPOINT", "SECOND_REVIEW_STATE_DIR")}
+        os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(self.env.root, "review-state")
+        self.ledger = os.path.join(os.environ["SECOND_REVIEW_STATE_DIR"], "reviews.jsonl")
+        self.decl = os.path.join(self.env.root, "fence-entity")
+        os.makedirs(self.decl)
+        self.declare("other")
+        self.fences = os.path.join(ENGINE, "scripts", "operator-fences.sh")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        run("bash", self.fences, "on", "--repo", self.other, "--entity", self.decl)
+        start = subprocess.run(["ps", "-o", "lstart=", "-p", str(os.getpid())], capture_output=True,
+                               text=True, env=dict(os.environ, TZ="UTC0", LC_ALL="C")).stdout
+        sessions = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "sessions")
+        os.makedirs(sessions, exist_ok=True)
+        with open(os.path.join(sessions, "%d.json" % os.getpid()), "w") as f:
+            json.dump({"pid": os.getpid(), "sessionId": self.sid, "cwd": self.entity,
+                       "procStart": " ".join(start.split()), "kind": "interactive"}, f)
+        r = run("bash", os.path.join(ENGINE, "scripts", "land-lease.sh"), "acquire", "--repo", self.other)
+        self.assertIn("ACQUIRED", r.stdout, r.stdout + r.stderr)
+
+    def tearDown(self):
+        for k, v in self.saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        super().tearDown()
+
+    def declare(self, listed):
+        with open(os.path.join(self.decl, "orchestration.config"), "w") as f:
+            f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n'
+                    'SECOND_REVIEW_REPOS="%s"\n' % listed)
+
+    def repo_identity(self, repo):
+        if not os.path.isdir(repo):
+            return os.path.realpath(repo)
+        common = run("git", "-C", repo, "rev-parse", "--git-common-dir").stdout.strip()
+        real = os.path.realpath(os.path.join(repo, common))
+        return real
+
+    def verdict(self, tip, verdict="passed", trigger="handover", findings=(), repo=None, legacy=False):
+        rid = "rv-test-%s-%d" % (tip[:8], len(open(self.ledger).readlines()) if os.path.exists(self.ledger) else 0)
+        record = os.path.join(os.path.dirname(self.ledger), "reviews", rid)
+        os.makedirs(record)
+        found = [{"priority": p, "title": t, "files": ["work.txt:1"], "evidence": "seen", "fixture": ""}
+                 for p, t in findings]
+        with open(os.path.join(record, "verdict.json"), "w") as f:
+            json.dump({"answer": {"reviewed_commit": tip, "verdict": verdict, "findings": found}}, f)
+        row = {"id": rid, "repo": repo or self.other, "tip": tip, "verdict": verdict, "trigger": trigger,
+               "reviewer": "codex", "reviewer_model": "gpt-6.1-sol", "findings": len(found),
+               "p1": sum(1 for p, _t in findings if p == 1), "record": record,
+               "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        if not legacy:
+            row["repo_id"] = self.repo_identity(repo or self.other)
+        with open(self.ledger, "a") as f:
+            f.write(json.dumps(row) + "\n")
+        return rid
+
+    def finished(self, name, *texts):
+        cc = self.make_cc(name)
+        aid, _npath = self.spawn(name, cc=cc)
+        tips = []
+        for i, text in enumerate(texts or ("work\n",)):
+            self.commit(cc, "work%d.txt" % i, text)
+            tips.append(run("git", "-C", cc, "rev-parse", "HEAD").stdout.strip())
+        self.finish(aid)
+        return cc, tips
+
+    def head(self):
+        return run("git", "-C", self.other, "rev-parse", "main").stdout.strip()
+
+    def no_merge_left(self):
+        if run("git", "-C", self.other, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).returncode == 0:
+            run("git", "-C", self.other, "merge", "--abort")        # this process holds the lease
+
+    # -- workspaces.sh merge ------------------------------------------------------
+    def test_second_review_merge_is_refused_with_no_verdict(self):
+        cc, (tip,) = self.finished("zach-opus-rv0")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv0", self.sid)
+        # The land command's own refusal, before git's merge gate ever runs (the
+        # fence would refuse the same merge later, with "refused in").
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv0 was not merged into", str(e.exception))
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertTrue(os.path.isdir(cc))
+        self.assertIn("cc/zach-opus-rv0", branches(self.other))
+
+    def test_second_review_merge_is_refused_with_a_verdict_on_an_older_commit(self):
+        _cc, (older, tip) = self.finished("zach-opus-rv1", "one\n", "two\n")
+        self.verdict(older, "passed")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv1", self.sid)
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_merge_is_refused_on_changes_requested_and_names_the_findings(self):
+        _cc, (tip,) = self.finished("zach-opus-rv2")
+        self.verdict(tip, "passed", trigger="long-job")                   # a mid-job pass never counts
+        self.verdict(tip, "changes-requested", findings=[(1, "the microphone is never handed back")])
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv2", self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertIn("the microphone is never handed back", str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_merge_goes_through_with_a_passing_verdict_on_the_tip(self):
+        cc, (tip,) = self.finished("zach-opus-rv3")
+        rid = self.verdict(tip, "passed", findings=[(3, "a comment could name the ruling")])
+        merged, res = ws.merge_and_land("zach-opus-rv3", self.sid, "Merge cc/zach-opus-rv3: the work")
+        self.assertEqual(merged, [(self.other, "cc/zach-opus-rv3")])
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+        body = run("git", "-C", self.other, "log", "-1", "--format=%B").stdout
+        self.assertIn("Merge cc/zach-opus-rv3: the work", body.splitlines()[0])
+        self.assertIn("Second review: passed, %s" % rid, body)
+        self.assertIn("P3 a comment could name the ruling", body)
+        self.assertFalse(os.path.exists(cc))
+
+    FOREIGN = "/independent-clones/foreign"
+
+    def test_second_review_a_passing_verdict_of_another_repository_authorizes_nothing(self):
+        # Two independent clones can hold the same commit; the shared ledger's
+        # verdict for the other one is no review of this one (review rv-20261009T063822Z-5db5607c-7e86).
+        _cc, (tip,) = self.finished("zach-opus-rv6")
+        self.verdict(tip, "passed", repo=self.FOREIGN)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv6", self.sid)
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_a_foreign_passing_verdict_does_not_override_a_local_refusal(self):
+        _cc, (tip,) = self.finished("zach-opus-rv7")
+        self.verdict(tip, "changes-requested", findings=[(1, "local defect")])
+        self.verdict(tip, "passed", repo=self.FOREIGN)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv7", self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_the_fence_ignores_a_foreign_repositorys_verdict_too(self):
+        _cc, (tip,) = self.finished("zach-opus-rv8")
+        self.verdict(tip, "passed", repo=self.FOREIGN)
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/zach-opus-rv8", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+
+    def test_second_review_a_passing_verdict_recorded_from_a_linked_worktree_authorizes_the_land(self):
+        # A manual review with --repo <linked worktree> records that worktree's path; Git says
+        # it is the same repository as the main checkout (review rv-20261009T065022Z-ae3404f1-42cc).
+        cc, (tip,) = self.finished("zach-opus-rv9")
+        self.verdict(tip, "passed", repo=cc)
+        merged, res = ws.merge_and_land("zach-opus-rv9", self.sid, "Merge cc/zach-opus-rv9: the work")
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_newer_refusal_from_a_linked_worktree_beats_an_older_pass_on_main(self):
+        cc, (tip,) = self.finished("zach-opus-rv10")
+        self.verdict(tip, "passed", repo=self.other)
+        self.verdict(tip, "changes-requested", repo=cc, findings=[(1, "worktree defect")])
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv10", self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertEqual(self.head(), before)
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/zach-opus-rv10", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+
+    def refused_after(self, name, change, legacy=False, then_pass=True):
+        cc, (tip,) = self.finished(name)
+        if then_pass:
+            self.verdict(tip, "passed", repo=self.other)
+        self.verdict(tip, "changes-requested", repo=cc, findings=[(1, "worktree defect")], legacy=legacy)
+        change(cc)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land(name, self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertEqual(self.head(), before)
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/" + name, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+
+    def test_second_review_a_newer_refusal_survives_its_worktree_being_moved(self):
+        moved = os.path.join(self.env.root, "moved-rv11")
+        self.refused_after("zach-opus-rv11", lambda cc: run("git", "-C", self.other, "worktree", "move", cc, moved))
+
+    def test_second_review_a_newer_refusal_survives_its_worktree_being_removed(self):
+        self.refused_after("zach-opus-rv12", lambda cc: run("git", "-C", self.other, "worktree", "remove", "--force", cc))
+
+    def test_second_review_a_legacy_refusal_with_an_unresolvable_path_still_refuses(self):
+        self.refused_after("zach-opus-rv13",
+                           lambda cc: run("git", "-C", self.other, "worktree", "remove", "--force", cc), legacy=True)
+
+    def test_second_review_a_legacy_pass_with_an_unresolvable_path_authorizes_nothing(self):
+        cc, (tip,) = self.finished("zach-opus-rv14")
+        self.verdict(tip, "passed", repo=cc, legacy=True)
+        run("git", "-C", self.other, "worktree", "remove", "--force", cc)
+        before = self.head()
+        with self.assertRaises(ws.SpecError):
+            ws.merge_and_land("zach-opus-rv14", self.sid)
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_an_unresolvable_legacy_pass_blocks_even_over_an_older_pass(self):
+        cc, (tip,) = self.finished("zach-opus-rv15")
+        self.verdict(tip, "passed", repo=self.other)
+        self.verdict(tip, "passed", repo=cc, legacy=True)
+        run("git", "-C", self.other, "worktree", "remove", "--force", cc)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv15", self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_a_bare_clone_and_a_separate_git_dir_clone_are_two_repositories(self):
+        spec = importlib.util.spec_from_file_location(
+            "srv_ident", os.path.join(ENGINE, "scripts", "lib", "second_review.py"))
+        sr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sr)
+        base = os.path.join(self.env.root, "ident")
+        storage, local, foreign = (os.path.join(base, n) for n in ("storage", "local", "foreign"))
+        run("git", "clone", "-q", "--bare", "--no-hardlinks", self.other, storage)
+        run("git", "-C", storage, "worktree", "add", "-q", "--detach", local, "HEAD")
+        run("git", "clone", "-q", "--no-hardlinks", "--separate-git-dir", os.path.join(storage, ".git"),
+            self.other, foreign)
+        a, b = sr.repo_identity(local), sr.repo_identity(foreign)
+        self.assertEqual(a, os.path.realpath(storage))
+        self.assertEqual(b, os.path.realpath(os.path.join(storage, ".git")))
+        self.assertNotEqual(a, b)
+        F = ws._fence_program()
+        self.assertEqual(F.review_repo_identity(local), a)
+        self.assertEqual(F.review_repo_identity(foreign), b)
+        tip = run("git", "-C", local, "rev-parse", "HEAD").stdout.strip()
+        rows = [dict(id="local-refusal", repo=local, repo_id=a, tip=tip, verdict="changes-requested", trigger="manual"),
+                dict(id="foreign-pass", repo=foreign, repo_id=b, tip=tip, verdict="passed", trigger="manual")]
+        chosen, _ = F.review_of(rows, tip, local)
+        self.assertEqual(chosen["id"], "local-refusal")
+
+    def test_second_review_repositories_whose_paths_differ_only_by_trailing_space_are_two_repositories(self):
+        spec = importlib.util.spec_from_file_location(
+            "srv_ident_ws", os.path.join(ENGINE, "scripts", "lib", "second_review.py"))
+        sr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sr)
+        base = os.path.join(self.env.root, "identws")
+        plain, spaced = os.path.join(base, "storage"), os.path.join(base, "storage ")
+        local, foreign = os.path.join(base, "local"), os.path.join(base, "foreign")
+        run("git", "clone", "-q", "--bare", "--no-hardlinks", self.other, plain)
+        run("git", "clone", "-q", "--bare", "--no-hardlinks", self.other, spaced)
+        run("git", "-C", plain, "worktree", "add", "-q", "--detach", local, "HEAD")
+        run("git", "-C", spaced, "worktree", "add", "-q", "--detach", foreign, "HEAD")
+        a, b = sr.repo_identity(local), sr.repo_identity(foreign)
+        self.assertEqual(a, os.path.realpath(plain))
+        self.assertEqual(b, os.path.realpath(spaced))
+        self.assertNotEqual(a, b)
+        F = ws._fence_program()
+        self.assertEqual(F.review_repo_identity(local), a)
+        self.assertEqual(F.review_repo_identity(foreign), b)
+
+    def test_second_review_identity_survives_awkward_folder_names_unchanged(self):
+        spec = importlib.util.spec_from_file_location(
+            "srv_ident_awk", os.path.join(ENGINE, "scripts", "lib", "second_review.py"))
+        sr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sr)
+        F = ws._fence_program()
+        base = os.path.join(self.env.root, "identawk")
+        for i, name in enumerate(["storage ", "storage\r", "stor\tage", "st\u00f6rage", "storage"]):
+            bare = os.path.join(base, name)
+            wt = os.path.join(base, "wt%d" % i)
+            run("git", "clone", "-q", "--bare", "--no-hardlinks", self.other, bare)
+            run("git", "-C", bare, "worktree", "add", "-q", "--detach", wt, "HEAD")
+            want = os.path.realpath(bare)
+            self.assertEqual(sr.repo_identity(wt), want, repr(name))
+            self.assertEqual(F.review_repo_identity(wt), want, repr(name))
+
+    def test_second_review_identity_ignores_the_git_environment_a_hook_inherits(self):
+        spec = importlib.util.spec_from_file_location(
+            "srv_ident_env", os.path.join(ENGINE, "scripts", "lib", "second_review.py"))
+        sr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sr)
+        F = ws._fence_program()
+        local, foreign = self.other, os.path.join(self.env.root, "identenv")
+        run("git", "clone", "-q", "--no-hardlinks", local, foreign)
+        want = {"s": sr.repo_identity(foreign), "f": F.review_repo_identity(foreign)}
+        self.assertNotEqual(want["f"], F.review_repo_identity(local))
+        inherited = {"GIT_DIR": os.path.join(local, ".git"), "GIT_WORK_TREE": local,
+                     "GIT_COMMON_DIR": os.path.join(local, ".git")}
+        with patch.dict(os.environ, inherited):
+            self.assertEqual(sr.repo_identity(foreign), want["s"])
+            self.assertEqual(F.review_repo_identity(foreign), want["f"])
+
+    def test_second_review_an_unlisted_repository_is_not_refused(self):
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        _cc, (tip,) = self.finished("zach-opus-rv4")
+        _merged, res = ws.merge_and_land("zach-opus-rv4", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    # -- the fence: every other move of main ----------------------------------------
+    def test_second_review_a_plain_merge_is_refused_by_the_fence_the_same_way(self):
+        _cc, (tip,) = self.finished("zach-opus-rv5")
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/zach-opus-rv5", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW: refused", r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/zach-opus-rv5")
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_fast_forward_and_a_direct_commit_are_refused_an_empty_commit_is_not(self):
+        run("git", "-C", self.other, "branch", "ff-work")
+        wt = os.path.join(self.env.root, "ff-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", wt, "ff-work")
+        self.commit(wt, "ff.txt")
+        tip = run("git", "-C", wt, "rev-parse", "HEAD").stdout.strip()
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--ff-only", "ff-work", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW", r.stderr)
+        self.assertEqual(self.head(), before)
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "merge", "--ff-only", "ff-work")
+        self.assertEqual(self.head(), tip)
+        run("git", "-C", self.other, "commit", "-q", "--allow-empty", "-m", "move main, no file changes")
+        with open(os.path.join(self.other, "direct.txt"), "w") as f:
+            f.write("unreviewed\n")
+        run("git", "-C", self.other, "add", "direct.txt")
+        moved = self.head()
+        r = run("git", "-C", self.other, "commit", "-q", "-m", "a direct change", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW", r.stderr)
+        self.assertEqual(self.head(), moved)
+        run("git", "-C", self.other, "reset", "-q", "--hard", "HEAD")
+        # A fast-forward to a merge made elsewhere: its tip is what lands, and a
+        # verdict on the branch it merged does not cover its own merge.
+        older = self.head()
+        run("git", "-C", self.other, "commit", "-q", "--allow-empty", "-m", "move main again, no file changes")
+        self.commit(wt, "ff2.txt")
+        merged_tip = run("git", "-C", wt, "rev-parse", "HEAD").stdout.strip()
+        self.verdict(merged_tip, "passed")
+        side = os.path.join(self.env.root, "side-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "side", side, older)
+        run("git", "-C", side, "merge", "-q", "--no-ff", "--no-edit", "ff-work")
+        run("git", "-C", side, "merge", "-q", "--no-ff", "--no-edit", "main")
+        side_tip = run("git", "-C", side, "rev-parse", "HEAD").stdout.strip()
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--ff-only", "side", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % side_tip[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_a_divergent_replacement_of_main_needs_a_review_a_rollback_does_not(self):
+        """Review rv-20261009T023055Z-b51ebb97-bc65, finding 1: a `git reset
+        --hard` of main to an unreviewed divergent commit went through, because
+        every move that is not a fast-forward was taken for a rollback."""
+        base = self.head()
+        side = os.path.join(self.env.root, "replace-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "replacement", side, base)
+        self.commit(side, "unreviewed.txt", "unreviewed\n")
+        tip = run("git", "-C", side, "rev-parse", "HEAD").stdout.strip()
+        run("git", "-C", self.other, "commit", "-q", "--allow-empty", "-m", "advance main")
+        moved = self.head()
+        r = run("git", "-C", self.other, "reset", "-q", "--hard", tip, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW", r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), moved)
+        run("git", "-C", self.other, "reset", "-q", "--hard", "HEAD")
+        # A real rollback lands nothing: main goes back to a commit it already held.
+        run("git", "-C", self.other, "reset", "-q", "--hard", base)
+        self.assertEqual(self.head(), base)
+        run("git", "-C", self.other, "reset", "-q", "--hard", moved)
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "reset", "-q", "--hard", tip)
+        self.assertEqual(self.head(), tip)
+
+    def test_second_review_an_update_ref_with_no_old_value_is_judged_from_the_real_main(self):
+        """Review rv-20261009T025426Z-15dae5ca-3cc1, finding 1: `git update-ref
+        refs/heads/main <tip>` with no expected old value hands the fence an
+        all-zero old value although main exists, and it was taken for a
+        creation, so a divergent replacement landed unreviewed. Deleting main and
+        creating it again did the same."""
+        base = self.head()
+        side = os.path.join(self.env.root, "update-ref-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "update-side", side, base)
+        self.commit(side, "never-reviewed.txt", "unreviewed replacement\n")
+        tip = run("git", "-C", side, "rev-parse", "HEAD").stdout.strip()
+        run("git", "-C", self.other, "commit", "-q", "--allow-empty", "-m", "advance main divergently")
+        moved = self.head()
+        r = run("git", "-C", self.other, "update-ref", "refs/heads/main", tip, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), moved)
+        # The same rule as any other move: back to a commit main held lands nothing.
+        run("git", "-C", self.other, "update-ref", "refs/heads/main", base)
+        self.assertEqual(self.head(), base)
+        run("git", "-C", self.other, "update-ref", "refs/heads/main", moved)
+        # Deleted and created again: nothing says main ever held the new commit.
+        run("git", "-C", self.other, "update-ref", "-d", "refs/heads/main")
+        r = run("git", "-C", self.other, "update-ref", "refs/heads/main", tip, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertNotEqual(run("git", "-C", self.other, "rev-parse", "-q", "--verify", "refs/heads/main",
+                                check=False).stdout.strip(), tip)
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "update-ref", "refs/heads/main", tip)
+        self.assertEqual(self.head(), tip)
+
+    def test_second_review_merge_lands_the_commit_that_passed_not_a_newer_branch_tip(self):
+        """Review rv-20261009T025426Z-15dae5ca-3cc1, finding 2: `workspaces.sh
+        merge` checked the branch tip, then had Git merge the branch NAME, so a
+        commit added to the branch after the check (even while the merge gate
+        ran) landed unreviewed. Shown with the fence off, as in the review's
+        fixture, so the land command's own check is the only one."""
+        run("bash", self.fences, "off", "--repo", self.other, "--entity", self.decl)
+        cc, (reviewed,) = self.finished("zach-opus-rv9")
+        self.verdict(reviewed, "passed")
+        checked = ws._review_check
+        late = []
+
+        def check_then_advance(todo, *rest):
+            out = checked(todo, *rest)
+            self.commit(cc, "unreviewed-after-check.txt", "created after the tip passed\n")
+            late.append(run("git", "-C", cc, "rev-parse", "HEAD").stdout.strip())
+            return out
+
+        with patch.object(ws, "_review_check", side_effect=check_then_advance):
+            with self.assertRaises(ws.SpecError):
+                ws.merge_and_land("zach-opus-rv9", self.sid)  # the newer commit is not landed, so no land
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), reviewed)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "unreviewed-after-check.txt")))
+        self.assertNotEqual(run("git", "-C", self.other, "merge-base", "--is-ancestor", late[0], "main",
+                                check=False).returncode, 0)
+        self.assertTrue(os.path.isdir(cc))                            # the newer work is kept, not landed
+
+    def test_second_review_a_merge_with_changes_of_its_own_needs_a_review_of_the_merge_itself(self):
+        """Review rv-20261009T023055Z-b51ebb97-bc65, finding 2: a merge made
+        elsewhere, whose first parent is main, carried an extra unreviewed file;
+        a fast-forward to it was checked only against its second parent."""
+        _cc, (reviewed,) = self.finished("zach-opus-rv6")
+        self.verdict(reviewed, "passed")
+        carrier = os.path.join(self.env.root, "carrier-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "carrier", carrier, "main")
+        run("git", "-C", carrier, "merge", "-q", "--no-ff", "--no-commit", "cc/zach-opus-rv6")
+        self.commit(carrier, "unreviewed.txt", "added during the merge, absent from the reviewed tip\n")
+        evil = run("git", "-C", carrier, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(run("git", "-C", carrier, "rev-parse", "HEAD^2").stdout.strip(), reviewed)
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--ff-only", "carrier", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % evil[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+        run("git", "-C", self.other, "reset", "-q", "--hard", "HEAD")
+        # The same merge made in the main checkout itself is refused the same way.
+        run("git", "-C", self.other, "merge", "-q", "--no-ff", "--no-commit", "cc/zach-opus-rv6")
+        with open(os.path.join(self.other, "unreviewed.txt"), "w") as f:
+            f.write("added during the merge, absent from the reviewed tip\n")
+        run("git", "-C", self.other, "add", "unreviewed.txt")
+        r = run("git", "-C", self.other, "commit", "-q", "--no-edit", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW", r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+        run("git", "-C", self.other, "reset", "-q", "--hard", "HEAD")
+        # Control: a clean merge made elsewhere brings in only the reviewed work.
+        clean = os.path.join(self.env.root, "clean-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "clean", clean, "main")
+        run("git", "-C", clean, "merge", "-q", "--no-ff", "--no-edit", "cc/zach-opus-rv6")
+        run("git", "-C", self.other, "merge", "--ff-only", "clean")
+        self.assertEqual(self.head(), run("git", "-C", clean, "rev-parse", "HEAD").stdout.strip())
+        # And the merge with its own changes lands once that merge itself passed.
+        run("git", "-C", self.other, "reset", "-q", "--hard", before)
+        self.verdict(evil, "passed")
+        run("git", "-C", self.other, "merge", "--ff-only", "carrier")
+        self.assertEqual(self.head(), evil)
+
+    def test_second_review_a_codex_branch_lands_only_reviewed(self):
+        """Sage's catch 1: codex/ work never enters the registry; Rich lands it
+        with a plain merge in the main checkout, which the fence sees."""
+        run("git", "-C", self.other, "branch", "codex/the-fix")
+        wt = os.path.join(self.env.root, "codex-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", wt, "codex/the-fix")
+        self.commit(wt, "codex.txt")
+        tip = run("git", "-C", wt, "rev-parse", "HEAD").stdout.strip()
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "codex/the-fix", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "codex/the-fix")
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_listed_repository_without_its_launcher_is_still_refused(self):
+        """Review rv-20261009T031207Z-ba444a8a-607a, finding 1: with the fence
+        launcher absent, the land command read "no review ledger" as "not
+        reviewed" and merged unreviewed work into a repository the declaration
+        lists. Whether a repository is reviewed comes from the declaration (here
+        the work's own entity's orchestration.config); the ledger is the one
+        the declaration names."""
+        with open(os.path.join(self.entity, "orchestration.config"), "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv10")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv10", self.sid)
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv10 was not merged into", str(e.exception))
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv10", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_listed_repository_whose_launcher_cannot_be_read_is_refused(self):
+        """The same finding's other half: a listed repository whose review setup
+        cannot be established is refused, even with a passing verdict."""
+        with open(os.path.join(self.entity, "orchestration.config"), "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        _cc, (tip,) = self.finished("zach-opus-rv11")
+        self.verdict(tip, "passed")
+        before = self.head()
+        os.chmod(hook, 0)
+        try:
+            with self.assertRaises(ws.SpecError) as e:
+                ws.merge_and_land("zach-opus-rv11", self.sid)
+        finally:
+            os.chmod(hook, 0o755)
+        self.assertIn("cannot be read", str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_a_governing_declaration_that_cannot_be_read_is_refused(self):
+        """Review rv-20261009T033652Z-f3bfe22f-9372, finding 1 (its fixture
+        review_policy_edges.py, UNREADABLE_CONFIG): with the launcher gone, an
+        unreadable governing orchestration.config was skipped as if absent, and
+        the repository it lists merged unreviewed work. A declaration that
+        cannot be read leaves applicability unknown, so nothing is merged; an
+        absent one still lists nothing."""
+        config = os.path.join(self.entity, "orchestration.config")
+        with open(config, "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv12")
+        self.verdict(tip, "passed")              # even a passing tip: applicability is unknown
+        before = self.head()
+        os.chmod(config, 0)
+        try:
+            with self.assertRaises(ws.SpecError) as e:
+                ws.merge_and_land("zach-opus-rv12", self.sid)
+        finally:
+            os.chmod(config, 0o600)
+        self.assertIn("SECOND REVIEW", str(e.exception))
+        self.assertIn("%s cannot be read" % config, str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        _merged, res = ws.merge_and_land("zach-opus-rv12", self.sid)     # readable again: it passed
+        self.assertTrue(res["landed"])
+
+    def test_second_review_the_entity_the_fence_was_installed_from_governs_without_the_launcher(self):
+        """Review rv-20261009T033652Z-f3bfe22f-9372, finding 2 (its fixture,
+        FENCE_ENTITY): `operator-fences.sh install --entity` here names
+        self.decl, whose SECOND_REVIEW_REPOS lists the repository, while the
+        teammate was spawned from self.entity, which lists nothing. With the
+        launcher removed, the land command never read self.decl and merged
+        unreviewed work. The entity is recovered from the fence registry, which
+        records it per repository, so a later install from another entity for
+        another repository does not lose it."""
+        third = self.env.repo("third")
+        elsewhere = os.path.join(self.env.root, "elsewhere-entity")
+        os.makedirs(elsewhere)
+        with open(os.path.join(elsewhere, "orchestration.config"), "w") as f:
+            f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n'
+                    'SECOND_REVIEW_REPOS=""\n')
+        run("bash", self.fences, "install", "--repo", third, "--entity", elsewhere)
+        self.assertFalse(os.path.exists(os.path.join(self.entity, "orchestration.config")))
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv13")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv13", self.sid)
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv13 was not merged into", str(e.exception))
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv13", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def registry(self, change=None):
+        """The fence registry `operator-fences.sh install` writes; `change`
+        edits it in place (to seed the shape an older installer wrote)."""
+        path = os.path.join(ws.land_locks_dir(), "operator-fences.json")
+        with open(path) as f:
+            reg = json.load(f)
+        if change:
+            change(reg)
+            with open(path, "w") as f:
+                json.dump(reg, f)
+        return reg
+
+    def install_unrelated(self, name="third"):
+        """Another repository's fence, installed from another entity whose
+        declaration lists only that repository. Returns its orchestration.config."""
+        repo = self.env.repo(name)
+        entity = os.path.join(self.env.root, "unrelated-entity")
+        os.makedirs(entity)
+        config = os.path.join(entity, "orchestration.config")
+        with open(config, "w") as f:
+            f.write('OPERATOR_FENCES="on"\nSECOND_REVIEW_REPOS="%s"\n' % name)
+        run("bash", self.fences, "install", "--repo", repo, "--entity", entity)
+        return config
+
+    def legacy_registry(self, entity, stamps, keep=None):
+        """Rewrite the fence registry into the shape the earlier installer left:
+        no entry carries an "entity", each carries the `installed` time in
+        `stamps` ({main checkout: ISO time}), the top-level entity is `entity`
+        (that installer's last install), and only the entries in `keep` remain
+        (its uninstall removed an entry and left the top-level entity as it was)."""
+        def change(reg):
+            reg["entity"] = os.path.realpath(entity)
+            for main in list(reg["repositories"]):
+                if keep is not None and main not in keep:
+                    del reg["repositories"][main]
+                    continue
+                reg["repositories"][main].pop("entity", None)
+                reg["repositories"][main].pop("reviewed", None)
+                reg["repositories"][main]["installed"] = stamps[main]
+        self.registry(change)
+
+    def assert_unknown_until_installed(self, name):
+        """With the launcher removed, a land into self.other, whose registry
+        entry carries no entity, is refused naming the install command that
+        records it, even with a passing verdict; once that command has run, the
+        declaration it names governs: refused with no verdict on the tip, landed
+        with one."""
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished(name)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land(name, self.sid)
+        self.assertIn("SECOND REVIEW: cc/%s was not merged into" % name, str(e.exception))
+        self.assertIn("the entity its fence was installed from is not recorded", str(e.exception))
+        self.assertIn("operator-fences.sh install --repo %s" % self.other, str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        self.assertEqual(self.registry()["repositories"][self.other].get("entity"), os.path.realpath(self.decl))
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land(name, self.sid)
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land(name, self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_registry_entry_from_before_entities_were_recorded_is_unknown(self):
+        """Review rv-20261009T040812Z-9efed042-d03e, finding 1: an entry the
+        earlier installer wrote carries only common, chain and installed, and
+        nothing in it names the entity it was installed from. The entity is
+        NEVER inferred from timestamps or the top-level entity: such an entry
+        is unknown and its repository's land refused, naming the
+        `operator-fences.sh install --repo ... --entity ...` that records it.
+        Here the registry holds the one entry, from the one install, so even
+        the history where inferring would have been right is refused; a fresh
+        install always records the entity, so only an old install sees this."""
+        self.legacy_registry(self.decl, {self.other: "2026-10-07T08:00:00Z"})
+        self.assert_unknown_until_installed("zach-opus-rv14")
+
+    def test_second_review_a_legacy_entry_after_the_latest_install_was_uninstalled_is_unknown(self):
+        """The fixture's LATEST_UNINSTALLED history (fixtures/legacy_ownership.py
+        of review rv-20261009T040812Z-9efed042-d03e): the earlier installer
+        installed self.other from self.decl, then a third repository from an
+        unrelated entity, then uninstalled the third. Its top-level entity is
+        the unrelated one and the only entry left is self.other's. Inferring
+        from the newest `installed` time credited the unrelated entity, an
+        upgrade install of the third repository recorded that permanently, and
+        with the launcher removed unreviewed work reached main."""
+        config = self.install_unrelated()
+        third = next(m for m in self.registry()["repositories"] if m != self.other)
+        self.legacy_registry(os.path.dirname(config), {self.other: "2026-10-07T08:00:00Z",
+                                                       third: "2026-10-07T08:01:00Z"}, keep=[self.other])
+        run("bash", self.fences, "install", "--repo", third, "--entity", os.path.dirname(config))
+        self.assertIsNone(self.registry()["repositories"][self.other].get("entity"))
+        self.assert_unknown_until_installed("zach-opus-rv17")
+
+    def test_second_review_a_legacy_entry_installed_in_the_same_second_as_another_is_unknown(self):
+        """The fixture's SAME_SECOND history (fixtures/legacy_ownership.py of
+        review rv-20261009T040812Z-9efed042-d03e): the earlier installer
+        installed self.other from self.decl and a third repository from an
+        unrelated entity within one second. Both `installed` times tie, so
+        inferring credited the unrelated entity to both, an upgrade install
+        recorded that permanently, and with the launcher removed unreviewed
+        work reached main."""
+        config = self.install_unrelated()
+        third = next(m for m in self.registry()["repositories"] if m != self.other)
+        self.legacy_registry(os.path.dirname(config), {self.other: "2026-10-07T08:00:00Z",
+                                                       third: "2026-10-07T08:00:00Z"})
+        run("bash", self.fences, "install", "--repo", third, "--entity", os.path.dirname(config))
+        self.assertIsNone(self.registry()["repositories"][self.other].get("entity"))
+        self.assert_unknown_until_installed("zach-opus-rv18")
+
+    def test_second_review_a_repository_whose_governing_entity_is_unknown_is_refused(self):
+        """Review rv-20261009T035450Z-882c7e75-0eab, finding 1: a registry
+        entry whose entity is not recorded leaves the repository's
+        governing declaration unknown, and nothing is merged, even with a
+        passing verdict, until `operator-fences.sh install` records it."""
+        self.install_unrelated()
+        self.registry(lambda reg: reg["repositories"][self.other].pop("entity"))
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv15")
+        self.verdict(tip, "passed")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv15", self.sid)
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv15 was not merged into", str(e.exception))
+        self.assertIn("the entity its fence was installed from is not recorded", str(e.exception))
+        self.assertIn("operator-fences.sh install --repo %s" % self.other, str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        _merged, res = ws.merge_and_land("zach-opus-rv15", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_only_the_declarations_governing_the_landed_repository_are_read(self):
+        """Review rv-20261009T035450Z-882c7e75-0eab, finding 2 (its fixture,
+        UNRELATED_CONFIG): the lookup read every entity in the machine-wide
+        registry, so an unreadable declaration governing only another
+        repository blocked this land. Only the entities governing the
+        repositories being landed are read: the one governing this repository
+        through the registry still refuses when it cannot be read; the other
+        repository's does not."""
+        unrelated = self.install_unrelated()
+        own = os.path.join(self.decl, "orchestration.config")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv16")
+        self.verdict(tip, "passed")
+        before = self.head()
+        os.chmod(own, 0)
+        try:
+            with self.assertRaises(ws.SpecError) as e:
+                ws.merge_and_land("zach-opus-rv16", self.sid)
+        finally:
+            os.chmod(own, 0o600)
+        self.assertIn("%s cannot be read" % own, str(e.exception))
+        self.assertEqual(self.head(), before)
+        os.chmod(unrelated, 0)
+        try:
+            _merged, res = ws.merge_and_land("zach-opus-rv16", self.sid)
+        finally:
+            os.chmod(unrelated, 0o600)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    # -- "not reviewed" needs positive evidence for every governing entity ----------
+    # Review rv-20261009T042243Z-42ecc969-5f85 was the fourth in a row to find a
+    # way the answer fell back to "not reviewed" with the launcher gone. A
+    # repository is now unreviewed only when every governing declaration was
+    # read and does not list it, or the entity is a spawning one whose
+    # directory exists with no orchestration.config in it. Each case below was
+    # a way that answer came out "not reviewed" without that evidence.
+
+    def refused_unread(self, name, *expected):
+        """merge_and_land(name) refuses, merging nothing, naming each of `expected`."""
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land(name, self.sid)
+        self.assertIn("SECOND REVIEW: cc/%s was not merged into" % name, str(e.exception))
+        for text in expected:
+            self.assertIn(text, str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        return str(e.exception)
+
+    def unfenced(self):
+        """No fence for self.other: launcher and registry entry removed by
+        `operator-fences.sh uninstall`, so only the spawning entity governs."""
+        run("bash", self.fences, "uninstall", "--repo", self.other, "--entity", self.decl)
+        self.assertNotIn(self.other, self.registry()["repositories"])
+        self.assertFalse(os.path.exists(os.path.join(self.other, ".git", "hooks", "reference-transaction")))
+
+    def set_entity(self, name, entity):
+        rec = ws._resolve(name, self.sid)
+        rec["entity"] = entity
+        ws.save_agent(rec)
+
+    def test_second_review_a_recorded_entity_whose_declaration_is_gone_is_refused(self):
+        """Review rv-20261009T042243Z-42ecc969-5f85, finding 1 (its fixture
+        missing_governing_config.py): once install had recorded the entity,
+        deleting its orchestration.config, or retiring the entity's directory,
+        was read as "lists nothing", and with the launcher gone an unreviewed
+        tip landed. The registry says a declaration governed this repository,
+        so its absence is not evidence of anything: refused, naming how to
+        restore it or record the entity that governs it now."""
+        config = os.path.join(self.decl, "orchestration.config")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv19")
+        os.rename(config, config + ".away")
+        self.refused_unread("zach-opus-rv19", "the fence registry records that %s's fence was installed from %s"
+                            % (self.other, os.path.realpath(self.decl)), "%s is missing" % config,
+                            "operator-fences.sh install --repo %s" % self.other)
+        retired = self.decl + ".retired"
+        os.rename(self.decl, retired)                               # the entity's worktree retired
+        self.refused_unread("zach-opus-rv19", "%s is gone with its directory" % config)
+        with open(self.decl, "w") as f:                             # ENOTDIR: a file where it was
+            f.write("not an entity\n")
+        self.refused_unread("zach-opus-rv19", "%s is gone with its directory" % config)
+        os.remove(self.decl)
+        os.rename(retired, self.decl)
+        os.rename(config + ".away", config)
+        self.refused_unread("zach-opus-rv19", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv19", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_spawning_entity_that_no_longer_exists_is_refused(self):
+        """A spawning entity lists nothing only when its directory exists with no
+        orchestration.config in it. One whose directory is gone (a retired
+        worktree) or is not a directory gives no evidence either way, so it was
+        a way to "not reviewed" with no fence installed. Recreating the
+        directory without a declaration says it never had one."""
+        self.unfenced()
+        _cc, _tips = self.finished("zach-opus-rv20")
+        gone = os.path.join(self.env.root, "retired-entity")
+        self.set_entity("zach-opus-rv20", gone)
+        self.refused_unread("zach-opus-rv20", "the entity %s that governs this work is gone" % gone)
+        with open(gone, "w") as f:
+            f.write("not an entity\n")
+        self.refused_unread("zach-opus-rv20", "the entity %s that governs this work is gone" % gone)
+        os.remove(gone)
+        os.makedirs(gone)
+        _merged, res = ws.merge_and_land("zach-opus-rv20", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_declaration_that_is_a_link_to_nothing_is_refused(self):
+        """An orchestration.config that is a symbolic link to nothing fails to
+        open exactly as an absent one does, but something was there: it is not
+        an entity that never had a declaration."""
+        self.unfenced()
+        config = os.path.join(self.entity, "orchestration.config")
+        os.symlink(os.path.join(self.env.root, "moved-away.config"), config)
+        _cc, _tips = self.finished("zach-opus-rv21")
+        self.refused_unread("zach-opus-rv21", "%s is a link to nothing" % config)
+        os.remove(config)
+        _merged, res = ws.merge_and_land("zach-opus-rv21", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_work_that_no_declaration_governs_is_refused(self):
+        """No record names an entity, this run resolved none and the fence
+        registry records none: nothing was read at all, and that was "not
+        reviewed". Naming the entity for this run lets the land read it."""
+        self.unfenced()
+        _cc, _tips = self.finished("zach-opus-rv22")
+        self.set_entity("zach-opus-rv22", "")
+        saved = os.environ.pop("RICHOS_ENTITY_ROOT_RESOLVED", None)
+        try:
+            self.refused_unread("zach-opus-rv22", "no declaration is known to govern")
+            os.environ["RICHOS_ENTITY_ROOT_RESOLVED"] = self.entity
+            _merged, res = ws.merge_and_land("zach-opus-rv22", self.sid)
+            self.assertTrue(res["landed"])
+        finally:
+            if saved is None:
+                os.environ.pop("RICHOS_ENTITY_ROOT_RESOLVED", None)
+            else:
+                os.environ["RICHOS_ENTITY_ROOT_RESOLVED"] = saved
+
+    def test_second_review_a_declaration_whose_assignment_cannot_be_read_is_refused(self):
+        """A declaration bash cannot source cleanly (an unterminated quote, a
+        command that is not found, a last command that fails), or whose value
+        is not names (a shell expansion to a path), was read as listing
+        nothing, or as a value that matches nothing. Neither review-watch nor
+        the land can say what it lists, so nothing is merged until it reads."""
+        config = os.path.join(self.decl, "orchestration.config")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv23")
+        for line in ('SECOND_REVIEW_REPOS="other\n', 'SECOND_REVIEW_REPOS="other"\nfalse\n',
+                     'SECOND_REVIEW_REPOS="$HOME/other"\n', 'SECOND_REVIEW_REPOS=richos other\n'):
+            with open(config, "w") as f:
+                f.write('OPERATOR_FENCES="on"\n' + line)
+            self.refused_unread("zach-opus-rv23", "SECOND_REVIEW_REPOS in %s cannot be read" % config)
+        self.declare("other")
+        self.refused_unread("zach-opus-rv23", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv23", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_fence_registry_without_its_repositories_is_unknown(self):
+        """A fence registry that exists but holds no `repositories` table is not
+        the shape install writes. It was read as naming no entity, so the
+        entity it should name was never read."""
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv24")
+        saved = self.registry()
+        self.registry(lambda reg: reg.pop("repositories"))
+        self.refused_unread("zach-opus-rv24", "not the registry's shape")
+        self.registry(lambda reg: reg.update(saved))
+        self.refused_unread("zach-opus-rv24", "no second review of %s" % tip[:12])
+
+    def test_second_review_an_unreadable_launcher_is_refused_even_where_no_declaration_lists_it(self):
+        """The land honors the review ledger a fence launcher carries even where
+        no declaration lists the repository (the fence would ask it anyway).
+        An existing launcher that cannot be read was taken as carrying none;
+        whether that ledger applies is now unknown, so nothing is merged."""
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        _cc, _tips = self.finished("zach-opus-rv25")
+        os.chmod(hook, 0)
+        try:
+            self.refused_unread("zach-opus-rv25", "fence launcher %s cannot be read" % hook)
+        finally:
+            os.chmod(hook, 0o755)
+        _merged, res = ws.merge_and_land("zach-opus-rv25", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_repository_that_cannot_be_read_is_refused_even_where_no_declaration_lists_it(self):
+        """With the repository unreadable, neither the registry entry for it nor
+        its launcher can be found, and an unlisted repository was taken as
+        unreviewed. Shown at the land check itself, with only Git's answers
+        for this repository failing: first everywhere (the registry entry
+        cannot be found), then only where the launcher is looked for."""
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        F = ws._fence_program()
+        real = ws.git
+
+        def unreadable(cwd, *args, **kw):
+            if "--git-common-dir" in args:
+                return 128, "", "fatal: not a git repository"
+            return real(cwd, *args, **kw)
+
+        todo = [(self.other, "cc/unreadable", self.other, "b" * 40)]
+        with patch.object(ws, "_fence_program", return_value=F), \
+                patch.object(ws, "git", side_effect=unreadable):
+            with patch.object(F, "repo_paths", return_value=None):
+                with self.assertRaises(ws.SpecError) as e:
+                    ws._review_check(todo, [self.entity])
+            self.assertIn("SECOND REVIEW: cc/unreadable was not merged into", str(e.exception))
+            self.assertIn("the repository %s cannot be read, so the fence registry entry that governs it cannot "
+                          "be found" % self.other, str(e.exception))
+            with self.assertRaises(ws.SpecError) as e:
+                ws._review_check(todo, [self.entity])
+            self.assertIn("the repository %s cannot be read, so whether its fence launcher carries a review "
+                          "ledger cannot be established" % self.other, str(e.exception))
+        self.assertEqual(ws._review_check(todo, [self.entity]), {})    # readable, and listed nowhere
+
+    # -- the install is the one durable record ----------------------------------------
+    # Review rv-20261009T044823Z-fc8c7569-5919 was the eighth to find a way a
+    # declaration read at land time could disappear. `operator-fences.sh install`
+    # now records, per repository, whether its declaration listed it then; the
+    # land requires a review where that record says so OR a current declaration
+    # lists it, so removing or breaking a declaration afterwards never switches
+    # the review off until the next install.
+
+    def test_second_review_an_installed_repository_stays_reviewed_until_the_next_install(self):
+        """The review's finding 1 (its fixture review_fallbacks.py,
+        SPAWNING_CONFIG_AFTER_REMOVAL), for an installed repository: the
+        spawning entity's declaration listed the repository and was deleted,
+        and the declaration the fence was installed from no longer lists it, so
+        with the launcher gone every declaration read said "not reviewed" and an
+        unreviewed tip landed. The install recorded that the repository is
+        reviewed, so it still is; the next install, from a declaration that does
+        not list it, is what switches it off."""
+        self.assertIs(self.registry()["repositories"][self.other].get("reviewed"), True)
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv26")
+        self.declare("")                                            # the install's declaration edited
+        self.refused_unread("zach-opus-rv26", "no second review of %s" % tip[:12])
+        spawning = os.path.join(self.entity, "orchestration.config")
+        with open(spawning, "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        self.refused_unread("zach-opus-rv26", "no second review of %s" % tip[:12])
+        os.remove(spawning)                                         # the spawning declaration deleted
+        self.refused_unread("zach-opus-rv26", "no second review of %s" % tip[:12])
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        self.assertIs(self.registry()["repositories"][self.other].get("reviewed"), False)
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _merged, res = ws.merge_and_land("zach-opus-rv26", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_never_installed_repositorys_deleted_spawning_declaration_is_not_kept(self):
+        """The same finding with no install: nothing records that the spawning
+        entity ever had a declaration, and the repository has no fence for a
+        plain `git merge` either, so the land asks no more of it (by decision,
+        not oversight): listed, refused; the declaration deleted, it lands."""
+        self.unfenced()
+        spawning = os.path.join(self.entity, "orchestration.config")
+        with open(spawning, "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        _cc, (tip,) = self.finished("zach-opus-rv27")
+        self.refused_unread("zach-opus-rv27", "no second review of %s" % tip[:12])
+        os.remove(spawning)
+        _merged, res = ws.merge_and_land("zach-opus-rv27", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_registry_or_launcher_that_is_a_link_to_nothing_is_refused(self):
+        """The review's finding 2 (REGISTRY_LINK_TARGET_MISSING,
+        LAUNCHER_LINK_TARGET_MISSING): both were read as absent, so a registry
+        whose target was gone hid the entity whose declaration lists the
+        repository, and a launcher whose target was gone hid the ledger it
+        carries. Something was installed there: refused, as a declaration that
+        is a link to nothing already was."""
+        registry = os.path.join(ws.land_locks_dir(), "operator-fences.json")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv28")
+        os.rename(registry, registry + ".away")
+        os.symlink(registry + ".gone", registry)
+        self.refused_unread("zach-opus-rv28", "the fence registry %s is a link to nothing" % registry)
+        os.remove(registry)
+        os.rename(registry + ".away", registry)
+        self.refused_unread("zach-opus-rv28", "no second review of %s" % tip[:12])
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        os.remove(hook)
+        os.symlink(hook + ".gone", hook)
+        self.refused_unread("zach-opus-rv28", "fence launcher %s is a link to nothing" % hook)
+        os.remove(hook)
+        _merged, res = ws.merge_and_land("zach-opus-rv28", self.sid)
+        self.assertTrue(res["landed"])
+
+    def install_reads_listed(self, name, tip, body):
+        """`operator-fences.sh install` from a declaration whose text after the
+        usual first lines is `body`: it succeeds, records that self.other is
+        reviewed, bakes the review ledger into the launcher, and the land of
+        `name` (whose tip is `tip`) is refused for want of a verdict."""
+        config = os.path.join(self.decl, "orchestration.config")
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        with open(config, "w") as f:
+            f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n' + body)
+        r = run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl, check=False)
+        self.assertEqual(r.returncode, 0, "%r: %s%s" % (body, r.stdout, r.stderr))
+        self.assertTrue(self.registry()["repositories"][self.other].get("reviewed"), body)
+        with open(hook) as h:
+            self.assertIn('OPERATOR_FENCES_REVIEWS="%s"' % self.ledger, h.read(), body)
+        self.refused_unread(name, "no second review of %s" % tip[:12])
+
+    SHELL_FORMS = ('readonly SECOND_REVIEW_REPOS="other"\n', 'declare -x SECOND_REVIEW_REPOS="other"\n',
+                   'OPERATOR_FENCES="on"; SECOND_REVIEW_REPOS="other"\n', 'SECOND_REVIEW_REPOS=other;\n',
+                   'SECOND_REVIEW_REPOS=other;:\n', 'SECOND_REVIEW_REPOS=other&&:\n',
+                   'export SECOND_REVIEW_REPOS="other"\n', "SECOND_REVIEW_REPOS='other'\n",
+                   ' SECOND_REVIEW_REPOS=other  # a note\n',
+                   'SECOND_REVIEW_REPOS="other"\nNOTE="see SECOND_REVIEW_REPOS"\n',
+                   '# SECOND_REVIEW_REPOS  (used by: review-watch)\nSECOND_REVIEW_REPOS_NOTE="x"\n'
+                   'SECOND_REVIEW_REPOS="other"\n')
+
+    def test_second_review_an_assignment_in_any_shell_form_is_read_as_bash_reads_it(self):
+        """The review's finding 3 (READONLY_ASSIGNMENT, DECLARE_ASSIGNMENT,
+        ASSIGNMENT_AFTER_SEMICOLON) and rv-20261009T050654Z-e21238ff-7685's
+        finding 2 (`other;`, `other&&:`): a reader of lines skipped these, or
+        took `other;` for the value, and recorded "not reviewed". Bash sets
+        `other` for every one of them, and so does review_repos now: install
+        records the review and the land refuses until a passing verdict."""
+        _cc, (tip,) = self.finished("zach-opus-rv29")
+        for body in self.SHELL_FORMS:
+            with self.subTest(body):
+                self.install_reads_listed("zach-opus-rv29", tip, body)
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv29", self.sid)
+        self.assertTrue(res["landed"])
+
+    # -- one reader, and it asks the shell -----------------------------------------------
+    # Review rv-20261009T050654Z-e21238ff-7685: install skipped forms the land
+    # refused (finding 1), and the readers took `other;` for the value where a shell
+    # sets `other` (finding 2). Review rv-20261009T052655Z-daf09e19-0bc6: a reader of
+    # lines also read decoys in a skipped `if` or a heredoc and missed a key split by
+    # a backslash-newline. One function, operator_fences.review_repos, reads
+    # SECOND_REVIEW_REPOS for install, the land and review-watch, and it sources the
+    # declaration in a clean bash and checks the value bash sets.
+
+    UNREADABLE_FORMS = ('SECOND_REVIEW_REPOS="other', 'SECOND_REVIEW_REPOS="other"\nfalse',
+                        'SECOND_REVIEW_REPOS="other"\nexit 0', 'SECOND_REVIEW_REPOS="other"\ntrap "echo x" EXIT',
+                        'SECOND_REVIEW_REPOS="$HOME"', 'SECOND_REVIEW_REPOS="../other"',
+                        'SECOND_REVIEW_REPOS="other"\r', 'SECOND_REVIEW_REPOS=richos other')
+
+    def reader(self, text):
+        """review_repos of an orchestration.config holding `text`."""
+        folder = os.path.join(self.env.root, "reader-entity")
+        os.makedirs(folder, exist_ok=True)
+        config = os.path.join(folder, "orchestration.config")
+        with open(config, "w") as f:
+            f.write(text)
+        return ws._fence_program().review_repos(config)
+
+    def test_second_review_the_reader_returns_the_value_bash_sets(self):
+        """The value bash leaves after sourcing the declaration: unset is
+        None, set is its names, whatever shell form set it; a value that is
+        not names, or a declaration bash cannot source cleanly, in time and
+        printing nothing else, is an error."""
+        for text, names in (("", None), ('# SECOND_REVIEW_REPOS="other"\n', None),
+                            ('  # SECOND_REVIEW_REPOS=other;\nSECOND_REVIEW_REPOS_NOTE="x"\n', None),
+                            ('NOTE="see SECOND_REVIEW_REPOS"\n', None),
+                            ('SECOND_REVIEW_REPOS="other"\nunset SECOND_REVIEW_REPOS\n', None),
+                            ('set -u\n', None),
+                            ('set -u\nSECOND_REVIEW_REPOS="richos"\n', ["richos"]),
+                            ('SECOND_REVIEW_REPOS="richos"\n', ["richos"]),
+                            ('SECOND_REVIEW_REPOS="a.b  c_d e-f 9"\n', ["a.b", "c_d", "e-f", "9"]),
+                            ('SECOND_REVIEW_REPOS=""\n', []),
+                            ('SECOND_REVIEW_REPOS="one"\nSECOND_REVIEW_REPOS="two"\n', ["two"]),
+                            ('if true; then\nSECOND_REVIEW_REPOS="other"\nfi\n', ["other"]),
+                            ('echo noise\necho more >&2\nSECOND_REVIEW_REPOS="other"\n', ["other"])):
+            self.assertEqual(self.reader(text), (names, ""), text)
+        for body in self.SHELL_FORMS + tuple(b for _label, b in self.SHELL_CONTEXT):
+            self.assertEqual(self.reader('OPERATOR_FENCES="on"\n' + body), (["other"], ""), body)
+        for line in self.UNREADABLE_FORMS:
+            names, why = self.reader('OPERATOR_FENCES="on"\n%s\n' % line)
+            self.assertIsNone(names, line)
+            self.assertTrue(why, line)
+        F = ws._fence_program()
+        with patch.object(F, "REVIEW_READ_SECONDS", 1):
+            folder = os.path.join(self.env.root, "slow-entity")
+            os.makedirs(folder)
+            with open(os.path.join(folder, "orchestration.config"), "w") as f:
+                f.write('SECOND_REVIEW_REPOS="other"\nsleep 30\n')
+            self.assertEqual(F.review_repos(os.path.join(folder, "orchestration.config")),
+                             (None, "bash did not finish sourcing it within 1 seconds"))
+        names, why = F.review_repos(os.path.join(self.env.root, "no-such-entity", "orchestration.config"))
+        self.assertIsNone(names)
+        self.assertTrue(why)
+        self.assertEqual(F.review_repos(os.path.join(ENGINE, "orchestration.config")), (["richos"], ""))
+
+    def test_second_review_install_and_the_land_refuse_what_cannot_be_read(self):
+        """A declaration bash does not source cleanly (an unterminated quote, a
+        last command that fails, an `exit`, an EXIT trap that prints, a command
+        not found) or whose value is not names (an expansion to a path, `..`,
+        a carriage return): install refuses each before it changes the
+        registry or the launcher, and the land refuses each too."""
+        config = os.path.join(self.decl, "orchestration.config")
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        registry = os.path.join(ws.land_locks_dir(), "operator-fences.json")
+
+        def installed():
+            with open(hook) as h, open(registry) as r:
+                return h.read(), r.read()
+
+        _cc, (tip,) = self.finished("zach-opus-rv30")
+        for line in self.UNREADABLE_FORMS:
+            with open(config, "w") as f:
+                f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n%s\n' % line)
+            before = installed()
+            r = run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl, check=False)
+            self.assertNotEqual(r.returncode, 0, "%s: %s" % (line, r.stdout))
+            self.assertIn("nothing installed. SECOND_REVIEW_REPOS in %s cannot be read" % config,
+                          r.stdout + r.stderr, line)
+            self.assertEqual(installed(), before, line)
+            self.refused_unread("zach-opus-rv30", "SECOND_REVIEW_REPOS in %s cannot be read" % config)
+        self.declare("other")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        self.refused_unread("zach-opus-rv30", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv30", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_install_and_the_land_check_call_the_same_reader(self):
+        """install (operator_fences_admin), the land check (workspaces) and
+        review-watch read SECOND_REVIEW_REPOS through one function of the one
+        operator_fences.py: what that function says decides all three."""
+        lib = os.path.join(ENGINE, "scripts", "lib")
+        spec = importlib.util.spec_from_file_location("srv_admin", os.path.join(lib, "operator_fences_admin.py"))
+        A = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(A)
+        spec = importlib.util.spec_from_file_location("srv_review_watch", os.path.join(lib, "review_watch.py"))
+        RW = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(RW)
+        F = ws._fence_program()
+        self.assertIs(RW.F, A.F)
+        self.assertEqual(os.path.realpath(A.F.__file__), os.path.realpath(F.__file__))
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        registry = os.path.join(ws.land_locks_dir(), "operator-fences.json")
+
+        def installed():
+            with open(hook) as h, open(registry) as r:
+                return h.read(), r.read()
+
+        why = "line 7 is the reader's own sentinel"
+        before = installed()
+        with patch.object(A.F, "review_repos", return_value=(None, why)) as at_install:
+            with self.assertRaises(SystemExit) as e:
+                A.cmd_install({"--entity": self.decl}, [self.other])
+            self.assertEqual(RW.configured_repos(os.path.join(self.decl, "orchestration.config")), (None, why))
+        self.assertTrue(at_install.called)
+        self.assertIn(why, str(e.exception))
+        self.assertEqual(installed(), before)
+        todo = [(self.other, "cc/same-reader", self.other, "b" * 40)]
+        with patch.object(ws, "_fence_program", return_value=F), \
+                patch.object(F, "review_repos", return_value=(None, why)) as at_land:
+            with self.assertRaises(ws.SpecError) as e:
+                ws._review_check(todo, [self.entity])
+        self.assertTrue(at_land.called)
+        self.assertIn(why, str(e.exception))
+
+    # -- ask the shell ------------------------------------------------------------------
+    # Review rv-20261009T052655Z-daf09e19-0bc6 (its fixture declaration_context.py):
+    # a reader of physical lines read a value Bash does not. A key split by a
+    # backslash-newline was read as no assignment, and an assignment inside a
+    # skipped `if` or a heredoc was read as the value, while Bash keeps the
+    # earlier "other". Install recorded "not reviewed" and the land merged with no
+    # verdict. review_repos now sources the declaration in bash and reads the
+    # value bash sets.
+
+    SHELL_CONTEXT = (
+        ("CONDITIONAL_DECOY", 'SECOND_REVIEW_REPOS="other"\nif false; then\nSECOND_REVIEW_REPOS="nothing"\nfi\n'),
+        ("HEREDOC_DECOY", 'SECOND_REVIEW_REPOS="other"\n: <<\'DOC\'\nSECOND_REVIEW_REPOS="nothing"\nDOC\n'),
+        ("CONTINUED_KEY", 'SECOND_REVIEW_\\\nREPOS="other"\n'),
+    )
+
+    def test_second_review_install_and_the_land_read_the_value_bash_sets(self):
+        """The review's three cases: each one lists `other` for Bash, so install
+        records that it is reviewed and bakes the review ledger into the
+        launcher, and the land refuses the tip until a passing verdict."""
+        config = os.path.join(self.decl, "orchestration.config")
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        _cc, (tip,) = self.finished("zach-opus-rv31")
+        for label, body in self.SHELL_CONTEXT:
+            with self.subTest(label):
+                with open(config, "w") as f:
+                    f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n' + body)
+                r = run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl, check=False)
+                self.assertEqual(r.returncode, 0, "%s: %s%s" % (label, r.stdout, r.stderr))
+                self.assertTrue(self.registry()["repositories"][self.other].get("reviewed"), label)
+                with open(hook) as h:
+                    self.assertIn('OPERATOR_FENCES_REVIEWS="%s"' % self.ledger, h.read(), label)
+                self.refused_unread("zach-opus-rv31", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv31", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
+        r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
+        self.assertNotIn("SECOND_REVIEW_REPOS", r.stdout)
+        self.declare("")
+        r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
+        self.assertIn("SECOND_REVIEW_REPOS does not list it", r.stdout)
+        self.assertNotEqual(r.returncode, 0)
+
+
+class SecondReview_AMidJobVerdictReachesTheRunningTeammate(Base):
+    """Plan §2.5, "Changes requested, mid-job": "Delivered to the running
+    teammate once, at its next tool call, by a hook (no mailbox)." The hook is
+    scripts/hooks/deliver-review-verdict.sh (its logic: scripts/lib/review_delivery.py),
+    run here as the host runs it."""
+
+    HOOK = os.path.join(ENGINE, "scripts", "hooks", "deliver-review-verdict.sh")
+
+    def setUp(self):
+        super().setUp()
+        self.state = os.path.join(self.env.root, "review-state")
+        os.makedirs(self.state)
+        self.ledger = os.path.join(self.state, "reviews.jsonl")
+
+    def verdict(self, work, verdict="changes-requested", trigger="long-job", finished=None, title="a defect"):
+        rid = "rv-mid-%d" % (len(open(self.ledger).readlines()) if os.path.exists(self.ledger) else 0)
+        record = os.path.join(self.state, "reviews", rid)
+        os.makedirs(record)
+        with open(os.path.join(record, "verdict.json"), "w") as f:
+            json.dump({"answer": {"verdict": verdict, "findings": [
+                {"priority": 1, "title": title, "files": ["a.rs:9"], "evidence": "a fixture shows it",
+                 "fixture": ""}], "not_yet_claimed": []}}, f)
+        row = {"id": rid, "repo": self.other, "tip": "f" * 40, "work": work, "verdict": verdict,
+               "trigger": trigger, "reviewer": "codex", "reviewer_model": "gpt-6.1-sol", "findings": 1, "p1": 1,
+               "record": record,
+               "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(finished or time.time()))}
+        with open(self.ledger, "a") as f:
+            f.write(json.dumps(row) + "\n")
+        return rid
+
+    def call(self, aid=None):
+        payload = {"session_id": self.sid, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                   "tool_input": {"command": "true"}, "cwd": self.entity}
+        if aid:
+            payload["agent_id"] = aid
+        env = dict(os.environ, SECOND_REVIEW_STATE_DIR=self.state,
+                   REVIEW_WATCH_STATE_DIR=os.path.join(self.env.root, "review-watch"))
+        r = subprocess.run(["bash", self.HOOK], input=json.dumps(payload), capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        if not r.stdout.strip():
+            return ""
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    def test_second_review_a_running_teammates_next_tool_call_carries_a_new_verdict_once(self):
+        aid, _npath = self.spawn("zach-opus-mid1")
+        other_aid, _p = self.spawn("zach-opus-mid2")
+        key = self.rec("zach-opus-mid1")["key"]
+        self.verdict("teammate:" + key, finished=time.time() - 7200, title="older than the teammate")
+        self.assertEqual(self.call(aid), "")                     # nothing new: no delivery
+        self.verdict("teammate:" + key, title="the microphone is never handed back")
+        got = self.call(aid)
+        self.assertIn("CHANGES-REQUESTED", got)
+        self.assertIn("the microphone is never handed back", got)
+        self.assertNotIn("older than the teammate", got)
+        self.assertEqual(self.call(aid), "")                     # once
+        self.assertEqual(self.call(other_aid), "")               # not another teammate's work
+        self.assertEqual(self.call(None), "")                    # the lead is told by review-watch
+
+    def test_second_review_a_verdict_waits_for_the_teammates_next_call_however_late(self):
+        """Review rv-20261009T023055Z-b51ebb97-bc65, finding 3: a verdict older
+        than 24 hours was dropped before its delivery was checked, so a teammate
+        whose next call came later never got it."""
+        aid, _npath = self.spawn("zach-opus-mid3")
+        rec = self.rec("zach-opus-mid3")
+        # Registered 26 hours ago; the verdict finished 25 hours ago, and this is
+        # the teammate's first tool call since.
+        rec["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 26 * 3600))
+        ws.save_agent(rec)
+        self.verdict("teammate:" + rec["key"], finished=time.time() - 25 * 3600,
+                     title="the microphone is never handed back")
+        got = self.call(aid)
+        self.assertIn("CHANGES-REQUESTED", got)
+        self.assertIn("the microphone is never handed back", got)
+        self.assertEqual(self.call(aid), "")                     # still once
+
+    def test_second_review_a_continuation_gets_a_verdict_on_the_work_it_continues(self):
+        """Review rv-20261009T031207Z-ba444a8a-607a, finding 2: a continuation
+        judged every inherited verdict against its OWN registration, so a
+        verdict on the predecessor's work that finished between the two
+        registrations never reached it. Each verdict is judged against the
+        registration of the work it is on; delivery stays once per teammate."""
+        old_aid, _p = self.spawn("zach-opus-mid4")
+        aid, _q = self.spawn("zach-opus-mid5")
+        old, cur = self.rec("zach-opus-mid4"), self.rec("zach-opus-mid5")
+        t = time.time()
+        old["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t - 7200))
+        cur["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t - 600))
+        cur["continues"] = [old["key"]]
+        ws.save_agent(old)
+        ws.save_agent(cur)
+        self.verdict("teammate:" + old["key"], finished=t - 9000, title="older than the predecessor")
+        self.verdict("teammate:" + old["key"], finished=t - 1200, title="the microphone is never handed back")
+        self.assertIn("the microphone is never handed back", self.call(old_aid))
+        got = self.call(aid)
+        self.assertIn("CHANGES-REQUESTED", got)
+        self.assertIn("the microphone is never handed back", got)
+        self.assertNotIn("older than the predecessor", got)
+        self.assertEqual(self.call(aid), "")                     # once for this teammate too
+
+
 class HuntV3_01_ARecordWithoutItsWorkspacesIsDamaged(Base):
     """Hunt part 4 v3, V3-01: a keyed record that had lost its `workspaces`
     list passed the V2-04 check, the sweep read it as owning nothing, made its
