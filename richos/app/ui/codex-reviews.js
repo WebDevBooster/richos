@@ -76,7 +76,7 @@
   let st = null; // codex_reviews_status: { on, codex: "ready" | "signedout" | "missing" }
   let root = null; // the slot settings-button.js gave this row
   let registered = false;
-  let reading = false;
+  let reading = false, again = false;
   const tip = { pinned: false, over: false, t: null };
   let nudgeTimer = null, ringTimer = null, flipTimer = null;
 
@@ -84,12 +84,17 @@
     try { return await bridge.invoke(cmd, args || {}); }
     catch (e) { console.warn("[codex-reviews] " + cmd + ": " + e); return null; }
   }
+  // A read asked for while one is on its way is not dropped: one more follows it, so the row
+  // ends on what Codex reports after the last time it was asked, never before.
   async function read() {
-    if (reading) return;
+    if (reading) { again = true; return; }
     reading = true;
     try {
-      const v = await call("codex_reviews_status");
-      if (v) st = v;
+      do {
+        again = false;
+        const v = await call("codex_reviews_status");
+        if (v) st = v;
+      } while (again);
     } finally { reading = false; }
     if (st && !registered && window.RichSettings && window.RichSettings.registerCodexReviews) {
       registered = true;
@@ -144,7 +149,7 @@
       box.classList.add("is-nudged");
       clearTimeout(nudgeTimer);
       nudgeTimer = setTimeout(() => box.classList.remove("is-nudged"), 1100);
-      tip.pinned = true; tipShow();
+      tip.pinned = true; tipShow(true);
       return;
     }
     const next = await call("codex_reviews_set", { on: !(st && st.on) });
@@ -170,11 +175,26 @@
     ringTimer = setTimeout(() => wrap.classList.remove("is-new"), 2600);
   }
 
-  function tipShow() {
+  // WHENEVER THE ROW CAN BE SEEN AGAIN, IT READS CODEX AGAIN (the second review of acfdd9e70,
+  // rv-20261009T151041Z-acfdd9e7-95ff): Settings can stay open while the user signs out of Codex,
+  // or back in, in the Codex app, and the next review picks its reviewer from Codex's login at
+  // that moment. A row trusted from when Settings opened then names the wrong reviewer. So it is
+  // read again when the app window regains focus or becomes visible with Settings open, and when
+  // the tooltip opens; with Settings shut nothing is asked (the row is read when Settings opens).
+  // Each is one `codex_reviews_status` (Codex's own `login status`, no network), never a timer.
+  const visible = () => !!root && !(root.closest && root.closest("[hidden]"));
+  function reread() { if (visible()) return read(); }
+  window.addEventListener("focus", reread);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) return reread(); });
+
+  function tipShow(fresh) {
     clearTimeout(tip.t);
     const el = $("cx-tip"), info = $("cx-info");
     if (!el || !info) return;
     if (el.hidden) {
+      // The tooltip opening is the row being looked at: its words and the reviewer are read
+      // again (the nudge passes `fresh`, having just read).
+      if (!fresh) read();
       el.hidden = false;
       const tl = el.getBoundingClientRect().left, ir = info.getBoundingClientRect();
       el.style.setProperty("--ax", Math.round(ir.left + ir.width / 2 - tl) + "px");
@@ -205,7 +225,7 @@
       $(id).addEventListener("mouseenter", () => { tip.over = true; tipShow(); });
       $(id).addEventListener("mouseleave", () => { tip.over = false; tipHide(false); });
     });
-    $("cx-info").addEventListener("focus", tipShow);
+    $("cx-info").addEventListener("focus", () => tipShow());
     $("cx-info").addEventListener("blur", () => tipHide(false));
     $("cx-info").addEventListener("click", () => {
       tip.pinned = !tip.pinned || $("cx-tip").hidden;

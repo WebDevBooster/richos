@@ -301,6 +301,53 @@ async function main() {
     await page.close();
   });
 
+  // The second review of acfdd9e70 (rv-20261009T151041Z-acfdd9e7-95ff, the one finding, fixture
+  // status-transitions.js): with the switch on and Settings left OPEN, Codex is signed out (or
+  // signed back in) in the Codex app, and the user comes back. Whenever the row can be seen again
+  // it reads Codex again, so it names the reviewer the next review will actually use: when the
+  // app window regains focus, when it becomes visible again, and when the tooltip opens.
+  await run.check("Settings left open while Codex is signed out or back in: returning to the app, or opening the tooltip, reads Codex again and the row names the reviewer the next review uses", async () => {
+    const seen = [];
+    const triggers = {
+      "window focus": page => page.evaluate(() => window.dispatchEvent(new Event("focus"))),
+      "window visible": page => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))),
+      "tooltip opens": page => page.hover("#cx-info"),
+    };
+    // [case, before, after, who after, the tooltip's words after]
+    for (const [name, before, after, who, words] of [
+      ["signed out while open", "ready", "signedout", "Claude", "lapsed-signedout"],
+      ["signed back in while open", "signedout", "ready", "Codex", "on"],
+    ]) {
+      for (const [how, act] of Object.entries(triggers)) {
+        const page = await open("dark", { on: true, codex: before });
+        await menu(page);
+        assertEqual(await text(page, "#cx-who"), "Reviewing now: " + (who === "Codex" ? "Claude" : "Codex"), `${name}: as Settings opens`);
+        await page.evaluate(c => window.__RICHOS_MOCK__.codexSet(c), after);
+        await act(page);
+        await page.waitForFunction(w => document.getElementById("cx-who").innerText.includes(w), who)
+          .catch(async e => { throw new Error(`${name}, ${how}: the row still says "${await text(page, "#cx-who")}", the next review uses ${who} (${e.message.split("\n")[0]})`); });
+        await page.hover("#cx-info");
+        await page.waitForSelector("#cx-tip.is-shown");
+        assertEqual((await shownWords(page)).map(plain), WORDS[words], `${name}, ${how}: the tooltip's words`);
+        assertEqual(await page.getAttribute("#cx-switch", "aria-checked"), "true", `${name}, ${how}: the choice stands`);
+        assertEqual((await calls(page)).filter(c => c.cmd === "codex_reviews_set"), [], `${name}, ${how}: nothing was turned on or off`);
+        seen.push(`${name}/${how}: Reviewing now: ${who}`);
+        await page.close();
+      }
+    }
+    // With Settings shut, coming back asks nothing: the row is read when Settings opens.
+    const page = await open("dark", { on: true, codex: "ready" });
+    await menu(page);
+    await page.click("#set-btn");
+    await page.waitForSelector("#set-menu", { state: "hidden" });
+    const before = (await calls(page)).length;
+    await triggers["window focus"](page);
+    await triggers["window visible"](page);
+    assertEqual((await calls(page)).length, before, "Settings shut: no read on return");
+    await page.close();
+    return seen.join("; ");
+  });
+
   // ---- 7. contrast and type, both themes ---------------------------------------------------
   for (const theme of ["dark", "light"]) {
     await run.check(theme + ": every state, tooltip open, meets AA contrast (text 4.5:1; the switch, the ⓘ and the rules 3:1) and the 16px floor", async () => {
