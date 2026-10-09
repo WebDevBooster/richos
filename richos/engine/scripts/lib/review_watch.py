@@ -128,6 +128,13 @@ REPEAT_MINUTES = 30
 # Codex run and a 60-minute Claude fallback, with room to spare.
 OVERRUN_MINUTES = 160
 START_GRACE_SECONDS = 120
+# Stopping one review in a look (superseded, or past OVERRUN_MINUTES): SIGTERM, then SIGKILL.
+STOP_TERM_SECONDS = 10
+STOP_KILL_SECONDS = 5
+# Stopping every review at the app's quit, all at once: 2 + 1 = 3 s, inside the host's
+# five-second STOP_BOUND (richos-core review_watch.rs) with two seconds to settle and exit.
+QUIT_TERM_SECONDS = 2.0
+QUIT_KILL_SECONDS = 1.0
 MAX_LOSSES = 2
 KEEP_SECONDS = 7 * 86400
 SESSION_KEEP_SECONDS = 2 * 86400
@@ -797,19 +804,30 @@ class Watcher(object):
         """Stop a review by its recorded process id, only while its start time
         still matches: the process group it leads, which second-review's own
         reviewer process group sits under."""
-        pid = info.get("pid")
-        if not pid or not self.alive(info):
-            return
-        for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 5)):
-            try:
-                os.killpg(int(pid), sig)
-            except (OSError, ValueError):
+        self.stop_all([info], STOP_TERM_SECONDS, STOP_KILL_SECONDS)
+
+    def stop_all(self, infos, term_seconds, kill_seconds):
+        """Stop every review in `infos` AT ONCE: SIGTERM to each recorded group, one shared wait,
+        then SIGKILL to whichever is still alive, one shared wait. The whole stop is bounded by
+        term_seconds + kill_seconds however many reviews there are (never their sum)."""
+        live = [i for i in infos if i.get("pid") and self.alive(i)]
+        for sig, grace in ((signal.SIGTERM, term_seconds), (signal.SIGKILL, kill_seconds)):
+            sent = []
+            for info in live:
+                try:
+                    os.killpg(int(info["pid"]), sig)
+                    sent.append(info)
+                except (OSError, ValueError):
+                    pass                            # gone already
+            live = sent
+            end = time.monotonic() + grace
+            while live:
+                live = [i for i in live if self.alive(i)]
+                if not live or time.monotonic() >= end:
+                    break
+                time.sleep(0.05)
+            if not live:
                 return
-            end = time.time() + grace
-            while time.time() < end:
-                if not self.alive(info):
-                    return
-                time.sleep(0.2)
 
     # -- locks -------------------------------------------------------------------
     def take_lock(self, item, trigger, now, attempt):
@@ -933,15 +951,24 @@ class Watcher(object):
         recorded process id and settled as stopped, never as lost, so a quit does not count
         toward the two losses after which nothing starts by itself. It starts again at the
         first look after the app opens, if it is still due. Reviews another watcher started are
-        never touched."""
+        never touched.
+
+        THE HOST'S BOUND: richos-core review_watch.rs STOP_BOUND gives this process five seconds
+        after SIGTERM before it SIGKILLs this watcher's group, and each review leads its own
+        session, out of that group's reach. So every review is stopped at once and escalated to
+        SIGKILL inside QUIT_TERM_SECONDS + QUIT_KILL_SECONDS (2 + 1 = 3 s, whatever the count),
+        leaving two seconds of the five for settling and exit."""
         rows = read_jsonl(review_ledger())
+        own = []
         for path in sorted(glob.glob(_p("locks", "*.lock"))):
             info = stall_watch._read_json(path)
             if not info or info.get("pid") not in self.children:
                 continue
             info["path"] = path
-            self.stop(info)
-            self.settle(path, info, now, rows, "stopped",
+            own.append(info)
+        self.stop_all(own, QUIT_TERM_SECONDS, QUIT_KILL_SECONDS)
+        for info in own:
+            self.settle(info["path"], info, now, rows, "stopped",
                         "the app quit while it ran; it starts again at a look after the app opens, if still due")
             self.children.pop(info.get("pid"), None)
 

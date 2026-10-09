@@ -38,8 +38,12 @@ use crate::owned_process::{OwnedChild, SupervisedSet};
 
 /// How long the watcher gets after SIGTERM to stop its reviews and exit before its group is
 /// SIGKILLed. Each review's own stop is a SIGTERM its `second_review.py` answers by ending its
-/// reviewer's group and exiting (`_on_stop`), milliseconds when nothing is wedged. `estimate:`
-/// five seconds; the quit path's own lease bound is two.
+/// reviewer's group and exiting (`_on_stop`), milliseconds when nothing is wedged. The watcher
+/// stops all of its reviews AT ONCE and escalates a wedged one to SIGKILL itself, inside
+/// `QUIT_TERM_SECONDS + QUIT_KILL_SECONDS` = 2 + 1 = 3 s however many run
+/// (`review_watch.py` `stop_own`), so every review is gone before this bound ends: the group
+/// SIGKILL cannot reach them, each leads its own session. `estimate:` five seconds; the quit
+/// path's own lease bound is two.
 pub const STOP_BOUND: Duration = Duration::from_secs(5);
 
 /// The fences of these children, apart from the leases' set, so the quit path's lease count

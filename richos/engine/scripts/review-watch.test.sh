@@ -48,6 +48,9 @@
 #   W12  a verdict reaches its lead session even when the worker committed while
 #        its review ran: by the review's own record (lock, then attempt row), and
 #        by the work's stable identity when no record names it
+#   W13  the host's quit (SIGTERM, five-second bound): the watcher stops every
+#        review it started at once, escalating to SIGKILL itself, and exits on
+#        its own inside the bound with none left running
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -496,6 +499,93 @@ print(got)
 sys.exit(0 if all(v == ("lead-session-1", 1) for v in got.values()) else 1)
 PY
 check "W12 with no record of the review, the work's stable identity names the lead session (the reviewer's fixture)" $? "see above"
+
+# --- W13 ---------------------------------------------------------------------
+# Finding 2 (fixtures/shutdown.py): the host gives the watcher five seconds after SIGTERM
+# (review_watch.rs STOP_BOUND), and stop_own stopped reviews one after another with ten seconds
+# each before SIGKILL; reviews lead their own sessions, so the host's group SIGKILL left them
+# running. Two reviews that ignore SIGTERM, the real run_host_loop and its SIGTERM path.
+cat >"$SB/w13.py" <<'PY'
+import json, os, signal, subprocess, sys, time
+lib, root = sys.argv[1], sys.argv[2]
+STAND_IN = ("import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+            "print('ready',flush=True); time.sleep(60)")
+if len(sys.argv) > 3:
+    # The watcher: the host's child, owning two review stand-ins, each in its own session.
+    os.environ["REVIEW_WATCH_STATE_DIR"] = root
+    os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "reviews")
+    os.environ["REVIEW_WATCH_POLL_SECONDS"] = "0.2"
+    sys.path.insert(0, lib)
+    import review_watch as rw
+
+    class Quiet(rw.Watcher):
+        told = False
+        def look(self, now, session_state):
+            if not self.told:                       # the SIGTERM handlers are in place by now
+                self.told = True
+                print("ready", flush=True)
+            return []
+    watcher = Quiet("/fixture/engine", "", world=object())
+    owned = []
+    for n in range(2):
+        p = subprocess.Popen([sys.executable, "-c", STAND_IN], stdout=subprocess.PIPE, text=True,
+                             start_new_session=True)
+        assert p.stdout.readline().strip() == "ready"
+        watcher.children[p.pid] = p
+        owned.append(p.pid)
+        lock = os.path.join(root, "locks", "%d.lock" % n)
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        json.dump({"pid": p.pid, "repo": "fictional", "tip": str(n), "started_at": time.time()}, open(lock, "w"))
+    json.dump(owned, open(os.path.join(root, "pids.json"), "w"))
+    sys.exit(rw.run_host_loop(watcher, "app"))
+
+def exists(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+os.makedirs(root)
+p = subprocess.Popen([sys.executable, os.path.abspath(__file__), lib, root, "watcher"], stdout=subprocess.PIPE,
+                     text=True, start_new_session=True)
+pids, ok = [], False
+try:
+    assert p.stdout.readline().strip() == "ready"
+    pids = json.load(open(os.path.join(root, "pids.json")))
+    t0 = time.monotonic()
+    os.kill(p.pid, signal.SIGTERM)
+    try:
+        p.wait(timeout=5)                           # the host's STOP_BOUND
+        killed = False
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)            # what the host does at the bound
+        p.wait(timeout=3)
+        killed = True
+    took = time.monotonic() - t0
+    time.sleep(0.2)
+    alive = [x for x in pids if exists(x)]
+    try:
+        outcomes = [json.loads(l)["outcome"] for l in open(os.path.join(root, "attempts.jsonl"))]
+    except OSError:
+        outcomes = []
+    print("host bound=5s, watcher exit=%s after %.2fs (killed by the host: %s), reviews still alive=%d of %d, "
+          "attempts=%s" % (p.returncode, took, killed, len(alive), len(pids), outcomes))
+    ok = not killed and not alive and outcomes == ["stopped", "stopped"]
+finally:
+    if p.poll() is None:
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+    for x in pids:
+        try:
+            os.killpg(x, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+sys.exit(0 if ok else 1)
+PY
+W13OUT="$(python3 "$SB/w13.py" "$LIB" "$SB/w13" 2>&1)"; W13RC=$?
+printf '    %s\n' "$W13OUT"
+check "W13 the host's quit: every review is stopped at once, inside the five-second bound, none left running" $W13RC \
+    "$W13OUT"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
