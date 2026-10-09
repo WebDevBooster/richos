@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run-tests: inputs richos/app/ui/tests richos/app/scripts/ui-suite-defects.test.sh
-# run-tests: covers richos/app/ui/tests/lib/tracked-tree-keeps-candidates.test.js richos/app/ui/tests/lib/splash-relief-race.test.js richos/app/ui/tests/lib/phone-expired-reopen.test.js richos/app/ui/tests/lib/wait-shape.test.js richos/app/ui/tests/lib/wait-shape.js richos/app/ui/tests/lib/gate-honesty-own-key.test.js richos/app/ui/tests/lib/splash-resume-race.test.js richos/app/ui/tests/lib/registry-rekey.test.js richos/app/ui/tests/lib/registry-rekey.js richos/app/ui/tests/lib/browser-reaper.test.js richos/app/ui/tests/lib/browser-reaper.js
+# run-tests: covers richos/app/ui/tests/lib/tracked-tree-keeps-candidates.test.js richos/app/ui/tests/lib/splash-relief-race.test.js richos/app/ui/tests/lib/phone-expired-reopen.test.js richos/app/ui/tests/lib/wait-shape.test.js richos/app/ui/tests/lib/wait-shape.js richos/app/ui/tests/lib/gate-honesty-own-key.test.js richos/app/ui/tests/lib/splash-resume-race.test.js richos/app/ui/tests/lib/registry-rekey.test.js richos/app/ui/tests/lib/registry-rekey.js richos/app/ui/tests/lib/browser-reaper.test.js richos/app/ui/tests/lib/browser-reaper.js richos/app/ui/tests/lib/background-browser.test.js richos/app/ui/tests/lib/background-browser.js richos/app/ui/tests/package.json
 # Guards for defects in the UI suites themselves (hunt part 2, findings 27, 28, 29, 43). No
 # browser: each test is decided in the suite source or on the files it writes.
 set -euo pipefail
@@ -14,3 +14,4 @@ node "$TESTS/lib/browser-reaper.test.js"
 node "$TESTS/lib/gate-honesty-own-key.test.js"
 node "$TESTS/lib/splash-resume-race.test.js"
 node "$TESTS/lib/registry-rekey.test.js"
+node "$TESTS/lib/background-browser.test.js"
