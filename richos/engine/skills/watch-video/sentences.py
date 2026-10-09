@@ -85,11 +85,10 @@ def main():
                     continue
                 for k in range(pos, min(pos + 8, len(words))):
                     if words[k][0] == nw:
-                        start = words[k][1]
-                        pos = k + 1
+                        if start is None:
+                            start = words[k][1]
+                        pos = k + 1  # align the whole sentence before the next one
                         break
-                if start is not None:
-                    break
             if first:
                 secs = psecs  # the paragraph's own stamp, as before
             elif start is not None and start >= last:

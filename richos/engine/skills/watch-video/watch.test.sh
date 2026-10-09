@@ -181,6 +181,39 @@ if [ "$(printf '%s\n' "$SROWS" | wc -l | tr -d ' ')" = 2 ] \
 else
     bad "sentence rows (got: $SROWS)"
 fi
+# Long sentences and repeated words: the next sentence is stamped from its own first
+# word, not from an early repeat (second review rv-20261009T114612Z-128181b6-9fc1).
+printf '%s\n' '**[00:00] Me:** I think I should try this. I can see it now.' > "$SANDBOX/sent/rep.md"
+cat > "$SANDBOX/sent/rep.json" <<'JSON'
+{"transcription":[{"tokens":[
+ {"text":" I","offsets":{"from":0,"to":200}},{"text":" think","offsets":{"from":500,"to":700}},
+ {"text":" I","offsets":{"from":1000,"to":1200}},{"text":" should","offsets":{"from":1500,"to":1700}},
+ {"text":" try","offsets":{"from":2000,"to":2200}},{"text":" this","offsets":{"from":2500,"to":2700}},
+ {"text":".","offsets":{"from":2700,"to":2800}},
+ {"text":" I","offsets":{"from":8000,"to":8200}},{"text":" can","offsets":{"from":8500,"to":8700}},
+ {"text":" see","offsets":{"from":9000,"to":9200}},{"text":" it","offsets":{"from":9500,"to":9700}},
+ {"text":" now","offsets":{"from":10000,"to":10200}}]}]}
+JSON
+printf '%s\n' '**[00:00] Me:** First we open this simple tool and carefully inspect every setting. Second sentence starts late.' > "$SANDBOX/sent/long.md"
+cat > "$SANDBOX/sent/long.json" <<'JSON'
+{"transcription":[{"tokens":[
+ {"text":" First","offsets":{"from":0,"to":200}},{"text":" we","offsets":{"from":300,"to":500}},
+ {"text":" open","offsets":{"from":600,"to":800}},{"text":" this","offsets":{"from":900,"to":1100}},
+ {"text":" simple","offsets":{"from":1200,"to":1400}},{"text":" tool","offsets":{"from":1500,"to":1700}},
+ {"text":" and","offsets":{"from":1800,"to":2000}},{"text":" carefully","offsets":{"from":2100,"to":2300}},
+ {"text":" inspect","offsets":{"from":2400,"to":2600}},{"text":" every","offsets":{"from":2700,"to":2900}},
+ {"text":" setting","offsets":{"from":3000,"to":3200}},
+ {"text":" Second","offsets":{"from":10000,"to":10200}},{"text":" sentence","offsets":{"from":10300,"to":10500}},
+ {"text":" starts","offsets":{"from":10600,"to":10800}},{"text":" late","offsets":{"from":10900,"to":11100}}]}]}
+JSON
+RREP="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/rep.md" "$SANDBOX/sent/rep.json" 2>/dev/null || true)"
+RLONG="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/long.md" "$SANDBOX/sent/long.json" 2>/dev/null || true)"
+if printf '%s\n' "$RREP" | grep -q '\*\*\[00:08\] Me:\*\* I can see it now\.$' \
+    && printf '%s\n' "$RLONG" | grep -q '\*\*\[00:10\] Me:\*\* Second sentence starts late\.$'; then
+    ok "long sentences and repeated words: the next sentence is stamped from its own first word (00:08, 00:10)"
+else
+    bad "long/repeated sentence times (got: $RREP / $RLONG)"
+fi
 if ! grep -q 'LEFT channel' "$OUT/transcript.md" && grep -q 'speakers not separated' "$OUT/watched.md"; then
     ok "a file's transcript no longer claims LEFT = me, RIGHT = others; the index says one channel"
 else
