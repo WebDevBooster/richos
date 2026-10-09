@@ -49,8 +49,28 @@ WHICH MODEL (plan §2.3, Sage's catches 3, 4 and 10)
     record of 2026-10-08), approvals never, sandbox workspace-write rooted at
     the export (-C), so a fixture compiles there and nothing else is written;
     --skip-git-repo-check because an archive has no .git; --output-schema for
-    the one fixed answer shape. Never --ephemeral: the session record is what
-    carries the token count and his plan meter, which every row records.
+    the one fixed answer shape.
+  * INVISIBLE IN THE USER'S OWN CODEX AND CHATGPT APPS (the app tells users
+    "this review process won't be visible in their regular ChatGPT/Codex
+    app"): --ephemeral. Measured 2026-10-09: a review run without it added a
+    row to ~/.codex/state_5.sqlite `threads` (source exec, titled with the
+    review's prompt), a rollout under ~/.codex/sessions/ and thread history;
+    an --ephemeral run added none of the three and used the same login. The
+    model and effort every row records come from Codex's own
+    SessionConfiguredEvent, which it logs on stderr at RUST_LOG=codex_exec=info
+    (`model: "gpt-6.1-sol"`, `reasoning_effort: Some(High)`, `rollout_path:
+    None`); the token count from its turn.completed events. His plan meter
+    lived only in the session record, so it is no longer recorded.
+  * ISOLATED FROM THE USER'S OWN SETUP (CODEX_ISOLATION, CEO 2026-10-09 ~05:00Z:
+    macOS asked him whether "Terminal.app" may control "Codex Computer
+    Use.app"). His ~/.codex/config.toml has a `notify` program that ran at
+    every turn end and sent Apple Events from the Terminal the review started
+    in, plus his MCP servers and plugins (a reviewer offered Computer Use and
+    control of his Chrome). So Codex runs without his config.toml
+    (--ignore-user-config; the login in CODEX_HOME is still used) or his
+    exec-policy rules, `notify` empty, and plugins, apps, hooks, computer use
+    and browser use off. Claude runs with no MCP server at all
+    (--strict-mcp-config): no setting sources does not skip them.
   * Claude reviews Codex's work (a codex/ branch), and is the fallback when
     Codex cannot run (missing, signed out, at its usage limit: any exit without
     an answer that is not the time limit). The fallback is Opus, at high
@@ -98,14 +118,13 @@ THE VERDICT (plan §2.2, §2.4)
     stdout says the verdict.
 
 Test seams (second-review.test.sh only): SECOND_REVIEW_STATE_DIR,
-SECOND_REVIEW_CODEX, SECOND_REVIEW_CLAUDE, SECOND_REVIEW_CODEX_SESSIONS,
+SECOND_REVIEW_CODEX, SECOND_REVIEW_CLAUDE,
 SECOND_REVIEW_QUOTA_CMD, SECOND_REVIEW_CPU_BUSY, SECOND_REVIEW_TIMEOUT_SECONDS.
 """
 
 import argparse
 import ctypes
 import fcntl
-import glob
 import importlib.util
 import json
 import os
@@ -717,12 +736,25 @@ def _on_stop(signum, _frame):
     raise SystemExit(128 + signum)
 
 
-def codex_session_facts(stdout_path, export, started):
-    """Model, effort, sandbox, CLI version, tokens and his plan meter, from
-    Codex's own session record (never from what this command asked for)."""
-    facts = {"session": "", "model": "", "effort": "", "sandbox": "", "cli_version": "",
-             "tokens": None, "meter": None}
-    tid = ""
+def codex_run_facts(stdout_path, stderr_path):
+    """Model and effort from Codex's own SessionConfiguredEvent (stderr, RUST_LOG=codex_exec=info),
+    whether it wrote a session record (rollout_path), and the token count from its turn.completed
+    events (stdout). Never from what this command asked for."""
+    facts = {"model": "", "effort": "", "rollout": "", "tokens": None}
+    try:
+        with open(stderr_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if "SessionConfiguredEvent" not in line:
+                    continue
+                m = re.search(r'\bmodel: "([^"]+)"', line)
+                e = re.search(r"\breasoning_effort: Some\((\w+)\)", line)
+                r = re.search(r"\brollout_path: (None|Some\([^)]*\))", line)
+                facts["model"] = m.group(1) if m else ""
+                facts["effort"] = e.group(1).lower() if e else ""
+                facts["rollout"] = r.group(1) if r else ""
+    except OSError:
+        pass
+    total = None
     try:
         with open(stdout_path, encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -730,74 +762,44 @@ def codex_session_facts(stdout_path, export, started):
                     o = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(o, dict) and o.get("thread_id"):
-                    tid = str(o["thread_id"])
-                    break
+                if not isinstance(o, dict) or o.get("type") != "turn.completed":
+                    continue
+                u = o.get("usage") or {}
+                total = total or {"total": 0, "input": 0, "cached_input": 0, "output": 0}
+                for k, src in (("input", "input_tokens"), ("cached_input", "cached_input_tokens"),
+                               ("output", "output_tokens")):
+                    total[k] += int(u.get(src) or 0)
+                total["total"] = total["input"] + total["output"]
     except OSError:
         pass
-    home = (os.environ.get("CODEX_HOME") or "").strip() or os.path.expanduser("~/.codex")
-    sessions = (os.environ.get("SECOND_REVIEW_CODEX_SESSIONS") or "").strip() or os.path.join(home, "sessions")
-    cands = glob.glob(os.path.join(sessions, "*", "*", "*", "rollout-*%s.jsonl" % tid)) if tid else []
-    if not cands:
-        # No thread id on stdout: the newest record started in this export.
-        for p in sorted(glob.glob(os.path.join(sessions, "*", "*", "*", "rollout-*.jsonl")),
-                        key=lambda p: os.path.getmtime(p), reverse=True)[:20]:
-            if os.path.getmtime(p) < started - 5:
-                break
-            try:
-                with open(p, encoding="utf-8") as f:
-                    first = json.loads(f.readline())
-                if (first.get("payload") or {}).get("cwd") == export:
-                    cands = [p]
-                    break
-            except (OSError, ValueError):
-                continue
-    if not cands:
-        return facts
-    facts["session"] = cands[0]
-    first_meter = last_meter = None
-    with open(cands[0], encoding="utf-8", errors="replace") as f:
-        for line in f:
-            try:
-                o = json.loads(line)
-            except ValueError:
-                continue
-            p = o.get("payload") if isinstance(o.get("payload"), dict) else {}
-            if o.get("type") == "session_meta":
-                facts["cli_version"] = str(p.get("cli_version") or "")
-            elif o.get("type") == "turn_context":
-                facts["model"] = str(p.get("model") or facts["model"])
-                facts["effort"] = str(p.get("effort") or facts["effort"])
-                facts["sandbox"] = str((p.get("sandbox_policy") or {}).get("type") or facts["sandbox"])
-            elif p.get("type") == "token_count":
-                prim = ((p.get("rate_limits") or {}).get("primary") or {})
-                if isinstance(prim.get("used_percent"), (int, float)):
-                    first_meter = prim["used_percent"] if first_meter is None else first_meter
-                    last_meter = prim["used_percent"]
-                tot = ((p.get("info") or {}).get("total_token_usage") or {})
-                if tot:
-                    facts["tokens"] = {"total": tot.get("total_tokens"), "input": tot.get("input_tokens"),
-                                       "cached_input": tot.get("cached_input_tokens"),
-                                       "output": tot.get("output_tokens")}
-    if first_meter is not None:
-        facts["meter"] = {"what": "ChatGPT plan, rate_limits.primary.used_percent",
-                          "before": first_meter, "after": last_meter}
+    facts["tokens"] = total
     return facts
 
 
+def codex_env():
+    """Codex logs its SessionConfiguredEvent (model, effort, rollout path) on stderr at this level."""
+    return dict(os.environ, RUST_LOG="codex_exec=info")
+
+
+# The reviewer never runs the user's own Codex setup: see "ISOLATED FROM THE USER'S OWN SETUP" above.
+CODEX_ISOLATION = ["--ephemeral", "--ignore-user-config", "--ignore-rules", "-c", "notify=[]",
+                   "--disable", "plugins", "--disable", "apps", "--disable", "hooks",
+                   "--disable", "computer_use", "--disable", "browser_use"]
+
+
 def codex_argv(codex, export, schema_path, answer_path):
-    return [codex, "exec",
-            "--sandbox", "workspace-write",
-            "-C", export,
-            "--skip-git-repo-check",
-            "-m", CODEX_MODEL,
-            "-c", 'model_reasoning_effort="%s"' % CODEX_EFFORT,
-            "-c", 'approval_policy="never"',
-            "--output-schema", schema_path,
-            "-o", answer_path,
-            "--json",
-            "--color", "never",
-            "-"]
+    return [codex, "exec"] + CODEX_ISOLATION + [
+        "--sandbox", "workspace-write",
+        "-C", export,
+        "--skip-git-repo-check",
+        "-m", CODEX_MODEL,
+        "-c", 'model_reasoning_effort="%s"' % CODEX_EFFORT,
+        "-c", 'approval_policy="never"',
+        "--output-schema", schema_path,
+        "-o", answer_path,
+        "--json",
+        "--color", "never",
+        "-"]
 
 
 def claude_settings():
@@ -818,6 +820,7 @@ def claude_argv(claude):
             "--model", CLAUDE_MODEL,
             "--effort", CLAUDE_EFFORT,
             "--setting-sources", "",
+            "--strict-mcp-config",
             "--settings", claude_settings(),
             "--permission-mode", "bypassPermissions",
             "--disallowedTools", "Edit,Write,NotebookEdit",
@@ -1025,16 +1028,13 @@ def review(a):
             row["reviewer"], row["cli_version"] = "codex", version_of(codex)
             answer_path = os.path.join(out_dir, "answer.json")
             so, se = os.path.join(out_dir, "codex.stdout.jsonl"), os.path.join(out_dir, "codex.stderr.txt")
-            t0 = time.time()
-            rc, secs = run_bounded(codex_argv(codex, export, schema_path, answer_path), export, prompt, so, se, limit)
+            rc, secs = run_bounded(codex_argv(codex, export, schema_path, answer_path), export, prompt, so, se, limit,
+                                   env=codex_env())
             row["duration_s"] = round(secs, 1)
-            facts = codex_session_facts(so, export, t0)
-            row["reviewer_model"] = facts["model"] or "unverified (no session record found; asked for %s)" % CODEX_MODEL
+            facts = codex_run_facts(so, se)
+            row["reviewer_model"] = facts["model"] or "unverified (Codex logged no session start; asked for %s)" % CODEX_MODEL
             row["reviewer_effort"] = facts["effort"] or "unverified (asked for %s)" % CODEX_EFFORT
-            row["tokens"], row["meter"] = facts["tokens"], facts["meter"]
-            row["codex_session"], row["sandbox"] = facts["session"], facts["sandbox"]
-            if facts["cli_version"] and not row["cli_version"]:
-                row["cli_version"] = facts["cli_version"]
+            row["tokens"], row["codex_record"] = facts["tokens"], facts["rollout"]
             raw = [so, se, answer_path]
             if rc is None:
                 row["why"] = "the reviewer passed its time limit of %d minutes and was stopped" % round(limit / 60.0) \
@@ -1049,7 +1049,8 @@ def review(a):
                 tail = ""
                 try:
                     with open(se, encoding="utf-8", errors="replace") as f:
-                        tail = " ".join(f.read().strip().splitlines()[-3:])[:400]
+                        tail = " ".join([ln for ln in f.read().strip().splitlines()
+                                         if " INFO " not in ln][-3:])[:400]
                 except OSError:
                     pass
                 row["fallback_why"] = "Codex exited %d without an answer: %s" % (rc, tail or "(no message)")
