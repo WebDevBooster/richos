@@ -274,7 +274,11 @@ def check():
         return 0
     got = read_blob(None, DECLARATION)
     if got is None:
-        return 0  # this tree has no declaration, so nothing is pinned
+        if base and read_blob(base, DECLARATION) is not None:
+            say("")
+            say(f"=== COMMIT REFUSED: the reader check could not run ({DECLARATION} exists at the merge-base but is not in the staged tree) ===")
+            return 1
+        return 0  # this tree never had a declaration, so nothing is pinned
     text = got.decode("utf-8", errors="replace")
     retyped = DECLARATION in paths
     # The common case: nothing the branch changed is named in the declaration; no parse.

@@ -396,6 +396,14 @@ class Floor(Fixture):
         self.git("rm", "-q", "--cached", self.LIB)
         self.refused_text("read TOKEN, no verifier", "the reader check could not run", stage=False)
 
+    def test_deleting_the_declaration_refuses_when_the_merge_base_had_one(self):
+        self.start()
+        self.land_on_main()
+        self.write(NODE, 'echo "$TOKEN"\n')
+        self.git("add", "-A")
+        self.git("rm", "-q", "--cached", DECLARATION)
+        self.refused_text("delete the declaration", "the reader check could not run", stage=False)
+
     def test_a_declaration_that_does_not_parse_refuses(self):
         self.start()
         self.write(DECLARATION, "{not valid json\n")
