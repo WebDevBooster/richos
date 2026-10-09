@@ -53,6 +53,8 @@
 #        its own inside the bound with none left running
 #   W14  the app's watcher picks only receipts with request.role worker for a
 #        mid-job review, never a quiet handover reviewer's cc/ workspace
+#   W15  the host's quit records a review stopped only once its reviewer, which
+#        leads its own session, is gone too (a responsive and a deaf launcher)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -633,6 +635,123 @@ print("picked for a mid-job review:", picked)
 sys.exit(0 if picked == [("mark-sonnet-w", "long-job")] else 1)
 PY
 check "W14 the app's watcher reviews mid-job only receipts with request.role worker, never a handover reviewer" $? "see above"
+
+# --- W15 ---------------------------------------------------------------------
+# Second review of cc/echo-opus-review4b at f14155545, finding 1 (fixtures/shutdown_descendant.py):
+# second-review's reviewer leads its own session, so the watcher's SIGTERM to the launcher's group
+# never reaches it; _on_stop sent it one SIGTERM and exited at once, and stop_all, seeing the
+# launcher gone, recorded "stopped" over a reviewer that ignores SIGTERM and runs on. Two
+# launchers: the real second_review._on_stop and run_bounded ("responsive"), and one that ignores
+# SIGTERM itself ("deaf"), whose reviewer only the watcher can stop.
+cat >"$SB/w15.py" <<'PY'
+import json, os, signal, subprocess, sys, time
+lib, root, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+role = sys.argv[4] if len(sys.argv) > 4 else ""
+sys.path.insert(0, lib)
+REVIEWER = ("import os,signal,sys,time\n"
+            "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+            "open(os.path.join(sys.argv[1],'reviewer.pid'),'w').write(str(os.getpid()))\n"
+            "while True:\n"
+            "    open(os.path.join(sys.argv[1],'heartbeat'),'w').write(str(time.monotonic()))\n"
+            "    time.sleep(0.05)\n")
+if role == "launcher":
+    if mode == "responsive":
+        import second_review as sr
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, sr._on_stop)
+        sr.run_bounded([sys.executable, "-B", "-c", REVIEWER, root], root, "", os.devnull, os.devnull, 60)
+    else:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        subprocess.Popen([sys.executable, "-B", "-c", REVIEWER, root], start_new_session=True).wait()
+    sys.exit(0)
+if role == "watcher":
+    os.environ["REVIEW_WATCH_STATE_DIR"] = root
+    os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "reviews")
+    os.environ["REVIEW_WATCH_POLL_SECONDS"] = "0.1"
+    import review_watch as rw
+
+    class Quiet(rw.Watcher):
+        told = False
+        def look(self, now, session_state):
+            if not self.told:                       # the SIGTERM handlers are in place by now
+                self.told = True
+                print("ready", flush=True)
+            return []
+    w = Quiet("/fixture/engine", "", world=object())
+    p = subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__), lib, root, mode, "launcher"],
+                         start_new_session=True)
+    w.children[p.pid] = p
+    open(os.path.join(root, "launcher.pid"), "w").write(str(p.pid))
+    os.makedirs(os.path.join(root, "locks"))
+    json.dump({"pid": p.pid, "repo": "fictional", "tip": "a" * 40, "started_at": time.time()},
+              open(os.path.join(root, "locks", "one.lock"), "w"))
+    deadline = time.monotonic() + 5
+    while not os.path.exists(os.path.join(root, "reviewer.pid")):
+        if time.monotonic() > deadline:
+            raise SystemExit("the reviewer did not start")
+        time.sleep(0.01)
+    sys.exit(rw.run_host_loop(w, "app"))
+
+def exists(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+os.makedirs(root)
+watcher = subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__), lib, root, mode, "watcher"],
+                           stdout=subprocess.PIPE, text=True, start_new_session=True)
+reviewer = launcher = None
+ok = False
+try:
+    assert watcher.stdout.readline().strip() == "ready"
+    launcher = int(open(os.path.join(root, "launcher.pid")).read())
+    reviewer = int(open(os.path.join(root, "reviewer.pid")).read())
+    t0 = time.monotonic()
+    os.kill(watcher.pid, signal.SIGTERM)
+    try:
+        watcher.wait(timeout=5)                     # the host's STOP_BOUND
+        killed = False
+    except subprocess.TimeoutExpired:
+        os.killpg(watcher.pid, signal.SIGKILL)
+        watcher.wait(timeout=3)
+        killed = True
+    took = time.monotonic() - t0
+    for _ in range(20):                             # an exited reviewer is reaped by launchd, not by us
+        if not exists(reviewer):
+            break
+        time.sleep(0.05)
+    beat = open(os.path.join(root, "heartbeat")).read()
+    time.sleep(0.3)
+    advanced = beat != open(os.path.join(root, "heartbeat")).read()
+    try:
+        outcomes = [json.loads(l)["outcome"] for l in open(os.path.join(root, "attempts.jsonl"))]
+    except OSError:
+        outcomes = []
+    print("%s launcher: watcher exit=%s after %.2fs (killed by the host: %s), launcher alive=%s, reviewer alive=%s, "
+          "heartbeat advanced=%s, attempts=%s" % (mode, watcher.returncode, took, killed, exists(launcher),
+                                                  exists(reviewer), advanced, outcomes))
+    ok = not killed and not exists(launcher) and not exists(reviewer) and not advanced and outcomes == ["stopped"]
+finally:
+    for pid in (reviewer, launcher):
+        if pid:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+    if watcher.poll() is None:
+        os.killpg(watcher.pid, signal.SIGKILL)
+        watcher.wait()
+sys.exit(0 if ok else 1)
+PY
+for mode in responsive deaf; do
+    W15OUT="$(python3 "$SB/w15.py" "$LIB" "$SB/w15-$mode" "$mode" 2>&1)"; W15RC=$?
+    printf '    %s\n' "$W15OUT"
+    check "W15 the host's quit ($mode launcher): stopped is recorded only once the reviewer's own group is gone" \
+        $W15RC "$W15OUT"
+done
 
 # --- W04 ---------------------------------------------------------------------
 resetstate

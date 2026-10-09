@@ -136,6 +136,11 @@ FIXTURE_FILE_BYTES = 1024 * 1024
 FIXTURE_TOTAL_BYTES = 20 * 1024 * 1024
 REVIEW_BUILD_JOBS = 2
 _REVIEWER = {"pgid": None}
+# Stopped from outside, the reviewer's own group is stopped and seen gone before this process
+# exits: 1.0 s after SIGTERM, then SIGKILL and 0.5 s more. 1.5 s in all, inside review_watch.py's
+# quit grace (QUIT_TERM_SECONDS, 2 s), so the watcher never SIGKILLs this process mid-wait.
+STOP_REVIEWER_TERM_SECONDS = 1.0
+STOP_REVIEWER_KILL_SECONDS = 0.5
 
 EXIT_PASSED, EXIT_CHANGES, EXIT_NO_VERDICT, EXIT_REFUSED = 0, 1, 2, 64
 
@@ -700,15 +705,46 @@ def build_env(env=None):
     return e
 
 
+def group_gone(pgid):
+    """Is no process of this group left running? ESRCH: none at all. EPERM: on macOS killpg
+    refuses a group whose members are all zombies (measured 2026-10-09, Darwin 24.6: a SIGKILLed,
+    unreaped `sleep` group answers EPERM, a reaped one ESRCH); every process this engine starts
+    runs as its own user, so EPERM is never a live reviewer it could still signal."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def _on_stop(signum, _frame):
-    """Stopped from outside: the reviewer's own process group goes first, so a
-    stopped review leaves no reviewer running on its own."""
+    """Stopped from outside: the reviewer leads its own session, out of reach of any signal to
+    this process's group, so it is stopped here and this process exits only once its group is
+    gone: SIGTERM, STOP_REVIEWER_TERM_SECONDS, SIGKILL, STOP_REVIEWER_KILL_SECONDS. A stopped
+    review leaves no reviewer running on its own (second review of f14155545, finding 1)."""
     pgid = _REVIEWER.get("pgid")
     if pgid:
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except OSError:
-            pass
+        for sig, grace in ((signal.SIGTERM, STOP_REVIEWER_TERM_SECONDS),
+                           (signal.SIGKILL, STOP_REVIEWER_KILL_SECONDS)):
+            try:
+                os.killpg(pgid, sig)
+            except OSError:
+                break                               # gone already (or all zombies)
+            end = time.monotonic() + grace
+            while True:
+                try:
+                    os.waitpid(pgid, os.WNOHANG)    # the leader is this process's own child: reap it
+                except ChildProcessError:
+                    pass
+                if group_gone(pgid) or time.monotonic() >= end:
+                    break
+                time.sleep(0.02)
+            if group_gone(pgid):
+                break
     raise SystemExit(128 + signum)
 
 
