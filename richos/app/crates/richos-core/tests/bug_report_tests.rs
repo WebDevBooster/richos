@@ -60,6 +60,38 @@ fn screen() -> Screen {
 
 const VERSION: &str = "RichOS 1.2.0, nightly 45 · macOS 15.6 · Apple silicon";
 
+// ---- a fake Rich for his last pass (the CEO's order, §115: the scanner first, Rich last) ----
+
+/// The report Rich is given in his last pass ([`finish_prompt`]), as the scanner left it.
+fn report_in(prompt: &str) -> serde_json::Value {
+    let start = prompt.find("<<<\n").expect("the report") + 4;
+    let end = start + prompt[start..].find("\n>>>").expect("the report's end");
+    serde_json::from_str(&prompt[start..end]).expect("the report as JSON")
+}
+
+/// A Rich who, last, finds nothing more to clean up: his words are the scanner's.
+fn rich_keeps(prompt: &str) -> Result<String, String> {
+    let mut report = report_in(prompt);
+    report["private"] = serde_json::json!([]);
+    Ok(report.to_string())
+}
+
+/// A Rich who, last, cleans up `name` (a `kind` he writes as `stand_in`) wherever it still is.
+fn rich_replaces(name: &'static str, kind: &'static str, stand_in: &'static str) -> impl Fn(&str) -> Result<String, String> + Copy {
+    move |prompt| {
+        let words = report_in(prompt).to_string();
+        let found = words.contains(name);
+        let mut report: serde_json::Value = serde_json::from_str(&words.replace(name, stand_in)).unwrap();
+        report["private"] = if found { serde_json::json!([{"text": name, "kind": kind}]) } else { serde_json::json!([]) };
+        Ok(report.to_string())
+    }
+}
+
+/// Claude, unable to answer.
+fn rich_down(_: &str) -> Result<String, String> {
+    Err("claude took too long".into())
+}
+
 // ---------------------------------------------------------------------------------------
 // 1. PRIVATE DETAILS ARE LEFT OUT
 // ---------------------------------------------------------------------------------------
@@ -301,10 +333,10 @@ fn draft_of(sheet: &Sheet, private: Vec<PrivateTerm>) -> Draft {
     }
 }
 
-/// What may leave this Mac of `sheet`, when it is exactly what Rich checked and holds nothing private.
+/// What may leave this Mac of `sheet`, when it is exactly what Rich gave last.
 fn public_of(sheet: &Sheet) -> Public {
-    match decide(sheet, Some(&Check::of(&draft_of(sheet, vec![]))), &[]) {
-        Decision::Send(public) => public,
+    match at_send(sheet, Some(&Check::of(&draft_of(sheet, vec![]))), &[], |_| panic!("Rich was asked about words he gave")) {
+        AtSend::Send(public) => public,
         other => panic!("not sendable: {other:?}"),
     }
 }
@@ -948,7 +980,7 @@ fn when_claude_cannot_check_it_the_report_is_not_offered_and_waits_on_this_mac_u
     let known = Scrubber::new(vec![PrivateTerm::new("Northwind Traders", Kind::CompanyName)]);
     let failures = [Err("claude took too long".to_string()), Err("Claude answered with an error: Overloaded".to_string()), Ok("I can't help with that.".to_string())];
     for (n, rich) in failures.into_iter().enumerate() {
-        let check = checked(rich, &place, false, VERSION, &known);
+        let check = checked(rich, &place, false, VERSION, &known, rich_keeps);
         assert!(check.is_err(), "a draft came out of an answer that is not a report: {check:?}");
         match outbox.keep_unless_checked(said, &place, check, 1_000).unwrap() {
             WriteUp::Unchecked { .. } => {}
@@ -976,7 +1008,7 @@ fn when_claude_cannot_check_it_the_report_is_not_offered_and_waits_on_this_mac_u
 
     // Claude answers: Rich checks it, names Jane Doe and SecretCo, and the draft leaves them out.
     let rich = r#"{"title": "The window froze while a plan opened", "what_happened": "Jane Doe at SecretCo saw the window freeze while opening the plan.", "private": [{"text": "Jane Doe", "kind": "person"}, {"text": "SecretCo", "kind": "company"}]}"#;
-    let ready = outbox.check_due(due + CHECK_RETRY_MS, |u| checked(Ok(rich.to_string()), &u.screen, false, VERSION, &known)).unwrap();
+    let ready = outbox.check_due(due + CHECK_RETRY_MS, |u| checked(Ok(rich.to_string()), &u.screen, false, VERSION, &known, rich_keeps)).unwrap();
     assert_eq!(ready.len(), 3);
     for (_, done) in &ready {
         let words = draft_words(&done.draft);
@@ -1001,7 +1033,7 @@ fn when_claude_cannot_check_it_the_report_is_not_offered_and_waits_on_this_mac_u
     };
     let late = outbox.check_due(CHECK_RETRY_MS, |u| {
         assert!(outbox.take_unchecked(&u.id).unwrap());
-        checked(Ok(rich.to_string()), &u.screen, false, VERSION, &known)
+        checked(Ok(rich.to_string()), &u.screen, false, VERSION, &known, rich_keeps)
     });
     assert!(late.unwrap().is_empty(), "a canceled report came back");
     assert!(outbox.unchecked().unwrap().is_empty(), "{id} came back");
@@ -1031,7 +1063,7 @@ fn an_answer_whose_private_list_is_missing_or_malformed_is_not_offered_and_waits
         if let Some(p) = private {
             reply["private"] = p;
         }
-        let check = checked(Ok(reply.to_string()), &place, false, VERSION, &known);
+        let check = checked(Ok(reply.to_string()), &place, false, VERSION, &known, rich_keeps);
         if let WriteUp::Checked(c) = outbox.keep_unless_checked(said, &place, check, 1_000).unwrap() {
             offered.push(format!("{label}: offered for sending, public words {:?}", draft_words(&c.draft)));
         }
@@ -1100,7 +1132,7 @@ fn a_one_word_name_rich_lists_as_private_is_left_out_of_the_draft_and_every_chan
     // whoever named it.
     let said = "The Zephyr conversation disappeared.";
     let private = r#"[{"text": "Zephyr", "kind": "conversation"}]"#;
-    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap();
+    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default(), rich_keeps).unwrap();
     assert_eq!(joined(&checked.draft.sections[0].paragraphs[0]), "The [a conversation] conversation disappeared.");
     let (add, kept) = scrub_change(&change_naming(said, private), &[], &[]);
     assert_eq!(joined(&add), "The [a conversation] conversation disappeared.");
@@ -1119,7 +1151,7 @@ fn a_name_rich_lists_in_lower_case_is_left_out_when_the_app_holds_it_capitalized
     let known = vec![PrivateTerm::new("SecretCo", Kind::CompanyName)];
     let said = "The secretco conversation disappeared.";
     let private = r#"[{"text": "secretco", "kind": "company"}]"#;
-    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::new(known.clone())).unwrap();
+    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::new(known.clone()), rich_keeps).unwrap();
     assert_eq!(joined(&checked.draft.sections[0].paragraphs[0]), "The [a company] conversation disappeared.");
     let (add, kept) = scrub_change(&change_naming(said, private), &known, &[]);
     assert_eq!(joined(&add), "The [a company] conversation disappeared.");
@@ -1138,7 +1170,7 @@ fn a_name_rich_lists_across_a_line_break_is_left_out_where_the_draft_joins_the_l
     // while Rich's private word kept its line break, so "Jane Doe" went public with no heads-up.
     let said = r"Jane\nDoe saw the window freeze.";
     let private = r#"[{"text": "Jane\nDoe", "kind": "person"}]"#;
-    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap();
+    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default(), rich_keeps).unwrap();
     assert_eq!(joined(&checked.draft.sections[0].paragraphs[0]), "[a person] saw the window freeze.");
     // In a change, and in every later change written on one line.
     let (add, kept) = scrub_change(&change_naming(said, private), &[], &[]);
@@ -1155,7 +1187,7 @@ fn a_name_written_with_two_spaces_matches_the_same_name_written_with_one() {
     // whichever side has more.
     let said = "Jane Doe saw the window freeze.";
     let private = r#"[{"text": "Jane  Doe", "kind": "person"}]"#;
-    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap();
+    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default(), rich_keeps).unwrap();
     assert_eq!(joined(&checked.draft.sections[0].paragraphs[0]), "[a person] saw the window freeze.");
     let (add, kept) = scrub_change(&change_naming(said, private), &[], &[]);
     assert_eq!(joined(&add), "[a person] saw the window freeze.");
@@ -1188,172 +1220,267 @@ fn a_name_rich_lists_across_a_blank_line_is_left_out_before_the_draft_splits_it_
 
 /// Rich's checked draft of `said`, naming `private` (a JSON list), with no names RichOS holds.
 fn checked_with(said: &str, private: &str) -> Checked {
-    checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap()
+    checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default(), rich_keeps).unwrap()
+}
+
+// ---------------------------------------------------------------------------------------
+// THE CEO'S ORDER (§115, 2026-10-09): THE SCANNER FIRST, RICH LAST, AND HIS WORDS AS THEY ARE.
+// "If it's so hard to automate this particular part, then just let's the user's Rich check and
+// clean-up what needs to be cleaned-up in that particular user's case." Every review since the
+// morning found a gap in the scanner; it stays as an extra help, and Rich gets the last word.
+// ---------------------------------------------------------------------------------------
+
+/// The title and the body GitHub is sent are the card's words, every one: the title as the card
+/// shows it, and the body as the card's sections written out, every mark escaped so that GitHub
+/// shows the words themselves ([`issue_body`]).
+fn assert_sent_as_shown(card: &Sheet, public: &Public) {
+    assert_eq!(public.title(), card.title, "the title sent is not the title the card showed");
+    assert_eq!(public.body(), issue_body(card), "the body sent is not the body the card showed");
+    let (_, request) = issue_request(public);
+    assert_eq!((request["title"].as_str(), request["body"].as_str()), (Some(card.title.as_str()), Some(issue_body(card).as_str())));
+}
+
+/// **WHAT GOES, AND THE CARD THE USER LAST SAW WHEN IT WENT**: Send pressed on `card` under
+/// `check`, with `rich` as Rich's last pass, and pressed once more on the card shown again if it
+/// is shown again, as the window does. A card shown again is Rich's version, so the second press
+/// sends it without asking him again: a third card would be a card that never ends.
+fn sent_from(card: &Sheet, check: Option<&Check>, app: &[PrivateTerm], rich: impl Fn(&str) -> Result<String, String>) -> (Sheet, Public) {
+    match at_send(card, check, app, &rich) {
+        AtSend::Send(public) => (card.clone(), public),
+        AtSend::Show(his) => {
+            let again = sheet_of(&his.draft);
+            match at_send(&again, Some(&Check::of(&his.draft)), app, |_| panic!("Rich was asked again about his own words")) {
+                AtSend::Send(public) => (again, public),
+                other => panic!("the card shown again was not sent as shown: {other:?}"),
+            }
+        }
+        AtSend::Unchecked(why) => panic!("unchecked: {why}"),
+    }
+}
+
+/// What GitHub is sent for `sheet` under `check`, Rich keeping what the scanner made.
+fn sent_body(sheet: &Sheet, check: &Check) -> String {
+    let (_, public) = sent_from(sheet, Some(check), &[], rich_keeps);
+    let (_, request) = issue_request(&public);
+    request["body"].as_str().unwrap().to_string()
 }
 
 #[test]
-fn words_the_user_changes_by_hand_are_not_sent_until_rich_has_checked_them() {
-    // Finding 1, fixture `manual_edit.js`: on 3007e3200 Change it → Done made the user's own words
-    // sendable after only the heads-up's scan, which cannot know an ordinary client's name, and
-    // Send filed "Jane Doe at SecretCo saw the window freeze while opening the plan." (On
-    // 3007e3200 this test does not compile: Send had no check of Rich's to be held on.)
-    let app = vec![PrivateTerm::new("Pat Morgan", Kind::PersonName), PrivateTerm::new("Example Company", Kind::CompanyName)];
-    let written = checked(Ok(answer_naming("The window froze while opening the plan.", "[]")), &screen(), false, VERSION, &Scrubber::new(app.clone())).unwrap();
-    let check = Check::of(&written.draft);
-    let card = sheet_of(&written.draft);
-    assert!(matches!(decide(&card, Some(&check), &app), Decision::Send(_)), "the report Rich checked is not sendable");
-
-    // Change it → Done: the user's own words, with names no rule knows.
-    let mut edited = card.clone();
-    edited.sections[0].paragraphs[0] = "Jane Doe at SecretCo saw the window freeze while opening the plan.".into();
-    assert!(private_in_edit(&edited.sections[0].paragraphs[0], &app, check.private()).is_empty(), "the heads-up was never able to know these");
-    assert_eq!(decide(&edited, Some(&check), &app), Decision::Unchecked, "words Rich never saw were sendable");
-    assert_eq!(decide(&edited, None, &app), Decision::Unchecked);
-    let mut one = card.clone();
-    one.title.push('!');
-    assert_eq!(decide(&one, Some(&check), &app), Decision::Unchecked, "one changed character is a change");
-    // He is asked about the whole report as it would go.
-    let prompt = edit_check_prompt(&edited);
-    assert!(prompt.contains("Jane Doe at SecretCo saw the window freeze") && prompt.contains("{\"private\": ["), "{prompt}");
-
-    // Claude cannot check them: no check, and they are kept on this Mac with nothing waiting to go.
-    for rich in [Err("claude took too long".to_string()), Ok("I can't help with that.".to_string()), Ok(r#"{"private": "none"}"#.to_string())] {
-        assert!(check_edit(rich, &edited, check.private()).is_err());
+fn every_prompt_asks_rich_for_the_report_with_this_users_private_details_already_left_out() {
+    // On a1d158b35 his write-up was asked to "leave names out where you can", with the scanner to
+    // replace "any that remain" after him, and there was no last pass of his at all.
+    let written = writer_prompt("names get cut off", &screen(), VERSION, &terms(), false);
+    assert!(written.contains("Write the report with every private detail of this user's case already left out"), "{written}");
+    assert!(written.contains("person [a person], company [a company], conversation [a conversation], folder [a folder], file [a file on this Mac], email [an email address], other [a private word]"), "{written}");
+    assert!(written.contains("Acme deal"), "the names RichOS holds are not given to him: {written}");
+    let card = sheet("Names are cut off");
+    let change = change_prompt(&card, "say Jane saw it too");
+    assert!(change.contains("already left out") && change.contains("person [a person]"), "{change}");
+    // His last pass: the scanner's output, and he is told he is the last check.
+    let last = finish_prompt(&card, &terms());
+    for said in ["You are the last check", "Nothing changes your words after you", "it cannot be relied on", "Keep every stand-in already there", "Change nothing else", "Acme deal", "\"private\""] {
+        assert!(last.contains(said), "{said:?} is not in the last pass's prompt: {last}");
     }
-    let dir = scratch("edited");
-    let outbox = Outbox::open(&dir);
-    let id = match outbox.keep_edited(Edited { sheet: edited.clone(), private: check.private().to_vec() }, &screen(), "claude took too long", 1_000).unwrap() {
-        WriteUp::Unchecked { id } => id,
+    assert_eq!(report_in(&last)["sections"][0]["paragraphs"][0], "It broke.");
+}
+
+#[test]
+fn rich_gets_the_last_word_on_what_the_scanner_made_and_the_card_is_his_words_exactly() {
+    // (a) The scanner goes first (it leaves out "Acme deal", which RichOS holds); Rich is given its
+    // output and cleans up a name no rule can know (Marta); the card is his words, every one.
+    let answer = r#"{"title": "The Acme deal list froze", "what_happened": "Marta saw the Acme deal list freeze.", "private": []}"#;
+    let given = RefCell::new(String::new());
+    let rich = |prompt: &str| {
+        *given.borrow_mut() = prompt.to_string();
+        rich_replaces("Marta", "person", "[a person]")(prompt)
+    };
+    let done = checked(Ok(answer.into()), &screen(), false, VERSION, &Scrubber::new(terms()), rich).unwrap();
+    let report = report_in(&given.borrow());
+    assert_eq!(report["sections"][0]["paragraphs"][0], "Marta saw the [a conversation] list freeze.", "Rich was not given the scanner's output");
+    let card = sheet_of(&done.draft);
+    assert_eq!(card.title, "The [a conversation] list froze");
+    assert_eq!(card.sections[0].paragraphs[0], "[a person] saw the [a conversation] list freeze.");
+    assert_eq!(card.sections.last().unwrap().paragraphs, [VERSION]);
+    // Each stand-in in his words is marked for the tooltip, its words unchanged: the scanner's with
+    // what it replaced, his with what he says he replaced.
+    let marks: Vec<(String, String)> = done.draft.sections[0].paragraphs[0].iter().filter_map(|s| Some((s.text.clone(), s.was.clone()?))).collect();
+    assert_eq!(marks, [("[a person]".to_string(), "Marta".to_string()), ("[a conversation]".to_string(), "Acme deal".to_string())]);
+    // What he replaced is the report's from then on, for the scanner's pass over any later change.
+    assert!(done.draft.private.iter().any(|t| t.text == "Marta"), "{:?}", done.draft.private);
+
+    // (c) Send posts the card's words exactly, with only the escaping GitHub needs, and asks no one.
+    let public = match at_send(&card, Some(&Check::of(&done.draft)), &terms(), |_| panic!("Rich was asked again about his own words")) {
+        AtSend::Send(public) => public,
         other => panic!("{other:?}"),
     };
-    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty());
-
-    // Rich checks them once Claude answers: the card comes back with the names left out, unsent.
-    let rich = r#"{"private": [{"text": "Jane Doe", "kind": "person"}, {"text": "SecretCo", "kind": "company"}]}"#;
-    let ready = outbox.check_due(1_000 + CHECK_RETRY_MS, |u| checked_edit(Ok(rich.to_string()), u.edited.as_ref().expect("the changed words"), &app)).unwrap();
-    assert_eq!(ready.len(), 1);
-    assert_eq!(ready[0].0, id);
-    assert_eq!(ready[0].1.digest, EDIT_DIGEST);
-    assert_eq!(draft_words(&ready[0].1.draft).lines().nth(1), Some("[a person] at [a company] saw the window freeze while opening the plan."));
-    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty());
-
-    // Rich checks them at Send: what he names is left out and the card is shown again first;
-    // pressed again, the words he checked go, and nothing else.
-    let at_send = check_edit(Ok(rich.to_string()), &edited, check.private()).unwrap();
-    let shown = match decide(&edited, Some(&at_send), &app) {
-        Decision::Show(draft) => draft,
-        other => panic!("sent without showing what was left out: {other:?}"),
-    };
-    let public = match decide(&sheet_of(&shown), Some(&Check::of(&shown)), &app) {
-        Decision::Send(public) => public,
-        other => panic!("{other:?}"),
-    };
-    assert!(public.body().contains("\\[a person\\] at \\[a company\\] saw the window freeze"), "{}", public.body());
-    assert!(!public.body().contains("Jane") && !public.body().contains("SecretCo"), "{}", public.body());
-
-    // A change with nothing private in it goes at once, once Rich has checked it.
-    let mut harmless = card.clone();
-    harmless.sections[0].paragraphs[0] = "The window froze twice while opening the plan.".into();
-    let nothing = check_edit(Ok(r#"{"private": []}"#.to_string()), &harmless, check.private()).unwrap();
-    match decide(&harmless, Some(&nothing), &app) {
-        Decision::Send(public) => assert!(public.body().contains("The window froze twice while opening the plan."), "{}", public.body()),
-        other => panic!("{other:?}"),
-    }
+    assert_sent_as_shown(&card, &public);
+    let dir = scratch("verbatim");
+    let github = FakeGitHub::answering(vec![Outcome::Created { number: 9, url: "u".into() }]);
+    assert!(matches!(Outbox::open(&dir).send(&public, &Token(Some("t")), &github, 0).unwrap(), Delivery::Sent(_)));
+    let seen = github.seen.borrow();
+    assert_eq!((seen[0].2.as_str(), seen[0].3.as_str()), (card.title.as_str(), issue_body(&card).as_str()));
+    assert_eq!(seen[0].3, format!("### What happened\n\n\\[a person\\] saw the \\[a conversation\\] list freeze.\n\n### Version\n\n{VERSION}\n"));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
-fn what_github_is_sent_is_the_issue_rich_checked_scrubbed_last_as_one_string() {
-    // The invariant's other half: the body is scrubbed as ONE string after every other
-    // transformation (paragraphs joined, headings and step numbers added, every mark escaped), and
-    // GitHub is sent exactly that. A card whose paragraphs end "…Jane" and start "Doe…" (words
-    // split before they were scrubbed, as finding 2's were) is caught there.
+fn words_the_user_changes_go_through_the_scanner_then_rich_and_send_waits_for_his_version() {
+    // (b) Finding 1 of review rv-20261009T174727Z-3007e320-578a, in the CEO's order: words the user
+    // changed by hand are scanned, then Rich cleans them up, and his version is on the card before
+    // anything goes.
+    let app = vec![PrivateTerm::new("Pat Morgan", Kind::PersonName)];
+    let written = checked(Ok(answer_naming("The window froze while opening the plan.", "[]")), &screen(), false, VERSION, &Scrubber::new(app.clone()), rich_keeps).unwrap();
+    let check = Check::of(&written.draft);
+    let card = sheet_of(&written.draft);
+    assert!(matches!(at_send(&card, Some(&check), &app, |_| panic!("asked about his own words")), AtSend::Send(_)));
+
+    let mut edited = card.clone();
+    edited.sections[0].paragraphs[0] = "Pat Morgan and Jane Doe saw the window freeze.".into();
+    let asked = RefCell::new(Vec::new());
+    let rich = |prompt: &str| {
+        asked.borrow_mut().push(report_in(prompt));
+        rich_replaces("Jane Doe", "person", "[a person]")(prompt)
+    };
+    let shown = match at_send(&edited, Some(&check), &app, rich) {
+        AtSend::Show(his) => his,
+        other => panic!("it went before the user saw Rich's version: {other:?}"),
+    };
+    // The scanner first (Pat Morgan, whom RichOS holds), then Rich (Jane Doe, whom no rule knows).
+    assert_eq!(asked.borrow().len(), 1);
+    assert_eq!(asked.borrow()[0]["sections"][0]["paragraphs"][0], "[a person] and Jane Doe saw the window freeze.");
+    assert_eq!(shown.digest, EDIT_DIGEST);
+    let again = sheet_of(&shown.draft);
+    assert_eq!(again.sections[0].paragraphs[0], "[a person] and [a person] saw the window freeze.");
+    match at_send(&again, Some(&Check::of(&shown.draft)), &app, |_| panic!("asked again about his own words")) {
+        AtSend::Send(public) => assert_sent_as_shown(&again, &public),
+        other => panic!("{other:?}"),
+    }
+
+    // A change with nothing private in it goes at once, once Rich has given it back unchanged; one
+    // changed character is a change.
+    let mut one = card.clone();
+    one.title.push('!');
+    let mut turns = 0;
+    match at_send(&one, Some(&check), &app, |p| {
+        turns += 1;
+        rich_keeps(p)
+    }) {
+        AtSend::Send(public) => assert_sent_as_shown(&one, &public),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(turns, 1, "a changed title went without Rich");
+    // A card with no check of his at all is his to clean up first too.
+    assert!(matches!(at_send(&card, None, &app, rich_down), AtSend::Unchecked(_)));
+}
+
+#[test]
+fn with_claude_unavailable_nothing_is_sent() {
+    // (d) His last pass cannot be had: there is no draft, and the report waits on this Mac.
+    let dir = scratch("claude-down");
+    let outbox = Outbox::open(&dir);
+    let github = FakeGitHub::answering(vec![]);
+    let said = "Jane Doe saw the window freeze.";
+    let check = checked(Ok(answer_naming(said, "[]")), &screen(), false, VERSION, &Scrubber::default(), rich_down);
+    assert!(check.is_err(), "{check:?}");
+    assert!(matches!(outbox.keep_unless_checked(said, &screen(), check, 0).unwrap(), WriteUp::Unchecked { .. }));
+    // Nor when his last pass is not the report: no title, another number of sections, or a
+    // malformed private list.
+    for bad in [
+        "I can't help with that.".to_string(),
+        serde_json::json!({"title": "T", "sections": [], "private": []}).to_string(),
+        serde_json::json!({"title": "", "sections": [{"paragraphs": ["x"]}, {"paragraphs": [VERSION]}], "private": []}).to_string(),
+        serde_json::json!({"title": "T", "sections": [{"paragraphs": ["x"]}, {"paragraphs": [VERSION]}], "private": "none"}).to_string(),
+        serde_json::json!({"title": "T", "sections": [{"paragraphs": ["x"]}, {"paragraphs": [VERSION]}]}).to_string(),
+    ] {
+        let answer = checked(Ok(answer_naming(said, "[]")), &screen(), false, VERSION, &Scrubber::default(), |_| Ok(bad.clone()));
+        assert!(answer.is_err(), "a draft came out of {bad}: {answer:?}");
+    }
+
+    std::fs::remove_dir_all(dir).unwrap();
+
+    // At Send, words the user changed: nothing goes, and they wait on this Mac.
+    let dir = scratch("claude-down-at-send");
+    let outbox = Outbox::open(&dir);
+    let written = checked_with("The window froze.", "[]");
+    let mut edited = sheet_of(&written.draft);
+    edited.sections[0].paragraphs[0] = said.into();
+    let why = match at_send(&edited, Some(&Check::of(&written.draft)), &[], rich_down) {
+        AtSend::Unchecked(why) => why,
+        other => panic!("{other:?}"),
+    };
+    let id = match outbox.keep_edited(Edited { sheet: edited.clone(), private: vec![] }, &screen(), &why, 1_000).unwrap() {
+        WriteUp::Unchecked { id } => id,
+        other => panic!("{other:?}"),
+    };
+    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty() && github.seen.borrow().is_empty());
+
+    // Once Claude answers, the check loop: the scanner, then Rich, as a card. Still nothing sent.
+    let ready = outbox.check_due(1_000 + CHECK_RETRY_MS, |u| checked_edit(u.edited.as_ref().expect("the changed words"), &[], rich_replaces("Jane Doe", "person", "[a person]"))).unwrap();
+    assert_eq!(ready.len(), 1);
+    assert_eq!(ready[0].0, id);
+    assert_eq!(sheet_of(&ready[0].1.draft).sections[0].paragraphs[0], "[a person] saw the window freeze.");
+    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty() && github.seen.borrow().is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_change_told_to_rich_is_scanned_and_then_his_at_send() {
+    // His words for a change are scanned when they are added; the card with them is a changed
+    // card, so at Send he has the last word on it, and nothing after him changes it.
+    let written = checked_with("The window froze.", "[]");
+    let check = Check::of(&written.draft);
+    let card = sheet_of(&written.draft);
+    let change = change_naming("Jane Doe saw it too.", r#"[{"text": "Jane Doe", "kind": "person"}]"#);
+    let (add, _) = scrub_change(&change, &[], check.private());
+    assert_eq!(joined(&add), "[a person] saw it too.");
+    let mut with_add = card.clone();
+    with_add.sections[0].paragraphs.push(joined(&add));
+    let mut turns = 0;
+    match at_send(&with_add, Some(&check), &[], |p| {
+        turns += 1;
+        rich_keeps(p)
+    }) {
+        AtSend::Send(public) => assert!(public.body().contains("\\[a person\\] saw it too."), "{}", public.body()),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(turns, 1, "a changed card went without Rich's last word");
+}
+
+#[test]
+fn nothing_after_rich_changes_the_words_he_gave() {
+    // The words the card shows are his, and they go as they are: the scanner does not run after
+    // him (on a1d158b35 it ran last, at Send, and could change what he had given).
     let jane = vec![PrivateTerm::new("Jane Doe", Kind::PersonName)];
     let card = Sheet {
-        title: "The window froze".into(),
+        title: "`Esc` froze it".into(),
         sections: vec![
             SheetSection { heading: "What happened".into(), paragraphs: vec!["It was opened by Jane".into(), "Doe saw it freeze.".into()], steps: vec![] },
             SheetSection { heading: "Version".into(), paragraphs: vec![VERSION.into()], steps: vec![] },
         ],
     };
     let check = Check::of(&draft_of(&card, jane.clone()));
-    // What the last scrub leaves out, the card is shown again with, before anything goes.
-    let shown = match decide(&card, Some(&check), &[]) {
-        Decision::Show(draft) => draft,
+    match at_send(&card, Some(&check), &[], |_| panic!("Rich was asked again about his own words")) {
+        AtSend::Send(public) => assert_sent_as_shown(&card, &public),
         other => panic!("{other:?}"),
-    };
-    assert_eq!(draft_words(&shown).lines().nth(1), Some("It was opened by [a person] saw it freeze."));
-    let again = sheet_of(&shown);
-    let public = match decide(&again, Some(&Check::of(&shown)), &[]) {
-        Decision::Send(public) => public,
-        other => panic!("{other:?}"),
-    };
-    let dir = scratch("sent-words");
-    let outbox = Outbox::open(&dir);
-    let github = FakeGitHub::answering(vec![Outcome::Created { number: 7, url: "u".into() }]);
-    assert!(matches!(outbox.send(&public, &Token(Some("t")), &github, 0).unwrap(), Delivery::Sent(_)));
-    let seen = github.seen.borrow();
-    // What GitHub received is the words decided, and they are the issue assembled from the card,
-    // scrubbed whole, last.
-    assert_eq!((seen[0].2.as_str(), seen[0].3.as_str()), (public.title(), public.body()));
-    assert_eq!(seen[0].3, Scrubber::with_rich(vec![], jane).scrub_markdown(&issue_of(&again).body));
-    assert_eq!(seen[0].3, format!("### What happened\n\nIt was opened by \\[a person\\] saw it freeze.\n\n### Version\n\n{VERSION}\n"));
-    std::fs::remove_dir_all(dir).unwrap();
+    }
 
-    // The scrub reads the words as GitHub shows them: a name with a mark in it is found though the
-    // body escapes the mark, and its stand-in is escaped like every other word.
+    // The scanner itself, which runs first, is unchanged: it reads the words as GitHub shows them;
+    // a name with a mark in it is found though the body escapes the mark, and its stand-in is
+    // escaped like every other word.
     let body = |p: &str| issue_body(&Sheet { title: "t".into(), sections: vec![SheetSection { heading: "What happened".into(), paragraphs: vec![p.into()], steps: vec![] }] });
     let acme = Scrubber::with_rich(vec![], vec![PrivateTerm::new("Acme_Co", Kind::CompanyName)]);
     assert_eq!(acme.scrub_markdown(&body("Acme_Co *broke* it.")), "### What happened\n\n\\[a company\\] \\*broke\\* it.\n");
-    // An escape is not a backslash the user wrote; a backslash the user wrote is, and its line goes.
+    assert_eq!(Scrubber::with_rich(vec![], jane).scrub_markdown(&issue_body(&card)), format!("### What happened\n\nIt was opened by \\[a person\\] saw it freeze.\n\n### Version\n\n{VERSION}\n"));
     assert_eq!(Scrubber::default().scrub_markdown(&body("[a person] saw it.")), body("[a person] saw it."));
     assert_eq!(Scrubber::default().scrub_markdown(&body("Open C:\\Users\\x please.")), "### What happened\n\n\\[a file on this Mac\\].\n");
-    // The two marks that made GitHub show other words than the ones written are escaped now.
     assert_eq!(body("~~Jane~~ Doe and Jane&#32;Doe"), "### What happened\n\n\\~\\~Jane\\~\\~ Doe and Jane\\&\\#32;Doe\n");
-    // A title's backtick is an apostrophe: GitHub draws `Jane` in a title as code, not as "`Jane`".
-    // The card shows it so ([`as_posted`]); writing the card out changes no word.
-    let backticks = Sheet { title: "`Jane` froze".into(), sections: vec![] };
-    assert_eq!(sheet_of(&as_posted(&draft_of(&backticks, vec![]), &Scrubber::default())).title, "'Jane' froze");
-    assert_eq!(issue_of(&backticks).title, "`Jane` froze");
-}
-
-#[test]
-fn a_change_rich_writes_keeps_the_report_checked_and_a_change_by_hand_does_not() {
-    let written = checked_with("The window froze.", "[]");
-    let check = Check::of(&written.draft);
-    let card = sheet_of(&written.draft);
-    let change = change_naming("Jane Doe saw it too.", r#"[{"text": "Jane Doe", "kind": "person"}]"#);
-    let (add, kept) = scrub_change(&change, &[], check.private());
-    let after = check.with_change(&card, &change.section, &add, kept.clone()).expect("the card was what Rich checked");
-    // The card once the window adds his words under What happened, after its paragraphs: sendable.
-    let mut with_add = card.clone();
-    with_add.sections[0].paragraphs.push("[a person] saw it too.".into());
-    match decide(&with_add, Some(&after), &[]) {
-        Decision::Send(public) => assert!(public.body().contains("\\[a person\\] saw it too."), "{}", public.body()),
-        other => panic!("{other:?}"),
-    }
-    // A change asked with words the user had changed by hand does not make those words checked.
-    let mut by_hand = card.clone();
-    by_hand.sections[0].paragraphs[0] = "Marta saw the window freeze.".into();
-    assert_eq!(check.with_change(&by_hand, &change.section, &add, kept), None);
+    // Its title substitution (a backtick as an apostrophe) is the scanner's, before Rich; writing a
+    // card out changes no word.
+    assert_eq!(sheet_of(&as_posted(&draft_of(&card, vec![]), &Scrubber::default())).title, "'Esc' froze it");
+    assert_eq!(issue_of(&card).title, "`Esc` froze it");
 }
 
 // ---- the review of a2fc94dc4 (rv-20261009T183159Z-a2fc94dc-20e7), fixture `privacy_probe.rs` ----
-
-/// What GitHub is sent for `sheet` under `check`: the body decided, showing the card again first
-/// when the last scrub leaves out what it still shows, as the window does.
-fn sent_body(sheet: &Sheet, check: &Check) -> String {
-    let public = match decide(sheet, Some(check), &[]) {
-        Decision::Send(public) => public,
-        Decision::Show(again) => match decide(&sheet_of(&again), Some(&Check::of(&again)), &[]) {
-            Decision::Send(public) => public,
-            other => panic!("{other:?}"),
-        },
-        Decision::Unchecked => panic!("unchecked"),
-    };
-    let (_, request) = issue_request(&public);
-    request["body"].as_str().unwrap().to_string()
-}
 
 #[test]
 fn a_private_name_between_underscores_stars_or_tildes_is_left_out() {
@@ -1372,17 +1499,22 @@ fn a_private_name_between_underscores_stars_or_tildes_is_left_out() {
 }
 
 #[test]
-fn a_private_name_between_underscores_in_words_changed_by_hand_is_left_out_once_rich_checks_them() {
-    // The same on a2fc94dc4 after a change by hand that Rich checked, naming the person: the
-    // report was sendable at once, and "\_Jane Doe\_" went out.
+fn a_private_name_between_underscores_in_words_changed_by_hand_is_left_out_before_rich_has_them() {
+    // The same on a2fc94dc4 after a change by hand: "\_Jane Doe\_" went out. Now the scanner goes
+    // over the changed words with the report's private words before Rich has the last word.
     let jane = r#"[{"text": "Jane Doe", "kind": "person"}]"#;
-    let written = checked_with("The window froze.", "[]");
+    let written = checked_with("Jane Doe saw the window freeze.", jane);
     let mut edited = sheet_of(&written.draft);
     edited.sections[0].paragraphs[0] = "_Jane Doe_ saw the window freeze.".into();
-    let recheck = check_edit(Ok(format!(r#"{{"private": {jane}}}"#)), &edited, &[]).unwrap();
-    assert!(matches!(decide(&edited, Some(&recheck), &[]), Decision::Show(_)), "sent without showing what was left out");
-    let body = sent_body(&edited, &recheck);
-    assert!(!body.contains("Jane") && body.contains("\\_\\[a person\\]\\_ saw the window freeze."), "{body}");
+    let given = RefCell::new(String::new());
+    let rich = |p: &str| {
+        *given.borrow_mut() = p.to_string();
+        rich_keeps(p)
+    };
+    let (shown, public) = sent_from(&edited, Some(&Check::of(&written.draft)), &[], rich);
+    assert_eq!(report_in(&given.borrow())["sections"][0]["paragraphs"][0], "_[a person]_ saw the window freeze.", "Rich was not given the scanner's output");
+    assert_sent_as_shown(&shown, &public);
+    assert!(!public.body().contains("Jane") && public.body().contains("\\_\\[a person\\]\\_ saw the window freeze."), "{}", public.body());
 }
 
 #[test]
@@ -1395,13 +1527,15 @@ fn an_at_name_in_the_body_notifies_nobody_on_github() {
             SheetSection { heading: "Version".into(), paragraphs: vec![VERSION.into()], steps: vec![] },
         ],
     };
-    let body = sent_body(&card, &Check::of(&draft_of(&card, vec![])));
+    // Typed by hand: the scanner, then Rich, then the card shown again as it goes.
+    let (_, public) = sent_from(&card, None, &[], rich_keeps);
+    let body = public.body();
     assert!(body.matches('@').count() == 4 && body.matches("@\u{200B}").count() == 4, "{body:?}");
     // The email address is still found and left out, and nothing else changes for the reader.
     assert!(!body.contains("example.com") && body.contains("\\[an email address\\]"), "{body:?}");
     assert_eq!(body.replace('\u{200B}', ""), format!("### What happened @team\n\n@octocat said it froze; (@hubot) too. Mail \\[an email address\\].\n\n1. Ask @octo-cat\n\n### Version\n\n{VERSION}\n"));
-    // Rich checks the words as the user wrote them.
-    assert!(edit_check_prompt(&card).contains("@octocat said it froze"));
+    // Rich is given the words as they are, the scanner's stand-ins in them.
+    assert!(finish_prompt(&card, &[]).contains("@octocat said it froze"));
     // A zero-width space the user wrote is kept as written.
     let typed = Sheet { title: "t".into(), sections: vec![SheetSection { heading: "What happened".into(), paragraphs: vec!["@\u{200B}x".into()], steps: vec![] }] };
     assert_eq!(sent_body(&typed, &Check::of(&draft_of(&typed, vec![]))), "### What happened\n\n@\u{200B}\u{200B}x\n");
@@ -1439,54 +1573,27 @@ fn a_private_name_with_an_accent_written_the_other_unicode_way_is_left_out() {
 }
 
 #[test]
-fn a_private_name_with_an_accent_written_the_other_unicode_way_is_left_out_once_rich_checks_a_change_by_hand() {
-    // The same on c3c40906d after a change by hand that Rich checked, naming "Café North": the
-    // report was sendable at once, and "CAFÉ NORTH" went out.
+fn a_private_name_with_an_accent_written_the_other_unicode_way_is_left_out_of_a_change_by_hand() {
+    // The same on c3c40906d after a change by hand: "CAFÉ NORTH" went out. The report's private
+    // words are the scanner's on the changed words, before Rich has them.
     for (listed, said) in [(CAFE_ONE, "CAFE\u{301} NORTH froze."), (CAFE_TWO, "CAF\u{C9} NORTH froze.")] {
-        let written = checked_with("The window froze.", "[]");
+        let private = serde_json::json!([{"text": listed, "kind": "company"}]).to_string();
+        let written = checked_with(&format!("{listed} froze."), &private);
         let mut edited = sheet_of(&written.draft);
         edited.sections[0].paragraphs[0] = said.into();
-        assert_eq!(decide(&edited, Some(&Check::of(&written.draft)), &[]), Decision::Unchecked);
-        let reply = serde_json::json!({"private": [{"text": listed, "kind": "company"}]}).to_string();
-        let recheck = check_edit(Ok(reply), &edited, &[]).unwrap();
-        assert!(matches!(decide(&edited, Some(&recheck), &[]), Decision::Show(_)), "sent without showing what was left out");
-        let body = sent_body(&edited, &recheck);
-        assert!(!body.contains("NORTH") && body.contains("\\[a company\\] froze."), "{listed:?} in {said:?} sent {body:?}");
+        let (shown, public) = sent_from(&edited, Some(&Check::of(&written.draft)), &[], rich_keeps);
+        assert_sent_as_shown(&shown, &public);
+        assert!(!public.body().contains("NORTH") && public.body().contains("\\[a company\\] froze."), "{listed:?} in {said:?} sent {:?}", public.body());
     }
 }
 
 // ---- the review of d9cdd913f (rv-20261009T190633Z-d9cdd913-9f1c), fixture `approval.rs` ----
 
-/// Rich's checked draft of a report titled `title`, with `happened` under What happened and
-/// `private` (a JSON list) as the private words he named.
+/// Rich's draft of a report titled `title`, with `happened` under What happened and `private` (a
+/// JSON list) as the private words he named, through the scanner, his last pass keeping it.
 fn written_as(title: &str, happened: &str, private: serde_json::Value) -> Checked {
     let answer = serde_json::json!({"title": title, "what_happened": happened, "private": private}).to_string();
-    checked(Ok(answer), &screen(), false, VERSION, &Scrubber::default()).unwrap()
-}
-
-/// **WHAT GOES, AND THE CARD THE USER LAST SAW WHEN IT WENT**: Send pressed on `card` under
-/// `check`, and pressed once more on the card shown again if it is shown again, as the window
-/// does. A card shown again is the issue exactly as it would go, so the second press sends it:
-/// a third card would be a card that never ends.
-fn sent_from(card: &Sheet, check: &Check, app: &[PrivateTerm]) -> (Sheet, Public) {
-    match decide(card, Some(check), app) {
-        Decision::Send(public) => (card.clone(), public),
-        Decision::Show(again) => match decide(&sheet_of(&again), Some(&Check::of(&again)), app) {
-            Decision::Send(public) => (sheet_of(&again), public),
-            other => panic!("the card shown again was not sent as shown: {other:?}"),
-        },
-        Decision::Unchecked => panic!("unchecked"),
-    }
-}
-
-/// The title and the body GitHub is sent are the card's words, every one: the title as the card
-/// shows it, and the body as the card's sections written out, every mark escaped so that GitHub
-/// shows the words themselves ([`issue_body`]).
-fn assert_sent_as_shown(card: &Sheet, public: &Public) {
-    assert_eq!(public.title(), card.title, "the title sent is not the title the card showed");
-    assert_eq!(public.body(), issue_body(card), "the body sent is not the body the card showed");
-    let (_, request) = issue_request(public);
-    assert_eq!((request["title"].as_str(), request["body"].as_str()), (Some(card.title.as_str()), Some(issue_body(card).as_str())));
+    checked(Ok(answer), &screen(), false, VERSION, &Scrubber::default(), rich_keeps).unwrap()
 }
 
 #[test]
@@ -1495,60 +1602,56 @@ fn the_title_sent_is_the_title_the_card_shows() {
     // send" was filed: the title's backticks became apostrophes after the user approved it.
     let written = written_as("`Enter` does not send", "The window froze.", serde_json::json!([]));
     let card = sheet_of(&written.draft);
-    match decide(&card, Some(&Check::of(&written.draft)), &[]) {
-        Decision::Send(public) => assert_sent_as_shown(&card, &public),
-        other => panic!("Rich's checked draft was not sendable: {other:?}"),
+    match at_send(&card, Some(&Check::of(&written.draft)), &[], |_| panic!("asked about his own words")) {
+        AtSend::Send(public) => assert_sent_as_shown(&card, &public),
+        other => panic!("Rich's draft was not sendable: {other:?}"),
     }
     assert_eq!(card.title, "'Enter' does not send", "the card does not show the title as it goes");
 
     // A backtick the user types into the title is shown as it would go before anything is sent.
     let mut typed = card.clone();
     typed.title = "`Enter` still does not send".into();
-    let check = check_edit(Ok(r#"{"private": []}"#.into()), &typed, &[]).unwrap();
-    match decide(&typed, Some(&check), &[]) {
-        Decision::Show(again) => assert_eq!(sheet_of(&again).title, "'Enter' still does not send"),
-        Decision::Send(public) => panic!("card title {:?}; sent title {:?}; no card shown again", typed.title, public.title()),
-        Decision::Unchecked => panic!("unchecked"),
+    match at_send(&typed, Some(&Check::of(&written.draft)), &[], rich_keeps) {
+        AtSend::Show(again) => assert_eq!(sheet_of(&again.draft).title, "'Enter' still does not send"),
+        other => panic!("card title {:?}; no card shown again: {other:?}", typed.title),
     }
-    let (shown, public) = sent_from(&typed, &check, &[]);
+    let (shown, public) = sent_from(&typed, Some(&Check::of(&written.draft)), &[], rich_keeps);
     assert_sent_as_shown(&shown, &public);
 }
 
 #[test]
-fn a_heading_the_last_scrub_changes_is_shown_before_anything_is_sent() {
+fn a_heading_the_scanner_or_rich_changes_is_shown_before_anything_is_sent() {
     // Finding 2: with a company named "Version" private, on d9cdd913f the card showed the
-    // "Version" heading, the last scrub filed it as "[a company]", and no card was shown again.
+    // "Version" heading and the issue was filed with "[a company]" there.
     let version = serde_json::json!([{"text": "Version", "kind": "company"}]);
-    let written = written_as("Window froze", "Version froze.", version.clone());
+    let written = written_as("Window froze", "Version froze.", version);
     let card = sheet_of(&written.draft);
-    match decide(&card, Some(&Check::of(&written.draft)), &[]) {
-        Decision::Send(public) => assert_sent_as_shown(&card, &public),
-        other => panic!("Rich's checked draft was not sendable: {other:?}"),
+    match at_send(&card, Some(&Check::of(&written.draft)), &[], |_| panic!("asked about his own words")) {
+        AtSend::Send(public) => assert_sent_as_shown(&card, &public),
+        other => panic!("Rich's draft was not sendable: {other:?}"),
     }
     assert_eq!(card.sections.last().unwrap().heading, "[a company]", "the card does not show the heading as it goes");
 
-    // A card that shows the heading, checked by Rich after a change by hand that names the
-    // company: the card is shown again with the heading as it would go, before anything is sent.
+    // A card that shows the heading, changed by hand to name the company, which Rich cleans up last:
+    // his version, heading included, is shown before anything is sent.
     let plain = written_as("Window froze", "The window froze.", serde_json::json!([]));
     let mut edited = sheet_of(&plain.draft);
     assert_eq!(edited.sections.last().unwrap().heading, "Version");
     edited.sections[0].paragraphs[0] = "Version froze.".into();
-    let check = check_edit(Ok(serde_json::json!({"private": version}).to_string()), &edited, &[]).unwrap();
-    match decide(&edited, Some(&check), &[]) {
-        Decision::Show(again) => assert_eq!(again.sections.last().unwrap().heading, "[a company]"),
-        Decision::Send(public) => panic!("card heading Version; sent body {:?}; no card shown again", public.body()),
-        Decision::Unchecked => panic!("unchecked"),
+    let rich = rich_replaces("Version", "company", "[a company]");
+    match at_send(&edited, Some(&Check::of(&plain.draft)), &[], rich) {
+        AtSend::Show(again) => assert_eq!(again.draft.sections.last().unwrap().heading, "[a company]"),
+        other => panic!("card heading Version; no card shown again: {other:?}"),
     }
-    let (shown, public) = sent_from(&edited, &check, &[]);
+    let (shown, public) = sent_from(&edited, Some(&Check::of(&plain.draft)), &[], rich);
     assert_sent_as_shown(&shown, &public);
     assert!(!public.body().contains("Version"), "{}", public.body());
 }
 
 /// `text` with every stand-in taken out, escaped or not: what is left is words the user wrote.
 fn without_stand_ins(text: &str) -> String {
-    let kinds = [Kind::ConversationName, Kind::CompanyName, Kind::PersonName, Kind::FolderName, Kind::FilePath, Kind::EmailAddress, Kind::PrivateWord];
     let mut out = text.replace("\\[", "[").replace("\\]", "]");
-    for kind in kinds {
+    for kind in Kind::ALL {
         out = out.replace(kind.stand_in(), "");
     }
     out
@@ -1556,8 +1659,9 @@ fn without_stand_ins(text: &str) -> String {
 
 #[test]
 fn every_card_is_word_for_word_the_issue_that_is_posted() {
-    // The class, not the two cases: whatever the card holds, what is posted is exactly what the
-    // card showed when Send was pressed, and a card shown again is sent as shown.
+    // The class, not the two cases: whatever the user typed on the card, it goes through the
+    // scanner and then Rich, and what is posted is exactly what the card showed when Send was
+    // pressed; a card shown again is sent as shown.
     let person = |t: &str| PrivateTerm::new(t, Kind::PersonName);
     let section = |heading: &str, paragraphs: &[&str], steps: &[&str]| SheetSection {
         heading: heading.into(),
@@ -1575,15 +1679,18 @@ fn every_card_is_word_for_word_the_issue_that_is_posted() {
         (Sheet { title: "Mac froze".into(), sections: vec![section("What happened", &["Mac lost it.", "It was in /Users/mac/x.txt then."], &[])] }, vec![person("Mac")]),
         // A path on a line that starts with a stand-in already on the card.
         (Sheet { title: "Notes vanished".into(), sections: vec![section("What happened", &["[a person] keeps notes in /Users/x/notes.txt"], &[])] }, vec![]),
+        // Line breaks the user typed inside a paragraph join no two words.
+        (Sheet { title: "Send".into(), sections: vec![section("What happened", &["Click\nSend does\nnothing twice."], &[])] }, vec![]),
     ];
     for (card, private) in cases {
-        let check = check_edit(Ok(serde_json::json!({"private": private}).to_string()), &card, &[]).unwrap();
-        let (shown, public) = sent_from(&card, &check, &[]);
+        let report = Check::of(&draft_of(&sheet("before"), private.clone()));
+        let (shown, public) = sent_from(&card, Some(&report), &[], rich_keeps);
         assert_sent_as_shown(&shown, &public);
         let words = without_stand_ins(&format!("{}\n{}", public.title(), public.body()));
         for p in &private {
             assert!(!words.to_lowercase().contains(&p.text.to_lowercase()), "{:?} was posted: {public:?}", p.text);
         }
         assert!(!words.contains("/Users"), "{public:?}");
+        assert!(!words.contains("ClickSend") && !words.contains("doesnothing"), "{public:?}");
     }
 }

@@ -8,7 +8,8 @@
 //   ask -> checking -> draft <-> editing -> sending -> sent
 //            |           \-> canceled          \-> waiting (offline / GitHub down) -> sent
 //            \-> unchecked (Claude didn't answer: kept on this Mac, nothing to send) -> draft
-//   sending -> draft again (Rich checked changed words and left more out, or the last scrub did)
+//   sending -> draft again (changed words went through the scanner and then Rich, and his
+//              version differs from the card)
 //   sending -> unchecked (changed words Claude didn't answer about: kept, nothing sent) -> draft
 //
 // No report is offered for sending without Rich's check (review rv-20261009T162841Z-69294215-70e6
@@ -18,12 +19,13 @@
 // card comes then, unsent. A report kept before a quit comes in the Rich panel.
 //
 // What is SENT is decided by the shell alone, at Send (`bug_report_send`, `richos_core::
-// bug_report::decide`; review rv-20261009T174727Z-3007e320-578a): the words go only when they are
-// the words Rich last checked of this report (`f.report`), scrubbed last as one whole string.
-// Words the user changed by hand are checked by Rich first ("Rich is checking your changes…");
-// when Claude can't answer they wait on this Mac, unsent, like any report he couldn't check; and
-// when the last scrub leaves out more than the card shows, the card comes back with it left out,
-// to send or not. This file never decides that a report may go.
+// bug_report::at_send`), in the CEO's order (§115): the scanner first, Rich last, and nothing
+// after him changes the words. The card's words go as they are when they are the words Rich last
+// gave of this report (`f.report`). Words that changed (by hand, or a change told to Rich) go
+// through the scanner and then Rich first ("Rich is checking your changes…"); when his version
+// differs from the card, the card comes back with his version, to send or not; when Claude can't
+// answer they wait on this Mac, unsent, like any report he couldn't check. This file never decides
+// that a report may go.
 //
 // Pressing Bust a bug opens nothing new: Rich asks in the conversation on screen, under a quiet
 // "Bust a bug" divider. Where a window covers the conversation (Corrections, Feedback, Search, the
@@ -441,9 +443,8 @@ window.RichBug = (function () {
 
   var CHECKING_CHANGES = "Rich is checking your changes…";
   var CHANGES_NOT_CHECKED = "I couldn't check your changes for private details yet, because Claude didn't answer, so I didn't send the report. It's saved on this Mac, and I'll check it by myself as soon as Claude answers, then show it to you here.";
-  // Said when the shell found that the issue as it would be posted differs from the card in any
-  // character (more left out, or a title's backtick written as an apostrophe; review
-  // rv-20261009T190633Z-d9cdd913-9f1c), so it says what is true of both.
+  // Said when changed words went through the scanner and then Rich, and his version differs from
+  // the card in any character (more left out, or a title's backtick written as an apostrophe).
   var SHOWN_AGAIN = "I checked it again before sending, and some of its words would go out differently from how the card showed them. Here it is exactly as it would go. Nothing goes out until you press Send.";
 
   /// Rich's checked report on its card, waiting for the user: `answer` is `{report, draft,
@@ -456,7 +457,7 @@ window.RichBug = (function () {
     f.draft = answer.draft;
     f.private = (answer.draft && answer.draft.private) || [];
     richSays(f, [lead], { worked: workedFor, digest: answer.digest });
-    // A card shown again (Rich checked changed words, or the last scrub left more out) replaces
+    // A card shown again (Rich's version of changed words) replaces
     // the one before it: one report, one card.
     if (old) old.remove();
     f.card = buildCard(f);
@@ -568,7 +569,7 @@ window.RichBug = (function () {
       var more = f.nextChanges && f.nextChanges.shift();
       if (more && f.step === "draft") askChange(f, more, false);
     }
-    bridge.invoke("bug_report_change", { said: text, sheet: sheetOf(f), private: f.private || [], report: f.report || null }).then(function (answer) {
+    bridge.invoke("bug_report_change", { said: text, sheet: sheetOf(f), private: f.private || [] }).then(function (answer) {
       w2.remove();
       if (f.step !== "changing") return;
       if (answer.private) f.private = answer.private;
@@ -581,6 +582,8 @@ window.RichBug = (function () {
       var ol = sec.querySelector("ol");
       sec.insertBefore(p, ol);
       f.edited = true;
+      // The card changed: at Send it goes through the scanner and then Rich, last (CEO §115).
+      f.handEdited = true;
       f.step = "draft";
       paintCard(f);
       paintComposers();
@@ -663,9 +666,8 @@ window.RichBug = (function () {
   }
 
   /// The card draws the draft word for word and changes none: every draft the shell gives it is
-  /// the issue exactly as it would be posted (`richos_core::bug_report::as_posted`: the title's
-  /// backticks as apostrophes and the last scrub, headings included), and Send posts these words
-  /// or shows the card again (review rv-20261009T190633Z-d9cdd913-9f1c).
+  /// Rich's last word on what the scanner made of the report (`richos_core::bug_report::finished`),
+  /// and Send posts these words, or, when they changed, shows his version of them first.
   function buildCard(f) {
     var d = f.draft;
     var c = node("article", "bugcard is-new");
@@ -989,8 +991,8 @@ window.RichBug = (function () {
     bridge.invoke("bug_report_send", { report: f.report || null, sheet: sheetOf(f), screen: publicScreen(f.screen) }).then(function (a) {
       if (checking) checking.remove();
       if (f.step !== "sending") return;
-      // Not sent: the last scrub left more out than the card showed, or Rich checked the changed
-      // words and named something. The card comes back as it would go.
+      // Not sent: the changed words went through the scanner and then Rich, and his version
+      // differs from the card. The card comes back as it would go.
       if (a && a.state === "checked") return showDraft(f, a, SHOWN_AGAIN, null);
       // Not sent: Rich couldn't check the changed words yet; they wait on this Mac.
       if (a && a.state === "unchecked") return changesKept(f, a.id);

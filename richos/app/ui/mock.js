@@ -2526,13 +2526,14 @@
   // suite can press Send before the heads-up's answer arrives (review
   // rv-20261009T151254Z-84d1bdce-20df finding 2).
   //
-  // SEND, AS THE SHELL DECIDES IT (`bug_report_send`, `richos_core::bug_report::decide`; review
+  // SEND, AS THE SHELL DECIDES IT (`bug_report_send`, `richos_core::bug_report::at_send`; review
   // rv-20261009T174727Z-3007e320-578a): what Rich last checked of each report is kept here by its
-  // id (`checks`), and a sheet goes only when it is that, word for word. Words the user changed by
-  // hand are checked by Rich first: `preset.bugRichCheck` is what he names private in them (with
-  // the report's own private words and `preset.bugPrivateWords`, which the core's scrubber finds
-  // by itself); when he names nothing the sheet goes, otherwise the card comes back with it left
-  // out. With Claude "down" the changed words are kept (`unchecked()`, with `edited`).
+  // id (`checks`), and a sheet goes only when it is that, word for word. Words that changed (by
+  // hand, or a change told to Rich) go through the scanner and then Rich first (CEO §115): what
+  // they leave out is the report's own private words, `preset.bugPrivateWords` (the scanner's) and
+  // `preset.bugRichCheck` (Rich's last pass); when that changes nothing the sheet goes, otherwise
+  // the card comes back with his version. With Claude "down" the changed words are kept
+  // (`unchecked()`, with `edited`).
   // `preset.bugSendCheckHold` keeps that check unanswered until `releaseSendCheck()`. `filed()` is
   // every sheet that actually went out.
   const bugMock = {
@@ -2688,7 +2689,8 @@
     claudeAnswers() {
       bugMock.claude = "up";
       bugMock.unchecked.forEach((u) => {
-        // Changed words he could not check at Send: he checks those (the core's `checked_edit`).
+        // Changed words he could not check at Send: the scanner and then he go over those (the
+        // core's `checked_edit`).
         const draft = u.edited ? bugRedraft(u.edited.sheet, u.edited.private.concat(preset.bugRichCheck || [])) : bugDraft(u.answer, u.screen);
         if (!bugMock.checks[u.id]) bugKeepCheck(u.id, draft);
         const digest = u.edited ? "Checked your changes for private details" : bugDigest(u.screen);
@@ -4051,7 +4053,7 @@
           return at !== -1;
         }
         case "bug_report_change": {
-          bugMock.calls.push({ cmd, said: args.said, sheet: args.sheet, private: args.private, report: args.report });
+          bugMock.calls.push({ cmd, said: args.said, sheet: args.sheet, private: args.private });
           await new Promise((r) => setTimeout(r, preset.bugWriteMs ?? 400));
           if (preset.bugChangeHold) await bugHold("change");
           // Claude could not be asked: nothing is added (the shell's answer, word for word).
@@ -4060,14 +4062,8 @@
           // The report's own private words go on applying to every change (the shell's `scrub_change`).
           const kept = args.private || [];
           const add = bugScrub(bugSentence(said), kept);
-          // His words are his check: when the card was what he checked, his check moves on to it
-          // with his words added (the core's `Check::with_change`).
-          const held = bugMock.checks[args.report];
-          if (held && held.sheet === JSON.stringify(args.sheet)) {
-            const next = JSON.parse(held.sheet);
-            next.sections[0].paragraphs.push(add.map((s) => s.text).join("").trim());
-            bugMock.checks[args.report] = { sheet: JSON.stringify(next), private: held.private };
-          }
+          // The card with his words added is a changed card: at Send it goes through the scanner
+          // and then Rich, last (the core's `at_send`, CEO §115), as words changed by hand do.
           return { section: "What happened", add, private: kept, workedMs: 4000 };
         }
         case "bug_report_send": {

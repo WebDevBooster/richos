@@ -333,7 +333,7 @@ richos/app/
                               the technical view, re-prime machinery that is recorded and
                               structurally cannot render, no session id on the lane's wire,
                               the honest empty lane, and the retention window covering it
-    tests/bug_report_tests.rs 60 tests for Bust a bug (CEO §115, round 21): names (in
+    tests/bug_report_tests.rs 63 tests for Bust a bug (CEO §115, round 21): names (in
                               any capitals, in every alphabet, with an accent
                               encoded either Unicode way), file
                               paths (any word with a slash or a backslash, relative
@@ -352,16 +352,18 @@ richos/app/
                               is read out of his answer; a report he could not check
                               (an error, a timeout, no report in his answer) is never
                               offered for sending: it is kept on this Mac and he is
-                              asked again until he answers; the issue is the approved
-                              sheet word for word, and what is sent is decided in one
-                              place (`decide`): only words Rich checked (a word changed
-                              by hand is checked by him first, or waits on this Mac),
-                              scrubbed last as one whole string per field, and only
-                              the words the card showed: every card is made by the
-                              one function that makes the issue (`as_posted`: the
-                              title's backticks as apostrophes and the last scrub,
-                              headings included), and a card that differs from it in
-                              any character is shown again before anything goes; a send
+                              asked again until he answers; the order is the CEO's (§115):
+                              the scanner first, Rich last (every prompt asks him for the
+                              report with this user's private details already left out,
+                              and his last pass, `finished`, cleans up what the scanner
+                              left), the card is his words and the issue is the card word
+                              for word, nothing after him changing a word; what is sent is
+                              decided in one place (`at_send`): the words Rich gave last,
+                              and words changed by hand or by telling Rich go through the
+                              scanner and then Rich first, his version shown before
+                              anything goes when it differs, or wait on this Mac when
+                              Claude cannot answer; a line break typed in a paragraph
+                              joins no two words; a send
                               files one issue with the token read at send time; a failed
                               send is kept on this Mac, survives a relaunch and goes out
                               when it is due; canceling one is confirmed (off this Mac, or
@@ -1173,7 +1175,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1969 tests + 5 doc-tests (1965 direct, 4 ignored)
+cargo test -p richos-core                       # 1972 tests + 5 doc-tests (1968 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

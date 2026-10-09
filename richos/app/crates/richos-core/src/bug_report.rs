@@ -6,30 +6,36 @@
 //! > a GitHub account, the issue submission should happen from their GitHub account. And if they
 //! > don't, then we can use a RichOS reporting account."*
 //!
+//! And on what is private (§115, later the same day): *"If it's so hard to automate this
+//! particular part, then just let's the user's Rich check and clean-up what needs to be
+//! cleaned-up in that particular user's case."* The order, as he set it: **the scanner runs
+//! first, Rich runs last**, and nothing after Rich changes the words.
+//!
 //! The design is round 21 (`richos-hq/design/mockups/rounds/round-21/`, approved "go!"). This
 //! file is everything about it that is not a window or a socket, so all of it is tested here:
 //!
-//!   - **What is private, and its stand-ins** ([`Scrubber`]). The issue is public, so names RichOS
-//!     holds (conversations, companies, people, folders), file paths and email addresses are
-//!     replaced by plain stand-ins such as `[a conversation]`. Each stand-in keeps what it replaced
-//!     in [`Segment::was`] for the tooltip only the user sees; `was` is never part of the issue.
-//!     This is enforced HERE, after Rich writes, so a model that slips cannot put a name on GitHub.
+//!   - **The scanner, first** ([`Scrubber`]). Names RichOS holds (conversations, companies,
+//!     people, folders), file paths, email addresses and every word Rich named private are replaced
+//!     by plain stand-ins such as `[a conversation]`. Each stand-in keeps what it replaced in
+//!     [`Segment::was`] for the tooltip only the user sees; `was` is never part of the issue. It is
+//!     an extra help, and it cannot be relied on: no rule can know an ordinary client's name.
 //!   - **Rich's write-up** ([`writer_prompt`], [`writer_args`], [`parse_written`], [`draft_from`]).
-//!     One `claude --print` turn with no tools, under the account the conversation runs on. **No
-//!     report is offered for sending without Rich's check** ([`checked`]): when it cannot be had
-//!     (an error, a timeout, an answer that is not a report), the user's words are kept on this Mac
-//!     and Rich is asked again by himself until he answers ([`Outbox::keep_unless_checked`],
-//!     [`Outbox::check_due`]). No rule can know an ordinary client's name, so nothing stands in for
-//!     him (review rv-20261009T162841Z-69294215-70e6 finding 2: the plain write-up that did put
-//!     "Jane Doe at SecretCo" in a public issue).
+//!     One `claude --print` turn with no tools, under the account the conversation runs on, asked
+//!     to write the report with this user's private details already left out.
+//!   - **Rich, last** ([`finish_prompt`], [`finished`]). What the scanner made of the report is
+//!     given to Rich once more, to clean up whatever private detail of this user's case is still
+//!     there. **The card shows his words, and the issue is those words**, with only the escaping
+//!     GitHub needs. **No report is offered for sending without him** ([`checked`]): when he cannot
+//!     be had (an error, a timeout, an answer that is not a report), the user's words are kept on
+//!     this Mac and Rich is asked again by himself until he answers ([`Outbox::keep_unless_checked`],
+//!     [`Outbox::check_due`]).
 //!   - **The issue, word for word** ([`Sheet`], [`issue_body`], [`issue_request`]). What goes to
 //!     GitHub is rendered from the sheet the user approved and nothing else: no label, no footer,
 //!     no attachment (round 21 "Left out, on purpose": no screenshot).
-//!   - **What leaves this Mac, decided once** ([`decide`], [`Public`]). The words sent are words
-//!     Rich checked, to the character ([`Check`]; a word the user changed by hand is checked by
-//!     him first, [`check_edit`]), scrubbed LAST as one whole string per field, after every other
-//!     transformation, with nothing transforming them afterwards. [`Outbox::send`] takes only
-//!     what `decide` made.
+//!   - **What leaves this Mac, decided once** ([`at_send`], [`Public`]). The words sent are the
+//!     card's, and they are words Rich gave last, to the character ([`Check`]). Words the user
+//!     changed (by hand, or by telling Rich) go through the scanner and then Rich first, and his
+//!     version is what is shown and sent. [`Outbox::send`] takes only what `at_send` made.
 //!   - **Send, and keep what could not go** ([`Outbox`]). The report is written to this Mac BEFORE
 //!     the request is made, so a failure, a quit or a crash leaves it here exactly as approved. A
 //!     waiting report is tried again by itself ([`Outbox::send_due`]) and at once on *Try now*.
@@ -849,8 +855,8 @@ and approves it, it is filed as a GitHub issue that anyone can read.\n\n\
 What the user said, in their own words:\n<<<\n{answer}\n>>>\n\n\
 Where they were when they pressed the button:\n{screen}\n\n\
 {evidence}\
-Private words this user has: {terms}. Leave names out where you can; any that remain are replaced with \
-plain stand-ins such as [a conversation] before the user sees the report.\n\n\
+Private words this user has: {terms}. Write the report with every private detail of this user's case \
+already left out: {private_details}. Write each as the stand-in for its kind, exactly: {stand_ins}.\n\n\
 Write in plain American English that a non-technical reader follows. Say what the user saw and did, not \
 guesses about the code. Give steps to see it only as far as the user's words and the screen support them.\n\n\
 Answer with ONLY a JSON object, no other text, in exactly this shape:\n\
@@ -870,7 +876,23 @@ folder, file, email, other. [] when there is none.",
         screen = screen_lines(screen, version),
         evidence = evidence(screen, picture),
         terms = terms_line(terms),
+        private_details = PRIVATE_DETAILS,
+        stand_ins = stand_ins_line(),
     )
+}
+
+/// What every one of Rich's prompts calls a private detail of this user's case.
+const PRIVATE_DETAILS: &str = "names of people, companies, clients, products, projects, conversations and folders, \
+file paths, email addresses, and anything else that is theirs and private";
+
+/// Each kind Rich names a private word with, and the stand-in written in its place
+/// ([`Kind::stand_in`]), as his prompts list them: "person [a person], company [a company], …".
+fn stand_ins_line() -> String {
+    [("person", Kind::PersonName), ("company", Kind::CompanyName), ("conversation", Kind::ConversationName), ("folder", Kind::FolderName), ("file", Kind::FilePath), ("email", Kind::EmailAddress), ("other", Kind::PrivateWord)]
+        .iter()
+        .map(|(word, kind)| format!("{word} {}", kind.stand_in()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// A picture for Rich: its media type (`image/jpeg`) and its bytes in standard base64.
@@ -925,7 +947,8 @@ The user just told you what to change:\n<<<\n{said}\n>>>\n\n\
 Answer with ONLY a JSON object, no other text: {{\"section\": \"...\", \"add\": \"...\", \"private\": []}}\n\
 - section: the heading the change belongs under, exactly one of: {headings}.\n\
 - add: the sentence or two to add there, in plain American English, written about \"the user\" the way \
-the report is.\n\
+the report is, with every private detail of this user's case ({private_details}) already left out, each \
+written as the stand-in for its kind, exactly: {stand_ins}.\n\
 - private: every name of a person, company, conversation, product, client or folder, and anything else \
 private, that is in what you add, copied exactly, each as {{\"text\": \"...\", \"kind\": \"person\"}} with kind \
 one of person, company, conversation, folder, file, email, other. [] when there is none.",
@@ -933,6 +956,8 @@ one of person, company, conversation, folder, file, email, other. [] when there 
         body = issue_body(sheet),
         said = said.trim(),
         headings = headings.join(", "),
+        private_details = PRIVATE_DETAILS,
+        stand_ins = stand_ins_line(),
     )
 }
 
@@ -1044,15 +1069,141 @@ pub struct Checked {
 }
 
 /// **RICH'S CHECK, OR NO REPORT TO SEND** (CEO §115: *"let their Rich check and articulate
-/// everything properly and then submit"*). `rich` is his answer, or why there is none; read as a
-/// write-up ([`parse_written`]) and scrubbed into the card's draft ([`draft_from`]), or the reason
-/// it could not be. There is no other way to a draft: the plain write-up that stood in for him
-/// when Claude failed copied the user's words, private list empty, into a public issue ("Jane Doe
-/// at SecretCo saw the window freeze", review rv-20261009T162841Z-69294215-70e6 finding 2), and no
-/// rule can know a name RichOS does not hold. `looked`: he was given what was on the screen.
-pub fn checked(rich: Result<String, String>, screen: &Screen, looked: bool, version: &str, scrubber: &Scrubber) -> Result<Checked, String> {
+/// everything properly and then submit"*). `rich` is his write-up, or why there is none; read
+/// ([`parse_written`]), put through the scanner ([`draft_from`]), and given back to him LAST to
+/// clean up what is still private (`finish`, one more turn of his, asked [`finish_prompt`] and read
+/// by [`finished`]). His last words are the card's draft. When any of it cannot be had, there is
+/// no draft: the plain write-up that stood in for him when Claude failed copied the user's words
+/// into a public issue ("Jane Doe at SecretCo saw the window freeze", review
+/// rv-20261009T162841Z-69294215-70e6 finding 2). `looked`: he was given what was on the screen.
+pub fn checked(
+    rich: Result<String, String>,
+    screen: &Screen,
+    looked: bool,
+    version: &str,
+    scrubber: &Scrubber,
+    finish: impl FnOnce(&str) -> Result<String, String>,
+) -> Result<Checked, String> {
     let written = parse_written(&rich?)?;
-    Ok(Checked { digest: digest(screen, looked, &written.checked), draft: draft_from(&written, version, scrubber) })
+    let scanned = draft_from(&written, version, scrubber);
+    let draft = rich_last(&scanned, scrubber.terms(), finish)?;
+    Ok(Checked { digest: digest(screen, looked, &written.checked), draft })
+}
+
+/// `scanned` (what the scanner made of a report) given to Rich last ([`finish_prompt`], with
+/// `app`, the names RichOS holds), and read back as the card's draft ([`finished`]).
+fn rich_last(scanned: &Draft, app: &[PrivateTerm], finish: impl FnOnce(&str) -> Result<String, String>) -> Result<Draft, String> {
+    let known: Vec<PrivateTerm> = app.iter().chain(&scanned.private).cloned().collect();
+    finished(finish(&finish_prompt(&sheet_of(scanned), &known)), scanned)
+}
+
+/// **THE PROMPT FOR RICH'S LAST PASS**: the report as the scanner left it, as JSON, and one job:
+/// clean up every private detail of this user's case that is still in it, writing it as the
+/// stand-in for its kind, and change nothing else. `known` are the private words RichOS holds and
+/// the ones he named before.
+pub fn finish_prompt(sheet: &Sheet, known: &[PrivateTerm]) -> String {
+    let report = serde_json::json!({
+        "title": sheet.title,
+        "sections": sheet.sections.iter().map(|s| serde_json::json!({ "heading": s.heading, "paragraphs": s.paragraphs, "steps": s.steps })).collect::<Vec<_>>(),
+    });
+    format!(
+        "You are Rich, inside the RichOS desktop app. Below is a bug report the user will read and approve before \
+it is filed as a GitHub issue that anyone can read. The app's automatic check for private details has already \
+been over it and wrote what it recognized as stand-ins in square brackets, but it cannot be relied on: it does \
+not know this user. You are the last check. Nothing changes your words after you: the user sees them, and they \
+are filed word for word.\n\n\
+The report:\n<<<\n{report}\n>>>\n\n\
+Private words this user has: {terms}.\n\n\
+Clean up every private detail of this user's case that is still in it: {private_details}. Write each as the \
+stand-in for its kind, exactly: {stand_ins}. Keep every stand-in already there. Change nothing else: every \
+other character stays exactly as it is, and no section, paragraph or step is added or taken away.\n\n\
+Answer with ONLY a JSON object, no other text, in exactly this shape:\n\
+{{\"title\": \"...\", \"sections\": [{{\"heading\": \"...\", \"paragraphs\": [\"...\"], \"steps\": [\"...\"]}}], \
+\"private\": [{{\"text\": \"...\", \"kind\": \"person\"}}]}}\n\
+- title and sections: the report above, cleaned up, its sections in the same order.\n\
+- private: every private detail you replaced now, copied exactly as it was written, with kind one of person, \
+company, conversation, folder, file, email, other. [] when there was none.",
+        report = serde_json::to_string_pretty(&report).unwrap_or_default(),
+        terms = terms_line(known),
+        private_details = PRIVATE_DETAILS,
+        stand_ins = stand_ins_line(),
+    )
+}
+
+/// Words of a list in Rich's answer, each trimmed, the empty ones dropped.
+fn texts_of(value: &serde_json::Value) -> Vec<String> {
+    value.as_array().map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default()
+}
+
+/// **RICH'S LAST WORDS AS THE CARD'S DRAFT, OR NONE**: `rich` is his answer to [`finish_prompt`]
+/// about `scanned`. His title, headings, paragraphs and steps are the draft's words exactly, his
+/// sections in order (a section he gives no heading keeps the scanner's). An answer with no title,
+/// another number of sections, or a malformed `private` list ([`private_of`]) is no answer, and
+/// the report waits.
+///
+/// Nothing here changes a word of his. Each stand-in in his words is only MARKED for the card's
+/// tooltip ([`marked`]): with what the scanner replaced there, in order, then what he says he
+/// replaced; a stand-in nobody accounts for stays plain words. What he replaced is kept with the
+/// report's private words, so the scanner leaves it out of every later change too.
+pub fn finished(rich: Result<String, String>, scanned: &Draft) -> Result<Draft, String> {
+    let value = json_object(&rich?)?;
+    let title = text_of(&value, "title");
+    let theirs = value["sections"].as_array().ok_or("the answer had no sections")?;
+    if title.is_empty() || theirs.len() != scanned.sections.len() {
+        return Err(format!("the answer had no title, or {} sections for the report's {}", theirs.len(), scanned.sections.len()));
+    }
+    let replaced = private_of(&value)?;
+    // What each stand-in in his words stands for, in the order they will be met.
+    let mut queue: Vec<(Kind, String)> = Vec::new();
+    let mut take = |segments: &[Segment]| {
+        queue.extend(segments.iter().filter_map(|s| Some((s.kind?, s.was.clone()?))));
+    };
+    take(&scanned.title);
+    for section in &scanned.sections {
+        section.paragraphs.iter().chain(&section.steps).for_each(|p| take(p));
+    }
+    queue.extend(replaced.iter().map(|t| (t.kind, t.text.clone())));
+    let mut mark = |text: &str| marked(text, &mut queue);
+    let title = mark(&title);
+    let sections = scanned
+        .sections
+        .iter()
+        .zip(theirs)
+        .map(|(ours, his)| DraftSection {
+            heading: Some(text_of(his, "heading")).filter(|h| !h.is_empty()).unwrap_or_else(|| ours.heading.clone()),
+            paragraphs: texts_of(&his["paragraphs"]).iter().map(|p| mark(p)).collect(),
+            steps: texts_of(&his["steps"]).iter().map(|s| mark(s)).collect(),
+        })
+        .collect();
+    Ok(Draft { title, sections, private: distinct(scanned.private.iter().cloned().chain(replaced)) })
+}
+
+/// `text` as segments, its words unchanged: each stand-in in it ([`Kind::stand_in`]) marked with the
+/// first entry of `queue` of its kind, which it then takes; one with none is plain words.
+fn marked(text: &str, queue: &mut Vec<(Kind, String)>) -> Vec<Segment> {
+    let mut out: Vec<Segment> = Vec::new();
+    let plain = |out: &mut Vec<Segment>, words: &str| match out.last_mut() {
+        Some(last) if last.was.is_none() => last.text.push_str(words),
+        _ if !words.is_empty() => out.push(Segment::plain(words)),
+        _ => {}
+    };
+    let mut at = 0;
+    loop {
+        let next = Kind::ALL.iter().filter_map(|k| text[at..].find(k.stand_in()).map(|i| (at + i, *k))).min_by_key(|&(i, k)| (i, std::cmp::Reverse(k.stand_in().len())));
+        let Some((start, kind)) = next else { break };
+        let end = start + kind.stand_in().len();
+        plain(&mut out, &text[at..start]);
+        match queue.iter().position(|(k, _)| *k == kind) {
+            Some(i) => out.push(Segment::stand_in(&queue.remove(i).1, kind)),
+            None => plain(&mut out, &text[start..end]),
+        }
+        at = end;
+    }
+    plain(&mut out, &text[at..]);
+    if out.is_empty() {
+        out.push(Segment::plain(""));
+    }
+    out
 }
 
 /// **A REPORT RICH COULD NOT CHECK YET**, kept on this Mac until he can: the user's words and
@@ -1183,8 +1334,8 @@ fn paragraphs_of(text: &str, scrubber: &Scrubber) -> Vec<Vec<Segment>> {
         .collect()
 }
 
-/// Rich's write-up as a draft: every section scrubbed, the version line added as it is, and the
-/// whole of it as it will be posted ([`as_posted`]), so the first card is already the issue.
+/// Rich's write-up through the scanner: every section scrubbed, the version line added as it is, and the
+/// whole of it scanned as GitHub would show it ([`as_posted`]). Rich gets the last word on it ([`checked`]).
 pub fn draft_from(written: &Written, version: &str, scrubber: &Scrubber) -> Draft {
     let scrubber = scrubber.and_rich(written.private.iter().cloned());
     let paragraphs = |text: &str| paragraphs_of(text, &scrubber);
@@ -1353,27 +1504,19 @@ pub fn issue_request(public: &Public) -> (String, serde_json::Value) {
 // WHAT LEAVES THIS MAC: ONE DECISION, AT THE ONE PLACE A REPORT LEAVES
 // ---------------------------------------------------------------------------------------
 //
-// Review after review found words that reached the issue without passing the last check: words
-// the user typed after Rich checked the report (review rv-20261009T174727Z-3007e320-578a finding
-// 1), and words joined or split into paragraphs after they were scrubbed (finding 2). The class is
-// closed by ONE invariant, decided in ONE place ([`decide`]) and sent from nowhere else
-// ([`Outbox::send`] takes only a [`Public`], and only `decide` makes one):
+// The order is the CEO's (§115, 2026-10-09): THE SCANNER RUNS FIRST, RICH RUNS LAST, and nothing
+// after Rich changes the words but the escaping GitHub needs. One place decides ([`at_send`]), and
+// nothing else sends ([`Outbox::send`] takes only a [`Public`], and only `at_send` makes one):
 //
-//   (a) the words sent are words Rich checked: the issue as assembled from the card now is, to
-//       the character, the issue as it was when he last checked it ([`Check`]); if any word
-//       differs, nothing is sent and he checks the changed report first ([`check_edit`]), or it
-//       waits on this Mac until he can ([`Outbox::keep_edited`]);
-//   (b) they are scrubbed LAST, as one whole string each (the title, and the whole body with its
-//       headings, paragraphs and steps), with every private word RichOS holds and every one Rich
-//       named, after every other transformation; nothing transforms them afterwards;
-//   (c) they are the words the card showed when Send was pressed, every one (review
-//       rv-20261009T190633Z-d9cdd913-9f1c: on d9cdd913f a title's backticks became apostrophes,
-//       and a heading the last scrub left out was filed while the card still showed it). Every
-//       transformation in (b), the title's one substitution and the last scrub included, is ONE
-//       function ([`as_posted`]) that makes the CARD: the words the user is shown are its output,
-//       and the issue is that card written out with nothing changed ([`issue_of`]). At Send it
-//       is run again on the card's words; when its card differs from the one on screen in any
-//       character, nothing is sent and the card is shown again as it would go.
+//   (a) the words sent are the card's words when Send was pressed, every one, written out with
+//       nothing changed ([`issue_of`]);
+//   (b) they are words Rich gave last, to the character ([`Check`]): his cleaned-up draft as the
+//       card first showed it. Words that differ (the user changed them by hand, or told Rich a
+//       change) are put through the scanner ([`redraft`], which runs [`as_posted`]: the title's one
+//       substitution and the scan of each field as one whole string) and then given to Rich to
+//       clean up ([`finish_prompt`]); nothing is sent until he has, and his version is shown on the
+//       card unless it is the card's words exactly. When Claude cannot answer, the words wait on
+//       this Mac ([`Outbox::keep_edited`]).
 
 /// **THE WORDS OF ONE ISSUE, WRITTEN OUT FROM THE CARD**: its title as the card shows it, and its
 /// body ([`issue_body`]): the card's words, every one as it reads, with only the marks that make
@@ -1384,15 +1527,13 @@ pub struct Issue {
     pub body: String,
 }
 
-/// The issue `sheet` is written out as. It changes no word: what changes words is [`as_posted`],
-/// and its output is the card.
+/// The issue `sheet` is written out as. It changes no word.
 pub fn issue_of(sheet: &Sheet) -> Issue {
     Issue { title: sheet.title.trim().to_string(), body: issue_body(sheet) }
 }
 
-/// **THE ISSUE AS IT WILL BE POSTED, AS THE CARD SHOWS IT**: the one function every word of a
-/// report passes through between Rich's check and GitHub (the invariant above, (b) and (c)), and
-/// the only maker of what the card shows ([`draft_from`], [`redraft`]):
+/// **THE SCANNER'S PASS OVER A WHOLE REPORT, AS GITHUB WOULD SHOW IT** ([`draft_from`],
+/// [`redraft`]), before Rich's last pass ([`finished`]):
 ///
 ///   - the title's one substitution: a backtick is written as an apostrophe, because GitHub draws a
 ///     title's `word` as code, and a title shows the words as they are (the scrub reads them so);
@@ -1519,9 +1660,9 @@ fn tidied(draft: &Draft) -> Draft {
     }
 }
 
-/// **WORDS THAT MAY LEAVE THIS MAC**: words Rich checked, scrubbed last. Made only by [`decide`];
-/// [`Outbox::send`] and [`issue_request`] take nothing else, so there is no other way for a report
-/// to reach GitHub.
+/// **WORDS THAT MAY LEAVE THIS MAC**: the card's words at Send, which are words Rich gave last.
+/// Made only by [`at_send`]; [`Outbox::send`] and [`issue_request`] take nothing else, so there is
+/// no other way for a report to reach GitHub.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Public(Issue);
 
@@ -1534,10 +1675,9 @@ impl Public {
     }
 }
 
-/// **WHAT RICH LAST CHECKED OF ONE REPORT**: its words exactly as the card showed them then
-/// ([`issue_of`]), and the private words he named in them. Made only from a draft he wrote or
-/// checked ([`Check::of`]), from his check of words the user changed ([`check_edit`]), or by a
-/// change he wrote into the report he checked ([`Check::with_change`]).
+/// **WHAT RICH LAST GAVE OF ONE REPORT**: its words exactly as the card showed them then
+/// ([`issue_of`]), and the report's private words so far (his and the scanner's, for the next
+/// scan). Made only from a draft he gave last ([`Check::of`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Check {
     issue: Issue,
@@ -1545,8 +1685,8 @@ pub struct Check {
 }
 
 impl Check {
-    /// What Rich checked when `draft` was put on the card: its words as the card shows them
-    /// ([`sheet_of`]) and the private words he named in it.
+    /// What Rich gave when `draft` was put on the card: its words as the card shows them
+    /// ([`sheet_of`]) and the report's private words.
     pub fn of(draft: &Draft) -> Check {
         Check { issue: issue_of(&sheet_of(draft)), private: draft.private.clone() }
     }
@@ -1554,25 +1694,6 @@ impl Check {
     /// The private words Rich named in this report.
     pub fn private(&self) -> &[PrivateTerm] {
         &self.private
-    }
-
-    /// **A CHANGE RICH WROTE INTO THE REPORT HE CHECKED**: `sheet` is the card's words the change
-    /// was asked with, `add` his words as the card adds them under `section` (a paragraph after
-    /// the section's others, as the window inserts it), `private` the private words he named for
-    /// it ([`scrub_change`]), kept with every one he named before. `None` when `sheet` is not what
-    /// he checked (the user changed words by hand first): those words still wait for his check,
-    /// at Send.
-    pub fn with_change(&self, sheet: &Sheet, section: &str, add: &[Segment], private: Vec<PrivateTerm>) -> Option<Check> {
-        if issue_of(sheet) != self.issue {
-            return None;
-        }
-        let mut changed = sheet.clone();
-        let at = changed.sections.iter().rposition(|s| s.heading == section).unwrap_or(0);
-        let words: String = add.iter().map(|s| s.text.as_str()).collect();
-        if let Some(target) = changed.sections.get_mut(at).filter(|_| !words.trim().is_empty()) {
-            target.paragraphs.push(words.trim().to_string());
-        }
-        Some(Check { issue: issue_of(&changed), private: distinct(self.private.iter().cloned().chain(private)) })
     }
 }
 
@@ -1602,42 +1723,44 @@ pub fn sheet_of(draft: &Draft) -> Sheet {
 
 /// What may happen when the user presses Send.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Decision {
-    /// These words go, exactly: the words the card showed when Send was pressed, every one.
+pub enum AtSend {
+    /// These words go, exactly: the card's words when Send was pressed, which Rich gave last.
     Send(Public),
-    /// The issue as it would be posted differs from the card in some character (the last scrub
-    /// left out more than the card shows, or a title's backtick is an apostrophe there): the card
-    /// is shown again as it would go, and Rich's check of it is this draft ([`Check::of`]).
-    /// Nothing is sent until Send.
-    Show(Draft),
-    /// Some word differs from what Rich last checked: nothing is sent until he checks it.
-    Unchecked,
+    /// The card's words were changed, went through the scanner and then Rich, and his version
+    /// differs from the card: it is shown on the card (and is his check from then on), and nothing
+    /// is sent until Send.
+    Show(Checked),
+    /// The card's words were changed and Claude could not answer (why): nothing is sent, and the
+    /// words wait on this Mac ([`Outbox::keep_edited`]).
+    Unchecked(String),
 }
 
-/// **THE ONE DECISION ABOUT WHAT LEAVES THIS MAC** (the invariant above). `sheet` is the card's
-/// words at Send, `check` what Rich last checked of this report, `app` the private words RichOS
-/// holds. The card's words are made into the issue as it will be posted ([`redraft`], through
-/// [`as_posted`]: the title's substitution and the last scrub, with his private words and
-/// RichOS's). Sent only when they are the words Rich checked AND that issue is the card, to the
-/// character; when it is not, nothing is sent and the card is shown again as it would go, so
-/// what goes is always what the user last saw. The card shown again is that function's own
-/// output, so Send on it sends it as shown.
-pub fn decide(sheet: &Sheet, check: Option<&Check>, app: &[PrivateTerm]) -> Decision {
-    let Some(check) = check.filter(|c| c.issue == issue_of(sheet)) else { return Decision::Unchecked };
-    let posted = redraft(sheet, check, app);
-    if sheet_of(&posted) != *sheet {
-        return Decision::Show(posted);
+/// **THE ONE DECISION ABOUT WHAT LEAVES THIS MAC** (the order above). `sheet` is the card's words
+/// at Send, `check` what Rich last gave of this report, `app` the private words RichOS holds,
+/// `finish` one turn of Rich's. When the card's words are what he gave, to the character, they go
+/// exactly. Otherwise they go through the scanner ([`redraft`]) and then Rich ([`finish_prompt`]):
+/// when his version is the card's words exactly they go; otherwise it is shown first; when he
+/// cannot answer, nothing goes.
+pub fn at_send(sheet: &Sheet, check: Option<&Check>, app: &[PrivateTerm], finish: impl FnOnce(&str) -> Result<String, String>) -> AtSend {
+    let card = issue_of(sheet);
+    if check.is_some_and(|c| c.issue == card) {
+        return AtSend::Send(Public(card));
     }
-    Decision::Send(Public(issue_of(&sheet_of(&posted))))
+    let private = check.map(|c| c.private.clone()).unwrap_or_default();
+    match checked_edit(&Edited { sheet: sheet.clone(), private }, app, finish) {
+        Err(why) => AtSend::Unchecked(why),
+        Ok(his) if issue_of(&sheet_of(&his.draft)) == card => AtSend::Send(Public(card)),
+        Ok(his) => AtSend::Show(his),
+    }
 }
 
-/// **THE CARD'S WORDS AS A DRAFT AGAIN, AS THEY WOULD BE POSTED**, scrubbed with the private words
-/// of `check` and the ones RichOS holds: the title, each section's paragraphs as one string
+/// **THE CARD'S WORDS AS A DRAFT AGAIN, THROUGH THE SCANNER**, with the report's private words
+/// (`private`) and the ones RichOS holds: the title, each section's paragraphs as one string
 /// ([`paragraphs_of`]) and each step, then the whole of it through [`as_posted`]. A stand-in
 /// already on the card is plain words here (what it replaced is not in the sheet), and it stays
 /// as it reads.
-pub fn redraft(sheet: &Sheet, check: &Check, app: &[PrivateTerm]) -> Draft {
-    let scrubber = Scrubber::with_rich(app.to_vec(), check.private.clone());
+pub fn redraft(sheet: &Sheet, private: &[PrivateTerm], app: &[PrivateTerm]) -> Draft {
+    let scrubber = Scrubber::with_rich(app.to_vec(), private.to_vec());
     let draft = Draft {
         title: scrubber.scrub(sheet.title.trim()),
         sections: sheet
@@ -1649,45 +1772,13 @@ pub fn redraft(sheet: &Sheet, check: &Check, app: &[PrivateTerm]) -> Draft {
                 steps: s.steps.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).map(|t| scrubber.scrub(t)).collect(),
             })
             .collect(),
-        private: check.private.clone(),
+        private: private.to_vec(),
     };
     as_posted(&draft, &scrubber)
 }
 
-/// The line over Rich's answer when he checked words the user changed.
+/// The line over Rich's answer when he cleaned up words the user changed.
 pub const EDIT_DIGEST: &str = "Checked your changes for private details";
-
-/// The line over the card shown again because the last scrub left out more than it showed
-/// ([`Decision::Show`]).
-pub const SHOWN_AGAIN_DIGEST: &str = "Checked every word again before sending";
-
-/// **THE PROMPT FOR RICH'S CHECK OF WORDS THE USER CHANGED**: the whole report as it would go, as
-/// GitHub would show it, and one question: what in it is private.
-pub fn edit_check_prompt(sheet: &Sheet) -> String {
-    let issue = issue_of(sheet);
-    format!(
-        "You are Rich, inside the RichOS desktop app. You wrote this bug report, and the user changed some of \
-its words by hand before sending it. Once sent it is a GitHub issue that anyone can read. Words in square \
-brackets stand in for private details already left out.\n\n\
-The report as it would go:\n<<<\n{title}\n\n{body}\n>>>\n\n\
-Check every word of it for anything private before it goes. Answer with ONLY a JSON object, no other text: \
-{{\"private\": [{{\"text\": \"...\", \"kind\": \"person\"}}]}}\n\
-- private: every name of a person, company, conversation, product, client or folder, and anything else \
-private, that is in the report above, copied exactly as it is written there, with kind one of person, \
-company, conversation, folder, file, email, other. [] when there is none.",
-        title = issue.title,
-        body = shown(&issue.body).0.trim_end(),
-    )
-}
-
-/// **RICH'S CHECK OF WORDS THE USER CHANGED, OR NONE**: `rich` is his answer to
-/// [`edit_check_prompt`] about `sheet`, or why there is none; `report` the report's private words
-/// so far. His answer must hold a well-formed `private` list ([`private_of`]); anything else is no
-/// check, and the report waits.
-pub fn check_edit(rich: Result<String, String>, sheet: &Sheet, report: &[PrivateTerm]) -> Result<Check, String> {
-    let found = private_of(&json_object(&rich?)?)?;
-    Ok(Check { issue: issue_of(sheet), private: distinct(report.iter().cloned().chain(found)) })
-}
 
 /// **WORDS THE USER CHANGED THAT RICH COULD NOT CHECK YET**, kept on this Mac
 /// ([`Outbox::keep_edited`]): the card's words when Send was pressed, and the report's private
@@ -1698,11 +1789,12 @@ pub struct Edited {
     pub private: Vec<PrivateTerm>,
 }
 
-/// Rich's check of `edited` as a card: the changed report, with anything he named left out, under
-/// [`EDIT_DIGEST`]. Like any check, it is shown, never sent by itself.
-pub fn checked_edit(rich: Result<String, String>, edited: &Edited, app: &[PrivateTerm]) -> Result<Checked, String> {
-    let check = check_edit(rich, &edited.sheet, &edited.private)?;
-    Ok(Checked { draft: redraft(&edited.sheet, &check, app), digest: EDIT_DIGEST.into() })
+/// **WORDS THE USER CHANGED, THROUGH THE SCANNER AND THEN RICH**: `edited` scanned ([`redraft`])
+/// and given to Rich last (`finish`), as a card under [`EDIT_DIGEST`]. Like any check, it is
+/// shown, never sent by itself.
+pub fn checked_edit(edited: &Edited, app: &[PrivateTerm], finish: impl FnOnce(&str) -> Result<String, String>) -> Result<Checked, String> {
+    let scanned = redraft(&edited.sheet, &edited.private, app);
+    Ok(Checked { draft: rich_last(&scanned, app, finish)?, digest: EDIT_DIGEST.into() })
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2039,7 +2131,7 @@ impl Outbox {
         }
     }
 
-    /// **SEND WORDS THAT MAY LEAVE THIS MAC**, exactly ([`Public`], which only [`decide`] makes).
+    /// **SEND WORDS THAT MAY LEAVE THIS MAC**, exactly ([`Public`], which only [`at_send`] makes).
     /// They are written to this Mac first, then tried once. Sent, or waiting with the reason;
     /// either way nothing approved is lost, and what is tried later is these words.
     pub fn send(&self, public: &Public, credentials: &dyn Credentials, transport: &dyn Transport, now_ms: u64) -> io::Result<Delivery> {

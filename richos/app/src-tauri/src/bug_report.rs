@@ -53,7 +53,7 @@ pub struct BugReports {
     /// Rich's write-up. In memory only; replaced at the next press, never written to disk.
     look: Mutex<Option<bug::Picture>>,
     /// **WHAT RICH LAST CHECKED OF EACH REPORT ON A CARD**, by the report's id: the words Send
-    /// compares the card's against (`bug::decide`). Kept here, never by the window, so nothing the
+    /// compares the card's against (`bug::at_send`). Kept here, never by the window, so nothing the
     /// window sends can stand in for his check. In memory only: a card does not outlive the app.
     checks: Mutex<std::collections::HashMap<String, bug::Check>>,
 }
@@ -391,7 +391,9 @@ pub async fn bug_report_write(app: AppHandle, answer: String, screen: bug::Scree
         let looked = picture.is_some() || !bug::screen_words(&screen.content).is_empty();
         let prompt = bug::writer_prompt(&answer, &screen, &bugs.version, scrubber.terms(), picture.is_some());
         let input = bug::writer_input(&prompt, picture.as_ref());
-        let check = bug::checked(ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input), &screen, looked, &bugs.version, &scrubber);
+        // Rich writes it, the scanner goes over it, and Rich gets the last word (CEO §115).
+        let last = |prompt: &str| ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::writer_input(prompt, None));
+        let check = bug::checked(ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input), &screen, looked, &bugs.version, &scrubber, last);
         let write_up = bugs.outbox.keep_unless_checked(&answer, &screen, check, now_ms()).map_err(|e| {
             eprintln!("[richos] bug report: the report could not be kept on this Mac ({e})");
             "I couldn't check the report or save it on this Mac, so nothing was written up or sent. Tell me again and I'll try once more.".to_string()
@@ -430,11 +432,10 @@ pub async fn bug_report_take_unchecked(app: AppHandle, id: String) -> Result<boo
 /// rv-20261009T162841Z-69294215-70e6 finding 2, the same rule as `bug_report_write`), and the card
 /// says to tell him again or change the words in place, where the heads-up reads them.
 ///
-/// What he adds is his, checked as he writes it: when the card's words were what he last checked
-/// of `report`, his check moves on to the card with his words added (`bug::Check::with_change`),
-/// so Send does not ask him again. Words the user changed by hand before still wait for his check.
+/// The scanner goes over what he adds; the card with it added is a changed card, so at Send it
+/// goes through the scanner and then Rich, last (`bug::at_send`), like words changed by hand.
 #[tauri::command(async)]
-pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet, private: Option<Vec<bug::PrivateTerm>>, report: Option<String>) -> Result<serde_json::Value, String> {
+pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet, private: Option<Vec<bug::PrivateTerm>>) -> Result<serde_json::Value, String> {
     let started = Instant::now();
     let (scrubber, (bin, folder), bugs) = read_state(&app);
     let report_private = private.unwrap_or_default();
@@ -448,13 +449,9 @@ pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet, 
                 eprintln!("[richos] bug report: Rich could not check the change ({why}); nothing was added");
                 "I couldn't check that change just now, so nothing was added.".to_string()
             })?;
+        // The scanner goes over his words now; Rich gets the last word on the changed card at Send
+        // (`bug::at_send`), so nothing after him changes a word that is sent (CEO §115).
         let (add, private) = bug::scrub_change(&change, scrubber.terms(), &report_private);
-        if let Some(report) = report.as_deref() {
-            let mut checks = bugs.checks();
-            if let Some(next) = checks.get(report).and_then(|c| c.with_change(&sheet, &change.section, &add, private.clone())) {
-                checks.insert(report.to_string(), next);
-            }
-        }
         Ok(serde_json::json!({
             "section": change.section,
             "add": add,
@@ -498,18 +495,18 @@ fn deliver(bugs: &BugReports, attempt: impl FnOnce(&bug::Outbox) -> std::io::Res
     })
 }
 
-/// **SEND: THE ONE PLACE A REPORT LEAVES** (review rv-20261009T174727Z-3007e320-578a). `sheet` is
-/// the card's words at Send, `report` the id Rich's check of it is kept under. What goes is
-/// decided by `bug::decide` alone and is sent exactly as it decided:
+/// **SEND: THE ONE PLACE A REPORT LEAVES**. `sheet` is the card's words at Send, `report` the id
+/// Rich's last words of it are kept under. What goes is decided by `bug::at_send` alone and is
+/// sent exactly as it decided; the scanner runs first and Rich last (CEO §115):
 ///
-///   - the words are what Rich last checked: scrubbed last, as one whole string per field, and
-///     sent; answers the `bug::Delivery` (`{state: "sent" | "waiting", …}`);
-///   - some word differs (the user changed it by hand): Send is held and Rich checks the report
-///     as it is now, the same one `claude` turn as any check. Checked, it is decided again; when
-///     Claude cannot answer, the words are kept on this Mac, unsent, and the check loop asks him
-///     again (`{state: "unchecked", id}`), as with any report he could not check;
-///   - the last scrub left out more than the card shows: nothing is sent, and the card is shown
-///     again with it left out (`{state: "checked", report, draft, digest}`), to send or not.
+///   - the words are what Rich gave last: they are sent as they are; answers the
+///     `bug::Delivery` (`{state: "sent" | "waiting", …}`);
+///   - some word differs (the user changed it, by hand or by telling Rich): Send is held, the
+///     scanner goes over the card and then Rich cleans it up, one `claude` turn. His version is
+///     sent when it is the card's words exactly, and otherwise shown on the card first
+///     (`{state: "checked", report, draft, digest}`), to send or not; when Claude cannot answer,
+///     the words are kept on this Mac, unsent, and the check loop asks him again
+///     (`{state: "unchecked", id}`), as with any report he could not check.
 ///
 /// `screen` is where the report was started, kept with words waiting for his check.
 #[tauri::command(async)]
@@ -519,27 +516,9 @@ pub async fn bug_report_send(app: AppHandle, report: Option<String>, sheet: bug:
         let report = report.filter(|r| !r.is_empty()).unwrap_or_else(bug::report_id);
         let app_terms = scrubber.terms().to_vec();
         let check = bugs.checks().get(&report).cloned();
-        let mut decision = bug::decide(&sheet, check.as_ref(), &app_terms);
-        let changed_by_hand = decision == bug::Decision::Unchecked;
-        if changed_by_hand {
-            let private = check.map(|c| c.private().to_vec()).unwrap_or_default();
-            let input = bug::writer_input(&bug::edit_check_prompt(&sheet), None);
-            match bug::check_edit(ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input), &sheet, &private) {
-                Ok(now) => {
-                    decision = bug::decide(&sheet, Some(&now), &app_terms);
-                    bugs.checks().insert(report.clone(), now);
-                }
-                Err(why) => {
-                    let kept = bugs.outbox.keep_edited(bug::Edited { sheet, private }, &screen, &why, now_ms()).map_err(|e| {
-                        eprintln!("[richos] bug report: the changed report could not be kept on this Mac ({e})");
-                        "I couldn't save the report on this Mac, so nothing was sent. Press Send report to try again.".to_string()
-                    })?;
-                    return serde_json::to_value(kept).map_err(|e| e.to_string());
-                }
-            }
-        }
-        match decision {
-            bug::Decision::Send(public) => {
+        let last = |prompt: &str| ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::writer_input(prompt, None));
+        match bug::at_send(&sheet, check.as_ref(), &app_terms, last) {
+            bug::AtSend::Send(public) => {
                 let github = GitHub::from_env();
                 let delivery = deliver(&bugs, |o| o.send(&public, &KeychainCredentials, &github, now_ms()).map(Some))?.ok_or_else(|| "nothing was sent".to_string())?;
                 if matches!(delivery, bug::Delivery::Sent(_)) {
@@ -547,13 +526,18 @@ pub async fn bug_report_send(app: AppHandle, report: Option<String>, sheet: bug:
                 }
                 serde_json::to_value(delivery).map_err(|e| e.to_string())
             }
-            bug::Decision::Show(draft) => {
-                bugs.checks().insert(report.clone(), bug::Check::of(&draft));
-                let digest = if changed_by_hand { bug::EDIT_DIGEST } else { bug::SHOWN_AGAIN_DIGEST };
-                Ok(serde_json::json!({ "state": "checked", "report": report, "draft": draft, "digest": digest }))
+            bug::AtSend::Show(his) => {
+                bugs.checks().insert(report.clone(), bug::Check::of(&his.draft));
+                Ok(serde_json::json!({ "state": "checked", "report": report, "draft": his.draft, "digest": his.digest }))
             }
-            // Rich has just checked these very words, so they cannot differ from what he checked.
-            bug::Decision::Unchecked => Err("nothing was sent".to_string()),
+            bug::AtSend::Unchecked(why) => {
+                let private = check.map(|c| c.private().to_vec()).unwrap_or_default();
+                let kept = bugs.outbox.keep_edited(bug::Edited { sheet, private }, &screen, &why, now_ms()).map_err(|e| {
+                    eprintln!("[richos] bug report: the changed report could not be kept on this Mac ({e})");
+                    "I couldn't save the report on this Mac, so nothing was sent. Press Send report to try again.".to_string()
+                })?;
+                serde_json::to_value(kept).map_err(|e| e.to_string())
+            }
         }
     })
     .await
@@ -664,16 +648,15 @@ fn spawn_check(app: AppHandle) {
                 }
             };
             let (scrubber, (bin, folder), _) = read_state(&app);
+            // The scanner first, Rich's last word on what it made (CEO §115).
+            let last = |prompt: &str| ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::writer_input(prompt, None));
             let checked = bugs.outbox.check_due(now_ms(), |u| match &u.edited {
-                // Words the user changed that he could not check at Send: he checks those.
-                Some(edited) => {
-                    let input = bug::writer_input(&bug::edit_check_prompt(&edited.sheet), None);
-                    bug::checked_edit(ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input), edited, scrubber.terms())
-                }
+                // Words the user changed that he could not check at Send: those, scanned, are his.
+                Some(edited) => bug::checked_edit(edited, scrubber.terms(), last),
                 None => {
                     let prompt = bug::writer_prompt(&u.answer, &u.screen, &bugs.version, scrubber.terms(), false);
                     let rich = ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::writer_input(&prompt, None));
-                    bug::checked(rich, &u.screen, !bug::screen_words(&u.screen.content).is_empty(), &bugs.version, &scrubber)
+                    bug::checked(rich, &u.screen, !bug::screen_words(&u.screen.content).is_empty(), &bugs.version, &scrubber, last)
                 }
             });
             // Where the user was, in their own words, for the panel's header when no card waits for it.
@@ -751,7 +734,7 @@ mod tests {
             sections: vec![bug::DraftSection { heading: "What happened".into(), paragraphs: vec![plain("It broke.")], steps: vec![] }],
             private: vec![],
         };
-        let bug::Decision::Send(public) = bug::decide(&bug::sheet_of(&draft), Some(&bug::Check::of(&draft)), &[]) else { panic!("not sendable") };
+        let bug::AtSend::Send(public) = bug::at_send(&bug::sheet_of(&draft), Some(&bug::Check::of(&draft)), &[], |_| panic!("Rich was asked about words he gave")) else { panic!("not sendable") };
         let (path, request) = bug::issue_request(&public);
         let outcome = GitHub { base }.create_issue(&credential(), &path, &request);
         assert_eq!(outcome, bug::Outcome::Created { number: 412, url: "https://github.com/WebDevBooster/richos/issues/412".into() });
