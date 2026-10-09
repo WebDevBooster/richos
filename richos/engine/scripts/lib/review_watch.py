@@ -898,10 +898,25 @@ def render_verdict(row, items_by_key, again=None):
     return out
 
 
+def _same_repo(a, b):
+    """Whether two verdict rows are of one repository: by the identity both
+    recorded (`repo_id`) when both have one, otherwise by the real path."""
+    if a.get("repo_id") and b.get("repo_id"):
+        return a["repo_id"] == b["repo_id"]
+    return os.path.realpath(a.get("repo") or "") == os.path.realpath(b.get("repo") or "")
+
+
 def not_converging(row, rows):
-    """[(finding id, title)] still open in this recheck AND the one before it."""
+    """[(finding id, title)] still open AND blocking in this recheck and in the
+    recheck of the same repository before it. One teammate's repositories share
+    a work key, and each repository's review carries only its own findings, so
+    rechecks are compared repository by repository. A finding that does not
+    block was filed as a follow-up when its review passed, so it is never told
+    here (review rv-20261009T104053Z-8662354d-47b2). A verdict written before
+    findings said whether they block counts its still-open findings as blocking,
+    as they were then."""
     work = row.get("work")
-    same = [r for r in rows if r.get("work") == work and r.get("verdict")]
+    same = [r for r in rows if r.get("work") == work and r.get("verdict") and _same_repo(r, row)]
     try:
         i = [r.get("id") for r in same].index(row.get("id"))
     except ValueError:
@@ -912,7 +927,7 @@ def not_converging(row, rows):
 
     def still(v):
         return set(e.get("id") for e in (v.get("answer") or {}).get("earlier_findings") or []
-                   if e.get("status") == "still-open")
+                   if e.get("status") == "still-open" and e.get("blocks") is not False)
     both = still(now_v) & still(prev_v)
     titles = dict((e.get("id"), e.get("title")) for e in now_v.get("earlier_findings_in") or [])
     return [(fid, titles.get(fid) or "") for fid in sorted(both)]
