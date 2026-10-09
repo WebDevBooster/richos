@@ -560,6 +560,11 @@ mutant sr-creation-lands-nothing "test_second_review_an_update_ref_with_no_old_v
     '    if is_zero(old):{NL}        return []' \
     "main deleted and created again on an unreviewed commit would land it (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1)."
 
+mutant sr-merges-the-branch-name "test_second_review_merge_lands_the_commit_that_passed_not_a_newer_branch_tip" "$W" \
+    '        args = ["merge", "--no-ff", "--no-edit"] + msg + [t]' \
+    '        args = ["merge", "--no-ff", "--no-edit"] + msg + [b]' \
+    "a commit added to the branch after its tip passed review would land unreviewed with it (review rv-20261009T025426Z-15dae5ca-3cc1, finding 2)."
+
 mutant sr-old-verdict-dropped "test_second_review_a_verdict_waits_for_the_teammates_next_call_however_late" "scripts/lib/review_delivery.py" \
     '                if done is not None:{NL}                    r["_done"] = done' \
     '                if done is not None and time.time() - done <= 24 * 3600:{NL}                    r["_done"] = done' \

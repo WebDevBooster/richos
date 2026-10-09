@@ -4941,11 +4941,17 @@ def merge_and_land(ref, me="", message=""):
         if rc or head.strip() != target:
             raise SpecError("cannot merge %s: the main checkout %s is on %s, not on %s, the branch this work "
                             "integrates on" % (b, main, head.strip() or "a detached HEAD", target))
-        msg = ["-m", message] if message else []
+        # Git merges the commit read above, never the branch name: a writer
+        # that advances the branch after that read (even while an earlier
+        # repository's merge gate runs) would otherwise land a newer commit
+        # no review saw (review rv-20261009T025426Z-15dae5ca-3cc1, finding 2).
+        # A commit merged by its ID gets Git's default message for its branch.
+        msg = ["-m", message or "Merge branch '%s'%s" % (b, "" if target in ("main", "master")
+                                                         else " into %s" % target)]
         if reviews.get(t):
             # The merge commit names the review that let it in (plan §2.4).
-            msg = ["-m", message or "Merge branch '%s'" % b, "-m", reviews[t]]
-        args = ["merge", "--no-ff", "--no-edit"] + msg + [b]
+            msg += ["-m", reviews[t]]
+        args = ["merge", "--no-ff", "--no-edit"] + msg + [t]
         before = git(main, "rev-parse", "HEAD")[1].strip()
         # git's own checks (pre-merge-commit) run here and may take minutes.
         r = subprocess.run(["git", "-C", main] + args, capture_output=True, text=True, env=_git_env())

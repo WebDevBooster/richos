@@ -4211,6 +4211,33 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         run("git", "-C", self.other, "update-ref", "refs/heads/main", tip)
         self.assertEqual(self.head(), tip)
 
+    def test_second_review_merge_lands_the_commit_that_passed_not_a_newer_branch_tip(self):
+        """Review rv-20261009T025426Z-15dae5ca-3cc1, finding 2: `workspaces.sh
+        merge` checked the branch tip, then had Git merge the branch NAME, so a
+        commit added to the branch after the check (even while the merge gate
+        ran) landed unreviewed. Shown with the fence off, as in the review's
+        fixture, so the land command's own check is the only one."""
+        run("bash", self.fences, "off", "--repo", self.other, "--entity", self.decl)
+        cc, (reviewed,) = self.finished("zach-opus-rv9")
+        self.verdict(reviewed, "passed")
+        checked = ws._review_check
+        late = []
+
+        def check_then_advance(todo):
+            out = checked(todo)
+            self.commit(cc, "unreviewed-after-check.txt", "created after the tip passed\n")
+            late.append(run("git", "-C", cc, "rev-parse", "HEAD").stdout.strip())
+            return out
+
+        with patch.object(ws, "_review_check", side_effect=check_then_advance):
+            with self.assertRaises(ws.SpecError):
+                ws.merge_and_land("zach-opus-rv9", self.sid)  # the newer commit is not landed, so no land
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), reviewed)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "unreviewed-after-check.txt")))
+        self.assertNotEqual(run("git", "-C", self.other, "merge-base", "--is-ancestor", late[0], "main",
+                                check=False).returncode, 0)
+        self.assertTrue(os.path.isdir(cc))                            # the newer work is kept, not landed
+
     def test_second_review_a_merge_with_changes_of_its_own_needs_a_review_of_the_merge_itself(self):
         """Review rv-20261009T023055Z-b51ebb97-bc65, finding 2: a merge made
         elsewhere, whose first parent is main, carried an extra unreviewed file;
