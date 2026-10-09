@@ -313,6 +313,17 @@ pub fn environment(path: &str) -> BTreeMap<String, String> {
     env
 }
 
+/// [`Mode::App`]'s environment: [`environment`] over the runtime's PATH, and `codex_search`, the
+/// PATH the Settings row looks for Codex on ([`crate::codex_reviews::search_path`]), as
+/// [`crate::codex_reviews::SEARCH_ENV`]: every review looks for Codex there, after ChatGPT.app,
+/// exactly as the row does, so the reviewer the row shows is the one the review runs (the real
+/// second review of cf3c4482f). The runtime's PATH alone leaves out global installs.
+pub fn app_environment(runtime_path: &str, codex_search: &str) -> BTreeMap<String, String> {
+    let mut env = environment(runtime_path);
+    env.insert(crate::codex_reviews::SEARCH_ENV.into(), codex_search.into());
+    env
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

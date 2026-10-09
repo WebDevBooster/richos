@@ -13,7 +13,8 @@
 //!   review, never one already running.
 //! * **What the Mac reports about Codex**: [`Codex::Ready`], [`Codex::SignedOut`] or
 //!   [`Codex::Missing`]. Found where the engine's reviewer finds it (`second_review.py`
-//!   `find_codex`: inside ChatGPT.app, then `codex` on PATH), and signed in when Codex itself says
+//!   `find_codex`: inside ChatGPT.app, then `codex` on the app's own PATH, [`search_path`], which
+//!   the watcher hands every review as [`SEARCH_ENV`]), and signed in when Codex itself says
 //!   so: `codex login status`, which reads its login and starts none. Measured 2026-10-09 on
 //!   codex-cli 0.162.0-alpha.2: exit 0 with "Logged in using ChatGPT" on stderr when signed in,
 //!   exit 1 with "Not logged in" against an empty `CODEX_HOME`. The review asks the same question
@@ -40,6 +41,10 @@ pub const APP_ROOTS: [&str; 2] = ["/Applications/ChatGPT.app", "~/Applications/C
 /// How long `codex login status` may take before the answer counts as "not signed in". Measured
 /// 21 ms on this Mac; the bound only catches a hang.
 pub const STATUS_BOUND: Duration = Duration::from_secs(15);
+
+/// The review's variable for [`search_path`]: `second_review.py` `find_codex` looks for `codex`
+/// on it after the ChatGPT.app roots, where the row looks.
+pub const SEARCH_ENV: &str = "SECOND_REVIEW_CODEX_PATH";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -165,6 +170,14 @@ fn signed_in(codex: &Path, env: &BTreeMap<String, String>) -> bool {
             }
         }
     }
+}
+
+/// The PATH Codex is looked for on after the ChatGPT.app roots: the app's own, as it inherited
+/// it at launch. The row searches it ([`Probe::system`]) and so does every review: the app's
+/// watcher hands it to them as [`SEARCH_ENV`] ([`crate::review_watch::app_environment`]), since
+/// their own PATH is the delivered runtime's.
+pub fn search_path() -> String {
+    std::env::var("PATH").unwrap_or_default()
 }
 
 /// The user's choice: on only when the file says `{"on": true}`.
@@ -306,6 +319,46 @@ mod tests {
         assert_eq!(lapsed.reviewer(), "claude", "Claude reviews in the meantime");
         assert_eq!(set(&f.data(), &gone, false).unwrap(), Status { on: false, codex: Codex::Missing });
         assert!(!read_on(&f.data()));
+    }
+
+    /// **The real second review of cf3c4482f: what the row shows is what the review runs.** A
+    /// signed-in Codex only on the app's inherited PATH (a global npm or Homebrew install) and no
+    /// ChatGPT.app: the row finds it ready, and the engine's own `find_codex` and
+    /// `codex_signed_in`, in the environment the app's watcher gives every review, find the same
+    /// file signed in, so the review runs Codex rather than falling back to Claude. The roots are
+    /// left out on both sides: this Mac has a ChatGPT.app, which would hide the PATH case.
+    #[test]
+    fn a_signed_in_codex_only_on_the_apps_path_is_shown_and_runs_the_review() {
+        let f = Fixture::new("app-path");
+        let global = f.root.join("global-bin");
+        std::fs::create_dir_all(&global).unwrap();
+        let cli = global.join("codex");
+        std::fs::write(&cli, "#!/bin/sh\n[ \"$1 $2\" = \"login status\" ] || exit 9\nexit 0\n").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let inherited = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", global.display());
+
+        // The row: Probe::system's search over the app's PATH, without this Mac's ChatGPT.app.
+        let row = Probe { roots: vec![], path: inherited.clone(), env: crate::review_watch::environment(&inherited) };
+        assert_eq!(row.find(), Some(cli.clone()));
+        assert_eq!(row.codex(), Codex::Ready, "the row shows Codex");
+
+        // The review: the engine's finder in the watcher's environment (main.rs
+        // ensure_app_review_watch), whose PATH is the runtime's.
+        let runtime_path = crate::runtime::search_path(&f.root.join("runtime/bin"), None);
+        let env = crate::review_watch::app_environment(&runtime_path, &inherited);
+        let lib = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../engine/scripts/lib").canonicalize().unwrap();
+        let python = ["/usr/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3"]
+            .iter().map(PathBuf::from).find(|p| p.is_file()).expect("a python3 for the engine's finder");
+        let out = Command::new(python).arg("-c").arg(
+            "import sys; sys.path.insert(0, sys.argv[1]); import second_review as s\n\
+             s.CODEX_APP_ROOTS = ()\n\
+             c = s.find_codex()\n\
+             print(c); print(bool(c) and s.codex_signed_in(c)[0])")
+            .arg(&lib).env_clear().envs(&env).env("PYTHONDONTWRITEBYTECODE", "1").output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let said = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert_eq!(said, format!("{}\nTrue\n", cli.display()),
+                   "the review must find the Codex the row shows, signed in (empty = Claude fallback)");
     }
 
     #[test]

@@ -124,6 +124,9 @@ THE VERDICT (plan §2.2, §2.4)
     every repository and session, like the escalation ledger). One line on
     stdout says the verdict.
 
+Set by the app's review-watch: SECOND_REVIEW_CODEX_PATH, the PATH Codex is looked for on
+after ChatGPT.app (find_codex).
+
 Test seams (second-review.test.sh only): SECOND_REVIEW_STATE_DIR,
 SECOND_REVIEW_CODEX, SECOND_REVIEW_CLAUDE,
 SECOND_REVIEW_QUOTA_CMD, SECOND_REVIEW_CPU_BUSY, SECOND_REVIEW_TIMEOUT_SECONDS.
@@ -696,7 +699,11 @@ def find_codex():
                 p = os.path.join(dirpath, "codex")
                 if os.access(p, os.X_OK):
                     return p
-    return shutil.which("codex") or ""
+    # The app's watcher sets SECOND_REVIEW_CODEX_PATH to the PATH its Settings row looks for Codex on
+    # (the app's own; richos-core codex_reviews.rs search_path), since this process's PATH is the
+    # delivered runtime's and leaves out global installs: so a review finds the Codex the row shows
+    # (the real second review of cf3c4482f). Unset, as for the operator's reviews, it is this PATH.
+    return shutil.which("codex", path=os.environ.get("SECOND_REVIEW_CODEX_PATH")) or ""
 
 
 def codex_signed_in(codex):

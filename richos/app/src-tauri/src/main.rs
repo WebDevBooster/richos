@@ -308,7 +308,9 @@ fn ensure_app_review_watch(engine: &Path, data_dir: &Path, claude: &Path, at_lau
         python: runtime.python.clone(),
         engine: engine.to_path_buf(),
         state: data_dir.join("engine-state"),
-        environment: richos_core::review_watch::environment(&runtime.path()),
+        // Codex is looked for where the Settings row looks (codex_reviews::search_path), so the
+        // reviewer the row shows is the one the reviews run (the real second review of cf3c4482f).
+        environment: richos_core::review_watch::app_environment(&runtime.path(), &richos_core::codex_reviews::search_path()),
         mode: richos_core::review_watch::Mode::App {
             claude: claude.is_absolute().then(|| claude.to_path_buf()),
             // The list `quota::Service` opens from this same folder: each review runs on the
@@ -9761,7 +9763,7 @@ fn cancel_quit(state: State<'_, AppState>) -> bool {
 /// `richos_core::codex_reviews`). Asked in the environment the reviews run in.
 #[tauri::command(async)]
 fn codex_reviews_status(state: State<'_, AppState>) -> richos_core::codex_reviews::Status {
-    let probe = richos_core::codex_reviews::Probe::system(&std::env::var("PATH").unwrap_or_default());
+    let probe = richos_core::codex_reviews::Probe::system(&richos_core::codex_reviews::search_path());
     richos_core::codex_reviews::status(&state.data_dir, &probe)
 }
 
@@ -9770,7 +9772,7 @@ fn codex_reviews_status(state: State<'_, AppState>) -> richos_core::codex_review
 /// review-watch starts reads it. The state after.
 #[tauri::command(async)]
 fn codex_reviews_set(state: State<'_, AppState>, on: bool) -> Result<richos_core::codex_reviews::Status, String> {
-    let probe = richos_core::codex_reviews::Probe::system(&std::env::var("PATH").unwrap_or_default());
+    let probe = richos_core::codex_reviews::Probe::system(&richos_core::codex_reviews::search_path());
     richos_core::codex_reviews::set(&state.data_dir, &probe, on)
         .map_err(|e| format!("the Codex review setting could not be saved: {e}"))
 }
