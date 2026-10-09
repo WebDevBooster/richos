@@ -1372,8 +1372,8 @@
     },
     "scripts/app-engine-hook.py#pause-rejection": {
       "source": "scripts/app-engine-hook.py",
-      "sha256": "edbcdf943572f9ec65a2b52c5a511ea73c79a1be23eb8efe8038b397aba8f999",
-      "evidence": "The fixture loads the standard-library-only module, supplies explicit roots and calls handle with PreToolUse SendMessage. Invalid pause fails before scope; valid pause reaches the mocked scope exception. No evidence/workspace helper is loaded.",
+      "sha256": "9de1fbf0dc283740d42937178141d04deede80552de5871b42f18064e6f3ab73",
+      "evidence": "The fixture loads the standard-library-only module, supplies explicit roots and calls handle with PreToolUse SendMessage. Invalid pause fails before scope; valid pause reaches the mocked scope exception. No evidence/workspace helper is loaded. Renewed 2026-10-09 (second review slice 4): the scope bound is 256 KiB, and a new mid_job_notice (loads scripts/lib/app_review.py) runs only after worker_context on PreToolUse, outside this fixture's path, which fails before scope. Renewed 2026-10-09 (echo-opus-review4g, the real second review of 283b4379d, finding 2): outside this fixture's region: on PreToolUse after worker_context, the mid-job notice is written and flushed by an emit closure and then recorded delivered; the region from handle to the evidence load is unchanged.",
       "keys": [],
       "edges": [
         {
@@ -9809,7 +9809,7 @@
     },
     "mega-lander/app.py#land-lock-fixtures": {
       "source": "mega-lander/app.py",
-      "sha256": "535b39f7f41bd3fd273a1271723c9152f233c6b70acdd38240dc1580bfeb3109",
+      "sha256": "c8a8b38f362bbf286f92e4bfd966d706d762c3902a87cc7271ff3873c3ae03ad",
       "evidence": "Fixture calls only land_lock and _live_fence_lease. Full local closure reviewed: lock metadata, flock, process liveness and repository lease/history reads. Workspaces and ECS imports are bound; ECS runtime operations are not invoked.",
       "keys": [],
       "edges": [
@@ -10211,28 +10211,6 @@
       "edges": [
         {
           "to": "scripts/hooks/strip-ack-lines.py"
-        }
-      ]
-    },
-    "scripts/hooks/deliver-review-verdict.sh": {
-      "source": "scripts/hooks/deliver-review-verdict.sh",
-      "sha256": "a4a67d345e9ba04a100a8000f441053ad85a548d5ef95c7ab94a75d00f1efa75",
-      "evidence": "Full wrapper reviewed (2026-10-09): a substring test of the payload for agent_id, a presence test of the review ledger from SECOND_REVIEW_STATE_DIR/CLAUDE_CONFIG_DIR, then the fixed Python helper; exit 0 on every path. No configuration key is read.",
-      "keys": [],
-      "edges": [
-        {
-          "to": "scripts/lib/review_delivery.py"
-        }
-      ]
-    },
-    "scripts/lib/review_delivery.py": {
-      "source": "scripts/lib/review_delivery.py",
-      "sha256": "ca416390f374e360843ea0d1ad5c1f9917e2dddfca8dc8e55142d052c27c5116",
-      "evidence": "Full program reviewed (2026-10-09): parses the payload's agent_id, reads second-review's ledger and verdict records as JSON data, loads the fixed workspaces.py for key_for_id, load_agent and _chain (registry reads only), creates one marker file per teammate and review under the review-watch state directory, and prints additionalContext. Nothing is executed, no configuration key is read, every outcome is exit 0. Renewed 2026-10-09 (review rv-20261009T031207Z-ba444a8a-607a, finding 2): each verdict is compared with the registered_at of the chain record whose work it is on, read from the same registry records; no new read, import or key.",
-      "keys": [],
-      "edges": [
-        {
-          "to": "mega-lander/workspaces.py#ledger-lookup"
         }
       ]
     },
@@ -12853,8 +12831,8 @@
     },
     "ecs/adapters/mcp.py#reject-host-verbs": {
       "source": "ecs/adapters/mcp.py",
-      "sha256": "ec6a74e89a2e99f25f7b43fb5f34dad33303ee134f62ac90518892e49c41a67e",
-      "evidence": "Initialization imports app adapter; fixture calls answer/operator-complete which are refused as unknown tools before execute. Scope JSON is read as data.",
+      "sha256": "850533f82253c6a94b202df0240d86e90775166abcf2fe358019a2d9aa6e4a53",
+      "evidence": "Initialization imports app adapter; fixture calls answer/operator-complete which are refused as unknown tools before execute. Scope JSON is read as data. Renewed 2026-10-09 (second review slice 4): only the scope's size bound changed, 16 KiB to 256 KiB.",
       "keys": [],
       "edges": [
         {
@@ -12864,8 +12842,8 @@
     },
     "ecs/tests/test_app.py#answer-operator": {
       "source": "ecs/tests/test_app.py",
-      "sha256": "9530b18e72174d9e82d387c9e083595f34e62fc20d6cd8bedaaafbdf2b30aa09",
-      "evidence": "Only AnswerCompleteTests/OperatorCompleteTests and inherited WorkSeatTests call/bind/rows/observe helpers run. Private SQLite and Git fixtures, fixed CLI requests, host-only MCP refusal controls. No complete-obligation/verified-work command or other test class runs.",
+      "sha256": "e97dd329afdb09095d652936ac8cee496da2d11ec73b27540227067653075432",
+      "evidence": "Only AnswerCompleteTests/OperatorCompleteTests and inherited WorkSeatTests call/bind/rows/observe helpers run. Private SQLite and Git fixtures, fixed CLI requests, host-only MCP refusal controls. No complete-obligation/verified-work command or other test class runs. Renewed 2026-10-09 (second review slice 4): one AppProtocolTests case writes a private scope carrying about 96 KB of literal user words and calls checkpoint, then an oversized one.",
       "keys": [],
       "edges": [
         {
@@ -13907,8 +13885,8 @@
     },
     "mega-lander/app.py#desktop-work-fixtures": {
       "source": "mega-lander/app.py",
-      "sha256": "535b39f7f41bd3fd273a1271723c9152f233c6b70acdd38240dc1580bfeb3109",
-      "evidence": "All call entrypoints plus observe, dispatch_intent, lock and receipt helpers run against source-bound private fixtures. Subprocesses are Git or fixed spawn.py; the test failure override is literal Python. Spawn hook sources are explicitly fixed to actual isolation guard. The module is imported, never launched as its MCP server. Retain every actual workspace/spawn configuration dependency. Renewed 2026-09-30 (hunt part 4, findings 18, 22, 23): run() exports RICHOS_OPERATION_DEADLINE to the command and, on timeout, reads ps to stop the process tree it started; prepare() releases the conversation lock while the spawn command runs and stamps its receipt with its own pid and start time; observe() saves only the receipts that changed. No configuration read is added. Renewed 2026-10-05 (Output side panel slice S2b): integrate's land witness loads scripts/lib/app-evidence.py by fixed path, runs git diff --name-only in the landed repository and appends land rows through append_land_rows under the fixture's private engine-state/evidence; a failure there is reported on stderr and never fails the land. No configuration read is added. Renewed 2026-10-06 (proto-teammate shelf slice 2): prepare reads the named teammate's definition off the fixture's private roster <entity root>/.claude/agents/, ALLOWED_MODELS from the fixture's private orchestration.config, and the duty text mega-lander/duties/<role>.md by fixed engine path, which it writes at the top of the brief; build_spawn_command passes richos-app-engine:<teammate> and that definition's model to the same fixed spawn.py. Renewed 2026-10-06 (proto-teammate shelf slice 3): role consult reads mega-lander/duties/consult.md by the same fixed path, names no repository, and passes the fixture's RICHOS_ENTITY_ROOT as the one --repo with no --dir to the same fixed spawn.py; worker_context refuses a consult's file edits; observe keeps a consult's handback or SubagentStop message on its receipt; project writes no ECS work unit for a consult. No configuration read is added. Renewed 2026-10-06 (proto-teammate shelf slice 4): the team tool lists and reads team/shelf/*.md by fixed engine path, reads the fixture's private orchestration.config ALLOWED_MODELS (the same key prepare reads) to check a definition before saving it, and writes <app data>/team/<name>.md, the parent of the fixture's RICHOS_APP_STATE, through a temporary file and a rename. No new configuration key is read. Renewed 2026-10-07 (weekly-switch handoff slice 4): prepare with continue_of checks for the app quota gate's marker <RICHOS_APP_STATE>/handoffs/<agent_id>.json under the fixture's private engine-state, reads the saved commit's message with git log, and for a marked worker runs git status, git add -A and git commit in its target workspaces, authored by that repository's own Git configuration as merge_commit already is. No configuration read is added. Renewed 2026-10-09 (zach-sonnet-shellc1): validate_shell_target loads scripts/lib/shell_c.py by fixed engine path and refuses a Bash command that wraps an inline script in bash -c, sh -c or zsh -c; the module reads only the command text, no configuration.",
+      "sha256": "c8a8b38f362bbf286f92e4bfd966d706d762c3902a87cc7271ff3873c3ae03ad",
+      "evidence": "All call entrypoints plus observe, dispatch_intent, lock and receipt helpers run against source-bound private fixtures. Subprocesses are Git or fixed spawn.py; the test failure override is literal Python. Spawn hook sources are explicitly fixed to actual isolation guard. The module is imported, never launched as its MCP server. Retain every actual workspace/spawn configuration dependency. Renewed 2026-09-30 (hunt part 4, findings 18, 22, 23): run() exports RICHOS_OPERATION_DEADLINE to the command and, on timeout, reads ps to stop the process tree it started; prepare() releases the conversation lock while the spawn command runs and stamps its receipt with its own pid and start time; observe() saves only the receipts that changed. No configuration read is added. Renewed 2026-10-05 (Output side panel slice S2b): integrate's land witness loads scripts/lib/app-evidence.py by fixed path, runs git diff --name-only in the landed repository and appends land rows through append_land_rows under the fixture's private engine-state/evidence; a failure there is reported on stderr and never fails the land. No configuration read is added. Renewed 2026-10-06 (proto-teammate shelf slice 2): prepare reads the named teammate's definition off the fixture's private roster <entity root>/.claude/agents/, ALLOWED_MODELS from the fixture's private orchestration.config, and the duty text mega-lander/duties/<role>.md by fixed engine path, which it writes at the top of the brief; build_spawn_command passes richos-app-engine:<teammate> and that definition's model to the same fixed spawn.py. Renewed 2026-10-06 (proto-teammate shelf slice 3): role consult reads mega-lander/duties/consult.md by the same fixed path, names no repository, and passes the fixture's RICHOS_ENTITY_ROOT as the one --repo with no --dir to the same fixed spawn.py; worker_context refuses a consult's file edits; observe keeps a consult's handback or SubagentStop message on its receipt; project writes no ECS work unit for a consult. No configuration read is added. Renewed 2026-10-06 (proto-teammate shelf slice 4): the team tool lists and reads team/shelf/*.md by fixed engine path, reads the fixture's private orchestration.config ALLOWED_MODELS (the same key prepare reads) to check a definition before saving it, and writes <app data>/team/<name>.md, the parent of the fixture's RICHOS_APP_STATE, through a temporary file and a rename. No new configuration key is read. Renewed 2026-10-07 (weekly-switch handoff slice 4): prepare with continue_of checks for the app quota gate's marker <RICHOS_APP_STATE>/handoffs/<agent_id>.json under the fixture's private engine-state, reads the saved commit's message with git log, and for a marked worker runs git status, git add -A and git commit in its target workspaces, authored by that repository's own Git configuration as merge_commit already is. No configuration read is added. Renewed 2026-10-09 (zach-sonnet-shellc1): validate_shell_target loads scripts/lib/shell_c.py by fixed engine path and refuses a Bash command that wraps an inline script in bash -c, sh -c or zsh -c; the module reads only the command text, no configuration. Renewed 2026-10-09 (second review slice 4): prepare checks the scope's user_instruction.text against its sha256, starts a reviewer's brief with it and writes it beside the receipt (<id>.words, private); worker_spaces reads receipts and the canonical record read only. No new module, key or environment variable.",
       "keys": [
         "ALLOWED_MODELS"
       ],
@@ -13935,8 +13913,8 @@
     },
     "mega-lander/tests/app.test.py": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "2cbb9813ea82a083673e726eba030893f75c8b8e2a1eb8a02268b02131c91d76",
-      "evidence": "Full fixed unittest fixture, literal holder/probe subprocess programs and one literal spawn failure override. Private Git, ECS stores, registry, scope, land locks and explicit single-hook manifest bind the app/adapter entrypoint guarantees. No agent, model, arbitrary setup or MCP server is invoked. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private. Renewed 2026-10-06 (proto-teammate shelf slice 2): setUp copies the always-active five (engine/agents/{dean,clark,reed,frank,pierce}.md) as data and writes one literal fictional teammate, mark.md, into the private roster; cases name a teammate in prepare and read the duty texts mega-lander/duties/*.md as data. Renewed 2026-10-06 (proto-teammate shelf slice 3): one case prepares Clark with role consult and no repository, starts and ends it through the existing fixture helpers with literal fictional messages, and reads the fixture's private ECS store for work units. Renewed 2026-10-06 (proto-teammate shelf slice 4): one case lists and shows the shipped shelf (team/shelf/*.md read as data), saves literal fictional definitions into the fixture's private <app data>/team/ and calls prepare once more against the private roster.",
+      "sha256": "3e1859679d382eef28b4e81f9dbe1129589c2c90a31f21f7aa7c3d0ab2aa413f",
+      "evidence": "Full fixed unittest fixture, literal holder/probe subprocess programs and one literal spawn failure override. Private Git, ECS stores, registry, scope, land locks and explicit single-hook manifest bind the app/adapter entrypoint guarantees. No agent, model, arbitrary setup or MCP server is invoked. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private. Renewed 2026-10-06 (proto-teammate shelf slice 2): setUp copies the always-active five (engine/agents/{dean,clark,reed,frank,pierce}.md) as data and writes one literal fictional teammate, mark.md, into the private roster; cases name a teammate in prepare and read the duty texts mega-lander/duties/*.md as data. Renewed 2026-10-06 (proto-teammate shelf slice 3): one case prepares Clark with role consult and no repository, starts and ends it through the existing fixture helpers with literal fictional messages, and reads the fixture's private ECS store for work units. Renewed 2026-10-06 (proto-teammate shelf slice 4): one case lists and shows the shipped shelf (team/shelf/*.md read as data), saves literal fictional definitions into the fixture's private <app data>/team/ and calls prepare once more against the private roster. Renewed 2026-10-09 (echo-opus-review4, second review slice 4): cases write the scope's user words (literal fictional text and its hash) and read the brief and <id>.words prepare writes; one case loads scripts/app-engine-hook.py and calls only its mid_job_notice, which loads scripts/lib/app_review.py over a literal private ledger; one case loads scripts/lib/review_watch.py and runs app_mode --tick (AppWorld over the fixture's private registry partition, with REVIEW_WATCH_SECOND_REVIEW a literal fake script that records its arguments and sleeps) and Watcher.stop_own on that fake's recorded pid. No model, Claude CLI or real review runs. Renewed 2026-10-09 (echo-opus-review4g, the real second review of 283b4379d, finding 2): the mid-job case passes a list's append as mid_job_notice's emit and reads the text from it; nothing else changes. Renewed 2026-10-09 (echo-opus-review4l, the real second review of 802194f0e, finding 1): the app-watcher case also gives app_mode a fixture path as accounts (never created) and checks the fake second-review's recorded --accounts argument; nothing new is read.",
       "keys": [],
       "edges": [
         {
@@ -13944,6 +13922,83 @@
         },
         {
           "to": "scripts/lib/pause_protocol.py"
+        },
+        {
+          "to": "scripts/lib/app_review.py"
+        },
+        {
+          "to": "scripts/app-engine-hook.py"
+        },
+        {
+          "to": "scripts/lib/review_watch.py"
+        }
+      ]
+    },
+    "scripts/lib/app_review.py": {
+      "source": "scripts/lib/app_review.py",
+      "sha256": "7cd44546856bdba2e7aa3a4eaba65b9053362349b74ce647bb52195520ceb83e",
+      "evidence": "Added 2026-10-09 (second review slice 4; app.test.py's edge to it came with 8a433f70e and had no row). Full module reviewed: imports only json, os and re, and its module level assigns three constants. app_paths builds the paths of the app's own review-watch state, second-review folder, reviews.jsonl ledger and delivered/ claims under the app_state it is given (realpath, no read). mid_job_notice reads that ledger's JSON rows and each row's <record>/verdict.json as data, and claims a delivery by creating <delivered>/<review id> exclusively (mode 0600). No orchestration.config, environment variable, subprocess or engine import. app.test.py loads it by fixed path over the fixture's private engine-state and literal ledger rows. Renewed 2026-10-09 (echo-opus-review4g, the real second review of 283b4379d, finding 2): the module also imports fcntl. mid_job_notice takes emit; under a non-blocking exclusive flock on <review-watch>/delivered.lock (created 0600 beside delivered/) it skips review ids already in <delivered>/, hands the notice text to emit, and only once emit returns creates <delivered>/<review id> (0600) for each; a held lock tells nothing. Nothing new is read: no configuration key, environment variable or subprocess.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/app-engine-hook.py": {
+      "source": "scripts/app-engine-hook.py",
+      "sha256": "9de1fbf0dc283740d42937178141d04deede80552de5871b42f18064e6f3ab73",
+      "evidence": "Added 2026-10-09 (second review slice 4; app.test.py's edge to it came with 8a433f70e and had no row). This row is what app.test.py reaches: it loads the module (standard-library imports; the module level only computes ENGINE from its own path) and calls only mid_job_notice, never handle, scope or main. mid_job_notice returns for a call without agent_id, loads scripts/lib/app_review.py by fixed path, stats the app's review ledger under the root it is given, calls worker_spaces on the work module it is passed (the fixture's own loaded mega-lander/app.py) and returns app_review.mid_job_notice's text; any exception is printed to stderr and yields empty text. No orchestration.config read, environment variable, subprocess or guard runs on this path. handle(), which reads RICHOS_APP_SCOPE/RICHOS_APP_STATE/RICHOS_ENTITY_ROOT and runs the guards, workspaces.py, app-evidence.py and guard-stated-actions.py, is bound separately by scripts/app-engine-hook.py#pause-rejection for its pause path and is not covered by this row. Renewed 2026-10-09 (echo-opus-review4g, the real second review of 283b4379d, finding 2): mid_job_notice takes emit and returns True once app_review.mid_job_notice called it; app.test.py passes a list's append as emit. An exception raised after emit was called is re-raised instead of printed (an output failure); any other still prints to stderr and returns False. Nothing new is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/app_review.py"
+        },
+        {
+          "to": "mega-lander/app.py#desktop-work-fixtures"
+        }
+      ]
+    },
+    "scripts/lib/review_watch.py": {
+      "source": "scripts/lib/review_watch.py",
+      "sha256": "d76b759348f7ac3cafeba4fb755fb36ef3debdb24ac0697cba453060c6915a41",
+      "evidence": "Added 2026-10-09 (second review slice 4; app.test.py's edge to it came with 8a433f70e and had no row). Module load: standard-library imports, the sibling imports stall_watch and app_review (app_paths), constants and HOST_JSON; nothing else runs. Configuration: only World (the operator monitor, review-watch.sh --config) reads SECOND_REVIEW_REPOS, as text from the file it is given, never executed; it is declared here though app.test.py's AppWorld passes no config and reads none. What app.test.py reaches: app_mode with tick sets REVIEW_WATCH_STATE_DIR, SECOND_REVIEW_STATE_DIR and RICHOS_PROJECTS_DIR under the fixture's private engine-state (app_paths); AppWorld loads mega-lander/workspaces.py by fixed path through stall_watch._load and, per private registry partition (RICHOS_WORKSPACES_DIR), calls all_agents, finished_state, _chain, integration_target and integration_for, reads the private work-receipts JSON and <id>.words beside them, runs git rev-parse/merge-base/log in the fixture's repositories and reads JSON/JSONL state, locks and the ledger under that private state. A due review runs bash on REVIEW_WATCH_SECOND_REVIEW, which the fixture sets to a literal fake script; scripts/second-review.sh is never run by the fixture. Watcher.stop_own reads its own locks, freezes its own child's process group (SIGSTOP; second-review keeps its reviewer in that group), reads the process table (ps -A -o pid=,ppid=,pgid=,stat=) for the process groups of every descendant of that group's processes, signals that group and those groups only, waits for them to be gone (killpg signal 0) and appends an attempts row. Environment read: REVIEW_WATCH_NOW, REVIEW_WATCH_STATE_DIR, REVIEW_WATCH_SECOND_REVIEW, SECOND_REVIEW_STATE_DIR, CLAUDE_CONFIG_DIR, RICHOS_PROJECTS_DIR, RICHOS_WORKSPACES_DIR (set per partition and restored), and in World only REVIEW_WATCH_TO_RICH/REVIEW_WATCH_TO_CODEX (Codex channel files, not reached by AppWorld). Renewed 2026-10-09 (echo-opus-review4c, second review of f14155545, finding 1): stop_all also stops and waits for the process groups of every descendant of a recorded review (second-review's reviewer leads its own session) and returns the reviews not seen gone, which stop_own never records as stopped; no new configuration key or environment variable. Renewed 2026-10-09 (echo-opus-review4c, finding 2): spawn holds a SIGTERM or SIGHUP that arrives inside Popen until the child is in Watcher.children, and stop_own also stops every child of its own whose pid has not reached its lock, settling the lock start() was filling in; nothing new is read. Renewed 2026-10-09 (echo-opus-review4c, finding 3): owner_session and the lost-twice notice take the review's recorded session first and fall back to the registry only for an item of the same work; _who names an item at the reviewed tip only when it is the same work; nothing new is read. Renewed 2026-10-09 (echo-opus-review4d, second review of 783a8dba1, finding 1): stop_all reads the process table once more (the same ps -A -o pid=,ppid=,pgid=) before its SIGKILL, for the reviews still running after the SIGTERM grace, and signals the groups found below them too; nothing new is read. Renewed 2026-10-09 (echo-opus-review4d, finding 2): tell's repeated handover notice takes only verdicts of the item's own work and sends them through owner_session, on a told-state clock per work; in the plain monitor (run_loop sets MONITOR to the current session id) a block owned by another lead session is left to that session's monitor when its told.json under REVIEW_WATCH_STATE_DIR records a look and it holds its monitor.lock (a non-blocking flock probe, released at once). app.test.py's tick never sets MONITOR. No new configuration key or environment variable. Renewed 2026-10-09 (echo-opus-review4e, second review of b5ff41f02, finding 1): the process-table reads are gone (groups_below and both of its ps -A calls); stop_all signals each recorded review's process group, which now holds second-review's reviewer, waits until that whole group is gone, and sends SIGKILL again on each pass of its wait. Nothing new is read. Renewed 2026-10-09 (echo-opus-review4e, second review of b5ff41f02, finding 2): tell reads and writes last-told.json under REVIEW_WATCH_STATE_DIR once per look, keeping in it, beside the shared `rows` cursor, a `delivered` map of review id to time (entries older than seven days dropped), written only for a verdict this monitor's own session owns or the operator host (--host-json) sends to its owner; a monitor's first look also tells its own session's undelivered verdicts of the last seven days. for_this_monitor no longer reads another session's told.json, only its monitor.lock (the same non-blocking flock probe). No new configuration key or environment variable. Renewed 2026-10-09 (echo-opus-review4e, the real second review of 4d99d0b7e): a verdict whose owner this watcher delivers to (its own monitor's session, or any owner for --host-json) is told whenever it is not in last-told.json's `delivered`, on any look; a monitor's verdicts stop at the BLOCK_CHARS cap, unmarked, and its cursor and the shared `rows` stop there too; the first look under this rule seeds `delivered` from the rows the shared cursor had passed. Nothing new is read. Renewed 2026-10-09 (echo-opus-review4e, esc-20261009T054753Z-400c68b3): stop_all freezes each review's group with SIGSTOP until ps shows its processes stopped (FREEZE_SECONDS), reads the process table once, SIGKILLs the groups below it (Codex's own command groups), sends the review's group SIGTERM and SIGCONT, and freezes, reads and SIGKILLs once more whatever is left; QUIT_TERM_SECONDS is 1.0. Nothing else new is read. Renewed 2026-10-09 (echo-opus-review4e, the real second review of 6e8cc3f6d): `delivered` is no longer seeded from the old shared cursor and keeps every review id still in reviews.jsonl; an undelivered verdict no longer expires; the owner lookup for earlier rows runs only for rows whose repository and tip an attempt row or lock names with a session this watcher delivers to, or whose work a registry item of such a session has. Nothing new is read. Renewed 2026-10-09 (echo-opus-review4f, the real second review of 0d83e456d, findings 1 and 2): the process-table walk is gone (process_table, groups_below). spawn puts RICHOS_REVIEW_OWNER, 16 random bytes in hex, in the review's environment and keeps it in the lock as `mark`; a stop reads the process table once per pass (ps -A -o pid=,uid=,pgid=,stat=), calls os.getsid on this user's processes, and reads each one's environment as it was started (sysctl KERN_PROCARGS2 through ctypes on macOS, /proc/<pid>/environ on Linux) for that exact NAME=value; members of the session the review leads count while its leader is verified alive or one of them carries the mark. It signals only those processes and, while the leader is verified, the leader's group. reconcile ends what an exited launcher left carrying the mark before settling its lock. No new configuration key; the new environment variable is one this module writes for its children, never reads from its own environment. Renewed 2026-10-09 (echo-opus-review4f, the real second review of 0d83e456d, finding 3): tell no longer writes `delivered`; it leaves the review ids of the owned verdicts it printed in PRINTED, and tick records them in last-told.json (under the look lock) only once its output was written and flushed, or, when HOST_JSON is on and the environment variable RICHOS_REVIEW_WATCH_ACKS is \"1\" (set by richos-core review_watch.rs for the operator child), only once the host acknowledges them on this process's stdin as JSON lines {\"ack\": [ids]}, read without blocking at the start of each tick. --host-json lines carry a `keys` list of those ids. New environment read: RICHOS_REVIEW_WATCH_ACKS; new input: stdin acknowledgments in the operator host child only. No new configuration key. Renewed 2026-10-09 (echo-opus-review4g, the real second review of 283b4379d, finding 1): start records `own_session` in the lock (the leader verified alive right after spawn). stop_all owns the leader's session while the leader is verified alive, or, once it has exited, while the lock records own_session or the pid is this watcher's own child, unless os.getsid shows that pid leading a session again; it stops owning it once a read finds no member left. owned_processes' values carry each process's session id (pgid, stat, sid); its unreachable leftover after the return is removed. The same ps read, os.getsid and environment reads as before; nothing new is read: no configuration key or environment variable. Renewed 2026-10-09 (echo-opus-review4h, the real second review of 16c154f5a, finding 1): owned_processes returns None when the process table cannot be read (a ps timeout or error), and stop_all keeps such a review as left with its session still owned, so stop_own never records it stopped and its lock stays for the next look; nothing new is read. Renewed 2026-10-09 (echo-opus-review4h, finding 2): run_host_loop reads and removes RICHOS_REVIEW_WATCH_HOST (the host's own pid, set by richos-core review_watch.rs) from its own environment and returns before the first look when its parent is not that pid; without it, the parent at that point. New environment read: RICHOS_REVIEW_WATCH_HOST, in the host loop only (app.test.py's tick never reaches it). No new configuration key. Renewed 2026-10-09 (echo-opus-review4l, the real second review of 802194f0e, finding 2): the NO VERDICT TWICE notice for an owner this watcher delivers to carries the key lost:<repo>:<tip> (in PRINTED and the --host-json keys) and is recorded in last-told.json's `delivered` only once its output is accepted, like a verdict; `delivered` keeps such a key while attempts.jsonl still holds that commit's two losses. Nothing new is read: no configuration key or environment variable. Renewed 2026-10-09 (echo-opus-review4l, the real second review of 802194f0e, finding 1): app mode takes --accounts (the app's Claude account list, a path) and AppWorld hands it to each app item's second-review arguments as --accounts; the watcher itself never opens it. Nothing new is read: no configuration key or environment variable. Renewed 2026-10-09 (echo-opus-review4m, the real second review of 0be50ade1, finding 1): tell builds PRINTED (the delivery keys) only from the blocks its output really carries, after the monitor's BLOCK_CHARS cap; the told-state marks of the notices without a delivery key (a NOT STARTED problem, a handover reminder, a block for another lead, a failed look) are written to the session's told.json under REVIEW_WATCH_STATE_DIR only after the output was written and flushed, under the look lock; an owned NOT CONVERGING notice carries the delivery key nc:<work>:<finding> and last-told.json's `delivered` keeps such a key seven days. Nothing new is read: no configuration key or environment variable. Renewed 2026-10-09 (echo-opus-review4m, merging main 2ec9241b1, the review land gate): the module also imports its sibling operator_fences (as F) at load; World reads SECOND_REVIEW_REPOS only through F.review_repos, which sources the given config in a clean bash (so the config is now executed by that reader, not parsed as text here), and matches repositories with F.review_listed; an unreadable value is told once per session (told_unreadable_repos in the session's told.json). app.test.py's AppWorld passes no config and reaches none of this. No new environment variable. Renewed 2026-10-09 (echo-opus-review4m, after that merge): AppWorld sets repos_error to \"\" beside its repos, which main's Watcher.look reads first; nothing new is read.",
+      "keys": [
+        "SECOND_REVIEW_REPOS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/stall_watch.py#review-watch-helpers"
+        },
+        {
+          "to": "scripts/lib/app_review.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#desktop-work-fixtures"
+        }
+      ]
+    },
+    "scripts/lib/stall_watch.py#review-watch-helpers": {
+      "source": "scripts/lib/stall_watch.py",
+      "sha256": "5dafd95cc31823a3731bd0b7c4b3f1ce0135de0f39035e9a84bedad7a594798d",
+      "evidence": "Added 2026-10-09 (second review slice 4) for review_watch.py, which imports this module and uses its helpers; the --notice path stays bound by scripts/lib/stall_watch.py#notice. Module load: standard-library imports, the sibling imports resource_waits and escalations (neither reads configuration at import), constants. Helpers review_watch.py calls: hhmm, _env_float, _read_json/_write_json (JSON state files it names), _load (a module by fixed path, None when absent), Sources(engine_root) (loads mega-lander/workspaces.py by fixed path, loads richos/app/scripts/lib/proof_slots.py beside the engine without calling it, imports sibling agent_hold.py without calling it; reserve.py is loaded only by cpu_busy, which review_watch never calls), thresholds (environment STALL_WATCH_SILENT_MINUTES, STALL_WATCH_SELF_WAIT_MINUTES, STALL_WATCH_REPEAT_MINUTES and, through resource_waits.wait_minutes, RICHOS_RESOURCE_WAIT_MINUTES), _git_last_commit (git log -1 in the workspace), _transcript (workspaces.platform_agent_transcript), _try_lock/lock_held (flock on a named file), and in the monitor loop only session_alive_check (ps) and _nap. No orchestration.config read and no engine execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resource_waits.py"
+        },
+        {
+          "to": "scripts/lib/escalations.py"
+        },
+        {
+          "to": "scripts/lib/agent_hold.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#desktop-work-fixtures"
+        }
+      ],
+      "external": [
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/proof_slots.py",
+          "sha256": "825b7652d519652322aa227532115c17c14a738b3fba639807671750bc54d8b2",
+          "evidence": "Sources() loads it by fixed path beside the engine (module level: standard-library imports and constants); review_watch.py never calls it. Bind against the current repository, never another worktree."
         }
       ]
     },
@@ -13963,7 +14018,7 @@
     },
     "mega-lander/tests/app.test.sh": {
       "source": "mega-lander/tests/app.test.sh",
-      "sha256": "0733107cfcd3ef83fcddff76425665201cb7a43956f92bd2b2fe5bcc81d6ce9e",
+      "sha256": "3e501290fc0aeb96a1c26ff0ce0fc294c38cd98080872430bab7d972ac4d1ee5",
       "evidence": "Runs exactly the bound full Python fixture and its mutation driver. Neither half is omitted from config qualification. Renewed 2026-09-30 (hunt part 4 finding 19): the mutation driver now runs only when RICHOS_MUTATION_PASSES=1 (the nightly's gates/workspace-mutants) and otherwise prints NOT RUN; its edge is kept because that run executes it. No configuration read is added.",
       "keys": [],
       "edges": [
@@ -15152,18 +15207,18 @@
     },
     "ecs/adapters/mcp.py#discovery-fixtures": {
       "source": "ecs/adapters/mcp.py",
-      "sha256": "ec6a74e89a2e99f25f7b43fb5f34dad33303ee134f62ac90518892e49c41a67e",
+      "sha256": "850533f82253c6a94b202df0240d86e90775166abcf2fe358019a2d9aa6e4a53",
       "keys": [],
       "edges": [
         {
           "to": "ecs/adapters/app.py#discovery-fixtures"
         }
       ],
-      "evidence": "Full fixture calls only checkpoint/inspect and rejected host verbs using explicit private scope files. Server loop is not launched."
+      "evidence": "Full fixture calls only checkpoint/inspect and rejected host verbs using explicit private scope files. Server loop is not launched. Renewed 2026-10-09 (second review slice 4): only the scope's size bound changed, 16 KiB to 256 KiB."
     },
     "ecs/tests/test_app.py": {
       "source": "ecs/tests/test_app.py",
-      "sha256": "9530b18e72174d9e82d387c9e083595f34e62fc20d6cd8bedaaafbdf2b30aa09",
+      "sha256": "e97dd329afdb09095d652936ac8cee496da2d11ec73b27540227067653075432",
       "keys": [],
       "edges": [
         {
@@ -15179,7 +15234,7 @@
           "to": "ecs/adapters/loro_receipts.py"
         }
       ],
-      "evidence": "Full fixed unittest module. Only private SQL/JSON/Git fixtures, bound ECS entrypoints and literal migration/receipt mutations. No hook manifest or arbitrary imported script executes."
+      "evidence": "Full fixed unittest module. Only private SQL/JSON/Git fixtures, bound ECS entrypoints and literal migration/receipt mutations. No hook manifest or arbitrary imported script executes. Renewed 2026-10-09 (second review slice 4): one AppProtocolTests case writes a private scope carrying about 96 KB of literal user words and calls checkpoint, then an oversized one."
     },
     "ecs/tests/test_import.py": {
       "source": "ecs/tests/test_import.py",
@@ -15223,7 +15278,7 @@
     },
     "ecs/tests/run.test.sh": {
       "source": "ecs/tests/run.test.sh",
-      "sha256": "c5a00e5e5a066ecfaff567feea4476c4db8c2c158f8c01cea5a47e62dbbfded8",
+      "sha256": "561125f1386f6166b7a9f2f794990eba4cbe5664c67d8345652ae61c3bb77283",
       "keys": [],
       "edges": [
         {
@@ -15685,8 +15740,8 @@
     },
     "mega-lander/tests/app.test.py#pause-message-case": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "2cbb9813ea82a083673e726eba030893f75c8b8e2a1eb8a02268b02131c91d76",
-      "evidence": "Added 2026-09-30 for workspaces.test.py's finding-20 case, which runs this suite with the one name test_pause_message_is_fixed. That selects only DesktopWork.test_pause_message_is_fixed_and_does_not_claim_delivery: setUp builds private Git repositories, a private orchestration.config, agent definitions copied from the engine as data, a private registry, scope, ECS store and land-locks directory, and loads app.py; the case renders pause messages and calls inspect over no receipts. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private. Renewed 2026-10-06 (proto-teammate shelf slice 2): the agent definitions setUp copies are now the always-active five plus a literal fictional teammate; the case still never reaches prepare. Renewed 2026-10-06 (proto-teammate shelf slice 3): a consult case was added beside it; this case is unchanged.",
+      "sha256": "3e1859679d382eef28b4e81f9dbe1129589c2c90a31f21f7aa7c3d0ab2aa413f",
+      "evidence": "Added 2026-09-30 for workspaces.test.py's finding-20 case, which runs this suite with the one name test_pause_message_is_fixed. That selects only DesktopWork.test_pause_message_is_fixed_and_does_not_claim_delivery: setUp builds private Git repositories, a private orchestration.config, agent definitions copied from the engine as data, a private registry, scope, ECS store and land-locks directory, and loads app.py; the case renders pause messages and calls inspect over no receipts. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private. Renewed 2026-10-06 (proto-teammate shelf slice 2): the agent definitions setUp copies are now the always-active five plus a literal fictional teammate; the case still never reaches prepare. Renewed 2026-10-06 (proto-teammate shelf slice 3): a consult case was added beside it; this case is unchanged. Renewed 2026-10-09 (echo-opus-review4g, the real second review of 283b4379d, finding 2): the mid-job case elsewhere in the file changed; this case is unchanged.",
       "keys": [],
       "edges": [
         {
@@ -15699,7 +15754,7 @@
     },
     "mega-lander/app.py#pause-message-case": {
       "source": "mega-lander/app.py",
-      "sha256": "535b39f7f41bd3fd273a1271723c9152f233c6b70acdd38240dc1580bfeb3109",
+      "sha256": "c8a8b38f362bbf286f92e4bfd966d706d762c3902a87cc7271ff3873c3ae03ad",
       "evidence": "Reviewed 2026-09-30, the path app.test.py's pause-message case reaches: module load (ecs_core, the ECS adapter and workspaces.py loaded by fixed path); ECS bind, checkpoint, inspect and seats against the private store; workspaces.record_session_start (session registry and platform session JSON, git rev-parse, events); read_scope; pause_message, which renders pause_protocol; and inspect over no receipts, whose reconcile_seats retains this conversation's own seat. prepare, integrate, complete, spawn and land are not reached, so none of their model, scratch, app-instance or QA settings is read, and no orchestration.config is read.",
       "keys": [],
       "edges": [
@@ -16029,6 +16084,28 @@
         }
       ],
       "evidence": "Feeds PreToolUse[Bash] payloads to the hook; no command under test is executed. D1 sends two non-commit Bash payloads (bash -c with rm, and a script file, no agent_id) through the real Bash dispatcher, which runs every module on the same non-commit route as the find-payload fragment."
+    },
+    "scripts/hooks/deliver-review-verdict.sh": {
+      "source": "scripts/hooks/deliver-review-verdict.sh",
+      "sha256": "a4a67d345e9ba04a100a8000f441053ad85a548d5ef95c7ab94a75d00f1efa75",
+      "evidence": "Full wrapper reviewed (2026-10-09): a substring test of the payload for agent_id, a presence test of the review ledger from SECOND_REVIEW_STATE_DIR/CLAUDE_CONFIG_DIR, then the fixed Python helper; exit 0 on every path. No configuration key is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/review_delivery.py"
+        }
+      ]
+    },
+    "scripts/lib/review_delivery.py": {
+      "source": "scripts/lib/review_delivery.py",
+      "sha256": "ca416390f374e360843ea0d1ad5c1f9917e2dddfca8dc8e55142d052c27c5116",
+      "evidence": "Full program reviewed (2026-10-09): parses the payload's agent_id, reads second-review's ledger and verdict records as JSON data, loads the fixed workspaces.py for key_for_id, load_agent and _chain (registry reads only), creates one marker file per teammate and review under the review-watch state directory, and prints additionalContext. Nothing is executed, no configuration key is read, every outcome is exit 0. Renewed 2026-10-09 (review rv-20261009T031207Z-ba444a8a-607a, finding 2): each verdict is compared with the registered_at of the chain record whose work it is on, read from the same registry records; no new read, import or key.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#ledger-lookup"
+        }
+      ]
     }
   },
   "units": {

@@ -49,8 +49,28 @@ WHICH MODEL (plan §2.3, Sage's catches 3, 4 and 10)
     record of 2026-10-08), approvals never, sandbox workspace-write rooted at
     the export (-C), so a fixture compiles there and nothing else is written;
     --skip-git-repo-check because an archive has no .git; --output-schema for
-    the one fixed answer shape. Never --ephemeral: the session record is what
-    carries the token count and his plan meter, which every row records.
+    the one fixed answer shape.
+  * INVISIBLE IN THE USER'S OWN CODEX AND CHATGPT APPS (the app tells users
+    "this review process won't be visible in their regular ChatGPT/Codex
+    app"): --ephemeral. Measured 2026-10-09: a review run without it added a
+    row to ~/.codex/state_5.sqlite `threads` (source exec, titled with the
+    review's prompt), a rollout under ~/.codex/sessions/ and thread history;
+    an --ephemeral run added none of the three and used the same login. The
+    model and effort every row records come from Codex's own
+    SessionConfiguredEvent, which it logs on stderr at RUST_LOG=codex_exec=info
+    (`model: "gpt-6.1-sol"`, `reasoning_effort: Some(High)`, `rollout_path:
+    None`); the token count from its turn.completed events. His plan meter
+    lived only in the session record, so it is no longer recorded.
+  * ISOLATED FROM THE USER'S OWN SETUP (CODEX_ISOLATION, CEO 2026-10-09 ~05:00Z:
+    macOS asked him whether "Terminal.app" may control "Codex Computer
+    Use.app"). His ~/.codex/config.toml has a `notify` program that ran at
+    every turn end and sent Apple Events from the Terminal the review started
+    in, plus his MCP servers and plugins (a reviewer offered Computer Use and
+    control of his Chrome). So Codex runs without his config.toml
+    (--ignore-user-config; the login in CODEX_HOME is still used) or his
+    exec-policy rules, `notify` empty, and plugins, apps, hooks, computer use
+    and browser use off. Claude runs with no MCP server at all
+    (--strict-mcp-config): no setting sources does not skip them.
   * Claude reviews Codex's work (a codex/ branch), and is the fallback when
     Codex cannot run (missing, signed out, at its usage limit: any exit without
     an answer that is not the time limit). The fallback is Opus, at high
@@ -75,9 +95,11 @@ HOW IT RUNS (Sage's catch 5)
     admission is waited on (bounded, one sample per 30 s, said once); an
     unmeasurable CPU refuses.
   * A 60-minute limit (the first by-hand review took about 30). Past it the
-    reviewer's own process group, captured at spawn, is stopped. When this
-    command is itself stopped (review-watch replacing a mid-job review with
-    the handover one), it stops that group first.
+    reviewer is stopped by its own process id (SIGTERM, then SIGKILL).
+  * The reviewer runs in this command's own process group, never a session of
+    its own: review-watch starts second-review.sh leading a group and stops a
+    review by signaling that group, so the reviewer ends with it whenever it
+    was forked (second review of b5ff41f02, finding 1).
   * The reviewer's builds are capped at REVIEW_BUILD_JOBS jobs (CARGO_BUILD_JOBS,
     MAKEFLAGS, CMAKE_BUILD_PARALLEL_LEVEL in its environment, and said in its
     input). The first real runs, 2026-10-09: the engine's CPU breaker stopped a
@@ -103,14 +125,13 @@ THE VERDICT (plan §2.2, §2.4)
     stdout says the verdict.
 
 Test seams (second-review.test.sh only): SECOND_REVIEW_STATE_DIR,
-SECOND_REVIEW_CODEX, SECOND_REVIEW_CLAUDE, SECOND_REVIEW_CODEX_SESSIONS,
+SECOND_REVIEW_CODEX, SECOND_REVIEW_CLAUDE,
 SECOND_REVIEW_QUOTA_CMD, SECOND_REVIEW_CPU_BUSY, SECOND_REVIEW_TIMEOUT_SECONDS.
 """
 
 import argparse
 import ctypes
 import fcntl
-import glob
 import importlib.util
 import json
 import os
@@ -142,7 +163,7 @@ MAX_INLINE_LOG_BYTES = 128 * 1024
 FIXTURE_FILE_BYTES = 1024 * 1024
 FIXTURE_TOTAL_BYTES = 20 * 1024 * 1024
 REVIEW_BUILD_JOBS = 2
-_REVIEWER = {"pgid": None}
+_REVIEWER = {"proc": None}
 
 EXIT_PASSED, EXIT_CHANGES, EXIT_NO_VERDICT, EXIT_REFUSED = 0, 1, 2, 64
 
@@ -393,9 +414,14 @@ def resolve_work(a):
     if a.author:
         w.author = a.author
     w.author = w.author or "unknown"
+    # Given words come FIRST: in the app they are the user's own turn, and the transcript's first
+    # message is the coordinator's brief to the worker (plan §2.2: "the user's own turn, then
+    # Stu's brief"). Without --name there are no transcript words, so nothing else moves.
+    given = []
     for path in a.words_file or []:
         with open(path, "rb") as f:
-            w.words.append(("%s, as given" % os.path.abspath(path), f.read().decode("utf-8", "replace")))
+            given.append(("%s, as given" % os.path.abspath(path), f.read().decode("utf-8", "replace")))
+    w.words = given + w.words
     for path in a.claims_file or []:
         with open(path, "rb") as f:
             w.claims.append(("%s, as given" % os.path.abspath(path), f.read().decode("utf-8", "replace")))
@@ -673,7 +699,11 @@ def find_codex():
     return shutil.which("codex") or ""
 
 
-def find_claude():
+def find_claude(named=""):
+    """The Claude CLI: the one named (--claude, the CLI the app ships), else the test seam,
+    else the operator's. A named one that cannot run is no CLI, never a fallback to another."""
+    if named:
+        return named if os.path.isfile(named) and os.access(named, os.X_OK) else ""
     pinned = os.environ.get("SECOND_REVIEW_CLAUDE")
     if pinned is not None:
         return pinned if os.path.isfile(pinned) and os.access(pinned, os.X_OK) else ""
@@ -696,31 +726,33 @@ def version_of(binary):
 
 
 def run_bounded(argv, cwd, prompt, out_path, err_path, limit, env=None):
-    """(exit code or None on the time limit, seconds). The reviewer leads its
-    own process group, captured at spawn; past the limit that group, and only
-    that group, is stopped."""
+    """(exit code or None on the time limit, seconds).
+
+    THE REVIEWER STAYS IN THIS COMMAND'S PROCESS GROUP (second review of b5ff41f02, finding 1).
+    review-watch starts second-review.sh leading a process group of its own and stops a review by
+    signaling that group, so the reviewer, and whatever it starts in its group, ends with it
+    whenever it was forked: nothing has to be registered before a stop can reach it. Until
+    b5ff41f02 the reviewer led a session of its own, and one forked after the watcher's last read
+    of the process table outlived the SIGKILL. Past the limit the reviewer itself is stopped by its
+    process id: SIGTERM, ten seconds, SIGKILL."""
     start = time.monotonic()
     with open(out_path, "wb") as out, open(err_path, "wb") as err:
-        p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=out, stderr=err,
-                             start_new_session=True, env=build_env(env))
-        _REVIEWER["pgid"] = p.pid
+        p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=out, stderr=err, env=build_env(env))
+        _REVIEWER["proc"] = p
         try:
             p.communicate(prompt.encode("utf-8"), timeout=limit)
             return p.returncode, time.monotonic() - start
         except subprocess.TimeoutExpired:
-            for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 10)):
+            for stop in (p.terminate, p.kill):
+                stop()
                 try:
-                    os.killpg(p.pid, sig)
-                except ProcessLookupError:
-                    break
-                try:
-                    p.wait(timeout=grace)
+                    p.wait(timeout=10)
                     break
                 except subprocess.TimeoutExpired:
                     continue
             return None, time.monotonic() - start
         finally:
-            _REVIEWER["pgid"] = None
+            _REVIEWER["proc"] = None
 
 
 def build_env(env=None):
@@ -734,23 +766,37 @@ def build_env(env=None):
 
 
 def _on_stop(signum, _frame):
-    """Stopped from outside: the reviewer's own process group goes first, so a
-    stopped review leaves no reviewer running on its own."""
-    pgid = _REVIEWER.get("pgid")
-    if pgid:
+    """Stopped from outside. review-watch signals this command's whole process group, which holds
+    the reviewer too, so the reviewer has the signal already; it is passed on for a stop sent to
+    this process alone (by hand), and this process exits."""
+    p = _REVIEWER.get("proc")
+    if p is not None:
         try:
-            os.killpg(pgid, signal.SIGTERM)
+            p.send_signal(signum)
         except OSError:
             pass
     raise SystemExit(128 + signum)
 
 
-def codex_session_facts(stdout_path, export, started):
-    """Model, effort, sandbox, CLI version, tokens and his plan meter, from
-    Codex's own session record (never from what this command asked for)."""
-    facts = {"session": "", "model": "", "effort": "", "sandbox": "", "cli_version": "",
-             "tokens": None, "meter": None}
-    tid = ""
+def codex_run_facts(stdout_path, stderr_path):
+    """Model and effort from Codex's own SessionConfiguredEvent (stderr, RUST_LOG=codex_exec=info),
+    whether it wrote a session record (rollout_path), and the token count from its turn.completed
+    events (stdout). Never from what this command asked for."""
+    facts = {"model": "", "effort": "", "rollout": "", "tokens": None}
+    try:
+        with open(stderr_path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if "SessionConfiguredEvent" not in line:
+                    continue
+                m = re.search(r'\bmodel: "([^"]+)"', line)
+                e = re.search(r"\breasoning_effort: Some\((\w+)\)", line)
+                r = re.search(r"\brollout_path: (None|Some\([^)]*\))", line)
+                facts["model"] = m.group(1) if m else ""
+                facts["effort"] = e.group(1).lower() if e else ""
+                facts["rollout"] = r.group(1) if r else ""
+    except OSError:
+        pass
+    total = None
     try:
         with open(stdout_path, encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -758,74 +804,44 @@ def codex_session_facts(stdout_path, export, started):
                     o = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(o, dict) and o.get("thread_id"):
-                    tid = str(o["thread_id"])
-                    break
+                if not isinstance(o, dict) or o.get("type") != "turn.completed":
+                    continue
+                u = o.get("usage") or {}
+                total = total or {"total": 0, "input": 0, "cached_input": 0, "output": 0}
+                for k, src in (("input", "input_tokens"), ("cached_input", "cached_input_tokens"),
+                               ("output", "output_tokens")):
+                    total[k] += int(u.get(src) or 0)
+                total["total"] = total["input"] + total["output"]
     except OSError:
         pass
-    home = (os.environ.get("CODEX_HOME") or "").strip() or os.path.expanduser("~/.codex")
-    sessions = (os.environ.get("SECOND_REVIEW_CODEX_SESSIONS") or "").strip() or os.path.join(home, "sessions")
-    cands = glob.glob(os.path.join(sessions, "*", "*", "*", "rollout-*%s.jsonl" % tid)) if tid else []
-    if not cands:
-        # No thread id on stdout: the newest record started in this export.
-        for p in sorted(glob.glob(os.path.join(sessions, "*", "*", "*", "rollout-*.jsonl")),
-                        key=lambda p: os.path.getmtime(p), reverse=True)[:20]:
-            if os.path.getmtime(p) < started - 5:
-                break
-            try:
-                with open(p, encoding="utf-8") as f:
-                    first = json.loads(f.readline())
-                if (first.get("payload") or {}).get("cwd") == export:
-                    cands = [p]
-                    break
-            except (OSError, ValueError):
-                continue
-    if not cands:
-        return facts
-    facts["session"] = cands[0]
-    first_meter = last_meter = None
-    with open(cands[0], encoding="utf-8", errors="replace") as f:
-        for line in f:
-            try:
-                o = json.loads(line)
-            except ValueError:
-                continue
-            p = o.get("payload") if isinstance(o.get("payload"), dict) else {}
-            if o.get("type") == "session_meta":
-                facts["cli_version"] = str(p.get("cli_version") or "")
-            elif o.get("type") == "turn_context":
-                facts["model"] = str(p.get("model") or facts["model"])
-                facts["effort"] = str(p.get("effort") or facts["effort"])
-                facts["sandbox"] = str((p.get("sandbox_policy") or {}).get("type") or facts["sandbox"])
-            elif p.get("type") == "token_count":
-                prim = ((p.get("rate_limits") or {}).get("primary") or {})
-                if isinstance(prim.get("used_percent"), (int, float)):
-                    first_meter = prim["used_percent"] if first_meter is None else first_meter
-                    last_meter = prim["used_percent"]
-                tot = ((p.get("info") or {}).get("total_token_usage") or {})
-                if tot:
-                    facts["tokens"] = {"total": tot.get("total_tokens"), "input": tot.get("input_tokens"),
-                                       "cached_input": tot.get("cached_input_tokens"),
-                                       "output": tot.get("output_tokens")}
-    if first_meter is not None:
-        facts["meter"] = {"what": "ChatGPT plan, rate_limits.primary.used_percent",
-                          "before": first_meter, "after": last_meter}
+    facts["tokens"] = total
     return facts
 
 
+def codex_env():
+    """Codex logs its SessionConfiguredEvent (model, effort, rollout path) on stderr at this level."""
+    return dict(os.environ, RUST_LOG="codex_exec=info")
+
+
+# The reviewer never runs the user's own Codex setup: see "ISOLATED FROM THE USER'S OWN SETUP" above.
+CODEX_ISOLATION = ["--ephemeral", "--ignore-user-config", "--ignore-rules", "-c", "notify=[]",
+                   "--disable", "plugins", "--disable", "apps", "--disable", "hooks",
+                   "--disable", "computer_use", "--disable", "browser_use"]
+
+
 def codex_argv(codex, export, schema_path, answer_path):
-    return [codex, "exec",
-            "--sandbox", "workspace-write",
-            "-C", export,
-            "--skip-git-repo-check",
-            "-m", CODEX_MODEL,
-            "-c", 'model_reasoning_effort="%s"' % CODEX_EFFORT,
-            "-c", 'approval_policy="never"',
-            "--output-schema", schema_path,
-            "-o", answer_path,
-            "--json",
-            "--color", "never",
-            "-"]
+    return [codex, "exec"] + CODEX_ISOLATION + [
+        "--sandbox", "workspace-write",
+        "-C", export,
+        "--skip-git-repo-check",
+        "-m", CODEX_MODEL,
+        "-c", 'model_reasoning_effort="%s"' % CODEX_EFFORT,
+        "-c", 'approval_policy="never"',
+        "--output-schema", schema_path,
+        "-o", answer_path,
+        "--json",
+        "--color", "never",
+        "-"]
 
 
 def claude_settings():
@@ -846,6 +862,7 @@ def claude_argv(claude):
             "--model", CLAUDE_MODEL,
             "--effort", CLAUDE_EFFORT,
             "--setting-sources", "",
+            "--strict-mcp-config",
             "--settings", claude_settings(),
             "--permission-mode", "bypassPermissions",
             "--disallowedTools", "Edit,Write,NotebookEdit",
@@ -855,11 +872,40 @@ def claude_argv(claude):
             "--no-session-persistence"]
 
 
-def claude_env():
+def claude_env(account=None):
+    """The Claude reviewer's environment. `account` (account_in_use) is the app's account in use:
+    an added account's folder becomes CLAUDE_CONFIG_DIR and its id RICHOS_CLAUDE_ACCOUNT, exactly
+    as a work lease is given them (richos-core engine_profile.rs configure); Account 1 has no
+    folder and keeps the inherited one. Only the reviewer gets them: this command's own state and
+    scratch stay where they were."""
     env = dict(os.environ)
     for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"):
         env.pop(k, None)
+    if account:
+        env["RICHOS_CLAUDE_ACCOUNT"] = account["id"]
+        if account.get("folder"):
+            env["CLAUDE_CONFIG_DIR"] = account["folder"]
     return env
+
+
+def account_in_use(path):
+    """The Claude account the app's work runs on now, from the app's account list (richos-core
+    claude_accounts.rs: `inUse` among `accounts`, else the first, the same as Accounts::in_use,
+    which quota::Service::lease_account returns to every work lease): {"id", "folder"?}. Read when
+    the reviewer starts, so a switch while the review waited for admission is honored. No list yet
+    is Account 1 alone; an unreadable one is None (no review: never the wrong account)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            stored = json.load(f)
+    except FileNotFoundError:
+        return {"id": "1"}
+    except (OSError, ValueError):
+        return None
+    try:
+        listed = [x for x in stored["accounts"] if isinstance(x.get("id"), str)]
+        return next((x for x in listed if x["id"] == stored.get("inUse")), listed[0])
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return None
 
 
 def read_claude_result(stdout_path):
@@ -1090,16 +1136,13 @@ def review(a):
             row["reviewer"], row["cli_version"] = "codex", version_of(codex)
             answer_path = os.path.join(out_dir, "answer.json")
             so, se = os.path.join(out_dir, "codex.stdout.jsonl"), os.path.join(out_dir, "codex.stderr.txt")
-            t0 = time.time()
-            rc, secs = run_bounded(codex_argv(codex, export, schema_path, answer_path), export, prompt, so, se, limit)
+            rc, secs = run_bounded(codex_argv(codex, export, schema_path, answer_path), export, prompt, so, se, limit,
+                                   env=codex_env())
             row["duration_s"] = round(secs, 1)
-            facts = codex_session_facts(so, export, t0)
-            row["reviewer_model"] = facts["model"] or "unverified (no session record found; asked for %s)" % CODEX_MODEL
+            facts = codex_run_facts(so, se)
+            row["reviewer_model"] = facts["model"] or "unverified (Codex logged no session start; asked for %s)" % CODEX_MODEL
             row["reviewer_effort"] = facts["effort"] or "unverified (asked for %s)" % CODEX_EFFORT
-            row["tokens"], row["meter"] = facts["tokens"], facts["meter"]
-            row["codex_session"], row["sandbox"] = facts["session"], facts["sandbox"]
-            if facts["cli_version"] and not row["cli_version"]:
-                row["cli_version"] = facts["cli_version"]
+            row["tokens"], row["codex_record"] = facts["tokens"], facts["rollout"]
             raw = [so, se, answer_path]
             if rc is None:
                 row["why"] = "the reviewer passed its time limit of %d minutes and was stopped" % round(limit / 60.0) \
@@ -1114,7 +1157,8 @@ def review(a):
                 tail = ""
                 try:
                     with open(se, encoding="utf-8", errors="replace") as f:
-                        tail = " ".join(f.read().strip().splitlines()[-3:])[:400]
+                        tail = " ".join([ln for ln in f.read().strip().splitlines()
+                                         if " INFO " not in ln][-3:])[:400]
                 except OSError:
                     pass
                 row["fallback_why"] = "Codex exited %d without an answer: %s" % (rc, tail or "(no message)")
@@ -1137,15 +1181,19 @@ def review(a):
         row["why"] = ("the quota hold is in force (his 93%% rule; %s), so no Claude review started; it waits "
                       "for the reset, as every teammate does" % reading)
         return finish(None, raw)
-    claude = find_claude()
+    claude = find_claude(a.claude)
     if not claude:
         row["why"] = "no reviewer could run: %sthe claude CLI was not found" % (
             (row["fallback_why"] + "; ") if row["fallback_why"] else "")
         return finish(None, raw)
+    account = account_in_use(a.accounts) if a.accounts else None
+    if a.accounts and account is None:
+        row["why"] = "the app's Claude account list could not be read (%s), so no review started" % a.accounts
+        return finish(None, raw)
     row["reviewer"], row["cli_version"] = "claude", version_of(claude)
     row["reviewer_model"], row["reviewer_effort"] = "", CLAUDE_EFFORT
     so, se = os.path.join(out_dir, "claude.stdout.json"), os.path.join(out_dir, "claude.stderr.txt")
-    rc, secs = run_bounded(claude_argv(claude), export, prompt, so, se, limit, env=claude_env())
+    rc, secs = run_bounded(claude_argv(claude), export, prompt, so, se, limit, env=claude_env(account))
     row["duration_s"] = round((row["duration_s"] or 0) + secs, 1)
     raw = raw + [so, se]
     answer, facts = read_claude_result(so)
@@ -1215,6 +1263,9 @@ def main(argv):
     ap.add_argument("--work", default="", help="the key that ties rechecks of one piece of work together")
     ap.add_argument("--trigger", default="manual", choices=["handover", "long-job", "quiet", "manual"])
     ap.add_argument("--reviewer", default="auto", choices=["auto", "codex", "claude"])
+    ap.add_argument("--claude", default="", help="the Claude CLI to review with (the app passes the one it ships)")
+    ap.add_argument("--accounts", default="",
+                    help="the app's Claude account list (claude-accounts.json): Claude reviews on the account in use")
     ap.add_argument("--limit-minutes", type=float, default=LIMIT_SECONDS / 60.0)
     ap.add_argument("--admission-wait", type=float, default=ADMISSION_WAIT_SECONDS,
                     help="seconds to wait for CPU admission (default 1800)")

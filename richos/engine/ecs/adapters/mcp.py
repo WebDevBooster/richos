@@ -19,7 +19,9 @@ def call(scope_path, name, args):
     if not isinstance(args, dict):
         raise ValueError("arguments must be an object")
     path = Path(scope_path)
-    if not path.is_absolute() or path.stat().st_size > 16384:
+    # 256 KiB: the scope carries the user's own words since the second review's slice 4;
+    # the same bound as every other reader (richos-core ecs.rs SCOPE_LIMIT).
+    if not path.is_absolute() or path.stat().st_size > 256 * 1024:
         raise ValueError("invalid app continuity scope")
     scope = json.loads(path.read_text())
     if scope.get("version") != 1 or scope.get("actions_allowed") is not True:

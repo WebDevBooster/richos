@@ -15,8 +15,9 @@
 #        as the teammate received it, the exact 40-character tip, the author's
 #        commit message and last report; Codex runs with the pinned model and
 #        effort, a workspace-write sandbox rooted at the export, outside a git
-#        repository and without --ephemeral; the export is not the author's
-#        workspace; one ledger row with both models, the CLI version, the token
+#        repository and --ephemeral (no entry in the user's Codex app); the
+#        export is not the author's workspace; one ledger row with both models
+#        (Codex's from its own logged session start), the CLI version, the token
 #        count and the meter; the fixture is kept; the scratch is gone
 #   C02  one blocking finding forces changes-requested whatever the reviewer
 #        wrote, and nothing is filed as a follow-up (ruling §116)
@@ -41,6 +42,16 @@
 #   C16  an earlier finding still open that blocks requests changes
 #   C17  one work in two repositories: each repository's review carries and
 #        files only its own repository's findings
+#   C18  the reviewer never runs the user's own setup: Codex --ephemeral (no
+#        session or history entry his Codex or ChatGPT app shows), without his
+#        config.toml (its notify program made macOS ask the CEO, 2026-10-09) or
+#        his exec-policy rules, notify empty, plugins, apps, hooks, computer use
+#        and browser use off; Claude with no MCP server (--strict-mcp-config)
+#   C19  an app review runs Claude on the account the app's work runs on when the
+#        reviewer starts: started by the app's watcher (review_watch.py's spawn of
+#        an app item) through this command, the reviewer gets the added account's
+#        folder as CLAUDE_CONFIG_DIR and its id; after a switch back, Account 1's
+#        inherited folder; the ledger stays where it was
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -71,7 +82,6 @@ mkdir -p "$SB/bin" "$SB/state" "$SB/calls" "$SB/tmp" "$SB/claude" "$SB/codex-ses
 export SECOND_REVIEW_STATE_DIR="$SB/state"
 export SECOND_REVIEW_CODEX="$SB/bin/fake-reviewer"
 export SECOND_REVIEW_CLAUDE="$SB/bin/fake-reviewer"
-export SECOND_REVIEW_CODEX_SESSIONS="$SB/codex-sessions"
 export SECOND_REVIEW_QUOTA_CMD="$SB/bin/fake-quota"
 export SECOND_REVIEW_CPU_BUSY=10
 export RICHOS_WORKSPACES_DIR="$SB/workspaces"
@@ -96,13 +106,27 @@ prompt = sys.stdin.read()
 with open(os.path.join(d, "prompt.md"), "w") as f:
     f.write(prompt)
 kind = "codex" if argv[:1] == ["exec"] else "claude"
+if kind == "codex":
+    # What Codex logs at RUST_LOG=codex_exec=info: its session start, with the model and effort it runs
+    # and where its session record goes (None with --ephemeral, as measured on codex-cli 0.162.0-alpha.2).
+    effort = ""
+    for i, a in enumerate(argv):
+        if a == "-c" and argv[i + 1].startswith("model_reasoning_effort="):
+            effort = argv[i + 1].split("=", 1)[1].strip('"')
+    if "codex_exec=info" in os.environ.get("RUST_LOG", ""):
+        sys.stderr.write('2026-10-09T05:36:46Z  INFO codex.exec: codex_exec: Codex initialized with event: '
+                         'SessionConfiguredEvent { model: "%s", model_provider_id: "openai", reasoning_effort: '
+                         'Some(%s), rollout_path: %s }\n' % (argv[argv.index("-m") + 1], effort.capitalize(),
+                         "None" if "--ephemeral" in argv else 'Some("/fake/rollout.jsonl")'))
+        sys.stderr.flush()
 try:
     tree_a = open(os.path.join("tree", "a.txt")).read()
 except OSError:
     tree_a = ""
 with open(os.path.join(d, "call.json"), "w") as f:
     json.dump({"argv": argv, "cwd": os.getcwd(), "pid": os.getpid(), "kind": kind, "tree_a": tree_a,
-               "jobs": [os.environ.get(k, "") for k in ("CARGO_BUILD_JOBS", "MAKEFLAGS", "CMAKE_BUILD_PARALLEL_LEVEL")]}, f)
+               "jobs": [os.environ.get(k, "") for k in ("CARGO_BUILD_JOBS", "MAKEFLAGS", "CMAKE_BUILD_PARALLEL_LEVEL")],
+               "config": os.environ.get("CLAUDE_CONFIG_DIR", ""), "account": os.environ.get("RICHOS_CLAUDE_ACCOUNT", "")}, f)
 mode = os.environ.get("FAKE_MODE", "pass")
 if mode == "sleep":
     time.sleep(600)
@@ -144,24 +168,8 @@ if kind == "codex":
         json.dump(answer, f)
     tid = "019fake0-0000-7000-8000-%012d" % len(os.listdir(log))
     print(json.dumps({"type": "thread.started", "thread_id": tid}))
-    model = argv[argv.index("-m") + 1]
-    effort = ""
-    for i, a in enumerate(argv):
-        if a == "-c" and argv[i + 1].startswith("model_reasoning_effort="):
-            effort = argv[i + 1].split("=", 1)[1].strip('"')
-    sd = os.path.join(os.environ["SECOND_REVIEW_CODEX_SESSIONS"], "2026", "10", "09")
-    os.makedirs(sd, exist_ok=True)
-    rl = lambda pct: {"primary": {"used_percent": pct, "window_minutes": 10080}}
-    rows = [{"type": "session_meta", "payload": {"id": tid, "cli_version": "9.9.9-fake", "cwd": os.getcwd()}},
-            {"type": "turn_context", "payload": {"model": model, "effort": effort,
-                                                 "sandbox_policy": {"type": "workspace-write"}}},
-            {"type": "event_msg", "payload": {"type": "token_count", "info": None, "rate_limits": rl(1.0)}},
-            {"type": "event_msg", "payload": {"type": "token_count", "rate_limits": rl(2.0), "info": {
-                "total_token_usage": {"input_tokens": 1000, "cached_input_tokens": 900,
-                                      "output_tokens": 50, "total_tokens": 1050}}}}]
-    with open(os.path.join(sd, "rollout-2026-10-09T01-00-00-%s.jsonl" % tid), "w") as f:
-        for r in rows:
-            f.write(json.dumps(r) + "\n")
+    print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1000, "cached_input_tokens": 900,
+                                                         "output_tokens": 50}}))
 else:
     print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "structured_output": answer,
                       "modelUsage": {"claude-opus-5-5": {"inputTokens": 100, "outputTokens": 10}},
@@ -262,8 +270,11 @@ has "$ARGV" "--sandbox workspace-write"; check "C01 the sandbox is workspace-wri
 has "$ARGV" "--skip-git-repo-check"; check "C01 --skip-git-repo-check" $? "$ARGV"
 has "$ARGV" "-m gpt-6.1-sol"; check "C01 the model is pinned to gpt-6.1-sol" $? "$ARGV"
 has "$ARGV" '-c model_reasoning_effort="high"'; check "C01 the effort is pinned to high" $? "$ARGV"
-if has "$ARGV" "--ephemeral"; then bad "C01 no --ephemeral, so the session keeps its token count -- $ARGV"; else ok "C01 no --ephemeral, so the session keeps its token count"; fi
+has "$ARGV" "exec --ephemeral "
+check "C18 Codex runs --ephemeral: no session or history entry the user's Codex or ChatGPT app shows" $? "$ARGV"
 has "$ARGV" "-C $CWD"; check "C01 the sandbox is rooted where the reviewer runs" $? "cwd=$CWD argv=$ARGV"
+has "$ARGV" "--ignore-user-config --ignore-rules -c notify=[] --disable plugins --disable apps --disable hooks --disable computer_use --disable browser_use --sandbox"
+check "C18 Codex runs isolated from the user's own Codex setup: no config.toml, no rules, no notify, no plugins, apps, hooks, computer or browser use" $? "$ARGV"
 TREE_A="$(field "$(cat "$C/call.json")" 'r["tree_a"]')"
 [ -n "$CWD" ] && [ "${CWD#"$REPO"}" = "$CWD" ] && has "$TREE_A" "slice one"
 check "C01 the reviewer works in an export of the tip, never in the author's workspace" $? "cwd=$CWD tree_a=$TREE_A"
@@ -272,12 +283,12 @@ ROW="$(last_row)"
 [ "$(field "$ROW" 'r["tip"]')" = "$TIP1" ]; check "C01 the row names the exact tip" $? "$ROW"
 [ "$(field "$ROW" 'r["reviewer"]')" = "codex" ] && [ "$(field "$ROW" 'r["reviewer_model"]')" = "gpt-6.1-sol" ] \
   && [ "$(field "$ROW" 'r["reviewer_effort"]')" = "high" ]
-check "C01 the row records the reviewer, its model and effort as Codex's session recorded them" $? "$ROW"
+check "C01 the row records the reviewer, its model and effort as Codex's own session start logged them" $? "$ROW"
 [ "$(field "$ROW" 'r["author"]')" = "echo-sonnet-x1" ] && [ "$(field "$ROW" 'r["author_model"]')" = "sonnet" ]
 check "C01 the row records the author and the author's model" $? "$ROW"
 [ "$(field "$ROW" 'r["cli_version"]')" = "codex-cli 9.9.9-fake" ]; check "C01 the row records the CLI version" $? "$ROW"
-[ "$(field "$ROW" 'r["tokens"]["total"]')" = "1050" ] && [ "$(field "$ROW" 'r["meter"]["after"]')" = "2.0" ]
-check "C01 the row records the token count and the plan meter" $? "$ROW"
+[ "$(field "$ROW" 'r["tokens"]["total"]')" = "1050" ] && [ "$(field "$ROW" 'r["codex_record"]')" = "None" ]
+check "C01 the row records the token count, and that Codex wrote no session record" $? "$ROW"
 [ "$(field "$ROW" 'r["trigger"]')" = "handover" ] && [ -n "$(field "$ROW" 'r["duration_s"]')" ]
 check "C01 the row records the trigger and the duration" $? "$ROW"
 RID="$(field "$ROW" 'r["id"]')"
@@ -340,6 +351,8 @@ check "C06 the Claude fallback gets the same blocking test as Codex" $? "$CL/pro
 has "$CARGV" '"sandbox": {"enabled": true' && has "$CARGV" '"allowUnsandboxedCommands": false' \
   && has "$CARGV" "--disallowedTools Edit,Write,NotebookEdit" && has "$CARGV" "--setting-sources  "
 check "C06 the Claude reviewer writes only through sandboxed Bash, with none of the lead's settings" $? "$CARGV"
+has "$CARGV" "--setting-sources  --strict-mcp-config "
+check "C18 the Claude reviewer starts no MCP server of the user's (--strict-mcp-config)" $? "$CARGV"
 
 # --- C07 ---------------------------------------------------------------------
 N0="$(calls)"
@@ -496,6 +509,51 @@ sys.exit(0 if ok else 1)
 PY
 check "C17 the first repository's recheck files its own findings, under its own repository" $? \
     "rc=$RC row=$ROW ledger=$(cat "$FU" 2>/dev/null)"
+
+# --- C19 ---------------------------------------------------------------------
+# The real second review of 802194f0e, finding 1: the app's watcher starts with a cleared
+# environment, so after the user switched to an added Claude account its reviews still ran on
+# the default one. Now it passes the app's account list (claude-accounts.json, which the app's
+# work leases read through quota::Service::lease_account) and this command reads the account in
+# use when the reviewer starts, setting its folder as a work lease does (engine_profile.rs).
+# The real chain: the watcher's own spawn of an app item, this script, the reviewer it launches.
+ROWS0="$(wc -l <"$SB/state/reviews.jsonl" | tr -d ' ')"
+TMPDIR="$RUN_TMP" CLAUDE_CONFIG_DIR="$RUN_CFG" python3 - "$SCRIPT_DIR" "$REPO" "$(G rev-parse HEAD)" "$BASE" \
+    "$SB/brief.txt" "$SB/claude-accounts.json" "$SB/bin/fake-reviewer" "$SB/account-two" "$SB/rw" <<'PY' >"$SB/c15.out" 2>&1
+import json, os, sys
+from types import SimpleNamespace
+scripts, repo, tip, base, words, accounts, claude, folder, state = sys.argv[1:]
+sys.path.insert(0, os.path.join(scripts, "lib"))
+import review_watch as rw
+os.environ["REVIEW_WATCH_SECOND_REVIEW"] = os.path.join(scripts, "second-review.sh")
+os.environ["REVIEW_WATCH_STATE_DIR"] = state
+os.makedirs(state)
+log = os.environ["FAKE_LOG"]
+got = []
+for in_use in ("2", "1"):
+    with open(accounts, "w") as f:
+        json.dump({"accounts": [{"id": "1", "label": "Home"}, {"id": "2", "label": "Work", "folder": folder}],
+                   "inUse": in_use}, f)
+    it = rw.Item("teammate:x1", "echo-sonnet-x1", repo, tip, base, "running", ref="echo-sonnet-x1",
+                 source="app", words=[words])
+    it.claude, it.accounts = claude, accounts
+    watcher = rw.Watcher(os.path.dirname(scripts), "", world=SimpleNamespace())
+    before = len(os.listdir(log))
+    pid, _start = watcher.spawn(it, "long-job", os.path.join(state, "review-%s.log" % in_use))
+    watcher.children[pid].wait()
+    calls = sorted(os.listdir(log))[before:]
+    call = json.load(open(os.path.join(log, calls[-1], "call.json"))) if calls else {}
+    got.append({"in use": in_use, "reviewer": call.get("kind"), "config": call.get("config"),
+                "account": call.get("account")})
+print(json.dumps(got))
+cfg = os.environ["CLAUDE_CONFIG_DIR"]
+sys.exit(0 if got == [{"in use": "2", "reviewer": "claude", "config": folder, "account": "2"},
+                      {"in use": "1", "reviewer": "claude", "config": cfg, "account": "1"}] else 1)
+PY
+check "C19 an app review runs Claude on the account in use when the reviewer starts: the added account's folder, then Account 1's after a switch" \
+    $? "$(cat "$SB/c15.out")"
+[ "$(( $(wc -l <"$SB/state/reviews.jsonl" | tr -d ' ') - ROWS0 ))" = "2" ]
+check "C19 both reviews are in the same ledger: the account's folder moves only the reviewer" $? "rows before=$ROWS0"
 
 echo
 echo "second-review.test.sh: $PASS passed, $FAIL failed"

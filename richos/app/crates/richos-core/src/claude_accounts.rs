@@ -47,6 +47,11 @@ use std::{fs, io};
 /// The account that is the folder RichOS used before this file existed.
 pub const ACCOUNT_ONE: &str = "1";
 
+/// The account list under the app's data folder. The app's review-watch hands this path to each
+/// second review, which reads the account in use from it when its reviewer starts
+/// (`review_watch::Mode::App`).
+pub const LIST_FILE: &str = "claude-accounts.json";
+
 /// What a lease error says when the provider refused the turn for a usage limit. The spine and
 /// the work host read it back with [`parse_usage_limit`]; nothing else depends on the wording.
 pub const USAGE_LIMIT: &str = "Claude usage limit reached";
@@ -339,7 +344,7 @@ impl Accounts {
     /// `data_dir/claude-accounts.json` keeps the list; new folders go under
     /// `data_dir/claude-accounts/<id>/`.
     pub fn open(data_dir: &Path) -> io::Result<Self> {
-        let path = data_dir.join("claude-accounts.json");
+        let path = data_dir.join(LIST_FILE);
         let state = match fs::read(&path) {
             Ok(bytes) => {
                 let stored: Stored = serde_json::from_slice(&bytes).map_err(io::Error::other)?;

@@ -85,7 +85,10 @@ WHAT IS TOLD (plan §2.4, §2.5). Each printed block wakes the lead.
 Starting a review is not told: the verdict is.
 
 It never edits, lands, merges, pauses or messages anything. The only processes
-it ever stops are reviews it (or another watcher) started and recorded.
+it ever stops are reviews it (or another watcher) started and recorded: every
+process of this user that carries the review's own mark (MARK_ENV, a random
+value set at its start, which everything the review starts inherits however it
+is parented or grouped), and every process in the session the review leads.
 
 ===========================================================================
 COMMANDS (review-watch.sh passes --engine-root and --config)
@@ -102,6 +105,7 @@ SECOND_REVIEW_STATE_DIR places the ledger.
 """
 
 import argparse
+import contextlib
 import datetime as _dt
 import fcntl
 import glob
@@ -119,6 +123,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import stall_watch  # noqa: E402  (sibling: session, lock, JSON and silent-teammate helpers)
+from app_review import app_paths  # noqa: E402  (sibling: the app's review paths, shared with its hook)
 import operator_fences as F  # noqa: E402  (sibling: review_repos, the one reader of SECOND_REVIEW_REPOS)
 
 POLL_SECONDS = 60
@@ -128,10 +133,33 @@ REPEAT_MINUTES = 30
 # Codex run and a 60-minute Claude fallback, with room to spare.
 OVERRUN_MINUTES = 160
 START_GRACE_SECONDS = 120
+# Stopping one review in a look (superseded, or past OVERRUN_MINUTES): SIGTERM, then SIGKILL.
+STOP_TERM_SECONDS = 10
+STOP_KILL_SECONDS = 5
+# Stopping every review at the app's quit, all at once: at most 0.5 + 1 + 0.5 + 1 = 3 s (two freezes,
+# the SIGTERM grace, the SIGKILL grace), inside the host's five-second STOP_BOUND (richos-core
+# review_watch.rs) with two seconds to settle and exit.
+QUIT_TERM_SECONDS = 1.0
+QUIT_KILL_SECONDS = 1.0
+# How long a stop waits for every process of a review to be frozen (SIGSTOP) before it ends them.
+FREEZE_SECONDS = 0.5
+# THE REVIEW'S OWNERSHIP MARK (the real second review of 0d83e456d, findings 1 and 2): a random value
+# spawn puts in this variable of the review's environment, which every process the review starts
+# inherits, whatever its parent (a tool's background task is reparented to PID 1 once its shell
+# returns) and whatever its process group or session. A stop ends every process of this user whose
+# environment carries that exact value; the lock goes only once none is left. Not "...TOKEN": Codex's
+# documented default shell_environment_policy drops variables whose names contain KEY, SECRET or
+# TOKEN from its commands' environment.
+# MEASURED 2026-10-09 (macOS 15.6, SIP on): the kernel withholds the environment of Apple's own
+# platform binaries (/bin/bash, /bin/zsh, /bin/sleep, /usr/bin/perl, /usr/bin/tail, sandbox-exec)
+# even from their own user, while python, node and the Command Line Tools' python3 show it; so the
+# review's own session (it leads one from spawn) counts too, which those keep unless they setsid.
+MARK_ENV = "RICHOS_REVIEW_OWNER"
 MAX_LOSSES = 2
 KEEP_SECONDS = 7 * 86400
 SESSION_KEEP_SECONDS = 2 * 86400
 BLOCK_CHARS = 2000
+HEAD_CHARS = 140                                    # room for a block's head line, which names the count
 GIT_SECONDS = 10
 CONFIG_KEY = "SECOND_REVIEW_REPOS"
 MID_JOB = ("long-job", "quiet")
@@ -230,6 +258,110 @@ def git(repo, *args):
     return p.stdout.strip() if p.returncode == 0 else None
 
 
+def group_gone(pgid):
+    """Is no process of this group left running? ESRCH: none at all. EPERM: on macOS killpg
+    refuses a group whose members are all zombies (measured 2026-10-09, Darwin 24.6: a SIGKILLed,
+    unreaped `sleep` group answers EPERM, a reaped one ESRCH); a review and everything under it
+    run as this user, so EPERM is never a live process of a review that could still be signaled."""
+    try:
+        os.killpg(int(pgid), 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
+def leads_session(pid):
+    """Does a live process with this pid lead a session (its session id is its own pid)?"""
+    try:
+        return os.getsid(int(pid)) == int(pid)
+    except (OSError, ValueError):
+        return False
+
+
+_PROCARGS = {}
+
+
+def environment(pid):
+    """[b"NAME=value"] of a process's environment as it was started, or [] when it cannot be read
+    (another user's process, one that has exited, or one of Apple's platform binaries: MARK_ENV)."""
+    if sys.platform.startswith("linux"):
+        try:
+            with open("/proc/%d/environ" % pid, "rb") as f:
+                return f.read().split(b"\0")
+        except OSError:
+            return []
+    if "libc" not in _PROCARGS:
+        import ctypes
+        import ctypes.util
+        _PROCARGS["ctypes"] = ctypes
+        _PROCARGS["libc"] = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+        _PROCARGS["buf"] = ctypes.create_string_buffer(1 << 20)        # kern.argmax on macOS
+    ctypes, buf = _PROCARGS["ctypes"], _PROCARGS["buf"]
+    size = ctypes.c_size_t(len(buf))
+    mib = (ctypes.c_int * 3)(1, 49, pid)            # CTL_KERN, KERN_PROCARGS2
+    if _PROCARGS["libc"].sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0 or size.value < 4:
+        return []
+    raw = buf.raw[:size.value]
+    # argc, the executable's path, NUL padding, argc arguments, then the environment.
+    argc, parts = int.from_bytes(raw[:4], sys.byteorder), raw[4:].split(b"\0")
+    i = 1
+    while i < len(parts) and not parts[i]:
+        i += 1
+    return parts[i + argc:]
+
+
+def owned_processes(reviews):
+    """[{pid: (pgid, stat, sid)}], one per (leader pid, mark, session owned) in `reviews`: the live
+    processes of this user that carry that review's mark in their environment, from one read of the
+    process table; None when the table cannot be read (a ps timeout or error), which is never an
+    empty session (the real second review of 16c154f5a, finding 1; Watcher.stop_all). Ownership
+    captured at the review's start, never a name, a path or an ancestry: the exact mark and the
+    user id.
+    AND THE SESSION ITS LEADER LEADS (spawn starts each review in a session of its own), for what
+    hides its environment (MARK_ENV): its members count while the session is owned (the caller's
+    word: its leader verified alive, or recorded so and the session not seen empty since; Watcher.
+    stop_all), or when one of them carries the mark. A session id is never reused while a member is
+    left; once none is, the leader's pid can lead a new session, so an empty session is never owned
+    again."""
+    out = [{} for _ in reviews]
+    try:
+        r = subprocess.run(["ps", "-A", "-o", "pid=,uid=,pgid=,stat="], capture_output=True, text=True,
+                           timeout=1, env=dict(os.environ, LC_ALL="C"))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    uid, me = os.getuid(), os.getpid()
+    marks = [("%s=%s" % (MARK_ENV, mark)).encode() if mark else None for _leader, mark, _owned in reviews]
+    session = [{} for _ in reviews]
+    proven = [owned for _leader, _mark, owned in reviews]
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        try:
+            pid, puid, pgid, stat = int(parts[0]), int(parts[1]), int(parts[2]), parts[3]
+            if puid != uid or pid == me or stat.startswith("Z"):
+                continue
+            sid = os.getsid(pid)
+        except (IndexError, ValueError, OSError):
+            continue
+        env = environment(pid) if any(marks) else []
+        for n, (leader, _mark, _owned) in enumerate(reviews):
+            marked = bool(marks[n]) and marks[n] in env
+            if marked:
+                out[n][pid] = (pgid, stat, sid)
+            if sid == leader:
+                session[n][pid] = (pgid, stat, sid)
+                proven[n] = proven[n] or marked
+    for n in range(len(reviews)):
+        if proven[n]:
+            out[n].update(session[n])
+    return out
+
+
 def repo_tag(repo):
     return hashlib.sha1(os.path.realpath(repo).encode("utf-8")).hexdigest()[:12]
 
@@ -269,9 +401,26 @@ class Item(object):
     def key(self):
         return (self.repo, self.tip)
 
+    env = None          # app mode: the partition this item's registry lives in (RICHOS_WORKSPACES_DIR)
+    session = ""        # the lead session that registered the work (the operator host delivers to it)
+    claude = ""         # app mode: the Claude CLI the app ships
+    accounts = ""       # app mode: the app's account list (claude-accounts.json), read when the reviewer starts
+
     def args(self, trigger):
         """second-review's arguments for this item."""
         a = ["--repo", self.repo, "--tip", self.tip, "--base", self.base, "--trigger", trigger, "--work", self.work]
+        if self.source == "app":
+            # A regular RichOS user: Claude reviews (plan §2.3, "RichOS is Claude", §16), on the
+            # CLI the app ships, with the user's own turn as the original words beside the
+            # brief the worker received.
+            a = ["--name", self.ref] + a + ["--reviewer", "claude"]
+            for w in self.words:
+                a += ["--words-file", w]
+            if self.claude:
+                a += ["--claude", self.claude]
+            if self.accounts:
+                a += ["--accounts", self.accounts]
+            return a
         if self.source == "codex":
             a += ["--branch", self.branch, "--author", "codex"]
             for w in self.words:
@@ -298,6 +447,9 @@ class World(object):
     # -- which repositories ---------------------------------------------------
     def wanted(self, repo):
         return F.review_listed(self.repos, repo)
+
+    def wants_space(self, w):
+        return self.wanted(w["repo"])
 
     def repo_named(self, name):
         try:
@@ -353,7 +505,7 @@ class World(object):
                 continue
             spaces = [w for w in rec.get("workspaces") or []
                       if w.get("branch") and not w.get("deleted_at") and not w.get("branch_deleted_at")
-                      and w.get("repo") and self.wanted(w["repo"])]
+                      and w.get("repo") and self.wants_space(w)]
             if not spaces:
                 continue
             try:
@@ -396,8 +548,10 @@ class World(object):
                         except OSError:
                             pass
                     quiet = now - max(marks) >= th_silent
-                items.append(Item(work, name, repo, tip, base, state, started=started, branch=w["branch"],
-                                  ref=rec["key"], quiet=quiet, continued=rec["key"] in continued))
+                item = Item(work, name, repo, tip, base, state, started=started, branch=w["branch"],
+                            ref=rec["key"], quiet=quiet, continued=rec["key"] in continued)
+                item.session = str(rec.get("session_id") or "")
+                items.append(item)
         return items, problems
 
     # -- Codex's handovers --------------------------------------------------------
@@ -496,6 +650,110 @@ class World(object):
                 "words": [wpath], "claims": [cpath], "at": now, "title": header[3:].strip()[:120]}
 
 
+class AppWorld(World):
+    """THE APP'S OWN WATCHER (second review, slice 4): the same looks over the app's registry.
+
+    A regular RichOS user's app runs this as the host's own child (richos-core review_watch.rs),
+    because a product lease loads no settings and no monitors (`--setting-sources ''`, Sage's
+    check §1.3). What differs from his team's watcher, and why:
+      * The registry is partitioned, one per company and conversation
+        (<app state>/workspaces/<sha256>), so each look reads every partition.
+      * Every connected repository is reviewed: the user connected it for this work; there is no
+        orchestration.config to list it in.
+      * WORKERS ONLY: an item is a registry workspace whose receipt says request.role worker; a
+        handover reviewer's cc/ workspace is never itself picked for a review.
+      * MID-JOB ONLY (long-job, gone quiet). A handover in the app is already reviewed, and
+        `integrate` refuses without that review's pass (DESKTOP.md step 5, app.py integrate);
+        a second handover review would only spend the user's subscription twice.
+      * Claude reviews, on the CLI the app ships (--claude), with the user's own turn, kept
+        beside the worker's receipt by app.py prepare, as the original words. Each review runs on
+        the Claude account the app's work runs on when its reviewer starts: second-review reads
+        the app's account list (--accounts) then, as a work lease is given the account in use.
+      * No Codex channel: that is his team's.
+    """
+
+    def __init__(self, engine_root, app_state, claude="", accounts=""):
+        self.engine_root = engine_root
+        self.config = ""
+        self.app_state = os.path.realpath(app_state)
+        self.claude = claude
+        self.accounts = accounts
+        self.repos, self.repos_error = ["(every connected repository)"], ""
+        self.ws = stall_watch._load("review_watch_workspaces",
+                                    os.path.join(engine_root, "mega-lander", "workspaces.py"))
+        self.src = stall_watch.Sources(engine_root)
+        self._merge_bases = {}
+
+    def wanted(self, repo):
+        return True
+
+    def wants_space(self, w):
+        # The implementation workspace in a connected repository (cc/), never the provider's
+        # native coordination worktree, which is not the work (app.py target_workspaces).
+        return w.get("kind") == "cc"
+
+    def partitions(self):
+        return sorted(p for p in glob.glob(os.path.join(self.app_state, "workspaces", "*"))
+                      if os.path.isdir(p) and not os.path.islink(p))
+
+    def receipt_for(self, partition, name):
+        """(receipt, path) app.py prepare wrote for `name` in this partition; (None, "") if none."""
+        receipts = os.path.join(self.app_state, "work-receipts", os.path.basename(partition))
+        for path in sorted(glob.glob(os.path.join(receipts, "*.json"))):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    receipt = json.load(f)
+                if receipt.get("name") != name:
+                    continue
+            except (OSError, ValueError, AttributeError):
+                continue
+            return receipt, path
+        return None, ""
+
+    def words_for(self, partition, name):
+        """The user's turn app.py prepare kept beside the receipt that started `name`."""
+        _receipt, path = self.receipt_for(partition, name)
+        words = path[:-len(".json")] + ".words" if path else ""
+        return [words] if words and os.path.isfile(words) else []
+
+    @staticmethod
+    def is_worker(receipt):
+        """Only implementation work gets a mid-job review: a receipt whose request.role is worker.
+        A handover reviewer also gets a cc/ workspace, at the worker's commit (app.py prepare), and
+        a quiet or long review would otherwise be reviewed itself, with a verdict that names the
+        reviewer's branch and so never reaches the worker (app.py worker_spaces: role worker)."""
+        try:
+            return receipt.get("request", {}).get("role") == "worker"
+        except AttributeError:
+            return False
+
+    def registry_items(self, now, seen):
+        items, problems = [], []
+        before = os.environ.get("RICHOS_WORKSPACES_DIR")
+        try:
+            for part in self.partitions():
+                os.environ["RICHOS_WORKSPACES_DIR"] = part
+                got, probs = World.registry_items(self, now, seen)
+                for it in got:
+                    receipt, _path = self.receipt_for(part, it.name)
+                    if not self.is_worker(receipt):
+                        continue
+                    it.source, it.env, it.claude = "app", {"RICHOS_WORKSPACES_DIR": part}, self.claude
+                    it.accounts = self.accounts
+                    it.words = self.words_for(part, it.name)
+                    items.append(it)
+                problems += probs
+        finally:
+            if before is None:
+                os.environ.pop("RICHOS_WORKSPACES_DIR", None)
+            else:
+                os.environ["RICHOS_WORKSPACES_DIR"] = before
+        return items, problems
+
+    def codex_items(self, now, codex_state):
+        return [], []
+
+
 def split_entries(text):
     """[(header line or '', body)] split at `## ` headers."""
     out = []
@@ -585,12 +843,16 @@ class Book(object):
         return max(ts) if ts else None
 
 
-def due(items, book, now, seen, long_seconds):
+def due(items, book, now, seen, long_seconds, handover=True):
     """[(item, trigger, supersede lock info or None)]: the reviews to start now.
-    Pure: everything it needs is in its arguments."""
+    Pure: everything it needs is in its arguments. handover=False is the app's watcher
+    (AppWorld): its handovers are reviewed by the app's own reviewer, so it starts mid-job
+    reviews only."""
     out = []
     for it in items:
         if it.tip == it.base:
+            continue
+        if it.state == "ended" and not handover:
             continue
         key = it.key
         lost = book.losses.get(key) or []
@@ -627,11 +889,19 @@ def due(items, book, now, seen, long_seconds):
 # ---------------------------------------------------------------------------
 
 class Watcher(object):
+    # A quit that arrives while spawn has a child forked and not yet in self.children is held
+    # (hold_quit > 0, the signal in held_quit) and taken once it is registered; _starting is the
+    # (lock path, info) start() is filling in, until the child's pid is in that lock.
+    hold_quit = 0
+    held_quit = 0
+    _starting = None
+
     def __init__(self, engine_root, config, world=None):
         self.engine_root = engine_root
         self.config = config
         self.world = world or World(engine_root, config)
-        self.children = {}                          # pid -> Popen, reaped every look
+        self.children = {}                          # pid -> Popen, until its lock is settled
+        self.marks = {}                             # pid -> the MARK_ENV value its review carries
 
     # -- processes (overridden by the replay test) ---------------------------------
     def second_review(self):
@@ -639,12 +909,28 @@ class Watcher(object):
             self.engine_root, "scripts", "second-review.sh")
 
     def spawn(self, item, trigger, log_path):
-        """(pid, start identity) of a started review."""
+        """(pid, start identity) of a started review, which leads a session of its own and carries a
+        mark of its own (MARK_ENV) in its environment."""
         argv = ["bash", self.second_review()] + item.args(trigger)
-        with open(log_path, "ab") as log:
-            p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True,
-                                 cwd=state_root())
-        self.children[p.pid] = p
+        mark = os.urandom(16).hex()
+        env = dict(os.environ, **(item.env or {}))
+        env[MARK_ENV] = mark
+        # PARTLY REGISTERED (second review of f14155545, finding 2): a review leads its own
+        # session, so a quit that lands inside Popen (its fork done, Popen not yet returned) would
+        # lose the only handle on it. The quit is held until the child is in self.children, then
+        # taken, and stop_own stops every child there, whether or not its pid reached its lock.
+        self.hold_quit += 1
+        try:
+            with open(log_path, "ab") as log:
+                p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                     start_new_session=True, cwd=state_root(), env=env)
+            self.children[p.pid] = p
+            self.marks[p.pid] = mark
+        finally:
+            self.hold_quit -= 1
+            if self.held_quit and not self.hold_quit:
+                signum, self.held_quit = self.held_quit, 0
+                raise SystemExit(128 + signum)
         return p.pid, self.process_start(p.pid)
 
     @staticmethod
@@ -664,10 +950,7 @@ class Watcher(object):
             return None
         child = self.children.get(pid)
         if child is not None:
-            if child.poll() is not None:
-                self.children.pop(pid, None)
-                return False
-            return True
+            return child.poll() is None
         try:
             os.kill(int(pid), 0)
         except PermissionError:
@@ -678,22 +961,114 @@ class Watcher(object):
         return bool(start) and (not info.get("pid_start") or start == info["pid_start"])
 
     def stop(self, info):
-        """Stop a review by its recorded process id, only while its start time
-        still matches: the process group it leads, which second-review's own
-        reviewer process group sits under."""
-        pid = info.get("pid")
-        if not pid or not self.alive(info):
-            return
-        for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 5)):
-            try:
-                os.killpg(int(pid), sig)
-            except (OSError, ValueError):
-                return
-            end = time.time() + grace
-            while time.time() < end:
-                if not self.alive(info):
-                    return
-                time.sleep(0.2)
+        """Stop one review (stop_all); [] once it is gone, else [info]."""
+        return self.stop_all([info], STOP_TERM_SECONDS, STOP_KILL_SECONDS)
+
+    def stop_all(self, infos, term_seconds, kill_seconds):
+        """Stop every review in `infos` AT ONCE, bounded by 2 * FREEZE_SECONDS + term_seconds +
+        kill_seconds however many reviews there are (never their sum).
+
+        A REVIEW IS EVERY PROCESS THAT CARRIES ITS MARK (the real second review of 0d83e456d,
+        findings 1 and 2; owned_processes), never what an ancestry or a process group says: a
+        tool's background task reparented to PID 1, a command in a group or session of its own and
+        a reviewer whose launcher has exited are all still the review's. While its recorded leader
+        is verified alive, the group it leads (second-review and its reviewer) is signaled as a
+        group too, so nothing forked between two reads escapes. FROZEN FIRST: SIGSTOP to all of it,
+        read again, SIGSTOP whatever was not stopped yet, until a read finds every process stopped
+        (a stopped process starts nothing) or FREEZE_SECONDS pass. Then every process outside the
+        leader's group is SIGKILLed, and the group gets SIGTERM and SIGCONT, so second-review exits
+        and releases its scratch. Whatever is left after term_seconds is frozen again and
+        SIGKILLed, again on every read, until none is left. Returns the infos with a process NOT
+        seen gone inside the bound (normally none), so a caller never settles a running review.
+
+        ITS SESSION STAYS ITS OWN AFTER ITS LAUNCHER EXITS (the second review of 283b4379d,
+        finding 1): an Apple tool hides the mark, so it is found only as a member of the session
+        the leader led. That session is owned while the leader is verified alive, and, once the
+        leader has exited, while the review was recorded as leading it (own_session in its lock,
+        start; or this watcher's own child) and no read has found it empty, unless its pid now
+        leads a session again, which only a new process can (owned_processes).
+
+        A READ THAT FAILS IS NOT AN EMPTY SESSION (the real second review of 16c154f5a, finding 1):
+        a process table that cannot be read leaves each review unknown, never gone: it keeps its
+        session and is kept as left, so a stop that never reads the table again returns it and
+        its lock stays unsettled for the next look."""
+        live = [i for i in infos if i.get("pid")]
+        for i in live:
+            i["_verified"] = bool(self.alive(i))
+            pid = int(i["pid"])
+            i["_session"] = i["_verified"] or (bool(i.get("own_session") or pid in self.children)
+                                               and not leads_session(pid))
+
+        def scan(infos):
+            found = owned_processes([(int(i["pid"]), i.get("mark") or self.marks.get(i["pid"], ""), i["_session"])
+                                     for i in infos])
+            if found is None:
+                return [None] * len(infos)          # unknown: none gone, every session still owned
+            for i, procs in zip(infos, found):
+                i["_session"] = i["_session"] and any(s == int(i["pid"]) for _g, _st, s in procs.values())
+            return found
+
+        def kill(pids, sig):
+            for p in pids:
+                try:
+                    os.kill(p, sig)
+                except OSError:
+                    pass                            # gone already
+
+        def killpg(infos, sig):
+            for i in infos:
+                if i["_verified"]:
+                    try:
+                        os.killpg(int(i["pid"]), sig)
+                    except OSError:
+                        pass
+
+        def left(infos, found):
+            """The reviews with a process left, and what was found of each; this watcher's own
+            leaders are reaped first."""
+            keep = []
+            for i, procs in zip(infos, found):
+                child = self.children.get(i["pid"])
+                if child is not None:
+                    child.poll()
+                if procs is None or procs or (i["_verified"] and not group_gone(i["pid"])):
+                    keep.append((i, procs))
+            return [i for i, _p in keep], [p for _i, p in keep]
+
+        def freeze(infos):
+            end = time.monotonic() + FREEZE_SECONDS
+            while True:
+                killpg(infos, signal.SIGSTOP)
+                found = scan(infos)
+                running = [p for procs in found for p, (_g, stat, _s) in (procs or {}).items() if stat[:1] != "T"]
+                if (not running and None not in found) or time.monotonic() >= end:
+                    return found
+                kill(running, signal.SIGSTOP)
+                time.sleep(0.02)
+
+        live, found = left(live, scan(live))
+        if not live:
+            return []
+        found = freeze(live)
+        kill([p for i, procs in zip(live, found) for p, (g, _st, _s) in (procs or {}).items()
+              if not (i["_verified"] and g == int(i["pid"]))], signal.SIGKILL)
+        killpg(live, signal.SIGTERM)
+        killpg(live, signal.SIGCONT)
+        for grace, last in ((term_seconds, False), (kill_seconds, True)):
+            if last:
+                found = freeze(live)
+            end = time.monotonic() + grace
+            while True:
+                if last:
+                    killpg(live, signal.SIGKILL)
+                    kill([p for procs in found for p in procs or ()], signal.SIGKILL)
+                live, found = left(live, scan(live))
+                if not live or time.monotonic() >= end:
+                    break
+                time.sleep(0.05)
+            if not live:
+                return []
+        return live
 
     # -- locks -------------------------------------------------------------------
     def take_lock(self, item, trigger, now, attempt):
@@ -703,8 +1078,12 @@ class Watcher(object):
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
             return None
+        # The lead session that owns the work is kept in the review's own record (this lock, then
+        # its attempt row), so its verdict reaches that lead even when the worker commits again
+        # while the review runs and no item carries the reviewed tip any more.
         info = {"repo": item.repo, "tip": item.tip, "work": item.work, "name": item.name, "trigger": trigger,
-                "started_at": now, "attempt": attempt, "watcher": os.getpid(), "pid": None, "pid_start": ""}
+                "started_at": now, "attempt": attempt, "watcher": os.getpid(), "pid": None, "pid_start": "",
+                "session": getattr(item, "session", "") or ""}
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(info, f)
         return path, info
@@ -736,12 +1115,14 @@ class Watcher(object):
                     "the review ended without writing a row to the ledger"
         a = {"repo": info.get("repo"), "tip": info.get("tip"), "work": info.get("work"), "name": info.get("name"),
              "trigger": info.get("trigger"), "started_at": info.get("started_at"), "ended_at": now,
-             "outcome": outcome, "why": why, "attempt": info.get("attempt")}
+             "outcome": outcome, "why": why, "attempt": info.get("attempt"), "session": info.get("session") or ""}
         append_jsonl(_p("attempts.jsonl"), a)
         try:
             os.unlink(claimed)
         except OSError:
             pass
+        self.children.pop(info.get("pid"), None)
+        self.marks.pop(info.get("pid"), None)
         return a
 
     @staticmethod
@@ -775,13 +1156,15 @@ class Watcher(object):
             if alive is None and age < START_GRACE_SECONDS:
                 running[(info.get("repo"), info.get("tip"))] = info
                 continue
-            if alive and age > OVERRUN_MINUTES * 60:
-                self.stop(info)
+            if alive and age > OVERRUN_MINUTES * 60 and not self.stop(info):
                 self.settle(path, info, now, rows, "lost",
                             "it ran %d minutes, past the %d-minute bound, and was stopped by its recorded process id"
                             % (age / 60, OVERRUN_MINUTES))
                 continue
-            if alive:
+            # ITS LAUNCHER HAS EXITED; WHAT IT STARTED MAY NOT HAVE (the real second review of 0d83e456d,
+            # finding 2): a reviewer past run_bounded's limit leaves its tools behind. They are
+            # ended by the review's mark, and the lock is settled only once none is left.
+            if alive or self.stop(info):
                 running[(info.get("repo"), info.get("tip"))] = info
                 continue
             self.settle(path, info, now, rows)
@@ -789,7 +1172,8 @@ class Watcher(object):
 
     def start(self, item, trigger, now, attempt, supersede=None, rows=()):
         if supersede:
-            self.stop(supersede)
+            if self.stop(supersede):
+                return None                         # still running: the next look tries again
             self.settle(supersede["path"], supersede, now, rows, "superseded",
                         "replaced by the handover review of the same commit")
         got = self.take_lock(item, trigger, now, attempt)
@@ -798,15 +1182,76 @@ class Watcher(object):
         path, info = got
         os.makedirs(_p("logs"), exist_ok=True)
         info["log"] = _p("logs", "%s-%s-%d.log" % (repo_tag(item.repo), item.tip[:12], attempt))
+        self._starting = (path, info)               # stop_own's handle until the pid is in the lock
         try:
             pid, pstart = self.spawn(item, trigger, info["log"])
         except OSError as exc:
             self.rewrite_lock(path, info)
             self.settle(path, info, now, rows, "lost", "second-review could not be started: %s" % exc)
+            self._starting = None
             return None
-        info["pid"], info["pid_start"] = pid, pstart
+        info["pid"], info["pid_start"], info["mark"] = pid, pstart, self.marks.get(pid, "")
+        # It leads a session of its own (spawn), recorded while it is verified alive, so the session
+        # stays the review's after it exits, for the members that hide the mark (stop_all).
+        info["own_session"] = bool(self.alive(info))
         self.rewrite_lock(path, info)
+        self._starting = None
         return info
+
+    def stop_own(self, now):
+        """The app quit (or its host died): every review THIS watcher started is stopped by its
+        recorded process id and settled as stopped, never as lost, so a quit does not count
+        toward the two losses after which nothing starts by itself. It starts again at the
+        first look after the app opens, if it is still due. Reviews another watcher started are
+        never touched.
+
+        THE HOST'S BOUND: richos-core review_watch.rs STOP_BOUND gives this process five seconds
+        after SIGTERM before it SIGKILLs this watcher's group, and each review leads its own
+        session, out of that group's reach. So every review is stopped at once and escalated to
+        SIGKILL inside 2 * FREEZE_SECONDS + QUIT_TERM_SECONDS + QUIT_KILL_SECONDS (3 s, whatever
+        the count), leaving two seconds of the five for settling and exit."""
+        rows = read_jsonl(review_ledger())
+        own = []
+        for path in sorted(glob.glob(_p("locks", "*.lock"))):
+            info = stall_watch._read_json(path)
+            if not info or info.get("pid") not in self.children:
+                continue
+            info["path"] = path
+            own.append(info)
+        # EVERY OWNED CHILD (second review of f14155545, finding 2): a quit between spawn's Popen
+        # and the lock write leaves a child whose pid its lock does not hold yet. It is stopped
+        # too, and the lock start() was filling in for it is settled with it; a lock taken with
+        # no child started under it is settled as stopped, never left to count as a loss.
+        starting = self._starting
+        if starting and any(i["path"] == starting[0] for i in own):
+            starting = None
+        recorded = set(i.get("pid") for i in own)
+        for pid in sorted(self.children):
+            if pid in recorded:
+                continue
+            if starting:
+                own.append(dict(starting[1], pid=pid, path=starting[0]))
+                starting = None
+            else:
+                own.append({"pid": pid})
+        if starting:
+            own.append(dict(starting[1], path=starting[0]))
+        self._starting = None
+        left = set(id(i) for i in self.stop_all(own, QUIT_TERM_SECONDS, QUIT_KILL_SECONDS))
+        for info in own:
+            if id(info) in left:
+                # Still running after SIGKILL, or not seen gone (the process table could not be
+                # read): never recorded as stopped. Its lock stays, and the next look settles it
+                # by what it finds then.
+                sys.stderr.write("review-watch: the review with pid %s was not seen gone %.0f s after the quit "
+                                 "began; it was not recorded as stopped\n"
+                                 % (info.get("pid"), 2 * FREEZE_SECONDS + QUIT_TERM_SECONDS + QUIT_KILL_SECONDS))
+                continue
+            if info.get("path"):
+                self.settle(info["path"], info, now, rows, "stopped",
+                            "the app quit while it ran; it starts again at a look after the app opens, if still due")
+            self.children.pop(info.get("pid"), None)
+            self.marks.pop(info.get("pid"), None)
 
     # -- one look --------------------------------------------------------------------
     def look(self, now, session_state):
@@ -836,7 +1281,8 @@ class Watcher(object):
         problems += cproblems
         attempts = read_jsonl(_p("attempts.jsonl"))
         book = Book(rows, running, attempts)
-        for it, trigger, supersede in due(items, book, now, seen, LONG_JOB_MINUTES * 60):
+        handover = not isinstance(self.world, AppWorld)
+        for it, trigger, supersede in due(items, book, now, seen, LONG_JOB_MINUTES * 60, handover):
             n = len(book.losses.get(it.key) or []) + 1
             info = self.start(it, trigger, now, n, supersede, rows)
             if info:
@@ -863,8 +1309,49 @@ def _verdict_file(row):
 
 
 def _who(row, items_by_key):
-    it = items_by_key.get((os.path.realpath(row.get("repo") or ""), row.get("tip")))
+    """(name, item) of the work a ledger row reviewed: the item at its tip only when it is the
+    same work, so another work holding that commit never lends its name or its `continues:` key."""
+    it = items_by_key.get((os.path.realpath(row.get("repo") or ""), row.get("tip"), row.get("work") or ""))
+    if it is None and not row.get("work"):
+        it = items_by_key.get((os.path.realpath(row.get("repo") or ""), row.get("tip")))
     return (it.name if it else row.get("author") or "?"), it
+
+
+def owner_session(row, items, book, attempts):
+    """The lead session a verdict goes to (--host-json), by the work's STABLE identity, never by
+    the reviewed tip alone: a worker that commits while its review runs no longer has an item at
+    that tip, and a verdict sent to an empty session is refused by the host and lost.
+    THE RECORDED OWNER COMES FIRST (second review of f14155545, finding 3): another work can hold
+    the reviewed commit (a handover reviewer's cc/ workspace is made at the worker's commit), so
+    a match on repository and tip alone can name another lead. In order: the review's own record
+    (its lock while it runs, then its newest attempt row once settled), which kept the session it
+    was started for; then the registry, for the SAME work only (`teammate:<root key>`, which a
+    continuation shares), its item at the exact tip before any other item of it. A record or an
+    item of another work never names the lead. "" when none names one (Codex's work, a teammate
+    started from his terminal, a review run by hand)."""
+    key = (os.path.realpath(row.get("repo") or ""), row.get("tip"))
+    work = row.get("work") or ""
+
+    def same_work(other):
+        return not work or not other or other == work
+    info = book.running.get(key) or {}
+    if info.get("session") and same_work(info.get("work")):
+        return info["session"]
+    for a in reversed(attempts or []):
+        if (os.path.realpath(a.get("repo") or ""), a.get("tip")) == key and a.get("session") \
+                and same_work(a.get("work")):
+            return a["session"]
+    if work:
+        mine = [it for it in items if it.work == work and it.session]
+        for it in sorted(mine, key=lambda i: i.key != key):
+            return it.session
+    return ""
+
+
+def _cr_key(repo, tip, work):
+    """The told-state key of a changes-requested handover: one per work at a commit, so a notice
+    to one work's lead never advances or suppresses another work's at the same commit."""
+    return "cr:%s:%s:%s" % (os.path.realpath(repo or ""), tip, work or "")
 
 
 def render_verdict(row, items_by_key, again=None):
@@ -933,84 +1420,269 @@ def not_converging(row, rows):
     return [(fid, titles.get(fid) or "") for fid in sorted(both)]
 
 
+# --host-json (the operator host's child, richos-core review_watch.rs): every look's notices as
+# JSON lines, one per lead session, which the host sends to that lead as a message of its own.
+HOST_JSON = {"on": False}
+# --monitor inside a lead session (run_loop): that session's id. Its notices are that lead's
+# delivery, so a block owned by another lead is left to that lead's own monitor (below).
+MONITOR = {"session": ""}
+
+
+def for_this_monitor(owner):
+    """THE PLAIN MONITOR DELIVERS THROUGH THE OWNER TOO (second review of 783a8dba1, finding 2):
+    a block goes to this lead session's monitor when this session owns it, when no session does,
+    or when its owner has no live monitor of its own to print it (that session ended), so a
+    verdict reaches its lead and is never dropped. Without a known session, every block.
+    A live owner's monitor prints its verdicts itself, on its first look too: tell() delivers a
+    session's own undelivered verdicts there, wherever the shared cursor is (second review of
+    b5ff41f02, finding 2)."""
+    me = MONITOR["session"]
+    if not me or not owner or owner == me:
+        return True
+    if os.sep in owner or owner.startswith("."):
+        return True                                 # not a session id this watcher could have written
+    return not stall_watch.lock_held(os.path.join(_p("sessions", owner), "monitor.lock"))
+
+
+def _row_key(row):
+    """A verdict's key in last-told.json's `delivered`: its review id (every second-review row has one)."""
+    return str(row.get("id") or "%s:%s:%s:%s" % (row.get("repo"), row.get("tip"), row.get("work"), row.get("at")))
+
+
+def host_json_lines(now, body, owners, keys):
+    """[JSON line]: one {"session", "text", "keys"} per lead session, its blocks under the usual
+    head, with the review ids of the verdicts in it for the host to acknowledge (host_acks)."""
+    out, ids, order = {}, {}, []
+    for block, session, key in zip(body, owners, keys):
+        if session not in out:
+            out[session], ids[session] = [], []
+            order.append(session)
+        out[session].append(block)
+        if key and key not in ids[session]:
+            ids[session].append(key)
+    lines = []
+    for session in order:
+        blocks = out[session]
+        head = ("REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was "
+                "paused, stopped or killed)" % (hhmm(now), len(blocks), "" if len(blocks) == 1 else "s"))
+        text = "\n".join([head] + [line for b in blocks for line in b])
+        lines.append(json.dumps({"session": session, "text": text, "keys": ids[session]}, sort_keys=True))
+    return lines
+
+
+# DELIVERED ONLY ONCE THE HOST ACCEPTS IT (the real second review of 0d83e456d, finding 3): tell()
+# records nothing delivered. It leaves the review ids of the owned verdicts it printed in
+# PRINTED, and tick() marks them delivered in last-told.json only once its output is accepted:
+# written and flushed, or, for an operator host that says it acknowledges (ACKS_ENV, set by
+# richos-core review_watch.rs), acknowledged on this process's stdin ({"ack": [ids]}) once the host
+# has told the lead. A pipe that fails, or a notice the host's desk refuses, leaves the verdict to
+# be told again at the next look.
+# ONLY WHAT WAS EMITTED (the real second review of 0be50ade1, finding 1): PRINTED is built from the
+# blocks the output really carries, after the monitor's cap, never from every block tell() made.
+# Its "told" entries, the notices with no delivery key (a NOT STARTED problem, a handover reminder,
+# a notice for another lead), are written to the session's told.json only once the output is
+# written and flushed; a block the cap left out, or a pipe that failed, is told at a later look.
+ACKS_ENV = "RICHOS_REVIEW_WATCH_ACKS"
+PRINTED = {"keys": [], "told": {}}
+ACKS = {"fd": 0, "buf": b""}
+
+
+def host_acks():
+    return HOST_JSON["on"] and os.environ.get(ACKS_ENV) == "1"
+
+
+def read_acks():
+    """The review ids the host has acknowledged since the last read, without waiting."""
+    try:
+        os.set_blocking(ACKS["fd"], False)
+        while True:
+            chunk = os.read(ACKS["fd"], 65536)
+            if not chunk:
+                break
+            ACKS["buf"] += chunk
+    except OSError:
+        pass                                        # nothing more yet (BlockingIOError), or no stdin
+    lines = ACKS["buf"].split(b"\n")
+    ACKS["buf"] = lines.pop()
+    keys = []
+    for line in lines:
+        try:
+            keys += [str(k) for k in json.loads(line).get("ack") or []]
+        except (ValueError, AttributeError, TypeError):
+            continue
+    return keys
+
+
+def deliver(keys, now):
+    """Record these verdicts delivered. Called under the look lock."""
+    if not keys:
+        return
+    path = _p("last-told.json")
+    shared = stall_watch._read_json(path)
+    delivered = shared.get("delivered") if isinstance(shared.get("delivered"), dict) else {}
+    for k in keys:
+        delivered.setdefault(k, now)
+    shared["delivered"] = delivered
+    stall_watch._write_json(path, shared)
+
+
 def tell(now, sstate, rows, book, items, problems, attempts):
+    # By (repo, tip) for a row that names no work, and by (repo, tip, work) for one that does (_who).
     items_by_key = dict((it.key, it) for it in items)
+    items_by_key.update(((it.repo, it.tip, it.work), it) for it in items)
     told = sstate.setdefault("told", {})
-    body = []
+    body, owners, keys, marks, pending = [], [], [], [], {}
+    PRINTED["keys"], PRINTED["told"] = [], {}
+
+    def add(block, it=None, session=None, key=None, mark=None):
+        # Each block keeps the session of the lead whose teammate it is about, so the operator
+        # host can deliver it to that lead (--host-json); "" when no lead started the work. An
+        # owned notice's block keeps its delivery key too, recorded delivered only once accepted;
+        # any other keeps its told mark, (told key, value), written only once emitted (PRINTED).
+        body.append(block)
+        owners.append(session if session is not None else (getattr(it, "session", "") or ""))
+        keys.append(key)
+        marks.append(mark)
+        if mark:
+            pending[mark[0]] = mark[1]
     # -- new verdicts, from where this session last read the ledger ---------------
+    # ONLY A VERDICT'S RECORDED OWNER CONSUMES IT (second review of b5ff41f02, finding 2).
+    # last-told.json's `rows` is where a monitor's FIRST look starts reading, so a verdict written
+    # while nobody watched is still told; it is nobody's record of an owned verdict. That record is
+    # `delivered` beside it ({review id: when}), written only once a verdict printed for its owner
+    # was accepted (PRINTED, tick): by the owner's own monitor, or by the operator host
+    # (--host-json), which sends every block to its owner. A verdict whose owner this watcher
+    # delivers to is told whenever it is not in `delivered`, wherever any cursor is and however old
+    # it is: another lead's monitor may have shown it (its owner had no live monitor then) or left
+    # it (it had one), and neither consumes it. Passed and mid-job verdicts have no reminder; this
+    # is their only delivery. `delivered` keeps every id still in the ledger, so a told verdict
+    # never comes back. Nothing is inferred
+    # from the old cursor-only state: on the first look under this rule an owner may be told its
+    # earlier verdicts once more, a repeat and never a loss (that review's recheck).
+    # AND ONLY WHAT IS PRINTED (the same review's recheck): a monitor's block is capped at
+    # BLOCK_CHARS, so verdicts stop where the cap is reached; those left are neither marked nor
+    # passed by this session's cursor, and the next look tells them.
+    me = MONITOR["session"]
+    shared = stall_watch._read_json(_p("last-told.json"))
+    seen = shared.get("rows") if isinstance(shared.get("rows"), int) and shared["rows"] <= len(rows) else None
+    delivered = shared.get("delivered") if isinstance(shared.get("delivered"), dict) else {}
+    # Which earlier rows could be this watcher's to tell (an owner it delivers to), so the owner
+    # lookup runs only for them: the review records and registry items that name such a session.
+    ours = lambda sid: bool(sid) and (sid == me or HOST_JSON["on"])
+    our_tips = set((os.path.realpath(r.get("repo") or ""), r.get("tip"))
+                   for r in list(attempts or []) + list(book.running.values()) if ours(r.get("session")))
+    our_works = set(it.work for it in items if ours(it.session))
     start = sstate.get("rows")
     if not isinstance(start, int) or start > len(rows):
-        shared = stall_watch._read_json(_p("last-told.json"))
-        start = shared.get("rows") if isinstance(shared.get("rows"), int) and shared["rows"] <= len(rows) else len(rows)
-    for row in rows[start:]:
+        start = seen if seen is not None else len(rows)
+    budget = None if HOST_JSON["on"] else BLOCK_CHARS - HEAD_CHARS
+    used, stop = 0, len(rows)
+    for i, row in enumerate(rows):
         if not row.get("verdict"):
             continue
-        body.append(render_verdict(row, items_by_key))
-        if row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB:
-            told["cr:%s:%s" % (row.get("repo"), row.get("tip"))] = {"first": now, "last": now, "count": 1}
-        for fid, title in not_converging(row, rows):
-            k = "nc:%s:%s" % (row.get("work"), fid)
-            if k in told:
-                continue
-            told[k] = {"first": now}
-            who, _it = _who(row, items_by_key)
-            body.append(["  [NOT CONVERGING] %s: finding %s (%s) is still open after two rechecks in a row." % (
-                who, fid, " ".join(title.split())[:100]),
-                "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."])
-    sstate["rows"] = len(rows)
-    shared = stall_watch._read_json(_p("last-told.json"))
-    shared["rows"] = max(len(rows), int(shared.get("rows") or 0)) if isinstance(shared.get("rows"), int) else len(rows)
+        key = _row_key(row)
+        if i < start and (key in delivered or (row.get("work") not in our_works and (
+                os.path.realpath(row.get("repo") or ""), row.get("tip")) not in our_tips)):
+            continue
+        session = owner_session(row, items, book, attempts)
+        owned = ours(session)
+        if (owned and key in delivered) or (i < start and not owned):
+            continue                                # told to its owner already, or not this watcher's to tell
+        blocks = [render_verdict(row, items_by_key)]
+        # NOT CONVERGING is kept until accepted, like its verdict (the real second review of
+        # 0be50ade1, finding 1): an owned one carries its own delivery key, never a told mark.
+        nc = [(k, fid, title) for k, fid, title in (("nc:%s:%s" % (row.get("work"), fid), fid, title)
+                                                    for fid, title in not_converging(row, rows))
+              if k not in told and k not in delivered and k not in pending and k not in keys]
+        who, _it = _who(row, items_by_key)
+        blocks += [["  [NOT CONVERGING] %s: finding %s (%s) is still open after two rechecks in a row." % (
+                        who, fid, " ".join(title.split())[:100]),
+                    "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."]
+                   for _k, fid, title in nc]
+        cost = sum(len(x) + 1 for b in blocks for x in b) if budget is not None and for_this_monitor(session) else 0
+        if cost and used and used + cost > budget:
+            stop = i                                # the cap: this row and every later one wait for the next look
+            break
+        used += cost
+        cr = row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB
+        add(blocks[0], session=session, key=key if owned else None, mark=(
+            _cr_key(row.get("repo"), row.get("tip"), row.get("work")), {"first": now, "last": now, "count": 1})
+            if cr else None)
+        for b, (k, _fid, _title) in zip(blocks[1:], nc):
+            add(b, session=session, key=k if owned else None, mark=None if owned else (k, {"first": now}))
+    sstate["rows"] = max(start, stop)
+    shared["rows"] = max(stop, seen or 0)
+    lost_twice = dict(("lost:%s:%s" % key, key) for key, lost in book.losses.items() if len(lost) >= MAX_LOSSES)
+    ids = set(_row_key(r) for r in rows if r.get("verdict")) | set(lost_twice)
+    shared["delivered"] = dict((k, t) for k, t in delivered.items() if k in ids or (
+        k.startswith("nc:") and now - float(t or 0) <= KEEP_SECONDS))
     stall_watch._write_json(_p("last-told.json"), shared)
+    verdict_blocks = len(body)
     # -- an unhandled changes-requested handover, again every 30 minutes ------------
+    # THE SAME OWNER AS THE FIRST NOTICE (second review of 783a8dba1, finding 2): another work can
+    # hold the reviewed commit (a handover reviewer's cc/ workspace is made at the worker's
+    # commit), so the verdict is looked up for THIS item's work only, its clock is that work's, and
+    # it goes through owner_session like the first notice, never through whichever item is here.
     for it in items:
         if it.source != "registry" or it.state != "ended" or it.continued:
             continue
-        hv = book.handover_verdict(it.key)
+        hv = [r for r in book.handover_verdict(it.key) if r.get("work") == it.work]
         if not hv or hv[-1].get("verdict") != "changes-requested":
             continue
-        k = "cr:%s:%s" % (it.repo, it.tip)
-        t = told.get(k)
+        k = _cr_key(it.repo, it.tip, it.work)
+        t = pending.get(k) or told.get(k)
         if t is None:
-            told[k] = {"first": now, "last": now, "count": 1}
-            body.append(render_verdict(hv[-1], items_by_key))
+            add(render_verdict(hv[-1], items_by_key), session=owner_session(hv[-1], items, book, attempts),
+                mark=(k, {"first": now, "last": now, "count": 1}))
         elif now - float(t.get("last") or now) >= REPEAT_MINUTES * 60:
-            t["last"], t["count"] = now, int(t.get("count") or 1) + 1
-            body.append(render_verdict(hv[-1], items_by_key, (t["count"], hhmm(float(t["first"])))))
+            again = dict(t, last=now, count=int(t.get("count") or 1) + 1)
+            add(render_verdict(hv[-1], items_by_key, (again["count"], hhmm(float(again["first"])))),
+                session=owner_session(hv[-1], items, book, attempts), mark=(k, again))
     # -- a commit whose review was lost twice --------------------------------------
-    for key, lost in book.losses.items():
-        if len(lost) < MAX_LOSSES:
+    # KEPT UNTIL ACCEPTED, LIKE A VERDICT (the real second review of 802194f0e, finding 2): told once,
+    # this is the only word that automatic reviews of the commit have stopped. For an owner this
+    # watcher delivers to it carries its key and is recorded in `delivered` only once accepted
+    # (PRINTED, tick); a refused or failed delivery tells it again at the next look. `told` still
+    # holds one told under the earlier rule, and one shown to a lead that is not this watcher's.
+    for k, key in lost_twice.items():
+        if k in told or k in delivered:
             continue
-        k = "lost:%s:%s" % key
-        if k in told:
-            continue
-        told[k] = {"first": now}
-        a = lost[-1]
-        body.append(["  [NO VERDICT TWICE] %s, %s@%s: %s" % (a.get("name"), os.path.basename(key[0] or ""),
-                                                            str(key[1])[:12], " ".join(str(a.get("why")).split())[:300]),
-                     "      Nothing more starts for this commit by itself. You can: fix the cause, then run "
-                     "%s by hand." % "second-review.sh"])
+        a = book.losses[key][-1]
+        session = a.get("session") or getattr(items_by_key.get(key + (a.get("work") or "",)), "session", "") or ""
+        add(["  [NO VERDICT TWICE] %s, %s@%s: %s" % (a.get("name"), os.path.basename(key[0] or ""),
+                                                    str(key[1])[:12], " ".join(str(a.get("why")).split())[:300]),
+             "      Nothing more starts for this commit by itself. You can: fix the cause, then run "
+             "%s by hand." % "second-review.sh"], session=session, key=k if ours(session) else None,
+            mark=None if ours(session) else (k, {"first": now}))
     # -- what could not be read or started ------------------------------------------
     for p in problems:
         k = "problem:" + p[:120]
-        if k in told:
+        if k in told or k in pending:
             continue
-        told[k] = {"first": now}
-        body.append(["  [NOT STARTED] " + p[:400]])
+        add(["  [NOT STARTED] " + p[:400]], mark=(k, {"first": now}))
     for k in list(told):
         if now - float(told[k].get("first") or now) > KEEP_SECONDS:
             del told[k]
-    if not body:
-        return []
-    lines = ["REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was paused, "
-             "stopped or killed)" % (hhmm(now), len(body), "" if len(body) == 1 else "s")]
-    used = len(lines[0])
-    for b in body:
-        cost = sum(len(x) + 1 for x in b)
-        if used + cost > BLOCK_CHARS and len(lines) > 1:
-            lines.append("  ... more in the next look's block, or read %s" % review_ledger())
-            break
-        lines += b
-        used += cost
+    if HOST_JSON["on"]:
+        shown = list(range(len(body)))              # the host is given every block
+        lines = host_json_lines(now, body, owners, keys) if body else []
+    else:
+        shown, lines = [n for n, s in enumerate(owners) if for_this_monitor(s)], []
+    if shown and not HOST_JSON["on"]:
+        lines = ["REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was "
+                 "paused, stopped or killed)" % (hhmm(now), len(shown), "" if len(shown) == 1 else "s")]
+        used = len(lines[0])
+        for i, n in enumerate(shown):
+            cost = sum(len(x) + 1 for x in body[n])
+            # Verdict blocks were already fitted to the cap above: never cut here.
+            if n >= verdict_blocks and used + cost > BLOCK_CHARS and len(lines) > 1:
+                lines.append("  ... more in the next look's block, or read %s" % review_ledger())
+                shown = shown[:i]
+                break
+            lines += body[n]
+            used += cost
+    PRINTED["keys"] = list(dict.fromkeys(keys[n] for n in shown if keys[n]))
+    PRINTED["told"] = dict(marks[n] for n in shown if marks[n])
     return lines
 
 
@@ -1058,32 +1730,51 @@ def prune(keep):
                 pass
 
 
-def tick(watcher, sd, now=None, out=None):
-    """One look under the machine-wide look lock (two watchers take turns)."""
-    out = out or sys.stdout
-    now = clock() if now is None else now
+@contextlib.contextmanager
+def look_lock():
+    """The machine-wide look lock (two watchers take turns)."""
     os.makedirs(state_root(), exist_ok=True)
     fd = os.open(_p("look.lock"), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def tick(watcher, sd, now=None, out=None):
+    """One look under the look lock; the verdicts it printed are delivered once accepted (PRINTED)."""
+    out = out or sys.stdout
+    now = clock() if now is None else now
+    with look_lock():
+        if host_acks():
+            deliver(read_acks(), now)
         path = os.path.join(sd, "told.json")
         sstate = stall_watch._read_json(path)
         try:
             lines = watcher.look(now, sstate)
         except Exception as exc:  # noqa: BLE001: one failed look is said, never the end of watching
             k = "failed:%s" % exc.__class__.__name__
-            told = sstate.setdefault("told", {})
-            lines = [] if k in told else ["REVIEW-WATCH %s: a look failed (%s: %s); the next look tries again" % (
-                hhmm(now), exc.__class__.__name__, str(exc)[:200])]
-            told[k] = {"first": now}
+            lines = [] if k in sstate.get("told", {}) else [
+                "REVIEW-WATCH %s: a look failed (%s: %s); the next look tries again" % (
+                    hhmm(now), exc.__class__.__name__, str(exc)[:200])]
+            PRINTED["keys"], PRINTED["told"] = [], {k: {"first": now}}
+        printed, marked = (PRINTED["keys"], PRINTED["told"]) if lines else ([], {})
+        PRINTED["keys"], PRINTED["told"] = [], {}
         sstate["last_look"] = now
         stall_watch._write_json(path, sstate)
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
     if lines:
         out.write("\n".join(lines) + "\n")
         out.flush()
+    if (printed and not host_acks()) or marked:
+        with look_lock():
+            if not host_acks():
+                deliver(printed, now)
+            if marked:
+                sstate = stall_watch._read_json(path)
+                sstate.setdefault("told", {}).update(marked)
+                stall_watch._write_json(path, sstate)
     return len(lines)
 
 
@@ -1106,6 +1797,7 @@ def run_loop(watcher, engine_root):
     if fd is None:
         return 0                                    # this session is already watched
     prune(sd)
+    MONITOR["session"] = sid
     alive = stall_watch.session_alive_check(spid) if spid else None
     poll = stall_watch._env_float("REVIEW_WATCH_POLL_SECONDS", POLL_SECONDS)
     try:
@@ -1115,6 +1807,80 @@ def run_loop(watcher, engine_root):
     finally:
         os.close(fd)
     return 0
+
+
+# The host's own process id, which richos-core review_watch.rs sets in its child's environment.
+HOST_ENV = "RICHOS_REVIEW_WATCH_HOST"
+
+
+def run_host_loop(watcher, name):
+    """A watcher that is the app host's own child (richos-core review_watch.rs): the app's
+    (--app-state, name "app") or the operator install's (--host-json, name "operator-host").
+
+    It ends with the app, three ways, and each one stops the reviews it started first:
+    SIGTERM (the host's quit path), SIGHUP, and its parent going away (an app that crashed or
+    was killed: the parent process id changes when the host dies, so a review never runs on for
+    an app that is gone).
+
+    THE HOST IS KNOWN BEFORE THE FIRST LOOK (the real second review of 16c154f5a, finding 2): the
+    host passes its own pid at spawn (HOST_ENV), so a host that died while this process started,
+    which leaves it reparented already, is seen gone here and nothing is looked at or started.
+    Without it (a direct run), the parent at this point is the host."""
+    host = os.environ.pop(HOST_ENV, "").strip()     # never inherited by the reviews
+    parent = int(host) if host.isdigit() else os.getppid()
+
+    def alive():
+        return os.getppid() == parent
+
+    if not alive():
+        return 0                                    # its host is gone already
+    sd = session_dir(name)
+    fd = stall_watch._try_lock(os.path.join(sd, "monitor.lock"))
+    if fd is None:
+        return 0                                    # another copy of the app already watches
+
+    def ended(signum, _frame):
+        if getattr(watcher, "hold_quit", 0):
+            watcher.held_quit = signum              # spawn takes it once its child is registered
+            return
+        raise SystemExit(128 + signum)
+
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, ended)
+    prune(sd)
+    poll = stall_watch._env_float("REVIEW_WATCH_POLL_SECONDS", POLL_SECONDS)
+    try:
+        while alive():
+            tick(watcher, sd)
+            stall_watch._nap(poll, alive)
+    finally:
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
+        watcher.stop_own(clock())
+        os.close(fd)
+    return 0
+
+
+def app_mode(a, engine_root):
+    """--app-state: the app's watcher. Its state and its ledger live under the app's own
+    engine state (app_paths); the transcripts its reviews read are the app's platform record."""
+    paths = app_paths(a.app_state)
+    os.environ["REVIEW_WATCH_STATE_DIR"] = paths["watch"]
+    os.environ["SECOND_REVIEW_STATE_DIR"] = paths["reviews"]
+    if not (os.environ.get("RICHOS_PROJECTS_DIR") or "").strip():
+        os.environ["RICHOS_PROJECTS_DIR"] = os.path.join(os.path.realpath(a.app_state), "platform-projects")
+    watcher = Watcher(engine_root, "", AppWorld(engine_root, a.app_state, a.claude, a.accounts))
+    if a.status:
+        for path in sorted(glob.glob(_p("locks", "*.lock"))):
+            info = stall_watch._read_json(path)
+            print("  running: %s %s@%s (%s) since %s, pid %s" % (
+                info.get("name"), os.path.basename(info.get("repo") or ""), str(info.get("tip"))[:12],
+                info.get("trigger"), iso(float(info.get("started_at") or 0)), info.get("pid")))
+        return 0
+    if a.tick:
+        tick(watcher, session_dir("app"))
+        return 0
+    return run_host_loop(watcher, "app")
 
 
 def mode_status(engine_root):
@@ -1140,13 +1906,28 @@ def main(argv):
         g.add_argument(flag, action="store_true")
     ap.add_argument("--config", default="")
     ap.add_argument("--engine-root", default="")
+    ap.add_argument("--app-state", default="", help="the app's engine state: the app's own watcher (AppWorld)")
+    ap.add_argument("--claude", default="", help="app mode: the Claude CLI the app ships")
+    ap.add_argument("--accounts", default="",
+                    help="app mode: the app's Claude account list; each review runs on the account in use")
+    ap.add_argument("--host-json", action="store_true",
+                    help="the operator host's child: notices as JSON lines, one per lead session")
     a = ap.parse_args(argv)
     engine_root = a.engine_root or os.path.dirname(os.path.dirname(HERE))
+    if a.app_state:
+        return app_mode(a, engine_root)
     if a.status:
         return mode_status(engine_root)
     if not a.config:
         return 0                                    # a repository that never adopted the engine: nothing to watch
     watcher = Watcher(engine_root, a.config)
+    if a.host_json:
+        # The operator install's host runs this as its child and sends each line's text to the
+        # lead of that session as a message of its own (Sage's check §1.3): a monitor inside a
+        # print-mode lead would start a turn the host never asked for and cannot attribute.
+        HOST_JSON["on"] = True
+        if a.monitor:
+            return run_host_loop(watcher, "operator-host")
     if a.tick:
         sid, _pid = current_session(engine_root)
         tick(watcher, session_dir(sid))

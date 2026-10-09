@@ -138,6 +138,11 @@ pub struct WorkAssignment {
     pub seat: String,
     pub instruction_ledger_ref: String,
     pub instruction_sha256: String,
+    /// The words that reference names, already checked against `instruction_sha256` by the
+    /// work host (`work_host.rs`'s `instruction_for`). They reach the scope beside the hash so
+    /// a reviewer is briefed with the user's own turn (second review, slice 4). `None` when the
+    /// host could not read them back (a report turn), never a guess.
+    pub instruction_text: Option<String>,
 }
 
 /// What the OBLIGATION says, which is the only thing allowed to say an assignment is
