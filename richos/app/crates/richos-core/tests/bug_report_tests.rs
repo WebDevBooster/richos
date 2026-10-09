@@ -54,6 +54,7 @@ fn screen() -> Screen {
         text_size: 135,
         theme: "dark".into(),
         technical_view: false,
+        content: String::new(),
     }
 }
 
@@ -185,7 +186,7 @@ fn the_plain_write_up_is_what_the_user_said_with_the_screen_and_the_version() {
 
 #[test]
 fn the_prompt_carries_the_users_words_the_screen_and_the_version_and_asks_for_json() {
-    let prompt = writer_prompt("names get cut off", &screen(), VERSION, &terms());
+    let prompt = writer_prompt("names get cut off", &screen(), VERSION, &terms(), false);
     assert!(prompt.contains("names get cut off"));
     assert!(prompt.contains("the Acme deal conversation"));
     assert!(prompt.contains("135%"));
@@ -199,7 +200,10 @@ fn rich_runs_with_no_tools_no_settings_and_no_saved_session() {
     let args = writer_args();
     let has = |flag: &str, value: &str| args.windows(2).any(|w| w[0] == flag && w[1] == value);
     assert!(args.iter().any(|a| a == "--print"));
-    assert!(has("--output-format", "json"));
+    // One stream-json message in, so a picture can go beside the words (finding 6).
+    assert!(has("--input-format", "stream-json"), "{args:?}");
+    assert!(has("--output-format", "stream-json"), "{args:?}");
+    assert!(args.iter().any(|a| a == "--verbose"), "stream-json output needs --verbose: {args:?}");
     assert!(has("--tools", ""), "{args:?}");
     assert!(has("--setting-sources", ""), "{args:?}");
     assert!(args.iter().any(|a| a == "--no-session-persistence"));
@@ -487,6 +491,58 @@ fn a_change_in_accented_words_is_read_on_character_boundaries() {
     assert_eq!(plain_change("ééé also happens in light mode").add, "Ééé also happens in light mode.");
     assert_eq!(plain_change("Ändern: it happens in light mode").add, "Ändern: it happens in light mode.");
     assert_eq!(plain_change("Also say it happens in light mode").add, "It happens in light mode.");
+}
+
+#[test]
+fn rich_is_given_what_was_on_the_screen_and_a_picture_of_the_window_to_check_against() {
+    // Finding 6: on the tip Rich had the user's words, the screen's name, settings and version,
+    // and nothing that was ON the screen, so "Looked at the screen you were on" was not true.
+    let mut on_screen = screen();
+    on_screen.content = "Acme deal\n  what's   the status on Acme?\nNames cut off: Design RichOS memo…".into();
+    let prompt = writer_prompt("the names get cut off", &on_screen, VERSION, &terms(), true);
+    assert!(prompt.contains("visible words top to bottom"), "{prompt}");
+    assert!(prompt.contains("what's the status on Acme?"), "the screen's words are not in the prompt: {prompt}");
+    assert!(prompt.contains("Names cut off: Design RichOS memo…"));
+    assert!(prompt.contains("A picture of the RichOS window"), "{prompt}");
+    assert!(prompt.contains("CHECK what the user said against the screen"), "{prompt}");
+    assert!(prompt.contains("\"checked\""), "{prompt}");
+    // Without either, nothing claims there is something to look at.
+    let blind = writer_prompt("the names get cut off", &screen(), VERSION, &terms(), false);
+    assert!(!blind.contains("visible words") && !blind.contains("picture") && !blind.contains("CHECK"), "{blind}");
+
+    // The one line on standard input: the picture as an image block, then the prompt.
+    let picture = Picture { media_type: "image/jpeg".into(), base64: "/9j/4AAQ".into() };
+    let line = writer_input(&prompt, Some(&picture));
+    assert!(line.ends_with('\n') && line.trim_end().lines().count() == 1, "{line}");
+    let message: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(message["type"], "user");
+    assert_eq!(message["message"]["role"], "user");
+    let content = message["message"]["content"].as_array().unwrap();
+    assert_eq!(content[0], serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": "image/jpeg", "data": "/9j/4AAQ" } }));
+    assert_eq!(content[1], serde_json::json!({ "type": "text", "text": prompt }));
+    assert_eq!(serde_json::from_str::<serde_json::Value>(writer_input("hi", None).trim()).unwrap()["message"]["content"].as_array().unwrap().len(), 1);
+
+    // stream-json's answer: its last `result` line, as claude 2.1.295 printed it on 2026-10-09.
+    let streamed = "{\"type\":\"system\",\"subtype\":\"init\"}\n{\"type\":\"assistant\",\"message\":{}}\n\
+                    {\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"{\\\"color\\\": \\\"red\\\"}\"}\n";
+    assert_eq!(result_text(streamed).unwrap(), "{\"color\": \"red\"}");
+    assert!(result_text("{\"type\":\"system\"}\n").is_err(), "a reply with no result line is not a report");
+
+    // The screen's words are bounded, cut on a character boundary.
+    let long = "é".repeat(SCREEN_CONTENT_MAX + 50);
+    let kept = screen_words(&long);
+    assert!(kept.starts_with(&"é".repeat(SCREEN_CONTENT_MAX)) && kept.ends_with("[the rest of the screen is left off]"));
+
+    // What the digest over his answer says: he looked only when he wrote it and had the screen.
+    let checked = parse_written("{\"title\": \"T\", \"what_happened\": \"W\", \"checked\": \"saw the names cut off at 135%.\"}").unwrap().checked;
+    assert_eq!(digest(&on_screen, true, true, &checked), "Looked at the screen you were on, at 135% text size · Saw the names cut off at 135% · Checked the version");
+    assert_eq!(digest(&on_screen, false, true, &checked), "Noted the screen you were on, at 135% text size · Checked the version · Wrote it from your words");
+    assert_eq!(digest(&screen(), true, false, ""), "Noted the screen you were on, at 135% text size · Checked the version");
+    let mut corrections = screen();
+    corrections.key = "corrections".into();
+    corrections.here = "Corrections".into();
+    corrections.text_size = 100;
+    assert_eq!(digest(&corrections, true, true, ""), "Looked at Corrections · Checked the version");
 }
 
 #[test]

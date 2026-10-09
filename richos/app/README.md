@@ -333,12 +333,14 @@ richos/app/
                               the technical view, re-prime machinery that is recorded and
                               structurally cannot render, no session id on the lane's wire,
                               the honest empty lane, and the retention window covering it
-    tests/bug_report_tests.rs 26 tests for Bust a bug (CEO §115, round 21): names, file
+    tests/bug_report_tests.rs 27 tests for Bust a bug (CEO §115, round 21): names, file
                               paths (whole, between backticks or quotes and with spaces
                               in them), email addresses and every name Rich finds private
                               (kept for every later change) are replaced by stand-ins that
-                              keep what they replaced for the user's eyes only; Rich's
-                              write-up is read out of his answer or the plain write-up is
+                              keep what they replaced for the user's eyes only; Rich is
+                              given the screen's words and a picture of the window to
+                              check against (one stream-json message), and his write-up
+                              is read out of his answer or the plain write-up is
                               used; the issue is the approved sheet word for word; a send
                               files one issue with the token read at send time; a failed
                               send is kept on this Mac, survives a relaunch and goes out
@@ -1151,7 +1153,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1921 tests + 5 doc-tests (1917 direct, 4 ignored)
+cargo test -p richos-core                       # 1922 tests + 5 doc-tests (1918 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

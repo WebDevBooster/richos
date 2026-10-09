@@ -130,11 +130,53 @@ window.RichBug = (function () {
     }
     return null;
   }
+  // ---- what was on the screen: for the user's own Rich to check against ----------------------
+  // Round 21: "Looked at the screen you were on". The words the user could SEE when they pressed
+  // Bust a bug, top to bottom: every text that is rendered, inside the window and inside every
+  // scrolling box around it (a conversation scrolled away is not on screen). The exchange itself,
+  // the Settings menu, notices and screen-reader-only text are not the screen. Private names stay
+  // in: this goes to the user's own Claude, never into the issue (second review finding 6).
+  var NOT_THE_SCREEN = "#bug-flows, #bugdock, #set-menu, #bug-toast, #bug-subtip, .sr-only, [aria-hidden='true'], [hidden], script, style, noscript, template";
+  var SCREEN_MAX = 12000;
+  function screenContent() {
+    var clipOf = new Map();
+    function visibleBox(el) {
+      if (!el || el === document.body || el === document.documentElement) return { l: 0, t: 0, r: window.innerWidth, b: window.innerHeight };
+      if (clipOf.has(el)) return clipOf.get(el);
+      var box = visibleBox(el.parentElement);
+      var st = getComputedStyle(el);
+      if (st.overflowX !== "visible" || st.overflowY !== "visible") {
+        var r = el.getBoundingClientRect();
+        box = { l: Math.max(box.l, r.left), t: Math.max(box.t, r.top), r: Math.min(box.r, r.right), b: Math.min(box.b, r.bottom) };
+      }
+      clipOf.set(el, box);
+      return box;
+    }
+    var lines = [], line = "", lastTop = null, total = 0;
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (var t = walker.nextNode(); t && total < SCREEN_MAX; t = walker.nextNode()) {
+      var words = t.textContent.replace(/\s+/g, " ").trim();
+      var el = t.parentElement;
+      if (!words || !el || el.closest(NOT_THE_SCREEN)) continue;
+      var st = getComputedStyle(el);
+      if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) continue;
+      var r = el.getBoundingClientRect();
+      var box = visibleBox(el.parentElement);
+      if (r.width === 0 || r.height === 0 || r.right <= box.l || r.left >= box.r || r.bottom <= box.t || r.top >= box.b) continue;
+      if (lastTop !== null && Math.abs(r.top - lastTop) > 4) { lines.push(line); line = ""; }
+      line = line ? line + " " + words : words;
+      lastTop = r.top;
+      total += words.length + 1;
+    }
+    if (line) lines.push(line);
+    return lines.join("\n").slice(0, SCREEN_MAX);
+  }
+
   function screenNow() {
     var scale = window.RichTheme && window.RichTheme.scale ? window.RichTheme.scale() : 100;
     var theme = document.documentElement.dataset.theme || "";
     var techy = !!document.querySelector("#techy-chip:not([hidden])");
-    var base = { textSize: scale, theme: theme, technicalView: techy, conversation: null };
+    var base = { textSize: scale, theme: theme, technicalView: techy, conversation: null, content: screenContent() };
     var w = openWindow();
     if (w) return Object.assign(base, { key: w[1], dock: true, label: w[2], here: w[2], public: w[3] });
     var view = host ? host.view() : "conversation";
@@ -244,7 +286,7 @@ window.RichBug = (function () {
 
   /// **START.** One report at a time: pressing it while one is in progress takes the user back to
   /// it and pulses its card.
-  function start() {
+  function start(seen) {
     var cur = liveFlow();
     if (cur) {
       if (cur.dock) showDock();
@@ -258,7 +300,7 @@ window.RichBug = (function () {
       window.setTimeout(function () { var i = inputOf(cur); if (i) i.focus(); }, 0);
       return cur;
     }
-    var scr = screenNow();
+    var scr = seen || screenNow();
     var f = { id: ++seq, dock: scr.dock, threadId: host ? host.activeThread() : null, screen: scr, step: "ask", el: node("section", "bugflow") };
     f.el.dataset.flow = String(f.id);
     f.el.setAttribute("aria-label", "Bust a bug");
@@ -292,6 +334,23 @@ window.RichBug = (function () {
     paintComposers();
     window.setTimeout(function () { var i = inputOf(f); if (i) i.focus(); }, 0);
     return f;
+  }
+
+  /// **LOOK, THEN ASK.** What the user was looking at is read BEFORE the exchange draws anything:
+  /// the screen's words at once, and the shell's picture of the window (`bug_report_look`) before
+  /// Rich's question appears, so neither shows the exchange instead of the screen. A picture that
+  /// does not come within 1.5 s is not waited for; Rich then has the words.
+  function lookThenStart() {
+    if (liveFlow()) return start();
+    var seen = screenNow();
+    var started = false;
+    function go() {
+      if (started) return;
+      started = true;
+      start(seen);
+    }
+    bridge.invoke("bug_report_look").then(go, go);
+    window.setTimeout(go, 1500);
   }
 
   function neverMind(f, quiet) {
@@ -445,7 +504,7 @@ window.RichBug = (function () {
   }
 
   function publicScreen(s) {
-    return { key: s.key, here: s.here, public: s.public, conversation: s.conversation, textSize: s.textSize, theme: s.theme, technicalView: s.technicalView };
+    return { key: s.key, here: s.here, public: s.public, conversation: s.conversation, textSize: s.textSize, theme: s.theme, technicalView: s.technicalView, content: s.content || "" };
   }
 
   function flash(f) {
@@ -1011,7 +1070,7 @@ window.RichBug = (function () {
         if (dockVoice && e.payload && e.payload.text) takeSpoken(e.payload.text);
       });
       if (window.RichSettings && window.RichSettings.registerBugReport) {
-        window.RichSettings.registerBugReport({ open: function () { refreshContext(); start(); } });
+        window.RichSettings.registerBugReport({ open: function () { refreshContext(); lookThenStart(); } });
       }
     },
     start: start,

@@ -1,8 +1,9 @@
 //! **BUST A BUG** — the shell's half (CEO §115, round 21). Everything that decides what reaches
 //! GitHub is `richos_core::bug_report` and is tested there; this file is the three things that
-//! need the Mac: running Rich (`claude`) to write the report, reading the reporting account's
-//! token from the login keychain, and the HTTPS request. Plus the eight commands the window
-//! calls and the loop that sends a waiting report by itself.
+//! need the Mac: running Rich (`claude`) to write the report, with a picture of the window
+//! (`window_picture.rs`) and the screen's words to check against, reading the reporting
+//! account's token from the login keychain, and the HTTPS request. Plus the nine commands the
+//! window calls and the loop that sends a waiting report by itself.
 //!
 //! # Which account, today
 //!
@@ -47,6 +48,9 @@ pub struct BugReports {
     /// Where `claude` writes from: an empty folder, so no project's CLAUDE.md is read.
     quiet_dir: PathBuf,
     version: String,
+    /// The picture of the window taken when Bust a bug was last pressed (`bug_report_look`), for
+    /// Rich's write-up. In memory only; replaced at the next press, never written to disk.
+    look: Mutex<Option<bug::Picture>>,
 }
 
 impl BugReports {
@@ -60,6 +64,7 @@ impl BugReports {
             hold_voice: AtomicBool::new(false),
             quiet_dir,
             version: bug::version_line(app_version, macos_version().as_deref(), std::env::consts::ARCH),
+            look: Mutex::new(None),
         })
     }
 }
@@ -216,9 +221,11 @@ impl GitHub {
 // RICH WRITES IT
 // ---------------------------------------------------------------------------------------
 
-/// One printed answer from `claude`, or why not. Bounded by [`WRITE_DEADLINE`]; the child is
-/// killed when it outlasts it (CEO §54: whatever this app starts, it ends).
-fn ask_rich(bin: &Path, folder: Option<&Path>, cwd: &Path, prompt: &str) -> Result<String, String> {
+/// One printed answer from `claude`, or why not. `input` is the one stream-json line
+/// (`bug::writer_input`): the prompt, and the window's picture when there is one. Bounded by
+/// [`WRITE_DEADLINE`]; the child is killed when it outlasts it (CEO §54: whatever this app
+/// starts, it ends).
+fn ask_rich(bin: &Path, folder: Option<&Path>, cwd: &Path, input: &str) -> Result<String, String> {
     let mut command = std::process::Command::new(bin);
     command
         .args(bug::writer_args())
@@ -231,9 +238,13 @@ fn ask_rich(bin: &Path, folder: Option<&Path>, cwd: &Path, prompt: &str) -> Resu
         command.env("CLAUDE_CONFIG_DIR", folder);
     }
     let mut child = command.spawn().map_err(|e| format!("claude did not start: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        best_effort("the prompt", stdin.write_all(prompt.as_bytes()));
-    }
+    // Written from its own thread: a picture is several hundred kilobytes, more than a pipe
+    // holds, and `claude` reads it while this thread watches the deadline. Dropping the handle
+    // when it is written closes standard input, which ends the one message.
+    let writer = child.stdin.take().map(|mut stdin| {
+        let input = input.to_string();
+        std::thread::spawn(move || best_effort("the prompt", stdin.write_all(input.as_bytes())))
+    });
     let mut stdout = child.stdout.take().ok_or("no output")?;
     let reader = std::thread::spawn(move || {
         let mut out = String::new();
@@ -251,6 +262,9 @@ fn ask_rich(bin: &Path, folder: Option<&Path>, cwd: &Path, prompt: &str) -> Resu
                 return Err("claude took too long".into());
             }
         }
+    }
+    if let Some(writer) = writer {
+        writer.join().map_err(|_| "the writer stopped")?;
     }
     let out = reader.join().map_err(|_| "the reader stopped")?;
     bug::result_text(&out)
@@ -298,18 +312,6 @@ fn private_terms(state: &crate::AppState) -> Vec<bug::PrivateTerm> {
     terms
 }
 
-fn digest(screen: &bug::Screen, by_rich: bool) -> String {
-    let mut first = "Noted the screen you were on".to_string();
-    if screen.text_size != 100 {
-        first.push_str(&format!(", at {}% text size", screen.text_size));
-    }
-    let mut parts = vec![first, "Checked the version".to_string()];
-    if !by_rich {
-        parts.push("Wrote it from your words".into());
-    }
-    parts.join(" · ")
-}
-
 // ---------------------------------------------------------------------------------------
 // THE COMMANDS
 // ---------------------------------------------------------------------------------------
@@ -326,7 +328,31 @@ pub fn bug_report_context(state: State<crate::AppState>) -> serde_json::Value {
     })
 }
 
-/// **Rich writes it up.** Sends nothing.
+/// **A PICTURE OF THE WINDOW AS IT IS NOW**, taken when Bust a bug is pressed and before the
+/// exchange covers anything (second review finding 6). Kept in memory for Rich's write-up
+/// only; the last one is dropped first, so a picture never outlives the press it was taken for.
+/// `{ taken, bytes }`; a picture that could not be had is not an error, Rich gets the words.
+#[tauri::command(async)]
+pub async fn bug_report_look(app: AppHandle, window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
+    let bugs = app.state::<Arc<BugReports>>().inner().clone();
+    off_the_ipc_threads(move || {
+        *bugs.look.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        let Some(jpeg) = crate::window_picture::take(&window) else {
+            return Ok(serde_json::json!({ "taken": false, "bytes": 0 }));
+        };
+        use base64::Engine;
+        let bytes = jpeg.len();
+        let picture = bug::Picture { media_type: "image/jpeg".into(), base64: base64::engine::general_purpose::STANDARD.encode(&jpeg) };
+        *bugs.look.lock().unwrap_or_else(|p| p.into_inner()) = Some(picture);
+        Ok(serde_json::json!({ "taken": true, "bytes": bytes }))
+    })
+    .await
+}
+
+/// **Rich checks, then writes it up.** He is given the user's words, where they were, what was
+/// on that screen (its words, `screen.content`) and the picture of the window taken when they
+/// pressed the button, so he can check what they say against what they saw. All of it goes to
+/// the user's own `claude` only; the issue is what he writes, scrubbed. Sends nothing.
 #[tauri::command(async)]
 pub async fn bug_report_write(app: AppHandle, answer: String, screen: bug::Screen) -> Result<serde_json::Value, String> {
     let started = Instant::now();
@@ -334,8 +360,11 @@ pub async fn bug_report_write(app: AppHandle, answer: String, screen: bug::Scree
     // Rich's write-up waits on `claude` for up to WRITE_DEADLINE, so it waits on the blocking
     // pool and never on one of the threads the window's other commands are answered on.
     off_the_ipc_threads(move || {
-        let prompt = bug::writer_prompt(&answer, &screen, &bugs.version, scrubber.terms());
-        let (written, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &prompt).and_then(|raw| bug::parse_written(&raw)) {
+        let picture = bugs.look.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        let looked = picture.is_some() || !bug::screen_words(&screen.content).is_empty();
+        let prompt = bug::writer_prompt(&answer, &screen, &bugs.version, scrubber.terms(), picture.is_some());
+        let input = bug::writer_input(&prompt, picture.as_ref());
+        let (written, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input).and_then(|raw| bug::parse_written(&raw)) {
             Ok(w) => (w, true),
             Err(why) => {
                 eprintln!("[richos] bug report: Rich's write-up was not used ({why}); the plain write-up is");
@@ -345,7 +374,7 @@ pub async fn bug_report_write(app: AppHandle, answer: String, screen: bug::Scree
         let draft = bug::draft_from(&written, &bugs.version, &scrubber);
         Ok(serde_json::json!({
             "draft": draft,
-            "digest": digest(&screen, by_rich),
+            "digest": bug::digest(&screen, by_rich, looked, &written.checked),
             "workedMs": started.elapsed().as_millis() as u64,
             "byRich": by_rich,
         }))
@@ -363,7 +392,8 @@ pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet, 
     let report_private = private.unwrap_or_default();
     off_the_ipc_threads(move || {
         let headings: Vec<String> = sheet.sections.iter().map(|s| s.heading.clone()).collect();
-        let (change, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::change_prompt(&sheet, &said))
+        let input = bug::writer_input(&bug::change_prompt(&sheet, &said), None);
+        let (change, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input)
             .and_then(|raw| bug::parse_change(&raw))
             .and_then(|c| if headings.contains(&c.section) { Ok(c) } else { Err(format!("no section {:?}", c.section)) })
         {

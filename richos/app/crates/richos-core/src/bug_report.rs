@@ -517,7 +517,16 @@ pub struct Screen {
     pub theme: String,
     #[serde(default)]
     pub technical_view: bool,
+    /// **WHAT WAS ON IT**: the screen's visible words, top to bottom, as the window read them the
+    /// moment Bust a bug was pressed, before the exchange covered anything. Private names
+    /// included: it goes to the user's own Claude to check against, never into the issue.
+    #[serde(default)]
+    pub content: String,
 }
+
+/// The most of the screen's words Rich is given, in characters: enough for a full window of a
+/// conversation, and a bound so a long one cannot crowd out the user's own words.
+pub const SCREEN_CONTENT_MAX: usize = 12_000;
 
 fn hundred() -> u32 {
     100
@@ -563,17 +572,30 @@ pub struct Written {
     pub expected: String,
     /// Further private words Rich found in what he wrote, beyond the ones RichOS holds.
     pub private: Vec<PrivateTerm>,
+    /// What Rich saw on the screen that bears the user out, in a few words ("Saw the names cut
+    /// off at 135% text size"), or empty. Shown to the user over his answer (round 21's
+    /// digest), never in the issue.
+    pub checked: String,
 }
 
 /// The arguments `claude` is run with to write the report: one printed answer, no tools, none
 /// of the operator's settings, no session left on disk, no MCP servers. The account comes from
-/// `CLAUDE_CONFIG_DIR`, which the shell sets to the account the conversation runs on, and the
-/// prompt arrives on standard input. No `--model`: Rich writes with the same model he talks with.
+/// `CLAUDE_CONFIG_DIR`, which the shell sets to the account the conversation runs on. No
+/// `--model`: Rich writes with the same model he talks with.
+///
+/// **The prompt arrives as one stream-json user message on standard input** ([`writer_input`]),
+/// because that is how a picture reaches him: an image block beside the words. Measured with
+/// claude 2.1.295 on 2026-10-09 with exactly these arguments: a 64 by 64 red picture and "What
+/// single color fills the attached picture?" came back `{"color": "red"}` on the `result` line.
+/// stream-json output needs `--verbose`; [`result_text`] reads the last `result` line.
 pub fn writer_args() -> Vec<String> {
     [
         "--print",
+        "--input-format",
+        "stream-json",
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",
         "--setting-sources",
         "",
         "--no-session-persistence",
@@ -613,33 +635,119 @@ fn screen_lines(screen: &Screen, version: &str) -> String {
     lines.join("\n")
 }
 
-/// The one prompt Rich writes the report from.
-pub fn writer_prompt(answer: &str, screen: &Screen, version: &str, terms: &[PrivateTerm]) -> String {
+/// The screen's words as Rich is given them: each line's whitespace folded, empty lines dropped,
+/// at most [`SCREEN_CONTENT_MAX`] characters, cut on a character boundary.
+pub fn screen_words(content: &str) -> String {
+    let lines: Vec<String> = content.lines().map(|l| l.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|l| !l.is_empty()).collect();
+    let text = lines.join("\n");
+    match text.char_indices().nth(SCREEN_CONTENT_MAX) {
+        Some((cut, _)) => format!("{}\n[the rest of the screen is left off]", &text[..cut]),
+        None => text,
+    }
+}
+
+/// What Rich has to look at, and the order to check what the user said against it.
+fn evidence(screen: &Screen, picture: bool) -> String {
+    let words = screen_words(&screen.content);
+    let mut out = String::new();
+    if !words.is_empty() {
+        out.push_str(&format!(
+            "What was on that screen when they pressed the button, its visible words top to bottom. They are \
+private: check against them, and do not copy names from them into the report.\n<<<\n{words}\n>>>\n\n"
+        ));
+    }
+    if picture {
+        out.push_str(
+            "A picture of the RichOS window as it was when they pressed the button is attached. It is private \
+too: describe what it shows only in words a stranger may read.\n\n",
+        );
+    }
+    if !out.is_empty() {
+        out.push_str(
+            "CHECK what the user said against the screen before you write: say in the report what the screen \
+shows that bears it out (what is cut off, missing or wrong, and what a control or a count reads), and do not \
+claim anything the screen does not show.\n\n",
+        );
+    }
+    out
+}
+
+/// The one prompt Rich writes the report from. `picture` says a picture of the window goes with
+/// it ([`writer_input`]).
+pub fn writer_prompt(answer: &str, screen: &Screen, version: &str, terms: &[PrivateTerm], picture: bool) -> String {
     format!(
         "You are Rich, the user's assistant inside the RichOS desktop app. The user pressed \"Bust a bug\" \
 and told you what went wrong. Write it up as a bug report for the RichOS developers. After the user reads \
 and approves it, it is filed as a GitHub issue that anyone can read.\n\n\
 What the user said, in their own words:\n<<<\n{answer}\n>>>\n\n\
 Where they were when they pressed the button:\n{screen}\n\n\
+{evidence}\
 Private words this user has: {terms}. Leave names out where you can; any that remain are replaced with \
 plain stand-ins such as [a conversation] before the user sees the report.\n\n\
 Write in plain American English that a non-technical reader follows. Say what the user saw and did, not \
 guesses about the code. Give steps to see it only as far as the user's words and the screen support them.\n\n\
 Answer with ONLY a JSON object, no other text, in exactly this shape:\n\
 {{\"title\": \"...\", \"what_happened\": \"...\", \"where\": \"...\", \"steps\": [\"...\"], \"expected\": \"...\", \
-\"private\": [{{\"text\": \"...\", \"kind\": \"person\"}}]}}\n\
+\"checked\": \"...\", \"private\": [{{\"text\": \"...\", \"kind\": \"person\"}}]}}\n\
 - title: one line under 80 characters that says what is wrong.\n\
 - what_happened: one or two short paragraphs; a blank line between paragraphs.\n\
 - where: the place in RichOS, in words a reader of the public issue understands.\n\
 - steps: the shortest steps to see it, or [] when the user's words do not support any.\n\
 - expected: what the user expected instead, or \"\" when it is not clear.\n\
+- checked: under 60 characters, starting with a verb, what you saw on the screen that bears the user out \
+(\"Saw the names cut off at 135% text size\"), or \"\" when the screen does not show it or you were not given it.\n\
 - private: every name of a person, company, conversation, product, client or folder, and anything else \
 private, that is still in what you wrote, copied exactly, with kind one of person, company, conversation, \
 folder, file, email, other. [] when there is none.",
         answer = answer.trim(),
         screen = screen_lines(screen, version),
+        evidence = evidence(screen, picture),
         terms = terms_line(terms),
     )
+}
+
+/// A picture for Rich: its media type (`image/jpeg`) and its bytes in standard base64.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picture {
+    pub media_type: String,
+    pub base64: String,
+}
+
+/// **The one line `claude` reads on standard input** ([`writer_args`]): a stream-json user
+/// message holding the picture, when there is one, and the prompt.
+pub fn writer_input(prompt: &str, picture: Option<&Picture>) -> String {
+    let mut content = Vec::new();
+    if let Some(p) = picture {
+        content.push(serde_json::json!({ "type": "image", "source": { "type": "base64", "media_type": p.media_type, "data": p.base64 } }));
+    }
+    content.push(serde_json::json!({ "type": "text", "text": prompt }));
+    format!("{}\n", serde_json::json!({ "type": "user", "message": { "role": "user", "content": content } }))
+}
+
+/// **The line over Rich's answer** (round 21's digest): what he did. "Looked at the screen you
+/// were on" (or at the window's name) only when he wrote the report AND was given what was on
+/// the screen (`looked`); then what he saw that bears the user out, when he says; then the
+/// version. Without Rich, it says the report was written from the user's words.
+pub fn digest(screen: &Screen, by_rich: bool, looked: bool, checked: &str) -> String {
+    let place = match screen.key.as_str() {
+        "corrections" | "feedback" | "search" => screen.here.clone(),
+        _ => "the screen you were on".to_string(),
+    };
+    let saw = by_rich && looked;
+    let mut first = format!("{} {place}", if saw { "Looked at" } else { "Noted" });
+    if screen.text_size != 100 {
+        first.push_str(&format!(", at {}% text size", screen.text_size));
+    }
+    let mut parts = vec![first];
+    let checked = checked.trim().trim_end_matches('.');
+    if saw && !checked.is_empty() && checked.chars().count() <= 80 {
+        parts.push(capitalized(checked));
+    }
+    parts.push("Checked the version".into());
+    if !by_rich {
+        parts.push("Wrote it from your words".into());
+    }
+    parts.join(" · ")
 }
 
 /// The prompt for a change the user TELLS Rich (round 21: *"also say it happens in the light
@@ -665,10 +773,16 @@ one of person, company, conversation, folder, file, email, other. [] when there 
     )
 }
 
-/// The `result` text out of `claude --print --output-format json`'s one JSON object. An error
-/// reply (not signed in, out of quota) is refused rather than read as a report.
+/// The `result` text out of `claude --print`'s answer: the last `"type": "result"` line of its
+/// stream-json output (one JSON object per line), or the one object `--output-format json`
+/// prints. An error reply (not signed in, out of quota) is refused rather than read as a report.
 pub fn result_text(stdout: &str) -> Result<String, String> {
-    let value: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| format!("not a reply: {e}"))?;
+    let value: serde_json::Value = stdout
+        .lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line.trim()).ok())
+        .find(|v| v["type"] == "result")
+        .ok_or_else(|| "not a reply: no result line".to_string())?;
     if value["is_error"].as_bool() == Some(true) {
         return Err(format!("Claude answered with an error: {}", value["result"].as_str().unwrap_or("")));
     }
@@ -730,6 +844,7 @@ pub fn parse_written(raw: &str) -> Result<Written, String> {
             .unwrap_or_default(),
         expected: text_of(&value, "expected"),
         private: private_of(&value),
+        checked: text_of(&value, "checked"),
     };
     if written.title.is_empty() || written.what_happened.is_empty() {
         return Err("the answer had no title or no account of what happened".into());
@@ -786,6 +901,7 @@ pub fn plain_write_up(answer: &str, screen: &Screen) -> Written {
         steps: vec![],
         expected: String::new(),
         private: vec![],
+        checked: String::new(),
     }
 }
 

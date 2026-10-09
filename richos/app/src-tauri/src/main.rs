@@ -130,6 +130,9 @@ mod output_files;
 /// BUST A BUG (CEO §115, round 21): Rich writes the report, the reporting account's token is
 /// read from the keychain at send time, and a report that could not go waits on this Mac.
 mod bug_report;
+/// Bust a bug's picture of RichOS's own window, for the user's own Claude to look at
+/// (WKWebView's snapshot: no screen-recording permission).
+mod window_picture;
 
 // Headless integration harness; absent from the shipped executable.
 #[cfg(test)]
@@ -3921,6 +3924,7 @@ fn main() {
             dictation_app::dictation_capture_key,
             // --- Bust a bug (round 21, CEO §115) — appended ---
             bug_report::bug_report_context,
+            bug_report::bug_report_look,
             bug_report::bug_report_write,
             bug_report::bug_report_change,
             bug_report::bug_report_send,
