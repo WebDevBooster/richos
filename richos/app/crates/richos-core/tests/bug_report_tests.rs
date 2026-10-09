@@ -907,3 +907,18 @@ fn the_fixed_list_of_slash_forms_stays_public() {
     assert_eq!(paths_left_out(said).0, said);
     assert!(Scrubber::default().private_in(said).is_empty(), "{said}");
 }
+
+// ---- the review of 692942153 (rv-20261009T162841Z-69294215-70e6), fixture `privacy-probe.py` ----
+
+#[test]
+fn a_backslash_after_a_web_address_is_a_path() {
+    // Finding 3: on 692942153 the web-address exception was checked before the backslash, so this
+    // reached the public report unchanged, with no heads-up.
+    let said = "Open https://example.org\\SecretCo\\budget.xlsx please.";
+    let (text, was) = paths_left_out(said);
+    assert!(!text.contains("SecretCo") && !text.contains("budget"), "{text}");
+    assert_eq!(was.len(), 1, "{was:?}");
+    assert!(!Scrubber::default().private_in(said).is_empty(), "no heads-up for {said}");
+    // A web address with only forward slashes is still not a path.
+    assert_eq!(paths_left_out("See https://example.org/a/b please.").0, "See https://example.org/a/b please.");
+}

@@ -182,7 +182,7 @@ impl Segment {
 ///     is written with a capital, so "deeply" in a sentence is left alone. One written in lower case
 ///     ("femcboost", a folder) is matched in any case, because it is not an ordinary word.
 ///   - Every match is a whole word: "Acmes" and "subAcme" are not "Acme".
-///   - **File paths**: any word with a `/` or a `\` in it, except a web address (`https://…`),
+///   - **File paths**: any word with a `/` or a `\` in it, except a web address (`https://…`, with no `\`),
 ///     "and/or", "w/", "w/o", "n/a", "24/7", and an all-digit fraction or date ("1/2", 10/09/2026).
 ///     From the start of that word, a bracket or quote before it included, everything to the end
 ///     of its line is left out, so no space, comma, bracket, quote or ". " in a file's name leaves
@@ -365,16 +365,18 @@ const SLASH_WORDS: [&str; 5] = ["and/or", "w/", "w/o", "n/a", "24/7"];
 /// slashes, one to four of them: a fraction ("1/2") or a date ("10/09", "10/09/2026"). Two plain
 /// words ("Clients/SecretCo") are a path (cc/echo-opus-bug7 at 1e7b696cf left them public as a
 /// short form). Brackets, quotes and punctuation around the word are not part of the form
-/// ("(and/or)", "24/7,"). A backslash never makes one: there is no common form written with it.
+/// ("(and/or)", "24/7,"). A backslash never makes one, a web address included
+/// ("https://example.org\SecretCo\budget.xlsx" is a path): there is no common form written with it
+/// (review rv-20261009T162841Z-69294215-70e6 finding 3: the web address was checked first).
 fn is_not_a_path(word: &str) -> bool {
-    let core = word.trim_matches(|c: char| !(c.is_alphanumeric() || c == '/' || c == '\\'));
+    if word.contains('\\') {
+        return false;
+    }
+    let core = word.trim_matches(|c: char| !(c.is_alphanumeric() || c == '/'));
     let head = word.trim_start_matches(|c: char| !c.is_alphanumeric());
     let web = ["http://", "https://"].iter().any(|s| head.get(..s.len()).is_some_and(|h| h.eq_ignore_ascii_case(s)));
     if web {
         return true;
-    }
-    if core.contains('\\') {
-        return false;
     }
     if SLASH_WORDS.iter().any(|w| core.eq_ignore_ascii_case(w)) {
         return true;

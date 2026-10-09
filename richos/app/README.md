@@ -333,7 +333,7 @@ richos/app/
                               the technical view, re-prime machinery that is recorded and
                               structurally cannot render, no session id on the lane's wire,
                               the honest empty lane, and the retention window covering it
-    tests/bug_report_tests.rs 41 tests for Bust a bug (CEO §115, round 21): names (in
+    tests/bug_report_tests.rs 42 tests for Bust a bug (CEO §115, round 21): names (in
                               any capitals, in every alphabet), file
                               paths (any word with a slash or a backslash, relative
                               ones and two plain words too, but not a web address,
@@ -1160,7 +1160,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1950 tests + 5 doc-tests (1946 direct, 4 ignored)
+cargo test -p richos-core                       # 1951 tests + 5 doc-tests (1947 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
