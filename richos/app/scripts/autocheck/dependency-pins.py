@@ -27,10 +27,10 @@ default) are not this repository's to check and are skipped.
 """
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import types
 from pathlib import Path
@@ -148,20 +148,49 @@ def export_tree(tree, into):
     shown = subprocess.run(["git", "show", f"{tree}:{DECLARATION}"], capture_output=True,
                            stdin=subprocess.DEVNULL)
     if shown.returncode == 0:
-        for row in (json.loads(shown.stdout).get("nodes") or {}).values():
+        try:
+            rows = (json.loads(shown.stdout).get("nodes") or {}).values()
+        except ValueError:
+            rows = ()  # a malformed declaration names no external reader; check() refuses it itself
+        for row in rows:
             for external in (row.get("external") or []) if isinstance(row, dict) else []:
                 if external.get("root") == "repository" and external.get("path"):
                     wanted.append(external["path"])
-    present = git("ls-tree", "--name-only", tree, "--", *wanted).stdout.splitlines()
-    if not present:
+    # The committed blobs themselves: no .gitattributes (export-ignore, substitution, eol) applies.
+    listed = subprocess.run(["git", "ls-tree", "-r", "-z", "--full-tree", tree, "--", *wanted],
+                            capture_output=True, stdin=subprocess.DEVNULL)
+    if listed.returncode:
+        raise RuntimeError(f"git ls-tree {tree} failed: {listed.stderr.decode(errors='replace').strip()}")
+    entries = []
+    for record in listed.stdout.split(b"\0"):
+        if not record:
+            continue
+        meta, _, name = record.partition(b"\t")
+        mode, kind, sha = meta.decode().split()
+        if kind == "blob":
+            entries.append((mode, sha, name.decode("utf-8", errors="surrogateescape")))
+    if not entries:
         return
-    proc = subprocess.Popen(["git", "archive", "--format=tar", tree, *present],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
-    with tarfile.open(fileobj=proc.stdout, mode="r|") as archive:
-        archive.extractall(into, filter="tar")
-    error = proc.stderr.read().decode("utf-8", errors="replace").strip()
-    if proc.wait():
-        raise RuntimeError(f"git archive {tree} failed: {error}")
+    blobs = subprocess.run(["git", "cat-file", "--batch"], capture_output=True,
+                           input="".join(f"{sha}\n" for _, sha, _ in entries).encode())
+    if blobs.returncode:
+        raise RuntimeError(f"git cat-file for {tree} failed: {blobs.stderr.decode(errors='replace').strip()}")
+    data, at = blobs.stdout, 0
+    for mode, sha, name in entries:
+        end = data.index(b"\n", at)
+        header = data[at:end].split()
+        if len(header) != 3 or header[1] != b"blob":
+            raise RuntimeError(f"git cat-file gave {data[at:end]!r} for {name}")
+        size = int(header[2])
+        content = data[end + 1:end + 1 + size]
+        at = end + 1 + size + 1
+        dest = Path(into, name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if mode == "120000":
+            os.symlink(content, dest)
+            continue
+        dest.write_bytes(content)
+        dest.chmod(0o755 if mode == "100755" else 0o644)
 
 
 def verifier_messages(module, root):
@@ -200,16 +229,28 @@ def reader_floor(base):
         export_tree(git("write-tree").stdout.strip(), staged)
         code = Path(staged, INPUTS)
         if not code.is_file():
-            return []
+            raise RuntimeError(f"{INPUTS} is not in the staged tree's export, so the verifier cannot run")
+        if not Path(staged, DECLARATION).is_file():
+            raise RuntimeError(f"{DECLARATION} is not in the staged tree's export")
         module = types.ModuleType("verification_inputs")
         exec(compile(code.read_text(), str(code), "exec"), module.__dict__)
-        now = verifier_messages(module, staged)
+
+        def plain(message, root):
+            # the export folder differs between the two trees; the refusal is the same
+            for form in {str(root), str(root.resolve())}:
+                message = message.replace(form, "<export>")
+            return message
+
+        now = {plain(m, staged) for m in verifier_messages(module, staged) or ()}
         if not now:
             return []
         before = set()
         if base:
             export_tree(base, parent)
-            before = verifier_messages(module, parent) or set()
+            try:
+                before = {plain(m, parent) for m in verifier_messages(module, parent) or ()}
+            except ValueError:
+                before = set()  # a merge-base declaration that does not parse has no baseline refusals
         return [(DECLARATION, message) for message in sorted(now - before)]
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -242,8 +283,10 @@ def check():
         return 0
     try:
         declaration = json.loads(text)
-    except ValueError:
-        return 0  # verification-inputs.test.sh reports a malformed file; not this check's job
+    except ValueError as exc:  # a check that cannot read the declaration refuses
+        say("")
+        say(f"=== COMMIT REFUSED: the reader check could not run ({type(exc).__name__}: {DECLARATION} does not parse: {exc}) ===")
+        return 1
     also = set()
     if retyped and base:
         # A pin this branch typed by hand is checked too, whether or not its file changed.

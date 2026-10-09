@@ -87,6 +87,9 @@ class Fixture(unittest.TestCase):
         self.write(HOOK, "helper() { :; }\n")
         self.write(EXTERNAL, "print('external v1')\n")
         self.write(FREE, "echo nobody pins me\n")
+        # the commit check runs the verifier from the commit; a tree without it refuses
+        self.write("richos/engine/scripts/lib/verification_inputs.py",
+                   (ENGINE_LIB / "verification_inputs.py").read_text())
         self.write(DECLARATION, json.dumps({
             "schema": 1, "status": "fixture", "config_keys": [],
             "nodes": {"scripts/reader.sh": {
@@ -382,6 +385,41 @@ class Floor(Fixture):
         self.git("add", "-A")
         before = self.head()
         self.git("commit", "-q", "-m", "another reader of the same missing target")
+        self.assertNotEqual(self.head(), before)
+
+
+    # review rv-20261009T065245Z-5a176a41: three defects in the run-the-verifier check.
+    def test_a_staged_tree_without_the_verifier_refuses(self):
+        self.start()
+        self.write(NODE, 'echo "$TOKEN"\n')
+        self.renew(NODE)
+        self.git("rm", "-q", "--cached", self.LIB)
+        self.refused_text("read TOKEN, no verifier", "the reader check could not run", stage=False)
+
+    def test_a_declaration_that_does_not_parse_refuses(self):
+        self.start()
+        self.write(DECLARATION, "{not valid json\n")
+        self.refused_text("break the declaration", "the reader check could not run")
+
+    def test_archive_attributes_cannot_hide_the_verifier_from_the_check(self):
+        self.start()
+        self.write(NODE, 'echo "$TOKEN"\n')
+        self.renew(NODE)
+        self.write("richos/engine/scripts/lib/.gitattributes", "verification_inputs.py export-ignore\n")
+        self.refused_text("read TOKEN, export-ignore", "omitted known key reads in scripts/reader.sh: TOKEN")
+
+    def test_an_inherited_external_refusal_is_not_new_because_the_export_folder_differs(self):
+        self.start()
+        self.mutate(lambda d: d["nodes"]["scripts/reader.sh"]["external"].append(
+            {"root": "repository", "path": "richos/tools/missing.py", "sha256": "0" * 64,
+             "evidence": "fixture, missing at the merge-base"}))
+        self.git("add", "-A")
+        self.git("commit", "--no-verify", "-q", "-m", "already broken")
+        self.land_on_main()
+        self.mutate(lambda d: d["nodes"]["scripts/reader.sh"].update(evidence="edited evidence only"))
+        self.git("add", "-A")
+        before = self.head()
+        self.git("commit", "-q", "-m", "evidence only")
         self.assertNotEqual(self.head(), before)
 
 
