@@ -122,7 +122,10 @@ def mid_job_notice(app_state, spaces, emit):
             try:
                 os.close(os.open(os.path.join(paths["delivered"], rid), os.O_WRONLY | os.O_CREAT, 0o600))
             except OSError as error:
-                print(f"RichOS desktop engine: review {rid} could not be recorded delivered: {error}", file=sys.stderr)
+                try:    # the diagnostic is best-effort too: a closed stderr must not fail the hook
+                    print(f"RichOS desktop engine: review {rid} could not be recorded delivered: {error}", file=sys.stderr)
+                except Exception:
+                    pass
         return True
     finally:
         os.close(lock)

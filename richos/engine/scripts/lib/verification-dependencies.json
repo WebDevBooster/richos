@@ -13917,7 +13917,7 @@
     },
     "scripts/lib/app_review.py": {
       "source": "scripts/lib/app_review.py",
-      "sha256": "ffc6e4a9e8843a48fefdc44267a753d73f77b6757d57198e869f5fd428f84820",
+      "sha256": "c01750a4b47a92d00e3141a606066f14387971d1e033dd20adb0a271cb634709",
       "evidence": "Added 2026-10-09 (second review slice 4; app.test.py's edge to it came with 8a433f70e and had no row). Full module reviewed: imports only json, os and re, and its module level assigns three constants. app_paths builds the paths of the app's own review-watch state, second-review folder, reviews.jsonl ledger and delivered/ claims under the app_state it is given (realpath, no read). mid_job_notice reads that ledger's JSON rows and each row's <record>/verdict.json as data, and claims a delivery by creating <delivered>/<review id> exclusively (mode 0600). No orchestration.config, environment variable, subprocess or engine import. app.test.py loads it by fixed path over the fixture's private engine-state and literal ledger rows. Renewed 2026-10-09 (echo-opus-review4g, the real second review of 283b4379d, finding 2): the module also imports fcntl. mid_job_notice takes emit; under a non-blocking exclusive flock on <review-watch>/delivered.lock (created 0600 beside delivered/) it skips review ids already in <delivered>/, hands the notice text to emit, and only once emit returns creates <delivered>/<review id> (0600) for each; a held lock tells nothing. Nothing new is read: no configuration key, environment variable or subprocess.",
       "keys": [],
       "edges": []

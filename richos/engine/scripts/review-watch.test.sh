@@ -1904,6 +1904,74 @@ sys.exit(0 if got == {"first hook exit": 0, "both told": True, "first marked": T
 PY2
 check "W28b a failure marking a verdict delivered after the notices are written never fails the hook; the unmarked one stays pending" $? "see above"
 
+# --- W28c --------------------------------------------------------------------
+# The second review of 52d18f764 (fixtures/marker_diagnostic_failure.py): the marker failure plus a closed stderr; the diagnostic write is best-effort. (Setup as W28b: : two notices were written and
+# flushed, then creating the second delivered marker failed (disk full), which exited the hook 2 and
+# discarded the output while the first verdict stayed marked. Once the output is written, a
+# bookkeeping error must not fail the hook: exit 0, mark what can be marked, leave the rest pending.
+python3 - "$ENGINE" "$SB/w28c" <<'PY2'
+import contextlib, errno, importlib.util, io, json, os, sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+engine, td = Path(sys.argv[1]), sys.argv[2]
+os.makedirs(td)
+spec = importlib.util.spec_from_file_location("w28c_hook", engine / "scripts/app-engine-hook.py")
+hook = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hook)
+review = hook.load("w28c_review", engine / "scripts/lib/app_review.py")
+paths = review.app_paths(td)
+record = Path(td) / "verdict"
+record.mkdir()
+(record / "verdict.json").write_text(json.dumps({"answer": {"summary": "Fix this defect"}}))
+Path(paths["ledger"]).parent.mkdir(parents=True)
+Path(paths["ledger"]).write_text("".join(json.dumps({"id": rid, "repo": td, "branch": "cc/worker",
+    "trigger": "long-job", "verdict": "changes-requested", "tip": t * 40, "record": str(record)}) + "\n"
+    for rid, t in (("rv-first", "a"), ("rv-second", "b"))))
+work = SimpleNamespace(validate_shell_target=lambda p: None, worker_context=lambda a, p: None,
+                       worker_spaces=lambda a, p: [(td, "cc/worker")])
+def load(name, path):
+    if name == "richos_app_evidence":
+        return SimpleNamespace(capture=lambda p, *a, **kw: p)
+    if name == "richos_desktop_work":
+        return work
+    if name == "richos_app_review":
+        return review
+    raise AssertionError(name)
+payload = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "agent_id": "worker"}
+real_open = os.open
+def full_on_second(path, *a, **kw):
+    if str(path) == str(Path(paths["delivered"]) / "rv-second"):
+        raise OSError(errno.ENOSPC, "No space left on device")
+    return real_open(path, *a, **kw)
+def call():
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        try:
+            hook.handle(payload)
+            return 0, out.getvalue()
+        except Exception:
+            return 2, out.getvalue()
+with patch.dict(os.environ, {"RICHOS_APP_STATE": td, "RICHOS_ENTITY_ROOT": td}), \
+        patch.object(hook, "load", load), patch.object(hook, "scope", lambda: {"actions_allowed": True}), \
+        patch.object(hook, "run", lambda *a, **kw: None):
+    class Closed:
+        def write(self, *a): raise BrokenPipeError(errno.EPIPE, "Broken pipe")
+        def flush(self): raise BrokenPipeError(errno.EPIPE, "Broken pipe")
+    with patch.object(os, "open", full_on_second), patch.object(sys, "stderr", Closed()):
+        code, text = call()
+    d = Path(paths["delivered"])
+    first_marked, second_marked = (d / "rv-first").exists(), (d / "rv-second").exists()
+    retry_code, retry = call()
+got = {"first hook exit": code, "both told": "aaaaaaaaaaaa" in text and "bbbbbbbbbbbb" in text,
+       "first marked": first_marked, "second marked": second_marked,
+       "retry exit": retry_code, "retry tells only the second": "bbbbbbbbbbbb" in retry and "aaaaaaaaaaaa" not in retry}
+print("    %s" % json.dumps(got, sort_keys=True))
+sys.exit(0 if got == {"first hook exit": 0, "both told": True, "first marked": True, "second marked": False,
+                      "retry exit": 0, "retry tells only the second": True} else 1)
+PY2
+check "W28c a marker failure with a closed stderr never fails the hook" $? "see above"
+
 # --- W29 ---------------------------------------------------------------------
 # The real second review of 283b4379d, finding 1 (fixtures/orphan_platform_same_session.py): once
 # the launcher exited, a member of the review's own session that hides the mark (an Apple platform
