@@ -183,10 +183,12 @@ impl Segment {
 ///     ("femcboost", a folder) is matched in any case, because it is not an ordinary word.
 ///   - Every match is a whole word: "Acmes" and "subAcme" are not "Acme".
 ///   - **File paths** start at `/Users/`, `/Volumes/`, `/private/`, `/var/`, `/tmp/`, `~/`,
-///     `file://` or a drive (`C:\`), or at a word starting with `/` whose clause holds a second
+///     `file://` or a drive (`C:\`), or at a word starting with `/` whose sentence holds a second
 ///     slash; "and/or" and "24/7" are not paths. From its start, everything to the end of its
-///     clause is left out (between backticks, quotes or brackets, to the closing mark), so a name
-///     with spaces in it never leaves a piece behind ([`find_paths`]).
+///     sentence or line is left out (between backticks, quotes or brackets, to the closing mark),
+///     so a name with spaces, commas or semicolons in it never leaves a piece behind
+///     ([`find_paths`]).
+///   - Where two of these overlap, both are left out as one.
 ///     **Email addresses** are `local@host.tld`.
 #[derive(Debug, Clone, Default)]
 pub struct Scrubber {
@@ -215,7 +217,10 @@ impl Scrubber {
         &self.terms
     }
 
-    /// Every private span in `text`, as (start, end, kind), non-overlapping and in order.
+    /// Every private span in `text`, as (start, end, kind), non-overlapping and in order. Spans
+    /// that overlap are joined into one covering both, with the kind of the one that starts first:
+    /// dropping the later one would leave its uncovered part public ("Mary Jane" and "Jane Smith"
+    /// in "Mary Jane Smith", or a company name that runs past the end of a path it starts in).
     fn spans(&self, text: &str) -> Vec<(usize, usize, Kind)> {
         let mut found: Vec<(usize, usize, Kind)> = Vec::new();
         for term in &self.terms {
@@ -229,10 +234,10 @@ impl Scrubber {
         found.sort_by_key(|&(start, end, _)| (start, std::cmp::Reverse(end)));
         let mut out: Vec<(usize, usize, Kind)> = Vec::new();
         for span in found {
-            if out.last().is_some_and(|last| span.0 < last.1) {
-                continue;
+            match out.last_mut() {
+                Some(last) if span.0 < last.1 => last.1 = last.1.max(span.1),
+                _ => out.push(span),
             }
-            out.push(span);
         }
         out
     }
@@ -356,18 +361,19 @@ fn is_apostrophe_in_a_word(text: &str, at: usize, c: char) -> bool {
     (c == '\'' || c == '’') && char_before(text, at).is_some_and(is_word_char) && char_after(text, after).is_some_and(is_word_char)
 }
 
-/// **The end of the clause** a path starts at `from`: the next comma, semicolon, closing bracket
-/// or closing quote, a sentence end (`.`, `!`, `?` followed by a space or the end of the line) or
-/// the end of the line. A path's name can hold spaces, dots and anything else, so nothing short of
-/// this says where it ends; the words between the path and the clause's end go with it.
-fn clause_end(text: &str, from: usize) -> usize {
+/// **The end of the sentence** a path starts at `from`: a sentence end (`.`, `!` or `?` followed
+/// by a space or the end of the text) or a line break, whichever comes first. A file's name can
+/// hold spaces, commas, semicolons, brackets and quotes ("Smith, Jones Budget.xlsx", "Budget
+/// (Client).xlsx"), so none of them says where it ends, and the words between the path and the
+/// sentence's end go with it (review rv-20261009T151254Z-84d1bdce-20df finding 1: a comma or a
+/// semicolon ended it and left the rest of the name public). The dot of the file's own extension
+/// is followed by a letter, not a space, so it is not a sentence end.
+fn sentence_end(text: &str, from: usize) -> usize {
     let mut chars = text[from..].char_indices().peekable();
     while let Some((i, c)) = chars.next() {
-        let at = from + i;
-        let sentence_end = ".!?".contains(c) && chars.peek().is_none_or(|&(_, next)| next.is_whitespace());
-        let closes = ",;)]>}\"`”".contains(c) || (c == '\'' || c == '’') && !is_apostrophe_in_a_word(text, at, c);
-        if c == '\n' || sentence_end || closes {
-            return at;
+        let full_stop = ".!?".contains(c) && chars.peek().is_none_or(|&(_, next)| next.is_whitespace());
+        if c == '\n' || full_stop {
+            return from + i;
         }
     }
     text.len()
@@ -394,17 +400,17 @@ fn named_start(rest: &str) -> Option<usize> {
     rest[len..].starts_with(|c: char| !c.is_whitespace()).then_some(len)
 }
 
-/// **File paths**, and with each everything up to the end of its clause ([`clause_end`]).
+/// **File paths**, and with each everything up to the end of its sentence or line ([`sentence_end`]).
 ///
 ///   - **Where one starts:** at one of [`NAMED_PATH_STARTS`] or a drive (`C:\`), after anything
 ///     but a letter, digit or slash (`path=/Users/…` too); or, after a space, a delimiter or the
-///     start of the text, at any `/name` whose clause holds a second slash (`/opt/homebrew`).
+///     start of the text, at any `/name` whose sentence holds a second slash (`/opt/homebrew`).
 ///   - **Between delimiters** (`` `…` ``, quotes, brackets) it runs to the closing mark on the
 ///     same line, commas and all: `"~/Documents/Smith, Jones/plan.pdf"`.
-///   - **Written plainly** it runs to the end of its clause. A name with spaces in it (`Client
-///     Budget.xlsx`) cannot be told from the words after it, so they are left out too: hiding a
-///     few words is safe, leaving part of a path in a public report is not. Sentence punctuation
-///     at its end stays outside.
+///   - **Written plainly** it runs to the end of its sentence or line. A name with spaces, commas
+///     or semicolons in it (`Smith, Jones Budget.xlsx`) cannot be told from the words after it, so
+///     they are left out too: hiding a few words is safe, leaving part of a path in a public report
+///     is not. Sentence punctuation at its end stays outside.
 ///
 /// "and/or", "24/7" and `https://…` are not paths (no start after a space or delimiter).
 fn find_paths(text: &str) -> Vec<(usize, usize)> {
@@ -428,7 +434,7 @@ fn find_paths(text: &str) -> Vec<(usize, usize)> {
         if !starts {
             continue;
         }
-        let mut end = delimiter.and_then(|close| closing_mark(text, i, close)).unwrap_or_else(|| clause_end(text, i));
+        let mut end = delimiter.and_then(|close| closing_mark(text, i, close)).unwrap_or_else(|| sentence_end(text, i));
         while end > i && text[..end].ends_with(['.', ':', '!', '?']) {
             end -= 1;
         }
