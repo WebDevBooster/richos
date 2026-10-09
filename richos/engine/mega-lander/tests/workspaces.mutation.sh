@@ -540,6 +540,11 @@ mutant sr-fast-forward-not-seen "test_second_review_a_fast_forward_and_a_direct_
     '    if len(line[-1]) < 2 or line[-1][1] != old:{NL}        return []' \
     "a fast-forward to unreviewed work made elsewhere would land it (plan §4 row 3)."
 
+mutant sr-replacement-taken-for-a-rollback "test_second_review_a_divergent_replacement_of_main_needs_a_review_a_rollback_does_not" "$F" \
+    '        return [] if rc == 0 else [new]' \
+    '        return []' \
+    "a reset of main to an unreviewed divergent commit would land its work, taken for a rollback (review rv-20261009T023055Z-b51ebb97-bc65, finding 1)."
+
 mutant sr-delivered-every-call "test_second_review_a_running_teammates_next_tool_call_carries_a_new_verdict_once" "scripts/lib/review_delivery.py" \
     '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))' \
     '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT, 0o600))' \

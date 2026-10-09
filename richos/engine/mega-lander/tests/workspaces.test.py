@@ -4154,6 +4154,31 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.assertIn("no second review of %s" % side_tip[:12], r.stderr)
         self.assertEqual(self.head(), before)
 
+    def test_second_review_a_divergent_replacement_of_main_needs_a_review_a_rollback_does_not(self):
+        """Review rv-20261009T023055Z-b51ebb97-bc65, finding 1: a `git reset
+        --hard` of main to an unreviewed divergent commit went through, because
+        every move that is not a fast-forward was taken for a rollback."""
+        base = self.head()
+        side = os.path.join(self.env.root, "replace-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "replacement", side, base)
+        self.commit(side, "unreviewed.txt", "unreviewed\n")
+        tip = run("git", "-C", side, "rev-parse", "HEAD").stdout.strip()
+        run("git", "-C", self.other, "commit", "-q", "--allow-empty", "-m", "advance main")
+        moved = self.head()
+        r = run("git", "-C", self.other, "reset", "-q", "--hard", tip, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW", r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), moved)
+        run("git", "-C", self.other, "reset", "-q", "--hard", "HEAD")
+        # A real rollback lands nothing: main goes back to a commit it already held.
+        run("git", "-C", self.other, "reset", "-q", "--hard", base)
+        self.assertEqual(self.head(), base)
+        run("git", "-C", self.other, "reset", "-q", "--hard", moved)
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "reset", "-q", "--hard", tip)
+        self.assertEqual(self.head(), tip)
+
     def test_second_review_a_codex_branch_lands_only_reviewed(self):
         """Sage's catch 1: codex/ work never enters the registry; Rich lands it
         with a plain merge in the main checkout, which the fence sees."""

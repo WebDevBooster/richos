@@ -810,8 +810,12 @@ def landed_tips(cwd, old, new, keep_git_env=False):
     """The commits whose work a move of main from `old` to `new` lands; each
     needs a passing review of exactly itself. [] when the move lands nothing.
 
-      * not a forward move (a create, a delete, a reset backwards): [] - the
-        lease rule is the fence for those;
+      * a create, a delete, or a rollback (main goes back to a commit it
+        already held): [] - the lease rule is the fence for those;
+      * a replacement (main moves to a commit that holds work main did not
+        hold, and is not a fast-forward): [new], the whole move (review
+        rv-20261009T023055Z-b51ebb97-bc65, finding 1: a `git reset --hard` to
+        an unreviewed divergent branch was taken for a rollback);
       * merge commits on main's own line: each parent after the first that
         main did not already hold (the branch tip the merge brings in);
       * a fast-forward to work made elsewhere, or any commit on main's line
@@ -819,9 +823,14 @@ def landed_tips(cwd, old, new, keep_git_env=False):
       * a commit on main's line that changes no file lands nothing."""
     if is_zero(old) or is_zero(new) or old == new:
         return []
-    rc, _o, _e = git(cwd, "merge-base", "--is-ancestor", old, new, keep_git_env=keep_git_env)
-    if rc != 0:
-        return []
+    rc, _o, err = git(cwd, "merge-base", "--is-ancestor", old, new, keep_git_env=keep_git_env)
+    if rc not in (0, 1):
+        raise RuntimeError("git merge-base --is-ancestor %s %s failed: %s" % (old[:12], new[:12], err.strip()))
+    if rc == 1:
+        rc, _o, err = git(cwd, "merge-base", "--is-ancestor", new, old, keep_git_env=keep_git_env)
+        if rc not in (0, 1):
+            raise RuntimeError("git merge-base --is-ancestor %s %s failed: %s" % (new[:12], old[:12], err.strip()))
+        return [] if rc == 0 else [new]
     rc, out, err = git(cwd, "rev-list", "--first-parent", "--parents", "%s..%s" % (old, new),
                        keep_git_env=keep_git_env)
     if rc != 0:
