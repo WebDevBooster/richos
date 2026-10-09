@@ -550,6 +550,11 @@ mutant sr-merge-own-changes-unseen "test_second_review_a_merge_with_changes_of_i
     '        if False:{NL}            return [new]' \
     "a merge carrying a file of its own would land on its branch's review alone (review rv-20261009T023055Z-b51ebb97-bc65, finding 2)."
 
+mutant sr-old-verdict-dropped "test_second_review_a_verdict_waits_for_the_teammates_next_call_however_late" "scripts/lib/review_delivery.py" \
+    '                if done is not None:{NL}                    r["_done"] = done' \
+    '                if done is not None and time.time() - done <= 24 * 3600:{NL}                    r["_done"] = done' \
+    "a verdict a teammate's next call reaches a day later would never be delivered (review rv-20261009T023055Z-b51ebb97-bc65, finding 3)."
+
 mutant sr-delivered-every-call "test_second_review_a_running_teammates_next_tool_call_carries_a_new_verdict_once" "scripts/lib/review_delivery.py" \
     '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))' \
     '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT, 0o600))' \

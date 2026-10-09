@@ -4305,6 +4305,23 @@ class SecondReview_AMidJobVerdictReachesTheRunningTeammate(Base):
         self.assertEqual(self.call(other_aid), "")               # not another teammate's work
         self.assertEqual(self.call(None), "")                    # the lead is told by review-watch
 
+    def test_second_review_a_verdict_waits_for_the_teammates_next_call_however_late(self):
+        """Review rv-20261009T023055Z-b51ebb97-bc65, finding 3: a verdict older
+        than 24 hours was dropped before its delivery was checked, so a teammate
+        whose next call came later never got it."""
+        aid, _npath = self.spawn("zach-opus-mid3")
+        rec = self.rec("zach-opus-mid3")
+        # Registered 26 hours ago; the verdict finished 25 hours ago, and this is
+        # the teammate's first tool call since.
+        rec["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 26 * 3600))
+        ws.save_agent(rec)
+        self.verdict("teammate:" + rec["key"], finished=time.time() - 25 * 3600,
+                     title="the microphone is never handed back")
+        got = self.call(aid)
+        self.assertIn("CHANGES-REQUESTED", got)
+        self.assertIn("the microphone is never handed back", got)
+        self.assertEqual(self.call(aid), "")                     # still once
+
 
 class HuntV3_01_ARecordWithoutItsWorkspacesIsDamaged(Base):
     """Hunt part 4 v3, V3-01: a keyed record that had lost its `workspaces`

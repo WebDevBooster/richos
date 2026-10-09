@@ -19,13 +19,16 @@ a marker file per teammate and review, created exclusively, so two calls made
 at the same moment cannot both deliver it.
 
 It never blocks, never stops, edits or messages anything: every outcome is exit 0.
-The lead's own calls and every call while no recent verdict exists cost one
-read of the ledger and nothing else; the workspace registry is loaded only when
-a recent verdict could be this teammate's.
+A verdict waits for the teammate's next call however long that takes: which
+verdicts are still owed is decided by registration and the delivery markers,
+never by age. The lead's own calls cost no interpreter, and a teammate's call
+while the ledger holds no verdict on any teammate's work costs one read of it;
+the workspace registry is loaded only when one could be this teammate's.
 
-Test seams (review-delivery.test.sh): SECOND_REVIEW_STATE_DIR (the ledger),
-REVIEW_WATCH_STATE_DIR (the markers), RICHOS_WORKSPACES_DIR (the registry),
-REVIEW_DELIVERY_NOW.
+Test seams (second-review-land.test.sh, the class
+SecondReview_AMidJobVerdictReachesTheRunningTeammate of
+mega-lander/tests/workspaces.test.py): SECOND_REVIEW_STATE_DIR (the ledger),
+REVIEW_WATCH_STATE_DIR (the markers), RICHOS_WORKSPACES_DIR (the registry).
 """
 
 import calendar
@@ -37,16 +40,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RECENT_HOURS = 24
 MAX_FINDINGS = 8
-
-
-def now():
-    raw = (os.environ.get("REVIEW_DELIVERY_NOW") or "").strip()
-    try:
-        return float(raw) if raw else time.time()
-    except ValueError:
-        return time.time()
 
 
 def epoch(text):
@@ -70,7 +64,12 @@ def marker_dir():
     return os.path.join(d, "delivered")
 
 
-def recent_verdicts(t):
+def teammate_verdicts():
+    """Every finished verdict on a teammate's work in the ledger, however old.
+    Which of them a teammate still gets is decided by its registration and the
+    delivery markers alone (main), never by age: a teammate whose next tool call
+    comes a day later still gets it then (review rv-20261009T023055Z-b51ebb97-bc65,
+    finding 3)."""
     rows = []
     try:
         with open(ledger_path(), encoding="utf-8") as f:
@@ -81,8 +80,10 @@ def recent_verdicts(t):
                     continue
                 if not isinstance(r, dict) or not r.get("verdict") or not r.get("id"):
                     continue
+                if not str(r.get("work") or "").startswith("teammate:"):
+                    continue
                 done = epoch(r.get("finished_at"))
-                if done is not None and t - done <= RECENT_HOURS * 3600:
+                if done is not None:
                     r["_done"] = done
                     rows.append(r)
     except OSError:
@@ -167,8 +168,7 @@ def main():
     aid = str(payload.get("agent_id") or "")
     if not aid:
         return 0                                # the lead's own call: review-watch tells the lead
-    t = now()
-    rows = recent_verdicts(t)
+    rows = teammate_verdicts()
     if not rows:
         return 0
     who = teammate(aid)
