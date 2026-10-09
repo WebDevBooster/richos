@@ -188,11 +188,10 @@ cat > "$SANDBOX/sent/rep.json" <<'JSON'
 {"transcription":[{"tokens":[
  {"text":" I","offsets":{"from":0,"to":200}},{"text":" think","offsets":{"from":500,"to":700}},
  {"text":" I","offsets":{"from":1000,"to":1200}},{"text":" should","offsets":{"from":1500,"to":1700}},
- {"text":" try","offsets":{"from":2000,"to":2200}},{"text":" this","offsets":{"from":2500,"to":2700}},
- {"text":".","offsets":{"from":2700,"to":2800}},
+ {"text":" try","offsets":{"from":2000,"to":2200}},{"text":" this.","offsets":{"from":2500,"to":2700}},
  {"text":" I","offsets":{"from":8000,"to":8200}},{"text":" can","offsets":{"from":8500,"to":8700}},
  {"text":" see","offsets":{"from":9000,"to":9200}},{"text":" it","offsets":{"from":9500,"to":9700}},
- {"text":" now","offsets":{"from":10000,"to":10200}}]}]}
+ {"text":" now.","offsets":{"from":10000,"to":10200}}]}]}
 JSON
 printf '%s\n' '**[00:00] Me:** First we open this simple tool and carefully inspect every setting. Second sentence starts late.' > "$SANDBOX/sent/long.md"
 cat > "$SANDBOX/sent/long.json" <<'JSON'
@@ -202,9 +201,9 @@ cat > "$SANDBOX/sent/long.json" <<'JSON'
  {"text":" simple","offsets":{"from":1200,"to":1400}},{"text":" tool","offsets":{"from":1500,"to":1700}},
  {"text":" and","offsets":{"from":1800,"to":2000}},{"text":" carefully","offsets":{"from":2100,"to":2300}},
  {"text":" inspect","offsets":{"from":2400,"to":2600}},{"text":" every","offsets":{"from":2700,"to":2900}},
- {"text":" setting","offsets":{"from":3000,"to":3200}},
+ {"text":" setting.","offsets":{"from":3000,"to":3200}},
  {"text":" Second","offsets":{"from":10000,"to":10200}},{"text":" sentence","offsets":{"from":10300,"to":10500}},
- {"text":" starts","offsets":{"from":10600,"to":10800}},{"text":" late","offsets":{"from":10900,"to":11100}}]}]}
+ {"text":" starts","offsets":{"from":10600,"to":10800}},{"text":" late.","offsets":{"from":10900,"to":11100}}]}]}
 JSON
 RREP="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/rep.md" "$SANDBOX/sent/rep.json" 2>/dev/null || true)"
 RLONG="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/long.md" "$SANDBOX/sent/long.json" 2>/dev/null || true)"
@@ -220,9 +219,9 @@ printf '%s\n' '**[00:00] Me:** I use Deepgram. Deep learning comes next.' > "$SA
 cat > "$SANDBOX/sent/name.json" <<'JSON'
 {"transcription":[{"tokens":[
  {"text":" I","offsets":{"from":0,"to":200}},{"text":" use","offsets":{"from":500,"to":700}},
- {"text":" Deep","offsets":{"from":1000,"to":1200}},{"text":" Graham","offsets":{"from":1500,"to":1700}},
+ {"text":" Deep","offsets":{"from":1000,"to":1200}},{"text":" Graham.","offsets":{"from":1500,"to":1700}},
  {"text":" Deep","offsets":{"from":10000,"to":10200}},{"text":" learning","offsets":{"from":10500,"to":10700}},
- {"text":" comes","offsets":{"from":11000,"to":11200}},{"text":" next","offsets":{"from":11500,"to":11700}}]}]}
+ {"text":" comes","offsets":{"from":11000,"to":11200}},{"text":" next.","offsets":{"from":11500,"to":11700}}]}]}
 JSON
 printf '%s\n' '**[00:00] Me:** Click "Save." Then close the window.' > "$SANDBOX/sent/quote.md"
 cat > "$SANDBOX/sent/quote.json" <<'JSON'
@@ -238,6 +237,32 @@ if printf '%s\n' "$RNAME" | grep -q '\*\*\[00:10\] Me:\*\* Deep learning comes n
     ok "a corrected name consumes the words it replaced; a sentence ending inside closing quotes splits (00:10, 00:10)"
 else
     bad "corrected-name / closing-quote sentence times (got: $RNAME / $RQUOTE)"
+fi
+# Third review (rv-20261009T120415Z-7903332b-c415): rows come from the RAW words and
+# each sentence is corrected afterwards, so a one-to-many ("Deep Graham"), a many-to-one
+# ("Whisper C P P"), a name at a sentence start and the same name repeated later each
+# keep their own sentence's time and get corrected.
+printf '%s\n' '{"entities":[{"canonical":"Deepgram","mangled":["Deep Graham"]},{"canonical":"whisper.cpp","mangled":["Whisper C P P"]}]}' > "$SANDBOX/sent/entities.json"
+printf '%s\n' '**[00:00] Me:** Placeholder text. Not used.' > "$SANDBOX/sent/corr.md"
+cat > "$SANDBOX/sent/corr.json" <<'JSON'
+{"transcription":[{"tokens":[
+ {"text":" Whisper","offsets":{"from":0,"to":200}},{"text":" C","offsets":{"from":300,"to":400}},
+ {"text":" P","offsets":{"from":500,"to":600}},{"text":" P","offsets":{"from":700,"to":800}},
+ {"text":" is","offsets":{"from":900,"to":1000}},{"text":" fast.","offsets":{"from":1100,"to":1300}},
+ {"text":" Deep","offsets":{"from":5000,"to":5200}},{"text":" Graham","offsets":{"from":5300,"to":5500}},
+ {"text":" works","offsets":{"from":5600,"to":5800}},{"text":" well.","offsets":{"from":5900,"to":6000}},
+ {"text":" Deep","offsets":{"from":9000,"to":9200}},{"text":" learning","offsets":{"from":9300,"to":9500}},
+ {"text":" and","offsets":{"from":9600,"to":9700}},{"text":" Deep","offsets":{"from":9800,"to":9900}},
+ {"text":" Graham","offsets":{"from":10000,"to":10200}},{"text":" again.","offsets":{"from":10300,"to":10500}}]}]}
+JSON
+RCORR="$(RICHOS_ENTITIES_FILE="$SANDBOX/sent/entities.json" python3 -I "$HERE/sentences.py" "$SANDBOX/sent/corr.md" "$SANDBOX/sent/corr.json" 2>/dev/null || true)"
+if printf '%s\n' "$RCORR" | grep -q '\*\*\[00:00\] Me:\*\* whisper.cpp is fast\.$' \
+    && printf '%s\n' "$RCORR" | grep -q '\*\*\[00:05\] Me:\*\* Deepgram works well\.$' \
+    && printf '%s\n' "$RCORR" | grep -q '\*\*\[00:09\] Me:\*\* Deep learning and Deepgram again\.$' \
+    && [ "$(printf '%s\n' "$RCORR" | wc -l | tr -d ' ')" = 3 ]; then
+    ok "name corrections (one-to-many, many-to-one, sentence start, repeated) leave every sentence at its own time (00:00, 00:05, 00:09)"
+else
+    bad "corrected rows (got: $RCORR)"
 fi
 if ! grep -q 'LEFT channel' "$OUT/transcript.md" && grep -q 'speakers not separated' "$OUT/watched.md"; then
     ok "a file's transcript no longer claims LEFT = me, RIGHT = others; the index says one channel"
