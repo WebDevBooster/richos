@@ -86,7 +86,8 @@ Starting a review is not told: the verdict is.
 
 It never edits, lands, merges, pauses or messages anything. The only processes
 it ever stops are reviews it (or another watcher) started and recorded: the
-process group each one leads, which holds second-review's reviewer too.
+process group each one leads, which holds second-review's reviewer too, and
+the process groups that reviewer made for its own commands.
 
 ===========================================================================
 COMMANDS (review-watch.sh passes --engine-root and --config)
@@ -132,10 +133,14 @@ START_GRACE_SECONDS = 120
 # Stopping one review in a look (superseded, or past OVERRUN_MINUTES): SIGTERM, then SIGKILL.
 STOP_TERM_SECONDS = 10
 STOP_KILL_SECONDS = 5
-# Stopping every review at the app's quit, all at once: 2 + 1 = 3 s, inside the host's
-# five-second STOP_BOUND (richos-core review_watch.rs) with two seconds to settle and exit.
-QUIT_TERM_SECONDS = 2.0
+# Stopping every review at the app's quit, all at once: at most 0.5 + 1 + 0.5 + 1 = 3 s (two freezes,
+# the SIGTERM grace, the SIGKILL grace), inside the host's five-second STOP_BOUND (richos-core
+# review_watch.rs) with two seconds to settle and exit.
+QUIT_TERM_SECONDS = 1.0
 QUIT_KILL_SECONDS = 1.0
+# How long a stop waits for a review's process group to be frozen (SIGSTOP) before it reads the
+# process table for the groups below it.
+FREEZE_SECONDS = 0.5
 MAX_LOSSES = 2
 KEEP_SECONDS = 7 * 86400
 SESSION_KEEP_SECONDS = 2 * 86400
@@ -864,35 +869,65 @@ class Watcher(object):
         self.stop_all([info], STOP_TERM_SECONDS, STOP_KILL_SECONDS)
 
     def stop_all(self, infos, term_seconds, kill_seconds):
-        """Stop every review in `infos` AT ONCE: SIGTERM to each recorded process group, one shared
-        wait, then SIGKILL to each group not yet gone, one shared wait. The whole stop is bounded by
-        term_seconds + kill_seconds however many reviews there are (never their sum).
+        """Stop every review in `infos` AT ONCE, bounded by 2 * FREEZE_SECONDS + term_seconds +
+        kill_seconds however many reviews there are (never their sum).
 
-        ONE GROUP PER REVIEW, WAITED FOR WHOLE (second review of b5ff41f02, finding 1): a review
-        leads a process group of its own and second-review keeps its reviewer in it, so one signal
-        to the group reaches every process of the review whenever it was forked, and no process
-        table is read. A review is stopped only once its whole group is gone, not just the recorded
-        leader, and SIGKILL goes again on every pass of its wait, so a process forked while the
-        first one was delivered ends too. Returns the infos whose group was NOT seen gone inside the
-        bound (normally none), so a caller never records a running review as stopped."""
+        ONE GROUP PER REVIEW (second review of b5ff41f02, finding 1): a review leads a process
+        group of its own and second-review keeps its reviewer in it, so a signal to the group
+        reaches every process of it whenever it was forked.
+        AND EVERY GROUP ITS REVIEWER MADE (esc-20261009T054753Z-400c68b3, measured): Codex runs each
+        shell command in a process group of its own and does not end it on SIGTERM, so a stop of
+        the review's group alone left a running `cargo test` behind. So the review's group is
+        FROZEN first (SIGSTOP, again on every pass until each of its processes is stopped): a frozen
+        process cannot start another, so one read of the process table then names every group
+        below it, with no window. Those groups are SIGKILLed; the review's own group gets SIGTERM
+        and SIGCONT, so second-review exits and releases its scratch. Whatever of it is left after
+        term_seconds is frozen and read again (anything it started while running) and SIGKILLed,
+        SIGKILL again on every pass of the wait. Returns the infos with a group NOT seen gone
+        inside the bound (normally none), so a caller never records a running review as stopped."""
         live = [i for i in infos if i.get("pid") and self.alive(i)]
 
         def running(info):
             child = self.children.get(info["pid"])
             if child is not None:
                 child.poll()                        # reap this watcher's own child, the group's leader
-            return not group_gone(info["pid"])
-        for sig, grace in ((signal.SIGTERM, term_seconds), (signal.SIGKILL, kill_seconds)):
+            return any(not group_gone(g) for g in info["_groups"])
+
+        def signal_all(groups, sig):
+            for g in groups:
+                try:
+                    os.killpg(g, sig)
+                except (OSError, ValueError):
+                    pass                            # gone already
+
+        def collect(infos):
+            """Freeze each review's group, then one read of the process table: its groups below."""
+            pids = [int(i["pid"]) for i in infos]
+            end = time.monotonic() + FREEZE_SECONDS
+            while True:
+                signal_all(pids, signal.SIGSTOP)
+                rows = self.process_table()
+                if rows is None or time.monotonic() >= end or all(
+                        stat[:1] in ("T", "Z") for _pid, (_ppid, pgid, stat) in rows.items() if pgid in pids):
+                    break
+                time.sleep(0.02)
+            for info in infos:
+                groups = info.get("_groups") or [int(info["pid"])]
+                info["_groups"] = groups + [g for g in self.groups_below(rows or {}, groups[0]) if g not in groups]
+        if not live:
+            return []
+        collect(live)
+        signal_all([g for i in live for g in i["_groups"][1:]], signal.SIGKILL)
+        own = [int(i["pid"]) for i in live]
+        signal_all(own, signal.SIGTERM)
+        signal_all(own, signal.SIGCONT)
+        for grace, freeze in ((term_seconds, False), (kill_seconds, True)):
+            if freeze:
+                collect(live)
             end = time.monotonic() + grace
-            send = True
             while live:
-                if send:
-                    for info in live:
-                        try:
-                            os.killpg(int(info["pid"]), sig)
-                        except (OSError, ValueError):
-                            pass                    # gone already
-                    send = sig == signal.SIGKILL
+                if freeze:
+                    signal_all([g for i in live for g in i["_groups"]], signal.SIGKILL)
                 live = [i for i in live if running(i)]
                 if not live or time.monotonic() >= end:
                     break
@@ -900,6 +935,52 @@ class Watcher(object):
             if not live:
                 return []
         return live
+
+    @staticmethod
+    def process_table():
+        """{pid: (ppid, pgid, stat)} from one read of the process table, or None when it cannot be read."""
+        try:
+            r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,stat="], capture_output=True, text=True,
+                               timeout=1, env=dict(os.environ, LC_ALL="C"))
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if r.returncode != 0:
+            return None
+        rows = {}
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            try:
+                rows[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3])
+            except (IndexError, ValueError):
+                continue
+        return rows
+
+    @staticmethod
+    def groups_below(rows, top):
+        """The process groups of every descendant of a process of the review group `top` (the
+        recorded pid leads it), other than `top` itself, from `rows` (process_table). Every member
+        of the group, not only the recorded leader: a reviewer whose launcher has exited is no
+        longer the leader's descendant. Only processes of a review this watcher recorded, never a
+        name or a path matched; never group 0 or 1 or this watcher's own group."""
+        kids = {}
+        for pid, (ppid, _pgid, _stat) in rows.items():
+            kids.setdefault(ppid, []).append(pid)
+        try:
+            mine = os.getpgid(0)
+        except OSError:
+            mine = -1
+        todo = [top] + [pid for pid, (_ppid, pgid, _stat) in rows.items() if pgid == top and pid != top]
+        found, seen = [], set(todo)
+        while todo:
+            for c in kids.get(todo.pop(), ()):
+                if c in seen:
+                    continue
+                seen.add(c)
+                todo.append(c)
+                g = rows[c][1]
+                if g > 1 and g != mine and g != top and g not in found:
+                    found.append(g)
+        return found
 
     # -- locks -------------------------------------------------------------------
     def take_lock(self, item, trigger, now, attempt):
@@ -1031,8 +1112,8 @@ class Watcher(object):
         THE HOST'S BOUND: richos-core review_watch.rs STOP_BOUND gives this process five seconds
         after SIGTERM before it SIGKILLs this watcher's group, and each review leads its own
         session, out of that group's reach. So every review is stopped at once and escalated to
-        SIGKILL inside QUIT_TERM_SECONDS + QUIT_KILL_SECONDS (2 + 1 = 3 s, whatever the count),
-        leaving two seconds of the five for settling and exit."""
+        SIGKILL inside 2 * FREEZE_SECONDS + QUIT_TERM_SECONDS + QUIT_KILL_SECONDS (3 s, whatever
+        the count), leaving two seconds of the five for settling and exit."""
         rows = read_jsonl(review_ledger())
         own = []
         for path in sorted(glob.glob(_p("locks", "*.lock"))):
@@ -1067,7 +1148,7 @@ class Watcher(object):
                 # next look settles it by what it finds then.
                 sys.stderr.write("review-watch: the review with pid %s was still running %.0f s after the quit "
                                  "began; it was not recorded as stopped\n"
-                                 % (info.get("pid"), QUIT_TERM_SECONDS + QUIT_KILL_SECONDS))
+                                 % (info.get("pid"), 2 * FREEZE_SECONDS + QUIT_TERM_SECONDS + QUIT_KILL_SECONDS))
                 continue
             if info.get("path"):
                 self.settle(info["path"], info, now, rows, "stopped",

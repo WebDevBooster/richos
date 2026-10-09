@@ -40,7 +40,7 @@ use crate::owned_process::{OwnedChild, SupervisedSet};
 /// SIGKILLed. Each review's own stop is a SIGTERM to the process group it leads, which holds
 /// `second_review.py` and its reviewer alike, milliseconds when nothing is wedged. The watcher
 /// stops all of its reviews AT ONCE and escalates a wedged one to SIGKILL itself, inside
-/// `QUIT_TERM_SECONDS + QUIT_KILL_SECONDS` = 2 + 1 = 3 s however many run
+/// `2 * FREEZE_SECONDS + QUIT_TERM_SECONDS + QUIT_KILL_SECONDS` = 3 s however many run
 /// (`review_watch.py` `stop_own`), so every review is gone before this bound ends: the group
 /// SIGKILL cannot reach them, each leads its own session. `estimate:` five seconds; the quit
 /// path's own lease bound is two.
