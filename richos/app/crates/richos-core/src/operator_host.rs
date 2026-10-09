@@ -832,6 +832,61 @@ impl OperatorHost {
         Ok(Relayed::Sent { uuid })
     }
 
+    /// **A review-watch notice, delivered as a message this host sends** (automatic second
+    /// review, slice 4; Sage's check of the plan, §1.3). The lead whose session is `session`
+    /// (the one that spawned the teammate the notice is about) gets `text` the way his words
+    /// reach it, from this host and under a uuid it sent, so the turn it starts is one the host
+    /// can attribute: a monitor inside the lead would start a turn no message of the host's
+    /// began, and the host identifies a turn by exactly that message.
+    ///
+    /// The conversation is found in this launch's memory, else in the saved records
+    /// (`<root>/<entity>/<thread>/lead.json`, each confirmed against the key it names). A lead
+    /// that has ended is resumed, as his words would resume it: the notice exists to wake it.
+    /// No conversation names the session: nothing is sent and the log says so (a teammate
+    /// started from his terminal has no lead in this app).
+    pub fn tell_lead(self: &Arc<Self>, session: &str, text: &str) -> Result<String, String> {
+        let known = self.conversations.lock().unwrap().values()
+            .find(|c| c.lock().unwrap().record.last_session.as_deref() == Some(session)).cloned();
+        let conversation = match known {
+            Some(c) => c,
+            None => match self.saved_conversation_of(session) {
+                Some(key) => self.conversation(&key, ""),
+                None => {
+                    self.log(&format!("review-watch notice not delivered: no conversation's lead is session {session}"));
+                    return Err(format!("No conversation's lead is session {session}."));
+                }
+            },
+        };
+        let mut c = conversation.lock().unwrap();
+        let key = c.key.clone();
+        let lead = self.ensure_lead(&mut c)?;
+        let uuid = self.write(&mut c, &lead, &key, None, text, None)?;
+        self.save(&c.paths.record, &c.record);
+        self.log(&format!("review-watch notice delivered to {}/{} (session {session})", key.entity_id, key.thread_id));
+        Ok(uuid)
+    }
+
+    /// The conversation whose saved record says its lead's last session is `session`.
+    fn saved_conversation_of(&self, session: &str) -> Option<ConversationKey> {
+        let entities = std::fs::read_dir(&self.root).ok()?;
+        for entity in entities.flatten() {
+            let Ok(threads) = std::fs::read_dir(entity.path()) else { continue };
+            for thread in threads.flatten() {
+                let path = thread.path().join("lead.json");
+                if !path.is_file() {
+                    continue;
+                }
+                let record = read_record(&path);
+                let Some(key) = record.conversation.clone() else { continue };
+                if ConversationPaths::under(&self.root, &key).record == path
+                    && record.last_session.as_deref() == Some(session) {
+                    return Some(key);
+                }
+            }
+        }
+        None
+    }
+
     /// Write one message to the lead, prefixed as e4 and (l) say, under the conversation's lock
     /// the caller holds. Shared by [`Self::relay`] and [`Self::deliver_answer`], which is the
     /// only other way words reach a lead. `uuid` is the one to send under (an answer's), or
@@ -2240,6 +2295,33 @@ pub(crate) mod tests {
         assert_eq!(lead_of(&r, "a").sent.lock().unwrap().len(), 3);
         r.host.relay(&key("b"), "Conversation B", None, "other", Origin::DeskVoice).unwrap();
         assert_eq!(r.launcher.leads.lock().unwrap().len(), 2, "a second conversation gets its own lead");
+    }
+
+    /// **Second review, slice 4 (Sage's check §1.3): a review-watch notice reaches the lead whose
+    /// session started the work, as a message this host sends** (a uuid it awaits, so the turn
+    /// it starts is one the host attributes); found in a later launch through the saved record;
+    /// a session no conversation names gets nothing.
+    #[test]
+    fn a_review_watch_notice_reaches_the_lead_of_its_session_as_the_hosts_own_message() {
+        let r = rig();
+        r.host.relay(&key("a"), "A", None, "build it", Origin::DeskTyped).unwrap();
+        r.host.relay(&key("b"), "B", None, "something else", Origin::DeskTyped).unwrap();
+        let (a, b) = (lead_of(&r, "a"), lead_of(&r, "b"));
+        let uuid = r.host.tell_lead(&a.session, "REVIEW-WATCH 10:00Z: 1 second-review notice").unwrap();
+        assert_eq!(a.sent.lock().unwrap().last().unwrap(), "REVIEW-WATCH 10:00Z: 1 second-review notice");
+        assert_eq!(b.sent.lock().unwrap().len(), 1, "the other conversation's lead was told");
+        let conversation = r.host.conversation(&key("a"), "");
+        assert!(conversation.lock().unwrap().awaiting.contains(&uuid), "the host does not await the turn it started");
+        assert!(r.host.tell_lead("no-such-session", "x").is_err());
+        // A later launch (a new host over the same folders) finds it through the saved record,
+        // and resumes that session's lead to tell it.
+        let later = OperatorHost::new(r.declaration.clone(), &r.state, &r.root.join("operator"), r.launcher.clone(),
+                                      r.engine.clone(), r.settle.clone(), r.said.clone(),
+                                      Arc::new(SayQuestions(r.said.clone())));
+        later.tell_lead(&a.session, "REVIEW-WATCH 11:00Z: 1 second-review notice").unwrap();
+        let (_, start, resumed) = r.launcher.leads.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(start, LeadStart::Resume(a.session.clone()));
+        assert_eq!(resumed.sent.lock().unwrap().last().unwrap(), "REVIEW-WATCH 11:00Z: 1 second-review notice");
     }
 
     #[test]

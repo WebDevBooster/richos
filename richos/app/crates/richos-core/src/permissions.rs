@@ -221,7 +221,7 @@ struct Grant {
 /// (esc-20261005T150541Z-ee581ad7). The CEO's stop revokes both flags in one write, so a
 /// stopped assignment still gets nothing.
 fn grant(path: &Path) -> Option<Binding> {
-    if std::fs::metadata(path).ok()?.len() > 16384 {return None;}
+    if std::fs::metadata(path).ok()?.len() > crate::ecs::SCOPE_LIMIT {return None;}
     let grant: Grant=serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
     let open = grant.actions_allowed || (grant.background_work_allowed && is_background(&grant.binding));
     (grant.version == 1 && open).then_some(grant.binding)

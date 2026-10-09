@@ -1630,6 +1630,14 @@ impl WorkHost {
             seat: record.seat.clone(),
             instruction_ledger_ref: record.instruction_ledger_ref.clone(),
             instruction_sha256: record.instruction_sha256.clone(),
+            // The words verified above. A report reads none for its brief, so it reads them
+            // here, and takes them only when they still verify: a report turn can prepare a
+            // reviewer too, and must not be the one turn that briefs it without his words.
+            instruction_text: if reporting {
+                instruction_for(&self.state, record).ok()
+            } else {
+                Some(instruction.clone())
+            },
         };
         let session = {
             let mut lease = backend.lease.lock().unwrap();
@@ -5656,6 +5664,11 @@ mod tests {
         let prompts = h.work_prompts.lock().unwrap();
         assert_eq!(prompts.len(), 1);
         assert!(prompts[0].contains(&text), "the actual work lease lost the original constraints");
+        // Second review, slice 4: the same verified words reach the lease's scope, beside their
+        // hash, so a reviewer it prepares is briefed with them verbatim.
+        let bound = h.bound.lock().unwrap().clone();
+        assert_eq!(bound.len(), 1);
+        assert_eq!(bound[0].instruction_text.as_deref(), Some(text.as_str()));
         let saved = assignment::read(&h.state,"depot","thread-one",&receipt.id).unwrap();
         assert!(!saved.title.contains("integration"), "positive control: title must be truncated");
         drop(prompts);

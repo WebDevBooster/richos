@@ -4162,8 +4162,8 @@ impl Cognition for NativeCognition {
         crate::ecs::write_scope(path, &crate::ecs::ToolScope { version:1, actions_allowed:false, bridge:bridge.clone(), binding:scope,
             user_instruction: if matches!(source, crate::ledger::Source::Text | crate::ledger::Source::Jam) {
                 use sha2::Digest;
-                Some(crate::ecs::UserInstruction {ledger_ref:format!("ledger:{}:{turn}",binding.thread_id()),
-                    sha256:format!("{:x}",sha2::Sha256::digest(text.as_bytes()))})
+                Some(crate::ecs::UserInstruction::with_text(format!("ledger:{}:{turn}",binding.thread_id()),
+                    format!("{:x}",sha2::Sha256::digest(text.as_bytes())), Some(text)))
             } else {None},
             // **The seat travels to the MODEL's own calls too.** `richos_continuity`'s
             // adapter copies this field onto every request it makes
@@ -4350,10 +4350,14 @@ impl Cognition for NativeCognition {
             actions_allowed: true,
             bridge: bridge.clone(),
             binding,
-            user_instruction: Some(crate::ecs::UserInstruction {
-                ledger_ref: work.instruction_ledger_ref.clone(),
-                sha256: work.instruction_sha256.clone(),
-            }),
+            // The words too (second review, slice 4): `work_host.rs` read them from the
+            // conversation ledger and checked them against this same hash before it asked for
+            // this lease, so a reviewer this assignment prepares is briefed with them verbatim.
+            user_instruction: Some(crate::ecs::UserInstruction::with_text(
+                work.instruction_ledger_ref.clone(),
+                work.instruction_sha256.clone(),
+                work.instruction_text.as_deref(),
+            )),
             seat: Some(work.seat.clone()),
             // **THE ONE PLACE THIS IS EVER TRUE, and it is written with the standing grant
             // above because it is the same grant seen from the worker's side.** §5.4 lets a
@@ -5558,6 +5562,7 @@ done
             seat: "work-seat:ob-1".into(),
             instruction_ledger_ref: "ledger:thr_one:turn_one".into(),
             instruction_sha256: "0".repeat(64),
+            instruction_text: None,
         }
     }
 

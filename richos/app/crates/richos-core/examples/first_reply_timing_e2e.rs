@@ -323,6 +323,7 @@ fn drive_prepare(
             user_instruction: Some(richos_core::ecs::UserInstruction {
                 ledger_ref: instruction_ledger_ref.to_string(),
                 sha256: instruction_sha256.to_string(),
+                text: None,
             }),
             seat: Some(seat.to_string()),
             // This probe drives `prepare` directly and dispatches no worker, so the standing
