@@ -4902,6 +4902,8 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
                             ('  # SECOND_REVIEW_REPOS=other;\nSECOND_REVIEW_REPOS_NOTE="x"\n', None),
                             ('NOTE="see SECOND_REVIEW_REPOS"\n', None),
                             ('SECOND_REVIEW_REPOS="other"\nunset SECOND_REVIEW_REPOS\n', None),
+                            ('set -u\n', None),
+                            ('set -u\nSECOND_REVIEW_REPOS="richos"\n', ["richos"]),
                             ('SECOND_REVIEW_REPOS="richos"\n', ["richos"]),
                             ('SECOND_REVIEW_REPOS="a.b  c_d e-f 9"\n', ["a.b", "c_d", "e-f", "9"]),
                             ('SECOND_REVIEW_REPOS=""\n', []),

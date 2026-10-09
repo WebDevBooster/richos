@@ -854,7 +854,7 @@ _REVIEW_OUTPUT = re.compile(r'read\|(set|)\|(.*)\|done', re.S)
 # config left something behind (an EXIT trap, a redirect), and the strict match
 # of _REVIEW_OUTPUT refuses that.
 _REVIEW_READ = ('. "$1" >/dev/null </dev/null || exit\n'
-                'printf "read|%s|%s|done" "${SECOND_REVIEW_REPOS+set}" "$SECOND_REVIEW_REPOS"')
+                'printf "read|%s|%s|done" "${SECOND_REVIEW_REPOS+set}" "${SECOND_REVIEW_REPOS-}"')
 
 
 def review_repos(config):
