@@ -862,6 +862,10 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # an rm or rmdir (or find -delete) whose path starts with an unguarded variable, or names a critical
 # path, which is Claude Code's own circuit breaker: it asked the CEO a Yes/No even with bypass
 # permissions on. The refusal carries the exact rewrite. Suite: guard-unguarded-rm.test.sh.
+# guard-no-shell-c.sh, ADDED 2026-10-09 — BLOCKING, a module of the Bash chain's manifest. It refuses
+# a command that wraps an inline script in bash -c, sh -c or zsh -c, which Claude Code cannot check and
+# so asks the user ("This shell -c script ... could not be checked"). The refusal names the rewrite:
+# separate commands, or a script file run with bash <file>. Suite: guard-no-shell-c.test.sh.
 # operator-claim.sh, guard-operator-claim.sh, guard-shared-writes.sh,
 # release-shared-writes.sh and guard-live-names.sh, ADDED 2026-09-25 — the engine
 # side of several operator leads on one Mac (richos-hq spec r3 (e) the claim, e3,
@@ -918,6 +922,7 @@ guard-failure-type-answer.sh
 guard-foreign-app-data.sh
 guard-shared-scratchpad.sh
 guard-unguarded-rm.sh
+guard-no-shell-c.sh
 operator-claim.sh
 guard-operator-claim.sh
 guard-shared-writes.sh

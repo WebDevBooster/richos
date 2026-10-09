@@ -598,6 +598,19 @@ class DesktopWork(unittest.TestCase):
             self.assertIsNone(self.app.validate_shell_target({"tool_name":"Bash","tool_input":{"command":command}}))
         self.assertIsNone(self.app.validate_shell_target({"tool_name":"Read","tool_input":{"command":"git -C $TARGET status"}}))
 
+    def test_inline_shell_c_scripts_are_refused_with_the_rewrite_and_script_files_pass(self):
+        for command in ["bash -c 'rm -rf /fictional/x'", "sh -c 'echo hi'", "/bin/zsh -lc 'echo hi'",
+                        "cd /fictional && bash -o pipefail -c 'echo hi'", "ls | xargs -I{} bash -c 'echo {}'",
+                        "bash --noprofile -c 'echo hi'", "'bash' -c 'echo hi'", "ls | xargs -I ITEM bash -c 'echo ITEM'",
+                        "bash\t-c\t'echo hi'", 'git commit -m "refuse bash -c wrappers"']:
+            with self.subTest(command=command), self.assertRaisesRegex(ValueError, r"bash <file>"):
+                self.app.validate_shell_target({"tool_name":"Bash","tool_input":{"command":command}})
+        for command in ["bash /fictional/scratch/run.sh", "bash -x ./run.sh", "python3 -c 'print(1)'",
+                        "git -c core.editor=true status", "bash test.sh && git diff --cached", "ls -la"]:
+            with self.subTest(command=command):
+                self.assertIsNone(self.app.validate_shell_target({"tool_name":"Bash","tool_input":{"command":command}}))
+        self.assertIsNone(self.app.validate_shell_target({"tool_name":"Read","tool_input":{"command":"bash -c x"}}))
+
     def test_worker_file_boundary_uses_provider_identity_and_registered_target(self):
         ready=self.call("prepare",self.args)
         envelope={"session_id":self.session,"tool_use_id":"observed-call","tool_input":ready["agent_payload"]}
