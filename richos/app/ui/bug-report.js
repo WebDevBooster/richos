@@ -103,9 +103,16 @@ window.RichBug = (function () {
     var quoted = /([`"'“‘(\[<{])((?:~\/|\/[\w.])[^\n]*?)(?=[`"'”’)\]>}])/g, q;
     while ((q = quoted.exec(text))) paths.push(q[2]);
     (text.match(/(?:^|\s)((?:~\/|\/[\w.])[^\s,;)"'\]>`}]*)/g) || []).forEach(function (p) { paths.push(p.trim().replace(/[.:!?]+$/, "")); });
+    // Rust's named starts count after any mark but a letter, digit or slash: `path=/Users/…`, a
+    // file address and a drive (`C:\`) too. The heads-up names the path to its first space.
+    var named = /(?:^|[^\w\/])((?:file:\/\/|\/(?:users|volumes|private|var|tmp)\/|~\/|[a-z]:[\\\/])[^\s,;)"'\]>`}]+)/gi, n, sure = [];
+    while ((n = named.exec(text))) {
+      sure.push(n[1].replace(/[.:!?]+$/, ""));
+      paths.push(sure[sure.length - 1]);
+    }
     paths.forEach(function (p) {
       if (paths.some(function (o) { return o !== p && o.indexOf(p) === 0; })) return; // part of a longer one
-      if ((p.indexOf("~/") === 0 && p.length > 2) || (p.match(/\//g) || []).length >= 2) if (found.indexOf(p) === -1) found.push(p);
+      if (sure.indexOf(p) !== -1 || (p.indexOf("~/") === 0 && p.length > 2) || (p.match(/\//g) || []).length >= 2) if (found.indexOf(p) === -1) found.push(p);
     });
     (text.match(/[\w.%+-]+@[\w-]+(?:\.[\w-]+)+/g) || []).forEach(function (e) { if (found.indexOf(e) === -1) found.push(e); });
     return found;
@@ -525,6 +532,7 @@ window.RichBug = (function () {
       sub.tabIndex = 0;
       sub.dataset.was = s.was;
       sub.dataset.kind = s.kind || "";
+      sub.dataset.stand = s.text;
       parent.appendChild(sub);
     });
   }
@@ -633,7 +641,27 @@ window.RichBug = (function () {
     return "Left out, because anyone can read GitHub issues: " + list + ". The underlined words stand in for " + (subs.length === 1 ? "it" : "them") + "; point at one to see what it replaced.";
   }
 
+  /// A stand-in whose words the user changed is the user's own text from then on: no longer
+  /// marked, counted or explained as a stand-in, and read by the heads-up like any other words
+  /// (third review: a name typed inside "[a person]" was sent with no heads-up). It stays a plain
+  /// span so the caret the user is typing at does not move.
+  function releaseEdited(f) {
+    var released = false;
+    f.card.querySelectorAll(".bug-doc .bug-sub").forEach(function (s) {
+      if (s.textContent === s.dataset.stand) return;
+      s.className = "";
+      delete s.dataset.was;
+      delete s.dataset.kind;
+      delete s.dataset.stand;
+      s.removeAttribute("tabindex");
+      released = true;
+    });
+    // Its "Stands in for" tooltip, if it was showing, no longer describes anything.
+    if (released) hideSubTip();
+  }
+
   function paintWarn(f) {
+    releaseEdited(f);
     var w = f.card.querySelector(".bug-warn");
     var doc = f.card.querySelector(".bug-doc").cloneNode(true);
     doc.querySelectorAll(".bug-sub").forEach(function (s) { s.remove(); });

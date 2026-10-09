@@ -25,6 +25,9 @@
 //      Cancel confirmed (refused, or a retry already sending), Change it on a report that went
 //      out, and the screen's words given to Rich with the window's picture asked for first.
 //      `mock.js` holds a change or a cancel, fails a cancel, or files a waiting report mid-cancel.
+//  10. The third review's cases (rv-20261009T135204Z-9f4d77d4-1892, on 9f4d77d44), each red
+//      there: a name typed over a stand-in gets the heads-up before sending, and a file address
+//      and a drive path typed in get it too.
 "use strict";
 
 const path = require("path");
@@ -272,6 +275,63 @@ async function main() {
     await page.close();
     return added + " / " + warn;
   });
+
+  // ---- the third review's cases (rv-20261009T135204Z-9f4d77d4-1892, on 9f4d77d44) ----
+  await run.check("a name typed over a stand-in is the user's own text: the heads-up names it before sending", async () => {
+    // Finding 2, fixture `edited-stand-in.js`: on the tip the warning skipped every stand-in span,
+    // even one whose text the user had replaced, and Send then filed the name with no heads-up.
+    const page = await open("dark", { bugRichPrivate: [{ text: "Jane Doe", kind: "person_name" }] });
+    await bustABug(page);
+    await answer(page, "The names on the left get cut off. Jane Doe saw it first.");
+    await page.click("#bug-change");
+    await page.waitForSelector(".bugcard.is-editing");
+    assert(await page.isHidden(".bug-warn"), "a heads-up before anything private was typed");
+    // Select the words inside "[a person]" and type the name over them: the text stays in the span.
+    await page.evaluate(() => {
+      const sub = [...document.querySelectorAll(".bugcard .bug-doc .bug-sub")].find((s) => s.dataset.was === "Jane Doe");
+      const words = sub.firstChild;
+      sub.closest("[contenteditable]").focus();
+      const r = document.createRange();
+      r.setStart(words, 1);
+      r.setEnd(words, words.length - 1);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.keyboard.type("Jane Doe");
+    await page.waitForSelector(".bug-warn:not([hidden])");
+    const warn = await page.locator(".bug-warn").innerText();
+    assertEqual(warn, "“Jane Doe” looks private. Anyone can read this report on GitHub.", "heads-up");
+    // It is no longer marked as a stand-in: no dotted rule, no "Stands in for" tooltip, not counted.
+    const marked = await page.locator(".bugcard .bug-doc .bug-sub").evaluateAll((n) => n.map((s) => s.textContent));
+    assert(marked.every((t) => !t.includes("Jane Doe")), "the edited words are still marked as a stand-in: " + JSON.stringify(marked));
+    await page.click("#bug-done");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet · changed')");
+    assert(await page.isVisible(".bug-warn"), "the heads-up went away while the name is still there");
+    // The user may still send it, having been told.
+    await page.click("#bug-send");
+    await page.waitForSelector(".bugcard.is-sent");
+    const sent = (await calls(page, "bug_report_send"))[0].sheet;
+    assert(JSON.stringify(sent).includes("Jane Doe"), "what the user typed was not what was sent");
+    await page.close();
+    return warn;
+  });
+
+  await run.check("a file address or a drive path typed into the report gets the heads-up too", async () => {
+    // Finding 1's starts, in the renderer's mirror of Rust's rule: on the tip neither was named.
+    const page = await open("dark");
+    await bustABug(page);
+    await answer(page, "The names on the left get cut off when the text is bigger.");
+    await page.click("#bug-change");
+    await page.waitForSelector(".bugcard.is-editing");
+    await page.keyboard.type(" in file:///Users/you/Secret.xlsx and C:\\Users\\you\\notes.txt");
+    await page.waitForSelector(".bug-warn:not([hidden])");
+    const warn = await page.locator(".bug-warn").innerText();
+    assertEqual(warn, "“file:///Users/you/Secret.xlsx”, “C:\\Users\\you\\notes.txt” look private. Anyone can read this report on GitHub.", "heads-up");
+    await page.close();
+    return warn;
+  });
+
 
   await run.check("while Rich changes the report, Send and Cancel wait for him, and what is sent is what he changed", async () => {
     // Finding 3: on the tip Send and Cancel stayed live, and a late change rewrote a sent card.
