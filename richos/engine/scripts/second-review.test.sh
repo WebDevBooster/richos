@@ -28,6 +28,10 @@
 #   C09  CPU admission closed: no reviewer starts
 #   C10  a reviewer past its time limit is stopped by its own process id
 #   C11  no original words: refused before any reviewer runs
+#   C12  the reviewer's builds are capped at 2 jobs (environment and input): on
+#        2026-10-09 the CPU breaker stopped a reviewer's rustc at 5.08 cores
+#   C13  second-review stopped from outside (review-watch replacing a mid-job
+#        review) stops its reviewer too, and its scratch is released
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -88,7 +92,8 @@ try:
 except OSError:
     tree_a = ""
 with open(os.path.join(d, "call.json"), "w") as f:
-    json.dump({"argv": argv, "cwd": os.getcwd(), "pid": os.getpid(), "kind": kind, "tree_a": tree_a}, f)
+    json.dump({"argv": argv, "cwd": os.getcwd(), "pid": os.getpid(), "kind": kind, "tree_a": tree_a,
+               "jobs": [os.environ.get(k, "") for k in ("CARGO_BUILD_JOBS", "MAKEFLAGS", "CMAKE_BUILD_PARALLEL_LEVEL")]}, f)
 mode = os.environ.get("FAKE_MODE", "pass")
 if mode == "sleep":
     time.sleep(600)
@@ -340,6 +345,33 @@ N0="$(calls)"
 FAKE_MODE=pass run --repo "$REPO" --tip "$TIP2" --base "$BASE"
 [ "$RC" -ne 0 ] && [ "$RC" -ne 1 ] && [ "$(calls)" = "$N0" ] && has "$OUT" "original words"
 check "C11 no original words: refused before any reviewer runs" $? "rc=$RC out=$OUT"
+
+# --- C12 ---------------------------------------------------------------------
+FAKE_MODE=pass run --name echo-sonnet-x1 --repo "$REPO"
+C="$(last_call)"
+JOBS="$(field "$(cat "$C/call.json")" '",".join(r.get("jobs") or [])')"
+[ "$JOBS" = "2,-j2,2" ] && has "$(cat "$C/prompt.md")" "at most 2 jobs"
+check "C12 the reviewer's builds are capped at 2 jobs, in its environment and its input" $? "jobs=$JOBS"
+
+# --- C13 ---------------------------------------------------------------------
+N0="$(calls)"
+( TMPDIR="$RUN_TMP" CLAUDE_CONFIG_DIR="$RUN_CFG" FAKE_MODE=sleep exec python3 -c '
+import os, subprocess, sys
+p = subprocess.Popen(["bash", sys.argv[1], "--name", "echo-sonnet-x1", "--repo", sys.argv[2]], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print(p.pid); sys.stdout.flush(); p.wait()' "$SR" "$REPO" >"$SB/c13.pid" ) &
+WAITER=$!
+for _ in $(seq 1 100); do [ "$(calls)" != "$N0" ] && [ -f "$(last_call)/call.json" ] && break; sleep 0.1; done
+SRPID="$(head -1 "$SB/c13.pid" 2>/dev/null)"
+RPID="$(field "$(cat "$(last_call)/call.json" 2>/dev/null)" 'r["pid"]')"
+[ -n "$SRPID" ] && kill -TERM -- "-$SRPID" 2>/dev/null
+wait "$WAITER" 2>/dev/null
+GONE=1
+for _ in $(seq 1 50); do if [ -n "$RPID" ] && ! kill -0 "$RPID" 2>/dev/null; then GONE=0; break; fi; sleep 0.1; done
+[ -n "$SRPID" ] && [ "$GONE" -eq 0 ] && [ "$(scratch_left)" = "0" ]
+check "C13 stopped from outside, second-review stops its reviewer and releases its scratch" $? \
+    "second-review pid=$SRPID reviewer pid=$RPID gone=$GONE scratch_left=$(scratch_left)"
+[ -n "$RPID" ] && kill -0 "$RPID" 2>/dev/null && kill -KILL "$RPID" 2>/dev/null
 
 echo
 echo "second-review.test.sh: $PASS passed, $FAIL failed"

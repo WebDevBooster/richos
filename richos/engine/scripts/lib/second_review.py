@@ -75,7 +75,13 @@ HOW IT RUNS (Sage's catch 5)
     admission is waited on (bounded, one sample per 30 s, said once); an
     unmeasurable CPU refuses.
   * A 60-minute limit (the first by-hand review took about 30). Past it the
-    reviewer's own process group, captured at spawn, is stopped.
+    reviewer's own process group, captured at spawn, is stopped. When this
+    command is itself stopped (review-watch replacing a mid-job review with
+    the handover one), it stops that group first.
+  * The reviewer's builds are capped at REVIEW_BUILD_JOBS jobs (CARGO_BUILD_JOBS,
+    MAKEFLAGS, CMAKE_BUILD_PARALLEL_LEVEL in its environment, and said in its
+    input). The first real runs, 2026-10-09: the engine's CPU breaker stopped a
+    `rustc` the Claude reviewer started at 5.08 cores for 10 s.
 
 ===========================================================================
 THE VERDICT (plan §2.2, §2.4)
@@ -128,6 +134,8 @@ MAX_INLINE_RULE_BYTES = 64 * 1024
 MAX_INLINE_LOG_BYTES = 128 * 1024
 FIXTURE_FILE_BYTES = 1024 * 1024
 FIXTURE_TOTAL_BYTES = 20 * 1024 * 1024
+REVIEW_BUILD_JOBS = 2
+_REVIEWER = {"pgid": None}
 
 EXIT_PASSED, EXIT_CHANGES, EXIT_NO_VERDICT, EXIT_REFUSED = 0, 1, 2, 64
 
@@ -517,7 +525,9 @@ def build_input(w, a, export, earlier):
         "Run no test VM, no app, no microphone, no phone, and no broad suite rerun; never touch the host "
         "display, sleep, lock or input.\n"
         "- `reviewed_commit` is the full TIP above. `checks` lists only the checks you actually ran.\n"
-        % (w.workspace or w.repo))
+        "- Builds run with at most %d jobs (CARGO_BUILD_JOBS, MAKEFLAGS and CMAKE_BUILD_PARALLEL_LEVEL are set "
+        "so); never raise them: the Mac is shared, and its CPU breaker stops a build that takes more.\n"
+        % (w.workspace or w.repo, REVIEW_BUILD_JOBS))
     if mid_job:
         parts.append("- This work is still in progress. Review only what the author's commits and last report "
                      "claim is done at this tip; list what is not yet claimed in `not_yet_claimed`, never as "
@@ -650,7 +660,8 @@ def run_bounded(argv, cwd, prompt, out_path, err_path, limit, env=None):
     start = time.monotonic()
     with open(out_path, "wb") as out, open(err_path, "wb") as err:
         p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=out, stderr=err,
-                             start_new_session=True, env=env)
+                             start_new_session=True, env=build_env(env))
+        _REVIEWER["pgid"] = p.pid
         try:
             p.communicate(prompt.encode("utf-8"), timeout=limit)
             return p.returncode, time.monotonic() - start
@@ -666,6 +677,30 @@ def run_bounded(argv, cwd, prompt, out_path, err_path, limit, env=None):
                 except subprocess.TimeoutExpired:
                     continue
             return None, time.monotonic() - start
+        finally:
+            _REVIEWER["pgid"] = None
+
+
+def build_env(env=None):
+    """The reviewer's environment with its builds capped (REVIEW_BUILD_JOBS)."""
+    e = dict(os.environ if env is None else env)
+    jobs = str(REVIEW_BUILD_JOBS)
+    e["CARGO_BUILD_JOBS"] = jobs
+    e["CMAKE_BUILD_PARALLEL_LEVEL"] = jobs
+    e["MAKEFLAGS"] = "-j" + jobs
+    return e
+
+
+def _on_stop(signum, _frame):
+    """Stopped from outside: the reviewer's own process group goes first, so a
+    stopped review leaves no reviewer running on its own."""
+    pgid = _REVIEWER.get("pgid")
+    if pgid:
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except OSError:
+            pass
+    raise SystemExit(128 + signum)
 
 
 def codex_session_facts(stdout_path, export, started):
@@ -1081,6 +1116,8 @@ def main(argv):
     ap.add_argument("--admission-wait", type=float, default=ADMISSION_WAIT_SECONDS,
                     help="seconds to wait for CPU admission (default 1800)")
     a = ap.parse_args(argv)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _on_stop)
     try:
         return review(a)
     except Refused as exc:
