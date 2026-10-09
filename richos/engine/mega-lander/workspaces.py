@@ -5107,13 +5107,14 @@ def _review_declaration(F, entity, recorded, key):
       * a spawning entity whose directory is gone or is not a directory;
       * a declaration that is a link to nothing (something was there);
       * a declaration that exists and cannot be read;
-      * a line naming SECOND_REVIEW_REPOS that is not the one form
-        F.review_repos, its only reader, accepts (review
-        rv-20261009T050654Z-e21238ff-7685): install refuses it as well."""
+      * a declaration F.review_repos, its only reader, cannot read: bash
+        does not source it cleanly, or the value bash sets is not names
+        (reviews rv-20261009T050654Z-e21238ff-7685 and
+        rv-20261009T052655Z-daf09e19-0bc6): install refuses it as well."""
     config = os.path.join(entity, "orchestration.config")
     try:
         with open(config, encoding="utf-8", errors="replace") as f:
-            text = f.read()
+            f.read()
     except OSError as exc:
         if exc.errno not in (errno.ENOENT, errno.ENOTDIR):
             return None, "the governing declaration %s cannot be read (%s)" % (config, exc.strerror or exc)
@@ -5137,10 +5138,10 @@ def _review_declaration(F, entity, recorded, key):
         # `git merge` either, so the land asks no more of it than that (review
         # rv-20261009T044823Z-fc8c7569-5919, finding 1).
         return None, ""
-    names, why = F.review_repos(text)
+    names, why = F.review_repos(config)
     if why:
-        return None, ("the governing declaration %s assigns SECOND_REVIEW_REPOS in a form that cannot be read "
-                      "(%s); write it as SECOND_REVIEW_REPOS=\"<names>\"" % (config, why))
+        return None, ("SECOND_REVIEW_REPOS in %s cannot be read (%s); it must source cleanly in bash and set "
+                      "SECOND_REVIEW_REPOS=\"<names>\"" % (config, why))
     return names, ""
 
 
@@ -5150,7 +5151,7 @@ def _declared_review_listing(F, entities, main, registry):
     governing the main checkout `main`: those of `entities`
     (_governing_entities: the work's own and this run's) and the entity the
     fence registry records for `main` (`registry`, _registry_entity_map), the
-    last assignment of each, as F.review_repos (the one reader) reads it.
+    value bash sets in each, as F.review_repos (the one reader) reads it.
     WHETHER A REPOSITORY IS REVIEWED IS DECIDED FROM THESE (review
     rv-20261009T031207Z-ba444a8a-607a, finding 1): the fence launcher is only
     the copy `operator-fences.sh install` makes of the declaration, and reading

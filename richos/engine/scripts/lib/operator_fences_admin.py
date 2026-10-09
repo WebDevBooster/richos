@@ -54,9 +54,10 @@ def say(text):
 def declaration(entity):
     """KEY -> value for the plain assignments of <entity>/orchestration.config,
     except SECOND_REVIEW_REPOS: its key holds what F.review_repos, its one
-    reader, returns, ([name] or None, why)."""
+    reader, returns from bash sourcing the file, ([name] or None, why)."""
+    config = os.path.join(entity, "orchestration.config")
     try:
-        with open(os.path.join(entity, "orchestration.config"), encoding="utf-8") as fh:
+        with open(config, encoding="utf-8") as fh:
             text = fh.read()
     except OSError:
         return None
@@ -65,7 +66,7 @@ def declaration(entity):
         m = _ASSIGN.match(line)
         if m and m.group(1) != F.REVIEW_KEY:
             out[m.group(1)] = next(g for g in m.groups()[1:] if g is not None)
-    out[F.REVIEW_KEY] = F.review_repos(text)
+    out[F.REVIEW_KEY] = F.review_repos(config)
     return out
 
 
@@ -75,8 +76,8 @@ def review_unreadable(decl, config):
     why = ((decl or {}).get(F.REVIEW_KEY) or (None, ""))[1]
     if not why:
         return ""
-    return ("%s assigns %s in a form that cannot be read: %s; write it as %s=\"<names>\""
-            % (config, F.REVIEW_KEY, why, F.REVIEW_KEY))
+    return ("%s in %s cannot be read: %s; it must source cleanly in bash and set %s=\"<names>\""
+            % (F.REVIEW_KEY, config, why, F.REVIEW_KEY))
 
 
 def registry_path():

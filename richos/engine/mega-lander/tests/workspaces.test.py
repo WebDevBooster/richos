@@ -4675,19 +4675,19 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
                 os.environ["RICHOS_ENTITY_ROOT_RESOLVED"] = saved
 
     def test_second_review_a_declaration_whose_assignment_cannot_be_read_is_refused(self):
-        """A SECOND_REVIEW_REPOS line the text reader cannot read as a plain
-        assignment (an unterminated quote, `export`, a shell expansion, words
-        after the value) was read as listing nothing, or as a value that
-        matches nothing. Neither review-watch nor the land can say what it
-        lists, so nothing is merged until the line is plain."""
+        """A declaration bash cannot source cleanly (an unterminated quote, a
+        command that is not found, a last command that fails), or whose value
+        is not names (a shell expansion to a path), was read as listing
+        nothing, or as a value that matches nothing. Neither review-watch nor
+        the land can say what it lists, so nothing is merged until it reads."""
         config = os.path.join(self.decl, "orchestration.config")
         os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
         _cc, (tip,) = self.finished("zach-opus-rv23")
-        for line in ('SECOND_REVIEW_REPOS="other\n', 'export SECOND_REVIEW_REPOS="other"\n',
+        for line in ('SECOND_REVIEW_REPOS="other\n', 'SECOND_REVIEW_REPOS="other"\nfalse\n',
                      'SECOND_REVIEW_REPOS="$HOME/other"\n', 'SECOND_REVIEW_REPOS=richos other\n'):
             with open(config, "w") as f:
                 f.write('OPERATOR_FENCES="on"\n' + line)
-            self.refused_unread("zach-opus-rv23", "%s assigns SECOND_REVIEW_REPOS" % config)
+            self.refused_unread("zach-opus-rv23", "SECOND_REVIEW_REPOS in %s cannot be read" % config)
         self.declare("other")
         self.refused_unread("zach-opus-rv23", "no second review of %s" % tip[:12])
         self.verdict(tip, "passed")
@@ -4830,70 +4830,110 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         _merged, res = ws.merge_and_land("zach-opus-rv28", self.sid)
         self.assertTrue(res["landed"])
 
-    def test_second_review_an_assignment_in_an_unsupported_form_is_refused(self):
-        """The review's finding 3 (READONLY_ASSIGNMENT, DECLARE_ASSIGNMENT,
-        ASSIGNMENT_AFTER_SEMICOLON): only lines starting with the key or
-        `export` were examined, so these were skipped and the declaration read
-        as listing nothing. Every line naming SECOND_REVIEW_REPOS that is not
-        the one plain form leaves what it lists unknown; a comment line naming
-        it, and another key that only begins with it, are not assignments."""
+    def install_reads_listed(self, name, tip, body):
+        """`operator-fences.sh install` from a declaration whose text after the
+        usual first lines is `body`: it succeeds, records that self.other is
+        reviewed, bakes the review ledger into the launcher, and the land of
+        `name` (whose tip is `tip`) is refused for want of a verdict."""
         config = os.path.join(self.decl, "orchestration.config")
-        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
-        _cc, (tip,) = self.finished("zach-opus-rv29")
-        for line in ('readonly SECOND_REVIEW_REPOS="other"\n', 'declare -x SECOND_REVIEW_REPOS="other"\n',
-                     'OPERATOR_FENCES="on"; SECOND_REVIEW_REPOS="other"\n',
-                     'SECOND_REVIEW_REPOS="other"\nNOTE="see SECOND_REVIEW_REPOS"\n'):
-            with open(config, "w") as f:
-                f.write('OPERATOR_FENCES="on"\n' + line)
-            self.refused_unread("zach-opus-rv29", "%s assigns SECOND_REVIEW_REPOS" % config)
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
         with open(config, "w") as f:
-            f.write('# SECOND_REVIEW_REPOS  (used by: review-watch)\nSECOND_REVIEW_REPOS_NOTE="x"\n'
-                    'SECOND_REVIEW_REPOS="other"\n')
-        self.refused_unread("zach-opus-rv29", "no second review of %s" % tip[:12])
+            f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n' + body)
+        r = run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl, check=False)
+        self.assertEqual(r.returncode, 0, "%r: %s%s" % (body, r.stdout, r.stderr))
+        self.assertTrue(self.registry()["repositories"][self.other].get("reviewed"), body)
+        with open(hook) as h:
+            self.assertIn('OPERATOR_FENCES_REVIEWS="%s"' % self.ledger, h.read(), body)
+        self.refused_unread(name, "no second review of %s" % tip[:12])
+
+    SHELL_FORMS = ('readonly SECOND_REVIEW_REPOS="other"\n', 'declare -x SECOND_REVIEW_REPOS="other"\n',
+                   'OPERATOR_FENCES="on"; SECOND_REVIEW_REPOS="other"\n', 'SECOND_REVIEW_REPOS=other;\n',
+                   'SECOND_REVIEW_REPOS=other;:\n', 'SECOND_REVIEW_REPOS=other&&:\n',
+                   'export SECOND_REVIEW_REPOS="other"\n', "SECOND_REVIEW_REPOS='other'\n",
+                   ' SECOND_REVIEW_REPOS=other  # a note\n',
+                   'SECOND_REVIEW_REPOS="other"\nNOTE="see SECOND_REVIEW_REPOS"\n',
+                   '# SECOND_REVIEW_REPOS  (used by: review-watch)\nSECOND_REVIEW_REPOS_NOTE="x"\n'
+                   'SECOND_REVIEW_REPOS="other"\n')
+
+    def test_second_review_an_assignment_in_any_shell_form_is_read_as_bash_reads_it(self):
+        """The review's finding 3 (READONLY_ASSIGNMENT, DECLARE_ASSIGNMENT,
+        ASSIGNMENT_AFTER_SEMICOLON) and rv-20261009T050654Z-e21238ff-7685's
+        finding 2 (`other;`, `other&&:`): a reader of lines skipped these, or
+        took `other;` for the value, and recorded "not reviewed". Bash sets
+        `other` for every one of them, and so does review_repos now: install
+        records the review and the land refuses until a passing verdict."""
+        _cc, (tip,) = self.finished("zach-opus-rv29")
+        for body in self.SHELL_FORMS:
+            with self.subTest(body):
+                self.install_reads_listed("zach-opus-rv29", tip, body)
         self.verdict(tip, "passed")
         _merged, res = ws.merge_and_land("zach-opus-rv29", self.sid)
         self.assertTrue(res["landed"])
 
-    # -- one reader, one form -----------------------------------------------------------
-    # Review rv-20261009T050654Z-e21238ff-7685: install still skipped the forms the
-    # land refused, so it installed the fence with no review ledger (finding 1), and
-    # both readers took `other;` for the value where a shell sets `other` (finding 2).
-    # One function, operator_fences.review_repos, now reads SECOND_REVIEW_REPOS for
-    # install, the land and review-watch, and it accepts exactly
-    # SECOND_REVIEW_REPOS="name name ...".
+    # -- one reader, and it asks the shell -----------------------------------------------
+    # Review rv-20261009T050654Z-e21238ff-7685: install skipped forms the land
+    # refused (finding 1), and the readers took `other;` for the value where a shell
+    # sets `other` (finding 2). Review rv-20261009T052655Z-daf09e19-0bc6: a reader of
+    # lines also read decoys in a skipped `if` or a heredoc and missed a key split by
+    # a backslash-newline. One function, operator_fences.review_repos, reads
+    # SECOND_REVIEW_REPOS for install, the land and review-watch, and it sources the
+    # declaration in a clean bash and checks the value bash sets.
 
-    UNREADABLE_FORMS = ('readonly SECOND_REVIEW_REPOS="other"', 'declare -x SECOND_REVIEW_REPOS="other"',
-                        'OPERATOR_FENCES="on"; SECOND_REVIEW_REPOS="other"', 'SECOND_REVIEW_REPOS=other;',
-                        'SECOND_REVIEW_REPOS=other;:', 'SECOND_REVIEW_REPOS=other&&:')
+    UNREADABLE_FORMS = ('SECOND_REVIEW_REPOS="other', 'SECOND_REVIEW_REPOS="other"\nfalse',
+                        'SECOND_REVIEW_REPOS="other"\nexit 0', 'SECOND_REVIEW_REPOS="other"\ntrap "echo x" EXIT',
+                        'SECOND_REVIEW_REPOS="$HOME"', 'SECOND_REVIEW_REPOS="../other"',
+                        'SECOND_REVIEW_REPOS="other"\r', 'SECOND_REVIEW_REPOS=richos other')
 
-    def test_second_review_the_reader_accepts_one_form_only(self):
-        """Names of letters, digits, `.`, `_` and `-` in double quotes, comment
-        lines and no line at all; every other non-comment line naming the key
-        is an error naming its line."""
-        F = ws._fence_program()
+    def reader(self, text):
+        """review_repos of an orchestration.config holding `text`."""
+        folder = os.path.join(self.env.root, "reader-entity")
+        os.makedirs(folder, exist_ok=True)
+        config = os.path.join(folder, "orchestration.config")
+        with open(config, "w") as f:
+            f.write(text)
+        return ws._fence_program().review_repos(config)
+
+    def test_second_review_the_reader_returns_the_value_bash_sets(self):
+        """The value bash leaves after sourcing the declaration: unset is
+        None, set is its names, whatever shell form set it; a value that is
+        not names, or a declaration bash cannot source cleanly, in time and
+        printing nothing else, is an error."""
         for text, names in (("", None), ('# SECOND_REVIEW_REPOS="other"\n', None),
                             ('  # SECOND_REVIEW_REPOS=other;\nSECOND_REVIEW_REPOS_NOTE="x"\n', None),
+                            ('NOTE="see SECOND_REVIEW_REPOS"\n', None),
+                            ('SECOND_REVIEW_REPOS="other"\nunset SECOND_REVIEW_REPOS\n', None),
                             ('SECOND_REVIEW_REPOS="richos"\n', ["richos"]),
                             ('SECOND_REVIEW_REPOS="a.b  c_d e-f 9"\n', ["a.b", "c_d", "e-f", "9"]),
                             ('SECOND_REVIEW_REPOS=""\n', []),
-                            ('SECOND_REVIEW_REPOS="one"\nSECOND_REVIEW_REPOS="two"\n', ["two"])):
-            self.assertEqual(F.review_repos(text), (names, ""), text)
-        for line in self.UNREADABLE_FORMS + (
-                "SECOND_REVIEW_REPOS='other'", "SECOND_REVIEW_REPOS=other", ' SECOND_REVIEW_REPOS="other"',
-                'SECOND_REVIEW_REPOS="other" # a note', 'SECOND_REVIEW_REPOS="/abs/other"',
-                'SECOND_REVIEW_REPOS="~/other"', 'SECOND_REVIEW_REPOS="$HOME"', 'SECOND_REVIEW_REPOS="other"\r',
-                'SECOND_REVIEW_REPOS="other', 'export SECOND_REVIEW_REPOS="other"', 'NOTE="see SECOND_REVIEW_REPOS"'):
-            names, why = F.review_repos('OPERATOR_FENCES="on"\n%s\n' % line)
+                            ('SECOND_REVIEW_REPOS="one"\nSECOND_REVIEW_REPOS="two"\n', ["two"]),
+                            ('if true; then\nSECOND_REVIEW_REPOS="other"\nfi\n', ["other"]),
+                            ('echo noise\necho more >&2\nSECOND_REVIEW_REPOS="other"\n', ["other"])):
+            self.assertEqual(self.reader(text), (names, ""), text)
+        for body in self.SHELL_FORMS + tuple(b for _label, b in self.SHELL_CONTEXT):
+            self.assertEqual(self.reader('OPERATOR_FENCES="on"\n' + body), (["other"], ""), body)
+        for line in self.UNREADABLE_FORMS:
+            names, why = self.reader('OPERATOR_FENCES="on"\n%s\n' % line)
             self.assertIsNone(names, line)
-            self.assertIn("line 2", why, line)
+            self.assertTrue(why, line)
+        F = ws._fence_program()
+        with patch.object(F, "REVIEW_READ_SECONDS", 1):
+            folder = os.path.join(self.env.root, "slow-entity")
+            os.makedirs(folder)
+            with open(os.path.join(folder, "orchestration.config"), "w") as f:
+                f.write('SECOND_REVIEW_REPOS="other"\nsleep 30\n')
+            self.assertEqual(F.review_repos(os.path.join(folder, "orchestration.config")),
+                             (None, "bash did not finish sourcing it within 1 seconds"))
+        names, why = F.review_repos(os.path.join(self.env.root, "no-such-entity", "orchestration.config"))
+        self.assertIsNone(names)
+        self.assertTrue(why)
+        self.assertEqual(F.review_repos(os.path.join(ENGINE, "orchestration.config")), (["richos"], ""))
 
-    def test_second_review_install_and_the_land_refuse_every_other_form(self):
-        """The review's fixture install_and_assignment.py: READONLY_INSTALL,
-        DECLARE_INSTALL and SEMICOLON_PREFIX_INSTALL installed with no review
-        ledger and recorded "not reviewed"; SEMICOLON_TERMINATOR,
-        SEMICOLON_COMMAND and LOGICAL_COMMAND did that and landed unreviewed
-        work as well. Now install refuses each before it changes the registry
-        or the launcher, and the land refuses each too."""
+    def test_second_review_install_and_the_land_refuse_what_cannot_be_read(self):
+        """A declaration bash does not source cleanly (an unterminated quote, a
+        last command that fails, an `exit`, an EXIT trap that prints, a command
+        not found) or whose value is not names (an expansion to a path, `..`,
+        a carriage return): install refuses each before it changes the
+        registry or the launcher, and the land refuses each too."""
         config = os.path.join(self.decl, "orchestration.config")
         hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
         registry = os.path.join(ws.land_locks_dir(), "operator-fences.json")
@@ -4909,9 +4949,10 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
             before = installed()
             r = run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl, check=False)
             self.assertNotEqual(r.returncode, 0, "%s: %s" % (line, r.stdout))
-            self.assertIn("nothing installed. %s assigns SECOND_REVIEW_REPOS" % config, r.stdout + r.stderr, line)
+            self.assertIn("nothing installed. SECOND_REVIEW_REPOS in %s cannot be read" % config,
+                          r.stdout + r.stderr, line)
             self.assertEqual(installed(), before, line)
-            self.refused_unread("zach-opus-rv30", "%s assigns SECOND_REVIEW_REPOS" % config)
+            self.refused_unread("zach-opus-rv30", "SECOND_REVIEW_REPOS in %s cannot be read" % config)
         self.declare("other")
         run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
         self.refused_unread("zach-opus-rv30", "no second review of %s" % tip[:12])
@@ -4956,6 +4997,42 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
                 ws._review_check(todo, [self.entity])
         self.assertTrue(at_land.called)
         self.assertIn(why, str(e.exception))
+
+    # -- ask the shell ------------------------------------------------------------------
+    # Review rv-20261009T052655Z-daf09e19-0bc6 (its fixture declaration_context.py):
+    # a reader of physical lines read a value Bash does not. A key split by a
+    # backslash-newline was read as no assignment, and an assignment inside a
+    # skipped `if` or a heredoc was read as the value, while Bash keeps the
+    # earlier "other". Install recorded "not reviewed" and the land merged with no
+    # verdict. review_repos now sources the declaration in bash and reads the
+    # value bash sets.
+
+    SHELL_CONTEXT = (
+        ("CONDITIONAL_DECOY", 'SECOND_REVIEW_REPOS="other"\nif false; then\nSECOND_REVIEW_REPOS="nothing"\nfi\n'),
+        ("HEREDOC_DECOY", 'SECOND_REVIEW_REPOS="other"\n: <<\'DOC\'\nSECOND_REVIEW_REPOS="nothing"\nDOC\n'),
+        ("CONTINUED_KEY", 'SECOND_REVIEW_\\\nREPOS="other"\n'),
+    )
+
+    def test_second_review_install_and_the_land_read_the_value_bash_sets(self):
+        """The review's three cases: each one lists `other` for Bash, so install
+        records that it is reviewed and bakes the review ledger into the
+        launcher, and the land refuses the tip until a passing verdict."""
+        config = os.path.join(self.decl, "orchestration.config")
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        _cc, (tip,) = self.finished("zach-opus-rv31")
+        for label, body in self.SHELL_CONTEXT:
+            with self.subTest(label):
+                with open(config, "w") as f:
+                    f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n' + body)
+                r = run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl, check=False)
+                self.assertEqual(r.returncode, 0, "%s: %s%s" % (label, r.stdout, r.stderr))
+                self.assertTrue(self.registry()["repositories"][self.other].get("reviewed"), label)
+                with open(hook) as h:
+                    self.assertIn('OPERATOR_FENCES_REVIEWS="%s"' % self.ledger, h.read(), label)
+                self.refused_unread("zach-opus-rv31", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv31", self.sid)
+        self.assertTrue(res["landed"])
 
     def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
         r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)

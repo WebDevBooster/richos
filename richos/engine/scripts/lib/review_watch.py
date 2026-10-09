@@ -236,17 +236,18 @@ def repo_tag(repo):
 
 def configured_repos(config):
     """([repository name], "") from SECOND_REVIEW_REPOS, read by
-    F.review_repos, the one reader install and the land check use too; (None,
-    "") when the key is absent or blank; (None, why) when the config cannot be
-    read or the key is not in its one form. Read as text; never executed."""
+    F.review_repos, the one reader install and the land check use too, which
+    sources the config in a clean bash; (None, "") when the key is absent or
+    blank; (None, why) when the config cannot be read or sourced, or its value
+    is not names."""
     if not config or not os.path.isfile(config):
         return None, ""
     try:
         with open(config, encoding="utf-8") as f:
-            text = f.read()
+            f.read()
     except (OSError, ValueError) as exc:
         return None, "it cannot be read (%s)" % (getattr(exc, "strerror", None) or exc)
-    names, why = F.review_repos(text)
+    names, why = F.review_repos(config)
     return (names or None), why
 
 

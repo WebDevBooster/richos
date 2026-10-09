@@ -830,36 +830,74 @@ def review_ledger_default():
     return os.path.join(d, "reviews.jsonl")
 
 
-# ONE READER, ONE FORM (review rv-20261009T050654Z-e21238ff-7685). review_repos
-# is the only code that reads SECOND_REVIEW_REPOS: `operator-fences.sh install`
-# (operator_fences_admin.py), the land check (workspaces.py) and review-watch
-# (review_watch.py) all call it. It accepts exactly SECOND_REVIEW_REPOS="name
-# name ..." (each name the main checkout's folder name: letters, digits, `.`, `_`
-# and `-`), comment lines and no line at all. Any other non-comment line naming
-# the key (`readonly`, `declare -x`, after a semicolon, unquoted, `other;`,
-# `other&&:`, a path, a trailing comment, ...) is an error: install refuses before
-# it changes anything and the land refuses, because a shell may read that line
-# differently from any text reader.
+# ONE READER, AND IT ASKS THE SHELL (reviews rv-20261009T050654Z-e21238ff-7685
+# and rv-20261009T052655Z-daf09e19-0bc6). review_repos is the only code that
+# reads SECOND_REVIEW_REPOS: `operator-fences.sh install` (operator_fences_admin.py),
+# the land check (workspaces.py) and review-watch (review_watch.py) all call it.
+# It parses no shell: a reader of lines took a key split by a backslash-newline
+# for no assignment, and an assignment inside a skipped `if` or a heredoc for the
+# value. orchestration.config is a shell file the engine already sources (the
+# hooks do), so review_repos sources it in a clean bash, the way
+# disk-watchdog.test.sh (W22d) reads DISK_CONSUMER_CANDIDATES, and takes the
+# value bash sets. Then it checks what bash returned: unset is no value; set, it
+# must be names of letters, digits, `.`, `_` and `-` separated by spaces (each
+# the main checkout's folder name). A bash that exits non-zero (a syntax error,
+# a last command that failed, an `exit`), does not finish within
+# REVIEW_READ_SECONDS, cannot be run, or prints anything besides the value is an
+# error: install refuses before it writes, and the land refuses.
 REVIEW_KEY = "SECOND_REVIEW_REPOS"
-_REVIEW_MENTION = re.compile(r'(?<![A-Za-z0-9_])SECOND_REVIEW_REPOS(?![A-Za-z0-9_])')
-_REVIEW_FORM = re.compile(r'SECOND_REVIEW_REPOS="([A-Za-z0-9._ -]*)"')
+REVIEW_READ_SECONDS = 10
+_REVIEW_NAMES = re.compile(r'[A-Za-z0-9._ -]*')
+_REVIEW_OUTPUT = re.compile(r'read\|(set|)\|(.*)\|done', re.S)
+# `|| exit` exits with the failed `.`'s own status. What the config prints while
+# it is sourced goes nowhere, so the one printf is all bash prints unless the
+# config left something behind (an EXIT trap, a redirect), and the strict match
+# of _REVIEW_OUTPUT refuses that.
+_REVIEW_READ = ('. "$1" >/dev/null </dev/null || exit\n'
+                'printf "read|%s|%s|done" "${SECOND_REVIEW_REPOS+set}" "$SECOND_REVIEW_REPOS"')
 
 
-def review_repos(text):
-    """([name, ...], "") from the text of an orchestration.config: the last
-    SECOND_REVIEW_REPOS="..." line, [] when it is empty; (None, "") when no
-    line assigns it; (None, why) when a non-comment line naming the key is not
-    that one form."""
-    names = None
-    for number, line in enumerate((text or "").split("\n"), 1):
-        if line.lstrip(" \t").startswith("#") or not _REVIEW_MENTION.search(line):
-            continue
-        m = _REVIEW_FORM.fullmatch(line)
-        if not m:
-            return None, ("line %d (%s) is not the one form %s=\"name name ...\" (names of letters, digits, "
-                          "'.', '_' and '-')" % (number, line.strip()[:120], REVIEW_KEY))
-        names = m.group(1).split()
-    return names, ""
+def review_repos(config):
+    """([name, ...], "") for the orchestration.config at path `config`: the
+    value of SECOND_REVIEW_REPOS once bash has sourced it, [] when it is set
+    and empty; (None, "") when bash leaves it unset; (None, why) when bash
+    cannot source it cleanly or the value is not names."""
+    config = os.path.abspath(config)
+    env = {"HOME": os.environ.get("HOME") or os.path.expanduser("~"),
+           "PATH": os.environ.get("PATH") or "/usr/bin:/bin", "LC_ALL": "C"}
+    if os.environ.get("TMPDIR"):
+        env["TMPDIR"] = os.environ["TMPDIR"]
+    try:
+        # Its own process group, so a timeout stops whatever the config started
+        # too (the group of the pid captured here, never a name match).
+        p = subprocess.Popen(["bash", "--noprofile", "--norc", "-c", _REVIEW_READ, "_", config],
+                             cwd=os.path.dirname(config), env=env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    except OSError as exc:
+        return None, "bash could not be run to source it (%s)" % (exc.strerror or exc)
+    try:
+        out, err = p.communicate(timeout=REVIEW_READ_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, 9)
+        except OSError:
+            pass
+        p.stdout.close()
+        p.stderr.close()
+        p.wait()
+        return None, "bash did not finish sourcing it within %s seconds" % REVIEW_READ_SECONDS
+    if p.returncode != 0:
+        lines = [x.strip() for x in err.decode("utf-8", "replace").splitlines() if x.strip()]
+        return None, "sourcing it in bash exits %d%s" % (p.returncode, ": " + lines[-1][:200] if lines else "")
+    m = _REVIEW_OUTPUT.fullmatch(out.decode("utf-8", "replace"))
+    if not m:
+        return None, "sourcing it in bash printed something besides the value (%r)" % out[:120]
+    if not m.group(1):
+        return None, ""
+    if not _REVIEW_NAMES.fullmatch(m.group(2)):
+        return None, ("bash reads it as %r, which is not names of letters, digits, '.', '_' and '-' separated "
+                      "by spaces" % m.group(2)[:120])
+    return m.group(2).split(), ""
 
 
 def review_listed(names, main):
