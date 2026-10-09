@@ -13,9 +13,10 @@
 //!   review, never one already running.
 //! * **What the Mac reports about Codex**: [`Codex::Ready`], [`Codex::SignedOut`] or
 //!   [`Codex::Missing`]. Found where the engine's reviewer finds it (`second_review.py`
-//!   `find_codex`: inside ChatGPT.app, then `codex` on the app's own PATH, [`search_path`], which
-//!   the watcher hands every review as [`SEARCH_ENV`]), and signed in when Codex itself says
-//!   so: `codex login status`, which reads its login and starts none. Measured 2026-10-09 on
+//!   `find_codex`: inside ChatGPT.app, then `codex` on the app's own PATH and the usual install
+//!   folders, [`search_path`], which the watcher hands every review as [`SEARCH_ENV`]), and
+//!   signed in when Codex itself says so: `codex login status`, which reads its login and
+//!   starts none. Measured 2026-10-09 on
 //!   codex-cli 0.162.0-alpha.2: exit 0 with "Logged in using ChatGPT" on stderr when signed in,
 //!   exit 1 with "Not logged in" against an empty `CODEX_HOME`. The review asks the same question
 //!   before it runs Codex (`second_review.py` `codex_signed_in`), so the row and the review agree.
@@ -172,12 +173,50 @@ fn signed_in(codex: &Path, env: &BTreeMap<String, String>) -> bool {
     }
 }
 
-/// The PATH Codex is looked for on after the ChatGPT.app roots: the app's own, as it inherited
-/// it at launch. The row searches it ([`Probe::system`]) and so does every review: the app's
-/// watcher hands it to them as [`SEARCH_ENV`] ([`crate::review_watch::app_environment`]), since
-/// their own PATH is the delivered runtime's.
+/// The PATH Codex is looked for on after the ChatGPT.app roots: [`search_list`] over the app's
+/// own PATH, as it inherited it at launch, and the user's HOME. The row searches it
+/// ([`Probe::system`]) and so does every review: the app's watcher hands it to them as
+/// [`SEARCH_ENV`] ([`crate::review_watch::app_environment`]), since their own PATH is the
+/// delivered runtime's.
 pub fn search_path() -> String {
-    std::env::var("PATH").unwrap_or_default()
+    search_list(&std::env::var("PATH").unwrap_or_default(), std::env::var_os("HOME").map(PathBuf::from).as_deref())
+}
+
+/// `inherited`, then the usual folders a global Codex install puts `codex` in that are not on it
+/// already. A Finder or Dock launch inherits only `/usr/bin:/bin:/usr/sbin:/sbin`, which has none
+/// of them, so without these a Homebrew or npm Codex reads as not installed and every review falls
+/// back to Claude (the second review of ecb68ec68, rv-20261009T143828Z-ecb68ec6-82af, finding 1).
+/// The folders: Homebrew's (`/opt/homebrew/bin` on Apple silicon, `/usr/local/bin` on Intel, which
+/// are also npm's global folders for a Node installed by Homebrew or from nodejs.org), the user's
+/// npm global folder (`<prefix>/bin`, where `~/.npmrc` sets `prefix`), and `~/.local/bin`.
+pub fn search_list(inherited: &str, home: Option<&Path>) -> String {
+    let mut dirs: Vec<PathBuf> = std::env::split_paths(inherited).filter(|d| !d.as_os_str().is_empty()).collect();
+    let mut usual = vec![PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")];
+    if let Some(home) = home {
+        usual.extend(npm_prefix(home).map(|prefix| prefix.join("bin")));
+        usual.push(home.join(".local/bin"));
+    }
+    for dir in usual {
+        if !dirs.contains(&dir) && !dir.to_string_lossy().contains(':') {
+            dirs.push(dir);
+        }
+    }
+    std::env::join_paths(dirs).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| inherited.to_string())
+}
+
+/// The `prefix` the user set in `~/.npmrc`, where `npm install -g` puts its commands
+/// (`<prefix>/bin`); a leading `~/`, `$HOME/` or `${HOME}/` is the user's home. None when the file
+/// sets none, or sets a path that is not absolute.
+fn npm_prefix(home: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(home.join(".npmrc")).ok()?;
+    let value = text.lines().rev().find_map(|line| {
+        let (key, value) = line.trim().split_once('=')?;
+        (key.trim() == "prefix").then(|| value.trim().trim_matches('"').trim_matches('\'').to_string())
+    })?;
+    let expanded = ["~/", "$HOME/", "${HOME}/"].iter()
+        .find_map(|lead| value.strip_prefix(lead).map(|rest| home.join(rest)))
+        .unwrap_or_else(|| PathBuf::from(&value));
+    expanded.is_absolute().then_some(expanded)
 }
 
 /// The user's choice: on only when the file says `{"on": true}`.
@@ -359,6 +398,80 @@ mod tests {
         let said = String::from_utf8_lossy(&out.stdout).into_owned();
         assert_eq!(said, format!("{}\nTrue\n", cli.display()),
                    "the review must find the Codex the row shows, signed in (empty = Claude fallback)");
+    }
+
+    /// The PATH a Finder or Dock launch inherits: the system's folders only.
+    const FINDER_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+    /// **The second review of ecb68ec68 (rv-20261009T143828Z-ecb68ec6-82af, finding 1): a Finder
+    /// launch's PATH has none of the folders a global Codex sits in.** The list keeps the inherited
+    /// PATH first and in its order, then adds Homebrew's two folders, the npm global folder
+    /// `~/.npmrc` sets and `~/.local/bin`, each once.
+    #[test]
+    fn the_search_list_adds_the_usual_install_folders_a_finder_launch_leaves_out() {
+        let f = Fixture::new("usual-folders");
+        let home = f.root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let h = home.display();
+        assert_eq!(search_list(FINDER_PATH, Some(&home)),
+                   format!("{FINDER_PATH}:/opt/homebrew/bin:/usr/local/bin:{h}/.local/bin"), "no ~/.npmrc: no npm folder");
+        std::fs::write(home.join(".npmrc"), "; a comment\nprefix = \"~/.npm-global\"\n").unwrap();
+        assert_eq!(search_list(FINDER_PATH, Some(&home)),
+                   format!("{FINDER_PATH}:/opt/homebrew/bin:/usr/local/bin:{h}/.npm-global/bin:{h}/.local/bin"));
+        std::fs::write(home.join(".npmrc"), "prefix=${HOME}/n\n").unwrap();
+        assert!(search_list(FINDER_PATH, Some(&home)).contains(&format!(":{h}/n/bin:")));
+        std::fs::write(home.join(".npmrc"), "prefix=relative/dir\n").unwrap();
+        assert!(!search_list(FINDER_PATH, Some(&home)).contains("relative"), "a prefix that is not absolute is not searched");
+        // A terminal launch already has them: its order stands and nothing is repeated.
+        let terminal = format!("{h}/.local/bin:/opt/homebrew/bin:{FINDER_PATH}");
+        assert_eq!(search_list(&terminal, Some(&home)), format!("{terminal}:/usr/local/bin"));
+        assert_eq!(search_list(FINDER_PATH, None), format!("{FINDER_PATH}:/opt/homebrew/bin:/usr/local/bin"));
+    }
+
+    /// **The fixture of finding 1 (`gui-path-discovery.py`), as a test: an npm Codex, signed in,
+    /// no ChatGPT.app, and the app started from Finder.** The row finds it ready over the search
+    /// list, and the engine's own `find_codex` and `codex_signed_in`, given that list as the watcher
+    /// gives it, find the same file signed in, so the review runs Codex. Once in the npm global
+    /// folder `~/.npmrc` names, once in `~/.local/bin`. Homebrew's folders are left out of the list
+    /// here, as the ChatGPT.app roots are: a real Codex there on this Mac would hide the fake one
+    /// (the pure test above proves they are on it).
+    #[test]
+    fn a_finder_launch_finds_a_global_codex_and_the_review_runs_it() {
+        let f = Fixture::new("finder");
+        let home = f.root.join("home");
+        let npm_bin = home.join(".npm-global/bin");
+        let local_bin = home.join(".local/bin");
+        std::fs::create_dir_all(&npm_bin).unwrap();
+        std::fs::create_dir_all(&local_bin).unwrap();
+        std::fs::write(home.join(".npmrc"), "prefix=~/.npm-global\n").unwrap();
+        for bin in [&npm_bin, &local_bin] {
+            let cli = bin.join("codex");
+            std::fs::write(&cli, "#!/bin/sh\n[ \"$1 $2\" = \"login status\" ] || exit 9\nexit 0\n").unwrap();
+            std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+            let list = std::env::join_paths(std::env::split_paths(&search_list(FINDER_PATH, Some(&home)))
+                .filter(|d| d != Path::new("/opt/homebrew/bin") && d != Path::new("/usr/local/bin")))
+                .unwrap().to_string_lossy().into_owned();
+            let row = Probe { roots: vec![], path: list.clone(), env: crate::review_watch::environment(FINDER_PATH) };
+            assert_eq!(row.find(), Some(cli.clone()), "the row finds {}", cli.display());
+            assert_eq!(row.codex(), Codex::Ready, "the row shows Codex ready");
+
+            let runtime_path = crate::runtime::search_path(&f.root.join("runtime/bin"), None);
+            let env = crate::review_watch::app_environment(&runtime_path, &list);
+            let lib = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../engine/scripts/lib").canonicalize().unwrap();
+            let python = ["/usr/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3"]
+                .iter().map(PathBuf::from).find(|p| p.is_file()).expect("a python3 for the engine's finder");
+            let out = Command::new(python).arg("-c").arg(
+                "import sys; sys.path.insert(0, sys.argv[1]); import second_review as s\n\
+                 s.CODEX_APP_ROOTS = ()\n\
+                 c = s.find_codex()\n\
+                 print(c); print(bool(c) and s.codex_signed_in(c)[0])")
+                .arg(&lib).env_clear().envs(&env).env("PYTHONDONTWRITEBYTECODE", "1").output().unwrap();
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            assert_eq!(String::from_utf8_lossy(&out.stdout), format!("{}\nTrue\n", cli.display()),
+                       "the review must find the Codex the row shows, signed in (empty = Claude fallback)");
+            std::fs::remove_file(&cli).unwrap(); // the next folder's Codex is the only one
+        }
     }
 
     #[test]
