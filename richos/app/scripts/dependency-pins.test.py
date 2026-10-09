@@ -416,6 +416,16 @@ class Floor(Fixture):
         self.write("richos/engine/scripts/lib/.gitattributes", "verification_inputs.py export-ignore\n")
         self.refused_text("read TOKEN, export-ignore", "omitted known key reads in scripts/reader.sh: TOKEN")
 
+    def test_a_symlink_to_a_tracked_file_outside_the_export_refuses(self):
+        # review rv-20261009T070921Z-22b69def-73c4: the link would dangle in the export and the
+        # verifier would skip the call it carries.
+        self.start()
+        self.write("richos/tools/new-helper.sh", "echo $TOKEN\n")
+        os.symlink("../../tools/new-helper.sh", self.repo / "richos/engine/scripts/new-helper.sh")
+        self.write(NODE, "echo reader v2\nnew-helper.sh\n")
+        self.renew(NODE)
+        self.refused_text("link out of the export", "the reader check could not run")
+
     def test_an_inherited_external_refusal_is_not_new_because_the_export_folder_differs(self):
         self.start()
         self.mutate(lambda d: d["nodes"]["scripts/reader.sh"]["external"].append(

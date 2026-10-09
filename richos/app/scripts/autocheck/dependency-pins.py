@@ -28,6 +28,7 @@ default) are not this repository's to check and are skipped.
 import hashlib
 import json
 import os
+import posixpath
 import shutil
 import subprocess
 import sys
@@ -171,6 +172,10 @@ def export_tree(tree, into):
             entries.append((mode, sha, name.decode("utf-8", errors="surrogateescape")))
     if not entries:
         return
+    # A full export writes ~840 MB and took 4.4 s a tree (2026-10-09), so the export stays partial.
+    # A partial export cannot keep a symlink whose target lies outside it: the link would dangle
+    # and the verifier would skip the call it carries. Such a tree is refused, not exported.
+    inside = [posixpath.normpath(path) for path in wanted]
     blobs = subprocess.run(["git", "cat-file", "--batch"], capture_output=True,
                            input="".join(f"{sha}\n" for _, sha, _ in entries).encode())
     if blobs.returncode:
@@ -187,6 +192,12 @@ def export_tree(tree, into):
         dest = Path(into, name)
         dest.parent.mkdir(parents=True, exist_ok=True)
         if mode == "120000":
+            target = content.decode("utf-8", errors="surrogateescape")
+            resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+            if posixpath.isabs(target) or not any(
+                    resolved == root or resolved.startswith(root + "/") for root in inside):
+                raise RuntimeError(f"{name} is a symlink to {target}, outside the files the check exports, "
+                                   "so the verifier would read a dangling link and skip the call it carries")
             os.symlink(content, dest)
             continue
         dest.write_bytes(content)
