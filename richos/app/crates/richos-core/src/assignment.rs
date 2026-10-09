@@ -200,6 +200,11 @@ pub enum NoticeKind {
     /// [`Self::Settled`] would put his answer behind the word "finished", which is the one
     /// framing §58 names and refuses.
     Answer,
+    /// **His request has not started and will start by itself**: the conversation's queue is
+    /// held until nobody-signed-in or a back end that would not open clears (`work_host.rs`,
+    /// `Held`). Said once, when the queue is first held. Neither a result nor a stop, so a kind
+    /// of its own for the reason [`Self::Unknown`] is one.
+    Held,
 }
 
 /// **Is this a piece of work he asked for, or a question he asked?** The CEO's ruling §58,
