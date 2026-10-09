@@ -13896,6 +13896,74 @@
         }
       ]
     },
+    "scripts/lib/app_review.py": {
+      "source": "scripts/lib/app_review.py",
+      "sha256": "d6aa5592a768d8ca9a6f2eccc29138ff3c78ecad9a1e1417d46769b33df28de5",
+      "evidence": "Added 2026-10-09 (second review slice 4; app.test.py's edge to it came with 8a433f70e and had no row). Full module reviewed: imports only json, os and re, and its module level assigns three constants. app_paths builds the paths of the app's own review-watch state, second-review folder, reviews.jsonl ledger and delivered/ claims under the app_state it is given (realpath, no read). mid_job_notice reads that ledger's JSON rows and each row's <record>/verdict.json as data, and claims a delivery by creating <delivered>/<review id> exclusively (mode 0600). No orchestration.config, environment variable, subprocess or engine import. app.test.py loads it by fixed path over the fixture's private engine-state and literal ledger rows.",
+      "keys": [],
+      "edges": []
+    },
+    "scripts/app-engine-hook.py": {
+      "source": "scripts/app-engine-hook.py",
+      "sha256": "4b646be34d9bb85e0546b04229d95729d232c1c1902a55a9fdf591478a8d0cb4",
+      "evidence": "Added 2026-10-09 (second review slice 4; app.test.py's edge to it came with 8a433f70e and had no row). This row is what app.test.py reaches: it loads the module (standard-library imports; the module level only computes ENGINE from its own path) and calls only mid_job_notice, never handle, scope or main. mid_job_notice returns for a call without agent_id, loads scripts/lib/app_review.py by fixed path, stats the app's review ledger under the root it is given, calls worker_spaces on the work module it is passed (the fixture's own loaded mega-lander/app.py) and returns app_review.mid_job_notice's text; any exception is printed to stderr and yields empty text. No orchestration.config read, environment variable, subprocess or guard runs on this path. handle(), which reads RICHOS_APP_SCOPE/RICHOS_APP_STATE/RICHOS_ENTITY_ROOT and runs the guards, workspaces.py, app-evidence.py and guard-stated-actions.py, is bound separately by scripts/app-engine-hook.py#pause-rejection for its pause path and is not covered by this row.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/app_review.py"
+        },
+        {
+          "to": "mega-lander/app.py#desktop-work-fixtures"
+        }
+      ]
+    },
+    "scripts/lib/review_watch.py": {
+      "source": "scripts/lib/review_watch.py",
+      "sha256": "d838c5208d435e719e2976a4db0a40dccb314237f9dd074c969ed0611c585068",
+      "evidence": "Added 2026-10-09 (second review slice 4; app.test.py's edge to it came with 8a433f70e and had no row). Module load: standard-library imports, the sibling imports stall_watch and app_review (app_paths), constants and HOST_JSON; nothing else runs. Configuration: only World (the operator monitor, review-watch.sh --config) reads SECOND_REVIEW_REPOS, as text from the file it is given, never executed; it is declared here though app.test.py's AppWorld passes no config and reads none. What app.test.py reaches: app_mode with tick sets REVIEW_WATCH_STATE_DIR, SECOND_REVIEW_STATE_DIR and RICHOS_PROJECTS_DIR under the fixture's private engine-state (app_paths); AppWorld loads mega-lander/workspaces.py by fixed path through stall_watch._load and, per private registry partition (RICHOS_WORKSPACES_DIR), calls all_agents, finished_state, _chain, integration_target and integration_for, reads the private work-receipts JSON and <id>.words beside them, runs git rev-parse/merge-base/log in the fixture's repositories and reads JSON/JSONL state, locks and the ledger under that private state. A due review runs bash on REVIEW_WATCH_SECOND_REVIEW, which the fixture sets to a literal fake script; scripts/second-review.sh is never run by the fixture. Watcher.stop_own reads its own locks, signals only the process group its own child leads and appends an attempts row. Environment read: REVIEW_WATCH_NOW, REVIEW_WATCH_STATE_DIR, REVIEW_WATCH_SECOND_REVIEW, SECOND_REVIEW_STATE_DIR, CLAUDE_CONFIG_DIR, RICHOS_PROJECTS_DIR, RICHOS_WORKSPACES_DIR (set per partition and restored), and in World only REVIEW_WATCH_TO_RICH/REVIEW_WATCH_TO_CODEX (Codex channel files, not reached by AppWorld).",
+      "keys": [
+        "SECOND_REVIEW_REPOS"
+      ],
+      "edges": [
+        {
+          "to": "scripts/lib/stall_watch.py#review-watch-helpers"
+        },
+        {
+          "to": "scripts/lib/app_review.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#desktop-work-fixtures"
+        }
+      ]
+    },
+    "scripts/lib/stall_watch.py#review-watch-helpers": {
+      "source": "scripts/lib/stall_watch.py",
+      "sha256": "5dafd95cc31823a3731bd0b7c4b3f1ce0135de0f39035e9a84bedad7a594798d",
+      "evidence": "Added 2026-10-09 (second review slice 4) for review_watch.py, which imports this module and uses its helpers; the --notice path stays bound by scripts/lib/stall_watch.py#notice. Module load: standard-library imports, the sibling imports resource_waits and escalations (neither reads configuration at import), constants. Helpers review_watch.py calls: hhmm, _env_float, _read_json/_write_json (JSON state files it names), _load (a module by fixed path, None when absent), Sources(engine_root) (loads mega-lander/workspaces.py by fixed path, loads richos/app/scripts/lib/proof_slots.py beside the engine without calling it, imports sibling agent_hold.py without calling it; reserve.py is loaded only by cpu_busy, which review_watch never calls), thresholds (environment STALL_WATCH_SILENT_MINUTES, STALL_WATCH_SELF_WAIT_MINUTES, STALL_WATCH_REPEAT_MINUTES and, through resource_waits.wait_minutes, RICHOS_RESOURCE_WAIT_MINUTES), _git_last_commit (git log -1 in the workspace), _transcript (workspaces.platform_agent_transcript), _try_lock/lock_held (flock on a named file), and in the monitor loop only session_alive_check (ps) and _nap. No orchestration.config read and no engine execution.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/resource_waits.py"
+        },
+        {
+          "to": "scripts/lib/escalations.py"
+        },
+        {
+          "to": "scripts/lib/agent_hold.py"
+        },
+        {
+          "to": "mega-lander/workspaces.py#desktop-work-fixtures"
+        }
+      ],
+      "external": [
+        {
+          "root": "repository",
+          "path": "richos/app/scripts/lib/proof_slots.py",
+          "sha256": "825b7652d519652322aa227532115c17c14a738b3fba639807671750bc54d8b2",
+          "evidence": "Sources() loads it by fixed path beside the engine (module level: standard-library imports and constants); review_watch.py never calls it. Bind against the current repository, never another worktree."
+        }
+      ]
+    },
     "mega-lander/tests/app.mutation.sh": {
       "source": "mega-lander/tests/app.mutation.sh",
       "sha256": "d2d49f2367a5c4eb2e02d511c3e0560f7fe730da62b490fe46ef2a0b3baa44e8",
