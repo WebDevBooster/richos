@@ -103,6 +103,8 @@ check 2 P5 "-o operand then redirection" "bash -o pipefail</dev/null -c 'printf 
 check 2 P5 "-O extglob -c" "bash -O extglob -c 'printf INLINE'"
 check 2 P5 "--rcfile f -c" "bash --rcfile /dev/null -c 'printf INLINE'"
 check 2 P5 "-eo pipefail -c" "bash -eo pipefail -c 'printf INLINE'"
+check 2 P6 "zsh -f -c0 (digit in the group)" "zsh -f -c0 'printf INLINE'"
+check 2 P6 "ksh -c- (dash in the group)" "ksh -c- 'printf INLINE'"
 check 0 N3 "unreadable payload" "x"
 out="$(printf 'not json' | bash "$HOOK" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "N3 unreadable payload passes" || bad "N3 unreadable payload" "rc=$rc $out"

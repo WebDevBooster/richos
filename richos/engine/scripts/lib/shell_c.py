@@ -49,7 +49,7 @@ def verdict(command):
     for segment in SEGMENT_SPLIT.split(command):
         for m in SHELL_WORD.finditer(segment):
             for o in OPTION_WORD.finditer(segment, m.end()):
-                if re.fullmatch(r"-[A-Za-z]+", o.group(0)) and "c" in o.group(0):
+                if re.fullmatch(r"-(?!-)[A-Za-z0-9-]+", o.group(0)) and "c" in o.group(0):
                     return m.group(1)
     return None
 
