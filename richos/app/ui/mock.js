@@ -2510,6 +2510,9 @@
   // as the shell's does behind a retry already sending, until `releaseCancel()`);
   // `retryGoesOut()` is that retry succeeding: the waiting report is filed and the event says so.
   // `preset.bugRichPrivate` is the private words Rich names in his write-up beyond the app's.
+  // `preset.bugPrivateWords` is what the core's scrubber finds in the card's words beyond the
+  // names this preview holds (an address, a path): the heads-up's answer, `bug_report_private_in`,
+  // whose rules are Rust's and tested there (fourth review rv-20261009T142223Z-3d74fe4c-3b6d).
   const bugMock = {
     net: preset.bugNet || "online",
     account: preset.bugAccount || { kind: "reporting" },
@@ -3900,7 +3903,20 @@
         // ---- Bust a bug (round 21): the shapes `src-tauri/src/bug_report.rs` answers in ----
         case "bug_report_context":
           bugMock.calls.push({ cmd });
-          return { account: bugMock.account, privateTerms: bugTerms(), repository: "WebDevBooster/richos" };
+          return { account: bugMock.account, repository: "WebDevBooster/richos" };
+        case "bug_report_private_in": {
+          // The words named in the order they are written, each once: the shell's answer shape.
+          bugMock.calls.push({ cmd, text: args.text, private: args.private });
+          const text = String(args.text || "");
+          const hits = [];
+          bugTerms().concat(args.private || []).forEach((t) => {
+            const m = new RegExp("(^|[^\\p{L}\\p{N}_])(" + t.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")(?![\\p{L}\\p{N}_])", "iu").exec(text);
+            if (m) hits.push([m.index + m[1].length, m[2]]);
+          });
+          (preset.bugPrivateWords || []).forEach((w) => { const at = text.indexOf(w); if (at !== -1) hits.push([at, w]); });
+          hits.sort((a, b) => a[0] - b[0]);
+          return hits.map((h) => h[1]).filter((w, i, all) => all.indexOf(w) === i);
+        }
         case "bug_report_write": {
           bugMock.calls.push({ cmd, answer: args.answer, screen: args.screen });
           await new Promise((r) => setTimeout(r, preset.bugWriteMs ?? 600));

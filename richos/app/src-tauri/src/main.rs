@@ -4004,6 +4004,7 @@ fn main() {
             dictation_app::dictation_capture_key,
             // --- Bust a bug (round 21, CEO §115) — appended ---
             bug_report::bug_report_context,
+            bug_report::bug_report_private_in,
             bug_report::bug_report_look,
             bug_report::bug_report_write,
             bug_report::bug_report_change,

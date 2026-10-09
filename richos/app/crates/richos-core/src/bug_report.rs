@@ -965,6 +965,16 @@ pub fn scrub_change(change: &Change, app: &[PrivateTerm], report: &[PrivateTerm]
     (scrubber.scrub(&change.add), report)
 }
 
+/// **THE CARD'S HEADS-UP, ASKED OF THE SCRUBBER THAT CLEANS THE REPORT**: the private words in
+/// `text`, the words of the report as the user has changed them, by exactly the rules and the
+/// private words a change is scrubbed with ([`scrub_change`]): the names RichOS holds (`app`) and
+/// the ones Rich found in this report (`report`). The window keeps no copy of these rules (fourth
+/// review finding 2: its own ASCII-only email pattern missed `alice@büro.de`, which this catches).
+/// It decides nothing: the user may send anyway, having been told.
+pub fn private_in_edit(text: &str, app: &[PrivateTerm], report: &[PrivateTerm]) -> Vec<String> {
+    Scrubber::new(app.iter().chain(report).cloned().collect()).private_in(text)
+}
+
 /// One section of the draft card, with stand-ins in place.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DraftSection {

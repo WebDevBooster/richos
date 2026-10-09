@@ -15,15 +15,16 @@
 //
 // WHAT IS NOT IN THIS FILE: what is private and its stand-ins, Rich's write-up, the issue's words,
 // the send and the keeping of what could not go. All of that is `richos_core::bug_report`, reached
-// through six commands (`bug_report_*`), so the rule that decides what reaches GitHub is in Rust
-// and tested there. This file draws what those commands answer. Everything it puts on screen is
+// through the `bug_report_*` commands, so the rule that decides what reaches GitHub, and what the
+// card's heads-up calls private, is in Rust and tested there. This file draws what those commands
+// answer. Everything it puts on screen is
 // built with textContent; nothing Rich or the user wrote is ever parsed as markup.
 "use strict";
 
 window.RichBug = (function () {
   var host = null; // main.js's hooks (init)
   var bridge = null;
-  var context = null; // bug_report_context: account, private terms
+  var context = null; // bug_report_context: the account a report goes out as
   var flows = [];
   var seq = 0;
   var dockVoice = false;
@@ -77,45 +78,18 @@ window.RichBug = (function () {
   }
   function $(id) { return document.getElementById(id); }
 
-  // ---- what is private, client side: only for the card's heads-up after a change --------------
-  // The authority is Rust (`Scrubber`); this mirrors its rules so the card can say "Acme looks
-  // private" while the user types. It never decides what is sent: the user may send anyway.
-  // `f.private` is what Rich found private in this report (the draft's and every change's), so
-  // a name he left out once is named here too when the user types it back in.
-  function privateIn(text, f) {
-    var found = [];
-    var terms = ((context && context.privateTerms) || []).concat((f && f.private) || []);
-    for (var i = 0; i < terms.length; i++) {
-      var t = terms[i].text;
-      var oneWord = !/\s/.test(t);
-      var cap = /^[A-Z]/.test(t);
-      var re = new RegExp("(^|[^\\p{L}\\p{N}_])(" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")(?![\\p{L}\\p{N}_])", "giu");
-      var m;
-      while ((m = re.exec(text))) {
-        var hit = m[2];
-        if (oneWord && cap && !/^\p{Lu}/u.test(hit)) continue;
-        if (found.indexOf(hit) === -1) found.push(hit);
-      }
-    }
-    // A path between backticks, quotes or brackets is taken whole, spaces and all; a plain one
-    // to the end of its word (Rust's `find_paths` also follows a plain path through spaces).
-    var paths = [];
-    var quoted = /([`"'“‘(\[<{])((?:~\/|\/[\w.])[^\n]*?)(?=[`"'”’)\]>}])/g, q;
-    while ((q = quoted.exec(text))) paths.push(q[2]);
-    (text.match(/(?:^|\s)((?:~\/|\/[\w.])[^\s,;)"'\]>`}]*)/g) || []).forEach(function (p) { paths.push(p.trim().replace(/[.:!?]+$/, "")); });
-    // Rust's named starts count after any mark but a letter, digit or slash: `path=/Users/…`, a
-    // file address and a drive (`C:\`) too. The heads-up names the path to its first space.
-    var named = /(?:^|[^\w\/])((?:file:\/\/|\/(?:users|volumes|private|var|tmp)\/|~\/|[a-z]:[\\\/])[^\s,;)"'\]>`}]+)/gi, n, sure = [];
-    while ((n = named.exec(text))) {
-      sure.push(n[1].replace(/[.:!?]+$/, ""));
-      paths.push(sure[sure.length - 1]);
-    }
-    paths.forEach(function (p) {
-      if (paths.some(function (o) { return o !== p && o.indexOf(p) === 0; })) return; // part of a longer one
-      if (sure.indexOf(p) !== -1 || (p.indexOf("~/") === 0 && p.length > 2) || (p.match(/\//g) || []).length >= 2) if (found.indexOf(p) === -1) found.push(p);
+  // ---- what is private: ASKED, never decided here ----------------------------------------------
+  // The card's heads-up after a change ("Acme looks private") is the answer of the same Rust
+  // scrubber that cleans the report (`bug_report_private_in`, `richos_core::bug_report::
+  // private_in_edit`), with the same private words. This file keeps no copy of the rules: its own
+  // copy fell behind the core three times (paths, file addresses and drives, then an address like
+  // alice@büro.de; fourth review finding 2). `f.private` is what Rich found private in this
+  // report (the draft's and every change's), so a name he left out once is named when the user
+  // types it back in. It never decides what is sent: the user may send anyway, having been told.
+  function askPrivate(text, f) {
+    return bridge.invoke("bug_report_private_in", { text: text, private: (f && f.private) || [] }).then(function (found) {
+      return Array.isArray(found) ? found : [];
     });
-    (text.match(/[\w.%+-]+@[\w-]+(?:\.[\w-]+)+/g) || []).forEach(function (e) { if (found.indexOf(e) === -1) found.push(e); });
-    return found;
   }
 
   // ---- where the user was -------------------------------------------------------------------
@@ -660,20 +634,35 @@ window.RichBug = (function () {
     if (released) hideSubTip();
   }
 
+  function warns(f) { return f.step === "editing" || f.step === "draft" || f.step === "queued"; }
+
+  /// The heads-up, from the core's answer about the words on the card now. Each change asks
+  /// again; an answer that comes after a later question is dropped, so the heads-up is always
+  /// about the latest words.
   function paintWarn(f) {
     releaseEdited(f);
     var w = f.card.querySelector(".bug-warn");
+    if (!warns(f)) {
+      f.warnAsked = (f.warnAsked || 0) + 1;
+      w.hidden = true;
+      w.textContent = "";
+      return;
+    }
     var doc = f.card.querySelector(".bug-doc").cloneNode(true);
     doc.querySelectorAll(".bug-sub").forEach(function (s) { s.remove(); });
     var text = Array.prototype.map.call(doc.querySelectorAll(".bug-title,.bug-sec p,.bug-sec li"), function (n) { return n.textContent; }).join("\n");
-    var found = privateIn(text, f).slice(0, 3);
-    var show = found.length > 0 && (f.step === "editing" || f.step === "draft" || f.step === "queued");
-    w.hidden = !show;
-    w.textContent = "";
-    if (show) {
+    var asked = (f.warnAsked = (f.warnAsked || 0) + 1);
+    askPrivate(text, f).then(function (all) {
+      if (asked !== f.warnAsked || !warns(f)) return;
+      var found = all.slice(0, 3);
+      w.hidden = found.length === 0;
+      w.textContent = "";
+      if (!found.length) return;
       w.appendChild(node("strong", null, found.map(function (x) { return "“" + x + "”"; }).join(", ") + (found.length === 1 ? " looks" : " look") + " private."));
       w.appendChild(document.createTextNode(" Anyone can read this report on GitHub."));
-    }
+    }).catch(function () {
+      // Not answered: the heads-up stays as it was. It decides nothing; Send is the user's.
+    });
   }
 
   function button(label, primary, fn, id) {

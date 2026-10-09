@@ -727,3 +727,21 @@ fn a_private_name_in_other_capitals_is_left_out_in_every_alphabet() {
     let both = vec![PrivateTerm::new("Café North", Kind::CompanyName), PrivateTerm::new("CAFÉ NORTH", Kind::CompanyName)];
     assert_eq!(Scrubber::new(both).terms().len(), 1);
 }
+
+#[test]
+fn the_heads_up_on_the_users_own_words_is_the_scrubbers_answer() {
+    // Finding 2, fixture `email-warning.js`: on the tip the window's own ASCII-only copy of the
+    // rules gave no heads-up for an address the scrubber leaves out. The window now asks this.
+    let app = terms();
+    let report = vec![PrivateTerm::new("Jane Doe", Kind::PersonName)];
+    let said = "Write to alice@büro.de or 用户@例子.中国 about the NORTHWIND TRADERS file file:///Users/you/Secret.xlsx; and C:\\Users\\you\\notes.txt, from JANE DOE.";
+    let found = private_in_edit(said, &app, &report);
+    for private in ["alice@büro.de", "用户@例子.中国", "NORTHWIND TRADERS", "file:///Users/you/Secret.xlsx", "C:\\Users\\you\\notes.txt", "JANE DOE"] {
+        assert!(found.iter().any(|f| f == private), "{private:?} gets no heads-up: {found:?}");
+    }
+    // Every word the heads-up names is one the report would leave out, and nothing else.
+    let scrubbed = Scrubber::new(app.iter().chain(&report).cloned().collect()).scrub(said);
+    let left_out: Vec<String> = scrubbed.iter().filter_map(|s| s.was.clone()).collect();
+    assert_eq!(found, left_out);
+    assert!(private_in_edit("The names on the left get cut off.", &app, &report).is_empty());
+}

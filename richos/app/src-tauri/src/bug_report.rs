@@ -316,16 +316,24 @@ fn private_terms(state: &crate::AppState) -> Vec<bug::PrivateTerm> {
 // THE COMMANDS
 // ---------------------------------------------------------------------------------------
 
-/// Who the report goes out as, and what RichOS holds that is private (for the card's heads-up
-/// while the user changes the report).
+/// Who the report goes out as. What RichOS holds that is private is not handed to the window:
+/// the card's heads-up asks `bug_report_private_in` instead (fourth review finding 2).
 #[tauri::command(async)]
-pub fn bug_report_context(state: State<crate::AppState>) -> serde_json::Value {
-    let scrubber = bug::Scrubber::new(private_terms(&state));
+pub fn bug_report_context() -> serde_json::Value {
     serde_json::json!({
         "account": bug::Account::Reporting,
-        "privateTerms": scrubber.terms(),
         "repository": bug::REPOSITORY,
     })
+}
+
+/// **THE CARD'S HEADS-UP**: which words of the report, as the user has changed them, are
+/// private. Answered by the same scrubber, with the same private words, that cleans the report
+/// (`bug::private_in_edit`), so the window keeps no second copy of the rules (fourth review
+/// finding 2). `private` is the report's own private words so far, as `bug_report_change` takes
+/// them. Decides nothing: the user may send anyway, having been told.
+#[tauri::command(async)]
+pub fn bug_report_private_in(state: State<crate::AppState>, text: String, private: Option<Vec<bug::PrivateTerm>>) -> Vec<String> {
+    bug::private_in_edit(&text, &private_terms(&state), &private.unwrap_or_default())
 }
 
 /// **A PICTURE OF THE WINDOW AS IT IS NOW**, taken when Bust a bug is pressed and before the

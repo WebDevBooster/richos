@@ -29,6 +29,10 @@
 //      there: a name typed over a stand-in gets the heads-up before sending, a file address and
 //      a drive path typed in get it too, and the digest of what Rich checked is 16px and no
 //      longer exempt from the size check.
+//  11. The fourth review's cases (rv-20261009T142223Z-3d74fe4c-3b6d, on 3d74fe4cb), each red
+//      there: the heads-up is the core's answer (`bug_report_private_in`), so alice@büro.de is
+//      named; and the voice hold follows the report's conversation, so speech reaches Rich after
+//      leaving it. `mock.js` answers `bug_report_private_in` with `preset.bugPrivateWords`.
 "use strict";
 
 const path = require("path");
@@ -319,8 +323,10 @@ async function main() {
   });
 
   await run.check("a file address or a drive path typed into the report gets the heads-up too", async () => {
-    // Finding 1's starts, in the renderer's mirror of Rust's rule: on the tip neither was named.
-    const page = await open("dark");
+    // Finding 1's starts. That the core finds them is Rust's test (`a_file_url_is_left_out`,
+    // `every_named_path_start_hides_its_clause_whatever_comes_before_it`); here, that the
+    // heads-up names what the core answered, in the order written.
+    const page = await open("dark", { bugPrivateWords: ["file:///Users/you/Secret.xlsx", "C:\\Users\\you\\notes.txt"] });
     await bustABug(page);
     await answer(page, "The names on the left get cut off when the text is bigger.");
     await page.click("#bug-change");
@@ -329,6 +335,33 @@ async function main() {
     await page.waitForSelector(".bug-warn:not([hidden])");
     const warn = await page.locator(".bug-warn").innerText();
     assertEqual(warn, "“file:///Users/you/Secret.xlsx”, “C:\\Users\\you\\notes.txt” look private. Anyone can read this report on GitHub.", "heads-up");
+    await page.close();
+    return warn;
+  });
+
+  // ---- the fourth review's cases (rv-20261009T142223Z-3d74fe4c-3b6d, on 3d74fe4cb) ----
+  await run.check("the heads-up is the core's answer about the edited words: an address like alice@büro.de is named", async () => {
+    // Finding 2, fixture `email-warning.js`: on the tip the card kept its own ASCII-only copy of
+    // the rules, which missed alice@büro.de while the core leaves it out. Now the card asks the
+    // core (`bug_report_private_in`; Rust's `the_heads_up_on_the_users_own_words_is_the_scrubbers_answer`
+    // proves the core names it) with the words on the card and the report's private words.
+    const page = await open("dark", { bugRichPrivate: [{ text: "Jane Doe", kind: "person_name" }], bugPrivateWords: ["alice@büro.de"] });
+    await bustABug(page);
+    await answer(page, "The names on the left get cut off. Jane Doe saw it first.");
+    await page.click("#bug-change");
+    await page.waitForSelector(".bugcard.is-editing");
+    await page.keyboard.type(" Write to alice@büro.de");
+    // The fact the heads-up waits on: the core was asked about the words now on the card. On the
+    // tip it never is (the card decided by itself), so this wait is where the tip fails.
+    await page.waitForFunction(() => window.__RICHOS_MOCK_BUG__.calls.some((c) => c.cmd === "bug_report_private_in" && c.text.includes("Write to alice@büro.de")));
+    await page.waitForSelector(".bug-warn:not([hidden])");
+    const warn = await page.locator(".bug-warn").innerText();
+    assertEqual(warn, "“alice@büro.de” looks private. Anyone can read this report on GitHub.", "heads-up");
+    const asked = (await calls(page, "bug_report_private_in")).slice(-1)[0];
+    assert(asked.text.includes("Write to alice@büro.de"), "the core was not asked about the words on the card: " + JSON.stringify(asked));
+    assert(asked.private.some((t) => t.text === "Jane Doe"), "the core was asked without the report's private words: " + JSON.stringify(asked.private));
+    // The stand-ins are not the user's words: what the core is asked about leaves them out.
+    assert(!asked.text.includes("[a person]"), "a stand-in was asked about: " + asked.text);
     await page.close();
     return warn;
   });
