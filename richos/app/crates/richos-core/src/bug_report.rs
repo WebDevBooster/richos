@@ -193,6 +193,9 @@ impl Segment {
 ///     is written with a capital, so "deeply" in a sentence is left alone. One written in lower case
 ///     ("femcboost", a folder) is matched in any case, because it is not an ordinary word.
 ///   - Every match is a whole word: "Acmes" and "subAcme" are not "Acme".
+///   - **Spacing is not part of a name**: any run of spaces, tabs or line breaks between its words
+///     matches any run in the text, so "Jane\nDoe" listed is "Jane Doe" written, and the other way
+///     round ([`needle_of`]). At least one is still needed: "JaneDoe" is one word.
 ///   - **File paths**: any word with a `/` or a `\` in it, except a web address (`https://…`, with no `\`),
 ///     "and/or", "w/", "w/o", "n/a", "24/7", and an all-digit fraction or date ("1/2", 10/09/2026).
 ///     The whole line it is on is left out, so no space, comma, bracket, quote or ". " in a
@@ -220,11 +223,11 @@ impl Scrubber {
         let mut rich = distinct(rich);
         let mut kept: Vec<PrivateTerm> = Vec::new();
         for term in app {
-            let one_word = !term.text.contains(char::is_whitespace);
+            let one_word = term.text.split_whitespace().count() < 2;
             if term.text.chars().count() < 2 || (one_word && term.kind == Kind::ConversationName) {
                 continue;
             }
-            if !kept.iter().chain(&rich).any(|k| folded(&k.text) == folded(&term.text)) {
+            if !kept.iter().chain(&rich).any(|k| key(&k.text) == key(&term.text)) {
                 kept.push(term);
             }
         }
@@ -330,14 +333,53 @@ fn folded(text: &str) -> String {
     text.chars().flat_map(fold_char).collect()
 }
 
-/// Where a match of the folded `needle` that starts at byte `start` of `text` ends, if one does:
-/// `text` is folded one character at a time, so the end is always a character boundary of the
-/// ORIGINAL text, whatever lengths the two spellings have ("ß" is one character and folds to two).
-fn folded_match_end(text: &str, start: usize, needle: &[char]) -> Option<usize> {
+/// **The same words, however they are spaced**: `text` with its letter case folded away
+/// ([`folded`]) and every run of spaces, tabs and line breaks as one space, ends trimmed. Two
+/// private words with one key are one word ([`distinct`], [`Scrubber::with_rich`]).
+fn key(text: &str) -> String {
+    text.split_whitespace().map(folded).collect::<Vec<_>>().join(" ")
+}
+
+/// What a match of `term` must hold, one folded character at a time ([`fold_char`]), with `None`
+/// for each run of spaces, tabs and line breaks between its words: any run in the term matches
+/// any run in the text, so "Jane\nDoe", "Jane  Doe" and "Jane Doe" are one name whichever of them
+/// Rich listed and whichever the text holds (review rv-20261009T173448Z-baf60f3c-c54d finding 1:
+/// on baf60f3c0 the draft joined a line before scrubbing it, Rich's "Jane\nDoe" kept its line
+/// break, and "Jane Doe" went public with no heads-up). Spaces before the first word and after
+/// the last are not part of it.
+fn needle_of(term: &str) -> Vec<Option<char>> {
+    let mut out = Vec::new();
+    for word in term.split_whitespace() {
+        if !out.is_empty() {
+            out.push(None);
+        }
+        out.extend(folded(word).chars().map(Some));
+    }
+    out
+}
+
+/// Where a match of `needle` ([`needle_of`]) that starts at byte `start` of `text` ends, if one
+/// does: `text` is folded one character at a time, so the end is always a character boundary of
+/// the ORIGINAL text, whatever lengths the two spellings have ("ß" is one character and folds to
+/// two). A `None` in the needle takes a whole run of whitespace in the text, one character or many;
+/// the needle neither starts nor ends with one, so a match starts and ends on a word.
+fn folded_match_end(text: &str, start: usize, needle: &[Option<char>]) -> Option<usize> {
     let mut matched = 0;
+    let mut in_space = false;
     for (i, c) in text[start..].char_indices() {
+        if c.is_whitespace() {
+            if !in_space {
+                if needle.get(matched) != Some(&None) {
+                    return None;
+                }
+                matched += 1;
+                in_space = true;
+            }
+            continue;
+        }
+        in_space = false;
         for f in fold_char(c) {
-            if needle.get(matched) != Some(&f) {
+            if needle.get(matched) != Some(&Some(f)) {
                 return None;
             }
             matched += 1;
@@ -354,9 +396,9 @@ fn folded_match_end(text: &str, start: usize, needle: &[char]) -> Option<usize> 
 /// boundary of `text`, so the stand-in replaces exactly the words as the user wrote them.
 /// `his`: Rich named it private, so it is matched in any letter case, one word or several.
 fn find_term(text: &str, term: &str, his: bool) -> Vec<(usize, usize)> {
-    let one_word = !his && !term.contains(char::is_whitespace);
-    let capitalized = term.chars().next().is_some_and(char::is_uppercase);
-    let needle: Vec<char> = folded(term).chars().collect();
+    let needle = needle_of(term);
+    let one_word = !his && !needle.contains(&None);
+    let capitalized = term.trim_start().chars().next().is_some_and(char::is_uppercase);
     let mut out = Vec::new();
     if needle.is_empty() {
         return out;
@@ -857,11 +899,12 @@ fn private_of(value: &serde_json::Value) -> Result<Vec<PrivateTerm>, String> {
     Ok(terms)
 }
 
-/// `terms` without repeats (the same words in any letter case are one term; the first kind wins).
+/// `terms` without repeats (the same words in any letter case, however spaced, are one term
+/// ([`key`]); the first kind wins).
 fn distinct(terms: impl IntoIterator<Item = PrivateTerm>) -> Vec<PrivateTerm> {
     let mut out: Vec<PrivateTerm> = Vec::new();
     for term in terms {
-        if !term.text.is_empty() && !out.iter().any(|t| folded(&t.text) == folded(&term.text)) {
+        if !key(&term.text).is_empty() && !out.iter().any(|t| key(&t.text) == key(&term.text)) {
             out.push(term);
         }
     }

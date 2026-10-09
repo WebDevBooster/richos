@@ -1104,3 +1104,41 @@ fn a_name_rich_lists_in_lower_case_is_left_out_when_the_app_holds_it_capitalized
     // Without Rich's word the app's rule stands: its capitalized one-word name is matched capitalized.
     assert_eq!(joined(&Scrubber::new(known).scrub(said)), said);
 }
+
+// ---- the review of baf60f3c0 (rv-20261009T173448Z-baf60f3c-c54d), fixture `privacy_probe.rs` ----
+
+#[test]
+fn a_name_rich_lists_across_a_line_break_is_left_out_where_the_draft_joins_the_line() {
+    // On baf60f3c0 the draft turned the line break in "Jane\nDoe" into a space before scrubbing,
+    // while Rich's private word kept its line break, so "Jane Doe" went public with no heads-up.
+    let said = r"Jane\nDoe saw the window freeze.";
+    let private = r#"[{"text": "Jane\nDoe", "kind": "person"}]"#;
+    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap();
+    assert_eq!(joined(&checked.draft.sections[0].paragraphs[0]), "[a person] saw the window freeze.");
+    // In a change, and in every later change written on one line.
+    let (add, kept) = scrub_change(&change_naming(said, private), &[], &[]);
+    assert_eq!(joined(&add), "[a person] saw the window freeze.");
+    let later = change_naming("jane doe and JANE  DOE saw it too.", "[]");
+    assert_eq!(joined(&scrub_change(&later, &[], &kept).0), "[a person] and [a person] saw it too.");
+    // And in the heads-up on the words as the card shows them.
+    assert_eq!(private_in_edit("Jane Doe saw the window freeze.", &[], &checked.draft.private), ["Jane Doe"]);
+}
+
+#[test]
+fn a_name_written_with_two_spaces_matches_the_same_name_written_with_one() {
+    // Any run of spaces, tabs or line breaks in a private name matches any run in the text,
+    // whichever side has more.
+    let said = "Jane Doe saw the window freeze.";
+    let private = r#"[{"text": "Jane  Doe", "kind": "person"}]"#;
+    let checked = checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap();
+    assert_eq!(joined(&checked.draft.sections[0].paragraphs[0]), "[a person] saw the window freeze.");
+    let (add, kept) = scrub_change(&change_naming(said, private), &[], &[]);
+    assert_eq!(joined(&add), "[a person] saw the window freeze.");
+    assert_eq!(private_in_edit(said, &[], &kept), ["Jane Doe"]);
+    let one = vec![PrivateTerm::new("Jane Doe", Kind::PersonName)];
+    assert_eq!(private_in_edit("Jane \t Doe saw it.", &[], &one), ["Jane \t Doe"]);
+    // The names RichOS holds go by the same rule.
+    assert_eq!(joined(&Scrubber::new(terms()).scrub("Dana\n  Whitfield called.")), "[a person] called.");
+    // A space still has to be there: "JaneDoe" is one word, not the name.
+    assert!(private_in_edit("JaneDoe saw it.", &[], &one).is_empty());
+}
