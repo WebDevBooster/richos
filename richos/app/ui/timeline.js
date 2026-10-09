@@ -2299,6 +2299,10 @@
         if (i > 0) {
           const icon = src.cloneNode(true);
           icon.classList.add("talk-icon-inline");
+          // D21: the button's own spoken name, so "tap ___ to talk to me" reads as a sentence.
+          icon.removeAttribute("aria-hidden");
+          icon.setAttribute("role", "img");
+          icon.setAttribute("aria-label", document.getElementById("talk-toggle").getAttribute("aria-label") || "Talk to Rich");
           frag.appendChild(icon);
         }
         if (part) frag.appendChild(document.createTextNode(part));

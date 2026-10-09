@@ -1630,8 +1630,14 @@ body.bp-narrow .first-run {
   outline-offset: 3px;
 }
 
+/* D21: the inline copies in the sentences follow the button's state (not animated). */
+body:has(#talk-toggle[aria-pressed="true"]) .talk-icon-inline .talk-icon-disc,
 #talk-toggle[aria-pressed="true"] .talk-icon-disc {
   fill: var(--on-gold);
+}
+
+body:has(#talk-toggle[aria-pressed="true"]) .talk-icon-inline .talk-icon-bar {
+  fill: var(--accent);
 }
 
 #talk-toggle[aria-pressed="true"] .talk-icon-bar {
