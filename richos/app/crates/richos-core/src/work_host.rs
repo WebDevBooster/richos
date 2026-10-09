@@ -4372,6 +4372,12 @@ impl WorkHost {
         }
         match self.open_assignments() {
             Ok(open) => {
+                // **A queue held because the back end would not open is not open work.** An update
+                // is the likeliest cure for a broken build, so counting those jobs would hold the
+                // very update that fixes it (and keep a windowless app open for nothing). A queue
+                // held for sign-in still counts: an update does not fix a sign-in.
+                let back_end_held = self.back_end_held_ids();
+                let open: Vec<Assignment> = open.into_iter().filter(|row| !back_end_held.contains(&row.id)).collect();
                 let awaiting_you = open.iter().filter(|row| self.pending_decision(row).is_some()).count();
                 crate::work_gate::BackgroundWork {
                     running: open.len() - awaiting_you,
@@ -4381,6 +4387,20 @@ impl WorkHost {
             }
             Err(_) => crate::work_gate::BackgroundWork { running: 0, awaiting_you: 0, readable: false },
         }
+    }
+
+    /// The ids of the fresh jobs waiting in a queue held because the back end would not open
+    /// ([`HoldCause::BackEnd`]); see [`Self::background_work`].
+    fn back_end_held_ids(&self) -> std::collections::HashSet<String> {
+        let backends: Vec<Arc<Backend>> = self.backends.lock().unwrap().values().cloned().collect();
+        let mut ids = std::collections::HashSet::new();
+        for backend in backends {
+            let inner = backend.inner.lock().unwrap();
+            if inner.held.as_ref().is_some_and(|held| matches!(held.cause, HoldCause::BackEnd(_))) {
+                ids.extend(inner.queue.iter().filter(|job| !job.resumed).map(|job| job.record.id.clone()));
+            }
+        }
+        ids
     }
 
     /// This conversation's back end, if one has been opened. Never creates one — a reader
@@ -6876,6 +6896,46 @@ mod tests {
         assert!(!notice.text.contains("cognition"), "a seam label reached his card: {}", notice.text);
         drop(notices);
         host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A queue held because the back end cannot open is not open work for the update check;
+    /// a queue held for sign-in still is** (an update fixes a broken build, not a sign-in).
+    /// Positive control: the held row is open in the register either way.
+    #[test]
+    fn a_queue_held_for_a_broken_back_end_does_not_block_an_update_but_one_held_for_sign_in_does() {
+        use crate::work_gate::{self, Liveness};
+        let h = harness(5);
+        struct Refusing;
+        impl LeaseFactory for Refusing {
+            fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
+                Err(CognitionError::Io("no".into()))
+            }
+            fn spawn_work(&self, _b: &ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
+                Err(CognitionError::Io("the build is broken".into()))
+            }
+        }
+        let host = WorkHost::new(&h.state, Box::new(Refusing), h.notices.clone(), Arc::clone(&h.desk));
+        host.start();
+        let receipt = host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Registered, "the job is held");
+        assert_eq!(host.open_assignments().unwrap().len(), 1, "positive control: the row is open");
+        assert_eq!(work_gate::background(&host.background_work(), &[]).0, Liveness::Clear,
+            "a queue held for a broken back end blocked the update that fixes it");
+        host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        let h = harness(5);
+        every_job_settles(&h, &["work-session-one"]);
+        h.host.start();
+        h.signed_out.store(true, Ordering::SeqCst);
+        let ids = vec![h.host.register(&h.binding, &registration(&h)).unwrap().id];
+        until("the job was not held for sign-in", || held_rows(&h, &ids, HELD_FOR_SIGN_IN));
+        assert_eq!(work_gate::background(&h.host.background_work(), &[]).0, Liveness::Busy,
+            "a queue held for sign-in must still count as open work");
+        h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
