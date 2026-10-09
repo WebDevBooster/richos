@@ -16,15 +16,25 @@
 # PASS when:
 #   1  Bust a bug (Settings) starts the exchange in the conversation: Rich asks what went wrong;
 #   2  the answer typed in the composer comes back as the report card, "Not sent yet", with the
-#      company and the person replaced by stand-ins, and nothing has reached the endpoint;
+#      company, the person and A FILE PATH WITH SPACES IN IT (~/Library/Application Support/
+#      Client Plans/budget.xlsx) replaced by stand-ins, and nothing has reached the endpoint;
+#      Rich was given what was on the screen: its visible words (the conversation's "Noted.")
+#      and a JPEG picture of the window, taken with no permission prompt, and the digest says
+#      "Looked at the screen you were on" (second review rv-20261009T102303Z-1c3dda1d-4c78,
+#      findings 1 and 6);
 #   3  Send with the endpoint down leaves the card "Waiting to send · saved on this Mac", with
 #      Rich's offline line, and the report on disk under bug-reports/waiting;
 #   4  once the endpoint is up, the report goes out BY ITSELF: the card says "Sent · #412",
 #      Rich says "You're back online, so I sent your bug report.", the endpoint received one
 #      POST to /repos/WebDevBooster/richos/issues with "Bearer <the keychain token>", and its
 #      body carries neither the company nor the person;
-#   5  screenshots of the report, the waiting card and the sent card in the dark theme and the
-#      light theme, for comparison with round 21.
+#   5  CANCEL WHILE A SEND IS IN FLIGHT (the same review, finding 2): a second report waits
+#      (endpoint down), the endpoint comes back holding its answer 15 s, and Cancel report is
+#      pressed while the retry's request is in flight. The card says "Canceling…", then
+#      "Sent · #413", and Rich says "It had already gone out before I could cancel it."; never
+#      "Canceled · nothing sent" and never "Nothing was sent";
+#   6  screenshots of the report, the waiting card, the sent card and the in-flight cancel in the
+#      dark theme and the light theme, for comparison with round 21.
 #
 # run-walk.py passes the VM name first, and quits the app, stops the guest and deletes the
 # clone when this returns (CEO §54). EXIT STATUS: 0 only when every capture was saved and
@@ -38,6 +48,9 @@ PORT=8765
 TOKEN="walk-stand-in-token-$RANDOM$RANDOM"
 COMPANY='Northwind Traders'
 PERSON='Dana Whitfield'
+# A path as a Mac writes it: a folder macOS names with a space, then one the user named.
+# shellcheck disable=SC2088  # the tilde is the user's typed words, meant literally, never expanded
+SPACED_PATH='~/Library/Application Support/Client Plans/budget.xlsx'
 mkdir -p "$S"
 note() { echo "[walk] $(date -u +%H:%M:%SZ) $*" | tee -a "$S/walk.log"; }
 FAILS=()
@@ -45,7 +58,10 @@ fail() { note "FAILED: $1"; FAILS+=("$1"); }
 setup_failed() { note "FAILED: $1; nothing to walk"; exit 1; }
 finish() {
   "$T/guest.sh" "$VM" "cat $G/stand-in.log 2>/dev/null; true" > "$S/stand-in.log" 2>&1
+  "$T/guest.sh" "$VM" "cat $G/stand-in-2.log 2>/dev/null; true" > "$S/stand-in-2.log" 2>&1
   "$T/guest.sh" "$VM" "cat $G/writer-prompts.log 2>/dev/null; true" > "$S/writer-prompts.log" 2>&1
+  # The stand-in this walk started, by the PID it recorded at its start, never by its name.
+  "$T/guest.sh" "$VM" "test -s $G/stand-in.pid && kill \$(cat $G/stand-in.pid) 2>/dev/null; true" >/dev/null 2>&1
   if [ "${#FAILS[@]}" -gt 0 ]; then
     note "done, with ${#FAILS[@]} failed step(s): $(printf '%s; ' "${FAILS[@]}")"
     exit 1
@@ -141,7 +157,7 @@ check "Rich asks what went wrong" "Rich did not ask" wait_text 'What went wrong?
 "$T/shot.sh" "$VM" "$S/1-ask-dark.png" || fail "capture 1-ask-dark"
 
 # ---- 2. the answer, Rich's write-up, the card ----
-"$T/ax.sh" "$VM" type "In the $COMPANY chat the names on the left get cut off when I make the text bigger." --role AXTextArea --first --replace || fail "typing the answer"
+"$T/ax.sh" "$VM" type "In the $COMPANY chat the names on the left get cut off when I make the text bigger. My notes in $SPACED_PATH are gone too." --role AXTextArea --first --replace || fail "typing the answer"
 "$T/ax.sh" "$VM" --key 36 || fail "Return"
 check "the report card, not sent yet" "no report card" wait_text 'Not sent yet' 40
 # Asked node by node: a whole-tree read of the conversation outlasts ax.sh's 20 s deadline on a
@@ -149,10 +165,19 @@ check "the report card, not sent yet" "no report card" wait_text 'Not sent yet' 
 check "the company is a stand-in" "no [a company] stand-in on the card" wait_text '[a company]' 3
 check "the person is a stand-in" "no [a person] stand-in on the card" wait_text '[a person]' 3
 refuse "the person's name is on the card" wait_text "$PERSON" 1
+check "the path with spaces is a stand-in" "no [a file on this Mac] stand-in on the card" wait_text '[a file on this Mac]' 3
+refuse "part of the path with spaces is on the card" wait_text 'Client Plans' 1
+refuse "the file's name is on the card" wait_text 'budget.xlsx' 1
 check "From the RichOS reporting account" "no From line" wait_text 'the RichOS reporting account' 3
+check "Rich says he looked at the screen" "no 'Looked at the screen you were on' over Rich's answer" wait_text 'Looked at the screen you were on' 3
 refuse "something reached the endpoint before Send" "$T/guest.sh" "$VM" "test -s $G/stand-in.log"
 "$T/guest.sh" "$VM" "cat $G/writer-prompts.log" > "$S/writer-prompts.log" 2>&1 || true
 check "Rich was given the user's words" "Rich was not given the user's words" has 'cut off when I make the text bigger' "$S/writer-prompts.log"
+# What the user was looking at: the screen's words (the conversation's own reply) and a picture.
+check "Rich was given the screen's words" "the screen's words were not in Rich's prompt" has 'visible words top to bottom' "$S/writer-prompts.log"
+check "the screen's words are the conversation's" "the conversation's 'Noted.' was not among them" has 'Noted\.' "$S/writer-prompts.log"
+check "Rich was given a JPEG picture of the window" "no JPEG picture reached Rich" has '"media_type": "image/jpeg", "bytes": [0-9]*, "head": "ffd8ff' "$S/writer-prompts.log"
+"$T/guest.sh" "$VM" --pull "$G/rich-saw.jpg" "$S/2-rich-saw.jpg" || fail "pulling the picture Rich was given"
 both 2-report
 
 # ---- 3. Send while the endpoint is down: kept on this Mac ----
@@ -166,7 +191,7 @@ check "on disk, waiting, offline ($DATA/waiting)" "the waiting report is not on 
 both 3-waiting
 
 # ---- 4. the endpoint comes up: it goes out by itself ----
-"$T/guest.sh" "$VM" "nohup python3 $G/github-stand-in.py $PORT $G/stand-in.log >/dev/null 2>&1 & echo started" || fail "starting the stand-in"
+"$T/guest.sh" "$VM" "nohup python3 $G/github-stand-in.py $PORT $G/stand-in.log >/dev/null 2>&1 & echo \$! > $G/stand-in.pid; echo started" || fail "starting the stand-in"
 note "the stand-in endpoint is up; waiting for the report to go out by itself"
 check "Sent · #412, by itself" "the card never said Sent · #412" wait_text 'Sent · #412' 16
 check "Rich says it went out" "Rich did not say it went out" wait_text "You're back online, so I sent your bug report" 5
@@ -177,8 +202,50 @@ check "one POST to /repos/WebDevBooster/richos/issues" "$posts POSTs to the issu
 # (walk-8ee6e1037b37 logged `"authorization": "Bearer walk-…"`), so the name is matched in any case.
 check "the keychain's token, read at send time" "the request did not carry the keychain's token" grep -qiF "\"authorization\": \"Bearer $TOKEN\"" "$S/stand-in.log"
 refuse "a private name reached the endpoint" grep -q -e "$COMPANY" -e "$PERSON" -e Northwind -e Dana "$S/stand-in.log"
+refuse "the path with spaces reached the endpoint" grep -q -e 'Client Plans' -e 'budget.xlsx' -e 'Application Support' "$S/stand-in.log"
+check "the issue says a file was left out" "no file stand-in in the issue" grep -qF 'a file on this Mac' "$S/stand-in.log"
 check "the title Rich wrote" "the title is not Rich's" has 'Conversation names in the sidebar are cut off' "$S/stand-in.log"
 "$T/guest.sh" "$VM" "ls '$DATA/waiting' | wc -l; cat '$DATA/sent.jsonl'" > "$S/4-store.txt" 2>&1 || true
 check "recorded as sent" "not recorded as sent" has '"number":412' "$S/4-store.txt"
 both 4-sent
+
+# ---- 5. Cancel while a send is in flight: it went out, and Rich says so ----
+# The endpoint goes down again (the stand-in this walk started, by its recorded PID).
+"$T/guest.sh" "$VM" "kill \$(cat $G/stand-in.pid)" || fail "stopping the stand-in"
+"$T/ax.sh" "$VM" click --title 'Settings' --first || fail "the Settings button (second report)"
+sleep 1
+"$T/ax.sh" "$VM" click --title 'Bust a bug!' --contains || fail "the Bust a bug button (second report)"
+sleep 2
+"$T/ax.sh" "$VM" type "The Send button flickers when I press it." --role AXTextArea --first --replace || fail "typing the second answer"
+"$T/ax.sh" "$VM" --key 36 || fail "Return (second report)"
+check "the second report card" "no second report card" wait_text 'Not sent yet' 40
+"$T/ax.sh" "$VM" click --title 'Send report' || fail "Send report (second report)"
+check "the second report waits to send" "the second report never said Waiting to send" wait_text 'Waiting to send' 12
+# Back up, holding each answer 15 s (under the app's 25 s request timeout): the retry loop's
+# request arrives and is IN FLIGHT, holding the one-send-at-a-time lock, while Cancel is pressed.
+"$T/guest.sh" "$VM" "nohup python3 $G/github-stand-in.py $PORT $G/stand-in-2.log 15 413 >/dev/null 2>&1 & echo \$! > $G/stand-in.pid; echo started" || fail "starting the holding stand-in"
+arrived=no
+for _ in $(seq 1 45); do
+  if "$T/guest.sh" "$VM" "test -s $G/stand-in-2.log" >/dev/null 2>&1; then arrived=yes; break; fi
+  sleep 2
+done
+if [ "$arrived" = yes ]; then
+  note "ok: the retry's request is in flight"
+  "$T/ax.sh" "$VM" click --title 'Cancel report' || fail "Cancel report while the send was in flight"
+  check "the card says Canceling…" "the card never said Canceling…" wait_text 'Canceling…' 3
+  "$T/shot.sh" "$VM" "$S/5-canceling-dark.png" || fail "capture 5-canceling-dark"
+  check "Sent · #413: it had gone out" "the card never said Sent · #413" wait_text 'Sent · #413' 15
+  check "Rich says it had already gone out" "Rich did not say it had already gone out" wait_text 'It had already gone out before I could cancel it' 5
+  refuse "the card says canceled although it went out" wait_text 'Canceled · nothing sent' 1
+  refuse "Rich says nothing was sent although it went out" wait_text 'Nothing was sent' 1
+  "$T/guest.sh" "$VM" "cat $G/stand-in-2.log" > "$S/stand-in-2.log" 2>&1 || true
+  posts=$(grep -c '"path": "/repos/WebDevBooster/richos/issues"' "$S/stand-in-2.log" || true)
+  check "the second report was filed once" "$posts POSTs for the second report, not 1" test "$posts" = 1
+  "$T/guest.sh" "$VM" "ls '$DATA/waiting' | wc -l; cat '$DATA/sent.jsonl'" > "$S/5-store.txt" 2>&1 || true
+  check "nothing left waiting" "a report is still waiting on disk" grep -qx -e ' *0' "$S/5-store.txt"
+  check "recorded as sent, #413" "#413 is not recorded as sent" has '"number":413' "$S/5-store.txt"
+  both 5-canceled-in-flight
+else
+  fail "the retry's request never reached the holding stand-in in 90 s"
+fi
 finish
