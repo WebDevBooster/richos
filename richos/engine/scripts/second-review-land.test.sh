@@ -14,7 +14,10 @@
 # with a verdict on an older commit, refused on changes requested, allowed with
 # a passing verdict on the tip, a plain merge, a fast-forward, a direct commit
 # and a codex/ branch refused the same way, an unlisted repository untouched,
-# status naming a launcher that disagrees) and
+# a repository taken as unreviewed only on positive evidence from every
+# governing declaration, so a missing, gone, dangling or unreadable one, or an
+# unreadable registry, repository or launcher, refuses instead, status naming a
+# launcher that disagrees) and
 # SecondReview_AMidJobVerdictReachesTheRunningTeammate
 # (scripts/hooks/deliver-review-verdict.sh and scripts/lib/review_delivery.py).
 # This suite runs only those two classes, so a change to any of those files

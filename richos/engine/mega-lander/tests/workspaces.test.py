@@ -4561,6 +4561,198 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.assertTrue(res["landed"])
         self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
 
+    # -- "not reviewed" needs positive evidence for every governing entity ----------
+    # Review rv-20261009T042243Z-42ecc969-5f85 was the fourth in a row to find a
+    # way the answer fell back to "not reviewed" with the launcher gone. A
+    # repository is now unreviewed only when every governing declaration was
+    # read and does not list it, or the entity is a spawning one whose
+    # directory exists with no orchestration.config in it. Each case below was
+    # a way that answer came out "not reviewed" without that evidence.
+
+    def refused_unread(self, name, *expected):
+        """merge_and_land(name) refuses, merging nothing, naming each of `expected`."""
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land(name, self.sid)
+        self.assertIn("SECOND REVIEW: cc/%s was not merged into" % name, str(e.exception))
+        for text in expected:
+            self.assertIn(text, str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        return str(e.exception)
+
+    def unfenced(self):
+        """No fence for self.other: launcher and registry entry removed by
+        `operator-fences.sh uninstall`, so only the spawning entity governs."""
+        run("bash", self.fences, "uninstall", "--repo", self.other, "--entity", self.decl)
+        self.assertNotIn(self.other, self.registry()["repositories"])
+        self.assertFalse(os.path.exists(os.path.join(self.other, ".git", "hooks", "reference-transaction")))
+
+    def set_entity(self, name, entity):
+        rec = ws._resolve(name, self.sid)
+        rec["entity"] = entity
+        ws.save_agent(rec)
+
+    def test_second_review_a_recorded_entity_whose_declaration_is_gone_is_refused(self):
+        """Review rv-20261009T042243Z-42ecc969-5f85, finding 1 (its fixture
+        missing_governing_config.py): once install had recorded the entity,
+        deleting its orchestration.config, or retiring the entity's directory,
+        was read as "lists nothing", and with the launcher gone an unreviewed
+        tip landed. The registry says a declaration governed this repository,
+        so its absence is not evidence of anything: refused, naming how to
+        restore it or record the entity that governs it now."""
+        config = os.path.join(self.decl, "orchestration.config")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv19")
+        os.rename(config, config + ".away")
+        self.refused_unread("zach-opus-rv19", "the fence registry records that %s's fence was installed from %s"
+                            % (self.other, os.path.realpath(self.decl)), "%s is missing" % config,
+                            "operator-fences.sh install --repo %s" % self.other)
+        retired = self.decl + ".retired"
+        os.rename(self.decl, retired)                               # the entity's worktree retired
+        self.refused_unread("zach-opus-rv19", "%s is gone with its directory" % config)
+        with open(self.decl, "w") as f:                             # ENOTDIR: a file where it was
+            f.write("not an entity\n")
+        self.refused_unread("zach-opus-rv19", "%s is gone with its directory" % config)
+        os.remove(self.decl)
+        os.rename(retired, self.decl)
+        os.rename(config + ".away", config)
+        self.refused_unread("zach-opus-rv19", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv19", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_spawning_entity_that_no_longer_exists_is_refused(self):
+        """A spawning entity lists nothing only when its directory exists with no
+        orchestration.config in it. One whose directory is gone (a retired
+        worktree) or is not a directory gives no evidence either way, so it was
+        a way to "not reviewed" with no fence installed. Recreating the
+        directory without a declaration says it never had one."""
+        self.unfenced()
+        _cc, _tips = self.finished("zach-opus-rv20")
+        gone = os.path.join(self.env.root, "retired-entity")
+        self.set_entity("zach-opus-rv20", gone)
+        self.refused_unread("zach-opus-rv20", "the entity %s that governs this work is gone" % gone)
+        with open(gone, "w") as f:
+            f.write("not an entity\n")
+        self.refused_unread("zach-opus-rv20", "the entity %s that governs this work is gone" % gone)
+        os.remove(gone)
+        os.makedirs(gone)
+        _merged, res = ws.merge_and_land("zach-opus-rv20", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_declaration_that_is_a_link_to_nothing_is_refused(self):
+        """An orchestration.config that is a symbolic link to nothing fails to
+        open exactly as an absent one does, but something was there: it is not
+        an entity that never had a declaration."""
+        self.unfenced()
+        config = os.path.join(self.entity, "orchestration.config")
+        os.symlink(os.path.join(self.env.root, "moved-away.config"), config)
+        _cc, _tips = self.finished("zach-opus-rv21")
+        self.refused_unread("zach-opus-rv21", "%s is a link to nothing" % config)
+        os.remove(config)
+        _merged, res = ws.merge_and_land("zach-opus-rv21", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_work_that_no_declaration_governs_is_refused(self):
+        """No record names an entity, this run resolved none and the fence
+        registry records none: nothing was read at all, and that was "not
+        reviewed". Naming the entity for this run lets the land read it."""
+        self.unfenced()
+        _cc, _tips = self.finished("zach-opus-rv22")
+        self.set_entity("zach-opus-rv22", "")
+        saved = os.environ.pop("RICHOS_ENTITY_ROOT_RESOLVED", None)
+        try:
+            self.refused_unread("zach-opus-rv22", "no declaration is known to govern")
+            os.environ["RICHOS_ENTITY_ROOT_RESOLVED"] = self.entity
+            _merged, res = ws.merge_and_land("zach-opus-rv22", self.sid)
+            self.assertTrue(res["landed"])
+        finally:
+            if saved is None:
+                os.environ.pop("RICHOS_ENTITY_ROOT_RESOLVED", None)
+            else:
+                os.environ["RICHOS_ENTITY_ROOT_RESOLVED"] = saved
+
+    def test_second_review_a_declaration_whose_assignment_cannot_be_read_is_refused(self):
+        """A SECOND_REVIEW_REPOS line the text reader cannot read as a plain
+        assignment (an unterminated quote, `export`, a shell expansion, words
+        after the value) was read as listing nothing, or as a value that
+        matches nothing. Neither review-watch nor the land can say what it
+        lists, so nothing is merged until the line is plain."""
+        config = os.path.join(self.decl, "orchestration.config")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv23")
+        for line in ('SECOND_REVIEW_REPOS="other\n', 'export SECOND_REVIEW_REPOS="other"\n',
+                     'SECOND_REVIEW_REPOS="$HOME/other"\n', 'SECOND_REVIEW_REPOS=richos other\n'):
+            with open(config, "w") as f:
+                f.write('OPERATOR_FENCES="on"\n' + line)
+            self.refused_unread("zach-opus-rv23", "%s assigns SECOND_REVIEW_REPOS" % config)
+        self.declare("other")
+        self.refused_unread("zach-opus-rv23", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv23", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_fence_registry_without_its_repositories_is_unknown(self):
+        """A fence registry that exists but holds no `repositories` table is not
+        the shape install writes. It was read as naming no entity, so the
+        entity it should name was never read."""
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv24")
+        saved = self.registry()
+        self.registry(lambda reg: reg.pop("repositories"))
+        self.refused_unread("zach-opus-rv24", "not the registry's shape")
+        self.registry(lambda reg: reg.update(saved))
+        self.refused_unread("zach-opus-rv24", "no second review of %s" % tip[:12])
+
+    def test_second_review_an_unreadable_launcher_is_refused_even_where_no_declaration_lists_it(self):
+        """The land honors the review ledger a fence launcher carries even where
+        no declaration lists the repository (the fence would ask it anyway).
+        An existing launcher that cannot be read was taken as carrying none;
+        whether that ledger applies is now unknown, so nothing is merged."""
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        _cc, _tips = self.finished("zach-opus-rv25")
+        os.chmod(hook, 0)
+        try:
+            self.refused_unread("zach-opus-rv25", "fence launcher %s cannot be read" % hook)
+        finally:
+            os.chmod(hook, 0o755)
+        _merged, res = ws.merge_and_land("zach-opus-rv25", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_repository_that_cannot_be_read_is_refused_even_where_no_declaration_lists_it(self):
+        """With the repository unreadable, neither the registry entry for it nor
+        its launcher can be found, and an unlisted repository was taken as
+        unreviewed. Shown at the land check itself, with only Git's answers
+        for this repository failing: first everywhere (the registry entry
+        cannot be found), then only where the launcher is looked for."""
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        F = ws._fence_program()
+        real = ws.git
+
+        def unreadable(cwd, *args, **kw):
+            if "--git-common-dir" in args:
+                return 128, "", "fatal: not a git repository"
+            return real(cwd, *args, **kw)
+
+        todo = [(self.other, "cc/unreadable", self.other, "b" * 40)]
+        with patch.object(ws, "_fence_program", return_value=F), \
+                patch.object(ws, "git", side_effect=unreadable):
+            with patch.object(F, "repo_paths", return_value=None):
+                with self.assertRaises(ws.SpecError) as e:
+                    ws._review_check(todo, [self.entity])
+            self.assertIn("SECOND REVIEW: cc/unreadable was not merged into", str(e.exception))
+            self.assertIn("the repository %s cannot be read, so the fence registry entry that governs it cannot "
+                          "be found" % self.other, str(e.exception))
+            with self.assertRaises(ws.SpecError) as e:
+                ws._review_check(todo, [self.entity])
+            self.assertIn("the repository %s cannot be read, so whether its fence launcher carries a review "
+                          "ledger cannot be established" % self.other, str(e.exception))
+        self.assertEqual(ws._review_check(todo, [self.entity]), {})    # readable, and listed nowhere
+
     def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
         r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
         self.assertNotIn("SECOND_REVIEW_REPOS", r.stdout)
