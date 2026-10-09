@@ -34,8 +34,30 @@ It prints the index's path on stdout. Then:
 - Speed: about 28 s for a 2.4-minute 1080p screen recording on this Mac, giving
   42 frames and a 270-word transcript (measured 2026-10-07).
 - Non-English speech: add `--lang <code>` or `--lang auto`.
-- A long recording: frames come at most 12 a minute; for more than about 10
-  minutes add `--every 15`, or read only the frames near the moments that matter.
+- A long recording: the 5-second floor alone is at most 12 frames a minute, but
+  scene changes come ON TOP of it and `--every` does not limit them (measured
+  2026-10-09: an 8.1-minute edited video gave 153 frames, 110 of them scene
+  changes, 18.8 a minute). Cap the count with `--budget N` (the frames are cut
+  into N equal runs, each keeps its biggest scene change, the first always stays),
+  e.g. `--budget 60`.
+- Skim, then zoom: add `--sheet 12` to also get contact sheets (12 frames tiled in
+  one JPEG under `<output-dir>/sheets/`, each listed in the index just before its
+  first frame; the full frames stay). Read the transcript and a few sheets first,
+  then cut frames only where it matters:
+
+  ```bash
+  ~/.claude/richos-engine/skills/watch-video/frames-at.sh <video-file> <dir> --at 02:06,05:30
+  ~/.claude/richos-engine/skills/watch-video/frames-at.sh <video-file> <dir> --window 02:06 02:26 --step 2
+  ```
+
+  Times are seconds, MM:SS or HH:MM:SS; it prints each full-size PNG's path. The
+  index's "Video file:" line names the video to pass.
+- A link instead of a file: `watch.sh <url> <output-dir>` downloads it with the
+  installed `yt-dlp` at up to 720p (`--height 1080` for small on-screen text), keeps
+  it as `<output-dir>/video.mp4`, then runs the same pipeline.
+- The index has one row per spoken sentence, each with its own time, so a frame
+  sits beside the sentence it goes with. A file's transcript is one channel;
+  speakers are not separated.
 - A recording with no sound still gets its frames; `watched.md` says there is no
   transcript.
 - Delete the output directory when your task is done.
