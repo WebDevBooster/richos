@@ -16,7 +16,7 @@ import re
 import sys
 
 PARA = re.compile(r"^\*\*\[([0-9:]+)\] ([^:]*):\*\* (.*)$")
-SPLIT = re.compile(r"(?<=[.!?])\s+(?=[\"'(]?[A-Z0-9])")
+SPLIT = re.compile(r"(?<=[.!?])[\"\u201d\u2019']?\s+(?=[\"'(\u201c\u2018]?[A-Z0-9])")
 
 
 def norm(word):
@@ -89,6 +89,19 @@ def main():
                             start = words[k][1]
                         pos = k + 1  # align the whole sentence before the next one
                         break
+                else:
+                    # A corrected name ("Deep Graham" -> "Deepgram") has no single
+                    # whisper word: consume the 1-3 original words it replaced, the
+                    # run sharing the longest start with it (at least 3 letters).
+                    best, best_j = 2, 0
+                    for j in range(1, 4):
+                        joined = "".join(x[0] for x in words[pos:pos + j])
+                        n = 0
+                        while n < min(len(joined), len(nw)) and joined[n] == nw[n]:
+                            n += 1
+                        if n > best:
+                            best, best_j = n, j
+                    pos += best_j
             if first:
                 secs = psecs  # the paragraph's own stamp, as before
             elif start is not None and start >= last:

@@ -214,6 +214,31 @@ if printf '%s\n' "$RREP" | grep -q '\*\*\[00:08\] Me:\*\* I can see it now\.$' \
 else
     bad "long/repeated sentence times (got: $RREP / $RLONG)"
 fi
+# A corrected name and a sentence ending inside closing quotes (second review
+# rv-20261009T115423Z-bb7800b5-73c3).
+printf '%s\n' '**[00:00] Me:** I use Deepgram. Deep learning comes next.' > "$SANDBOX/sent/name.md"
+cat > "$SANDBOX/sent/name.json" <<'JSON'
+{"transcription":[{"tokens":[
+ {"text":" I","offsets":{"from":0,"to":200}},{"text":" use","offsets":{"from":500,"to":700}},
+ {"text":" Deep","offsets":{"from":1000,"to":1200}},{"text":" Graham","offsets":{"from":1500,"to":1700}},
+ {"text":" Deep","offsets":{"from":10000,"to":10200}},{"text":" learning","offsets":{"from":10500,"to":10700}},
+ {"text":" comes","offsets":{"from":11000,"to":11200}},{"text":" next","offsets":{"from":11500,"to":11700}}]}]}
+JSON
+printf '%s\n' '**[00:00] Me:** Click "Save." Then close the window.' > "$SANDBOX/sent/quote.md"
+cat > "$SANDBOX/sent/quote.json" <<'JSON'
+{"transcription":[{"tokens":[
+ {"text":" Click","offsets":{"from":0,"to":200}},{"text":" \"Save.\"","offsets":{"from":500,"to":700}},
+ {"text":" Then","offsets":{"from":10000,"to":10200}},{"text":" close","offsets":{"from":10500,"to":10700}},
+ {"text":" the","offsets":{"from":11000,"to":11200}},{"text":" window.","offsets":{"from":11500,"to":11700}}]}]}
+JSON
+RNAME="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/name.md" "$SANDBOX/sent/name.json" 2>/dev/null || true)"
+RQUOTE="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/quote.md" "$SANDBOX/sent/quote.json" 2>/dev/null || true)"
+if printf '%s\n' "$RNAME" | grep -q '\*\*\[00:10\] Me:\*\* Deep learning comes next\.$' \
+    && printf '%s\n' "$RQUOTE" | grep -q '\*\*\[00:10\] Me:\*\* Then close the window\.$'; then
+    ok "a corrected name consumes the words it replaced; a sentence ending inside closing quotes splits (00:10, 00:10)"
+else
+    bad "corrected-name / closing-quote sentence times (got: $RNAME / $RQUOTE)"
+fi
 if ! grep -q 'LEFT channel' "$OUT/transcript.md" && grep -q 'speakers not separated' "$OUT/watched.md"; then
     ok "a file's transcript no longer claims LEFT = me, RIGHT = others; the index says one channel"
 else
