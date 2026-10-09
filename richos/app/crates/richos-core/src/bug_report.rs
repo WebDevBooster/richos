@@ -174,7 +174,8 @@ impl Segment {
 ///
 /// THE MATCHING RULES, each one a trade stated rather than a default inherited:
 ///
-///   - A name of **two or more words** is matched in any letter case ("acme deal").
+///   - A name of **two or more words** is matched in any letter case, in every alphabet ("acme
+///     deal", "CAFÉ NORTH" for "Café North", [`fold_char`]).
 ///   - A **one-word conversation name** is not matched at all (round 21 `privateTerms` does the
 ///     same): "Running" is a conversation in the demo and an ordinary word everywhere else.
 ///   - Any other **one-word name written Capitalized** ("Acme", "Deeply") is matched only where it
@@ -200,7 +201,7 @@ impl Scrubber {
             if term.text.chars().count() < 2 || (one_word && term.kind == Kind::ConversationName) {
                 continue;
             }
-            if !kept.iter().any(|k| k.text.eq_ignore_ascii_case(&term.text)) {
+            if !kept.iter().any(|k| folded(&k.text) == folded(&term.text)) {
                 kept.push(term);
             }
         }
@@ -279,34 +280,63 @@ fn char_after(text: &str, at: usize) -> Option<char> {
     text[at..].chars().next()
 }
 
+/// One character with its letter case folded away, in every alphabet: lower case, then upper,
+/// then lower again, so "É" and "é" are one letter, "Ë" and "ë", "Σ", "σ" and "ς", and "ß", "ẞ"
+/// and "SS" ("STRASSE" is "Straße"). Unicode's full case folding, built from the standard
+/// library's own case tables rather than a second table kept here (fourth review finding 1:
+/// ASCII-only folding left "CAFÉ NORTH" in a public report for the private name "Café North").
+fn fold_char(c: char) -> impl Iterator<Item = char> {
+    c.to_lowercase().flat_map(char::to_uppercase).flat_map(char::to_lowercase)
+}
+
+/// `text` with its letter case folded away ([`fold_char`]): the same words in any capitals
+/// fold to the same string.
+fn folded(text: &str) -> String {
+    text.chars().flat_map(fold_char).collect()
+}
+
+/// Where a match of the folded `needle` that starts at byte `start` of `text` ends, if one does:
+/// `text` is folded one character at a time, so the end is always a character boundary of the
+/// ORIGINAL text, whatever lengths the two spellings have ("ß" is one character and folds to two).
+fn folded_match_end(text: &str, start: usize, needle: &[char]) -> Option<usize> {
+    let mut matched = 0;
+    for (i, c) in text[start..].char_indices() {
+        for f in fold_char(c) {
+            if needle.get(matched) != Some(&f) {
+                return None;
+            }
+            matched += 1;
+        }
+        if matched == needle.len() {
+            return Some(start + i + c.len_utf8());
+        }
+    }
+    None
+}
+
 /// Whole-word, letter-case-aware occurrences of `term` in `text` (see [`Scrubber`]'s rules).
+/// Letter case is compared in every alphabet ([`fold_char`]); every offset is a character
+/// boundary of `text`, so the stand-in replaces exactly the words as the user wrote them.
 fn find_term(text: &str, term: &str) -> Vec<(usize, usize)> {
     let one_word = !term.contains(char::is_whitespace);
     let capitalized = term.chars().next().is_some_and(char::is_uppercase);
-    let needle = term.as_bytes();
-    let hay = text.as_bytes();
+    let needle: Vec<char> = folded(term).chars().collect();
     let mut out = Vec::new();
-    if needle.is_empty() || needle.len() > hay.len() {
+    if needle.is_empty() {
         return out;
     }
-    let mut i = 0;
-    while i + needle.len() <= hay.len() {
-        if !text.is_char_boundary(i) || !text.is_char_boundary(i + needle.len()) {
-            i += 1;
+    let mut skip_to = 0;
+    for (i, _) in text.char_indices() {
+        if i < skip_to {
             continue;
         }
-        let window = &hay[i..i + needle.len()];
-        if window.eq_ignore_ascii_case(needle) {
-            let end = i + needle.len();
-            let bounded = !char_before(text, i).is_some_and(is_word_char) && !char_after(text, end).is_some_and(is_word_char);
-            let case_ok = !(one_word && capitalized) || char_after(text, i).is_some_and(char::is_uppercase);
-            if bounded && case_ok {
-                out.push((i, end));
-                i = end;
-                continue;
-            }
+        let Some(end) = folded_match_end(text, i, &needle) else { continue };
+        let bounded = !char_before(text, i).is_some_and(is_word_char) && !char_after(text, end).is_some_and(is_word_char);
+        let case_ok = !(one_word && capitalized) || char_after(text, i).is_some_and(char::is_uppercase);
+        if bounded && case_ok {
+            out.push((i, end));
+            skip_to = end;
         }
-        i += 1;
     }
     out
 }
@@ -803,7 +833,7 @@ fn private_of(value: &serde_json::Value) -> Vec<PrivateTerm> {
 fn distinct(terms: impl IntoIterator<Item = PrivateTerm>) -> Vec<PrivateTerm> {
     let mut out: Vec<PrivateTerm> = Vec::new();
     for term in terms {
-        if !term.text.is_empty() && !out.iter().any(|t| t.text.eq_ignore_ascii_case(&term.text)) {
+        if !term.text.is_empty() && !out.iter().any(|t| folded(&t.text) == folded(&term.text)) {
             out.push(term);
         }
     }

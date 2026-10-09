@@ -689,3 +689,41 @@ fn a_short_home_path_does_not_panic() {
     let (text, _) = paths_left_out("~/a");
     assert_eq!(text, "[a file on this Mac]");
 }
+
+// ---- the fourth review's cases (rv-20261009T142223Z-3d74fe4c-3b6d, on 3d74fe4cb) ----
+
+/// `text` scrubbed with `terms`: the public words, and what each stand-in replaced.
+fn scrubbed_with(terms: Vec<PrivateTerm>, text: &str) -> (String, Vec<String>) {
+    let segments = Scrubber::new(terms).scrub(text);
+    let public = segments.iter().map(|s| s.text.as_str()).collect();
+    (public, segments.iter().filter_map(|s| s.was.clone()).collect())
+}
+
+#[test]
+fn a_private_name_in_other_capitals_is_left_out_in_every_alphabet() {
+    // Finding 1, fixture `privacy-probe.py`: on the tip the case folding was ASCII-only, so each
+    // of these stayed in the public report word for word.
+    let company = |t: &str| vec![PrivateTerm::new(t, Kind::CompanyName)];
+    let person = |t: &str| vec![PrivateTerm::new(t, Kind::PersonName)];
+    let a_company = Kind::CompanyName.stand_in();
+    let a_person = Kind::PersonName.stand_in();
+    for (terms, said, public, was) in [
+        (company("Café North"), "The CAFÉ NORTH window froze.", format!("The {a_company} window froze."), "CAFÉ NORTH"),
+        (person("Zoë Kim"), "ZOË KIM saw it too.", format!("{a_person} saw it too."), "ZOË KIM"),
+        (company("CAFÉ NORTH"), "The café north window froze.", format!("The {a_company} window froze."), "café north"),
+        // A capital-only spelling that is longer than the name: "ß" is written "SS" in capitals.
+        (company("Straße Partners"), "Ask STRASSE PARTNERS, then retry.", format!("Ask {a_company}, then retry."), "STRASSE PARTNERS"),
+        (company("Ωmega Σystems"), "The ωmega σystems sync stopped.", format!("The {a_company} sync stopped."), "ωmega σystems"),
+        // A one-word Capitalized name is still matched only where it is written with a capital.
+        (person("Zoë"), "ZOË saw it; zoë is also a word here.", format!("{a_person} saw it; zoë is also a word here."), "ZOË"),
+    ] {
+        let (text, left) = scrubbed_with(terms, said);
+        assert_eq!(text, public, "{said}");
+        assert_eq!(left, vec![was.to_string()], "{said}: the stand-in does not replace the words as written");
+    }
+    // Accents are letters, not case: "Cafe North" is not "Café North".
+    assert_eq!(scrubbed_with(company("Café North"), "The Cafe North menu.").0, "The Cafe North menu.");
+    // A name in other capitals is one term, not two.
+    let both = vec![PrivateTerm::new("Café North", Kind::CompanyName), PrivateTerm::new("CAFÉ NORTH", Kind::CompanyName)];
+    assert_eq!(Scrubber::new(both).terms().len(), 1);
+}
