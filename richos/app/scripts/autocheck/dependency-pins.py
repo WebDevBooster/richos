@@ -273,7 +273,20 @@ def report_floor(found):
     say("")
 
 
+def staged_symlinks():
+    """Tracked symlinks (mode 120000) in the index under the exported folders."""
+    listed = git("ls-files", "-s", "-z", "--", *EXPORTED).stdout
+    return [r.partition("\t")[2] for r in listed.split("\0") if r.startswith("120000 ")]
+
+
 def check():
+    # First, before any early return: an export cannot keep a symlink, so the verifier could read a
+    # dangling link and skip the call it carries, whether or not the commit names a declared path.
+    links = staged_symlinks()
+    if links:
+        say("")
+        say(f"=== COMMIT REFUSED: the reader check could not run ({links[0]} is a tracked symlink in the files the check exports, so the verifier could read a dangling link and skip the call it carries) ===")
+        return 1
     paths, base = branch_paths()
     if not paths:
         return 0

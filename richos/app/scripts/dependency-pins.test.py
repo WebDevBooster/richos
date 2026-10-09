@@ -449,6 +449,21 @@ class Floor(Fixture):
         text = self.refused_text("link through a directory link", "the reader check could not run")
         self.assertIn("tracked symlink", text)
 
+    def test_a_commit_adding_only_a_symlink_refuses(self):
+        # review rv-20261009T073546Z-36c1f8d7-e14d: no declared path is touched, so the early
+        # return for unmentioned paths used to pass it.
+        self.start()
+        self.write("richos/tools/new-helper.sh", "echo $TOKEN\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "target")
+        # land that, so the branch's own change is the symlink alone (no declaration, no reader)
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--ff-only", "feature")
+        self.git("checkout", "-q", "-b", "symlink-only")
+        os.symlink("../../tools/new-helper.sh", self.repo / "richos/engine/scripts/new-helper.sh")
+        text = self.refused_text("only a symlink", "the reader check could not run")
+        self.assertIn("tracked symlink", text)
+
     def test_an_inherited_external_refusal_is_not_new_because_the_export_folder_differs(self):
         self.start()
         self.mutate(lambda d: d["nodes"]["scripts/reader.sh"]["external"].append(
