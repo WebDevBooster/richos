@@ -710,6 +710,125 @@ def quick_suites(repo, commands):
             if c.startswith(UI_SUITE_LINE) and c[len(UI_SUITE_LINE):].strip() in quick]
 
 
+ANCHORS_LINE = "cd richos/engine && python3 scripts/mutation-anchors.py --quiet"
+
+
+def anchors_command(repo, paths):
+    """The mutant-anchor check as a one-element list when the change touches the engine and the
+    script exists, else []. The land adds it to its selection; the commit adds it to the fast
+    checks, so a mutant pointed at a line this branch changed is refused where it is made."""
+    if any(p.startswith("richos/engine/") for p in paths) and (repo.top / "richos/engine/scripts/mutation-anchors.py").is_file():
+        return [ANCHORS_LINE]
+    return []
+
+
+# THE FAST CHECKS RUN AT THE COMMIT TOO (CEO section 97, 2026-10-09). A merge into richos main
+# was refused at the end of a 25-minute gate by two checks that take seconds: mutation-anchors
+# .test.sh (about 4 s; a mutant pointed at a line the branch had changed) and
+# spawn-guard-audience.test.sh (about 3 s; a new hook not classified). Every commit had passed
+# here, because only the UI suites that weigh 0 ran. Now every selected check whose recorded
+# duration is short runs as well. The durations are the merge gate's own: proof-run.py keeps the
+# median of each check's last executions in <proof-runs>/<sha256(main checkout)[:12]>/weights.tsv
+# (record_weights); this reads that file, and the worktree's own, and keeps no list of its own.
+# A check with no recorded duration is not assumed fast; it runs at the land.
+FAST_SECONDS = 10.0        # a check whose recorded median is under this runs at the commit
+FAST_TOTAL_SECONDS = 40.0  # the most recorded time one commit spends on them; the rest wait for the land
+FAST_HANG_SECONDS = 120    # a fast check still running at this is a failure, as for the quick suites
+
+
+def recorded_durations(repo):
+    """{label: median seconds} from the merge gate's weights.tsv (proof-run.py history_samples:
+    `label <TAB> median [<TAB> samples]`). The main checkout's file wins over the worktree's."""
+    base = os.environ.get("RICHOS_PROOF_RUN_DIR") or (
+        "/Volumes/E1TB/state/richos/proof-runs" if sys.platform == "darwin"
+        else str(Path.home() / ".richos-nightly/proof-runs"))
+    found = {}
+    for root in (repo.top, repo.common.parent):   # later wins: the main checkout's
+        try:
+            wid = hashlib.sha256(str(root).encode()).hexdigest()[:12]
+            text = (Path(base) / wid / "weights.tsv").read_text(errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                try:
+                    found[parts[0]] = float(parts[1])
+                except ValueError:
+                    pass
+    return found
+
+
+def fast_candidates(repo, commands, durations):
+    """[(seconds, label, cwd, argv)] for the selected commands that proof-run.py would label and
+    whose recorded duration is under FAST_SECONDS. Labels follow proof-run.py plan(): an engine
+    unit is `engine <unit>`, a run-tests.sh suite is its name without `.test.sh`, a script is its
+    basename without `.test.sh`/`.sh`. Any other shape (cargo, node, unreadable) is not a candidate."""
+    out = []
+    for line in commands:
+        found = re.match(r"^cd (\S+) && (.+)$", line.strip())
+        if not found:
+            continue
+        try:
+            argv = shlex.split(found.group(2))
+        except ValueError:
+            continue
+        cwd = found.group(1)
+        if not argv or argv[0] in ("cargo", "node"):
+            continue
+        if argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in argv[:-1]:
+            units = [u for u in argv[argv.index("--only-units") + 1].split(",") if u]
+            for unit in units:
+                out.append(("engine " + unit, cwd, argv[:argv.index("--only-units") + 1] + [unit]))
+        elif argv[0] == "scripts/run-tests.sh" and "--only" in argv:
+            flags = [a for i, a in enumerate(argv[1:], 1) if a != "--only" and argv[i - 1] != "--only"]
+            for i, a in enumerate(argv[:-1]):
+                if a == "--only":
+                    suite = argv[i + 1]
+                    label = suite[:-len(".test.sh")] if suite.endswith(".test.sh") else suite
+                    out.append((label, cwd, ["scripts/run-tests.sh", *flags, "--only", suite]))
+        elif argv[0] in ("bash", "python3") and len(argv) >= 2 and not argv[1].startswith("-"):
+            label = re.sub(r"\.test\.sh$|\.sh$", "", os.path.basename(argv[1]))
+            out.append((label, cwd, argv))
+    seen, chosen = set(), []
+    for label, cwd, argv in out:
+        key = (cwd, tuple(argv))
+        if key in seen or label not in durations or durations[label] >= FAST_SECONDS:
+            continue
+        seen.add(key)
+        chosen.append((durations[label], label, cwd, argv))
+    return sorted(chosen, key=lambda row: (row[0], row[1]))
+
+
+def run_fast_checks(repo, what, commands):
+    """Run the selected checks that are fast by their recorded duration, fastest first, until
+    FAST_TOTAL_SECONDS of recorded time is spent. Returns (ran labels, 1 on a refusal else 0)."""
+    candidates = fast_candidates(repo, commands, recorded_durations(repo))
+    ran, spent = [], 0.0
+    for seconds, label, cwd, argv in candidates:
+        if spent + seconds > FAST_TOTAL_SECONDS:
+            continue
+        spent += seconds
+        say("+ (cd " + cwd + " && " + " ".join(shlex.quote(a) for a in argv) + ")")
+        try:
+            result = subprocess.run(argv, cwd=repo.top / cwd, env={**repo.env, **MUTATION_SWITCH},
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                    timeout=FAST_HANG_SECONDS)
+        except subprocess.TimeoutExpired:
+            banner(f"{what.upper()} REFUSED: {label} did not finish in {FAST_HANG_SECONDS} s",
+                   [f"Its recorded duration is {seconds:g} s; a hang is a failure, not a pass."])
+            return ran, 1
+        if result.returncode:
+            sys.stderr.write((result.stdout + result.stderr)[-4000:])
+            banner(f"{what.upper()} REFUSED: {label} failed for this branch", [
+                f"proof-for.sh selects it for this change and it takes {seconds:g} s, so it runs here; the land",
+                "would run it too and refuse. Its output is just above. Fix the branch and commit again.",
+            ])
+            return ran, 1
+        ran.append(label)
+    return ran, 0
+
+
 def branch_selection(repo, what, run_quick=True):
     started = time.monotonic()
     if not (repo.top / PROOF_FOR).is_file():
@@ -747,9 +866,17 @@ def branch_selection(repo, what, run_quick=True):
                 "Its output is just above. Fix the branch and commit again.",
             ])
             return 1
-    later = len(commands) - len(quick)
+    fast = []
+    if run_quick:
+        # What the land would run, minus what it leaves to the nightly (mutation passes, devices).
+        kept, _moved = for_the_nightly(repo, commands)
+        fast, rc = run_fast_checks(repo, what, kept + anchors_command(repo, paths))
+        if rc:
+            return 1
+    later = len(commands) - len(quick) - len(fast)
+    ran = quick + fast
     say(f"autocheck: {what}: the land's selection over the branch's {len(paths)} changed path(s) maps cleanly; "
-        f"ran {', '.join(quick) or 'no quick suite'}; {later} heavier check command(s) run at the land "
+        f"ran {', '.join(ran) or 'no quick suite'}; {max(later, 0)} heavier check command(s) run at the land "
         f"({time.monotonic() - started:.1f}s)")
     return 0
 
@@ -1024,7 +1151,7 @@ def land_check(repo, what, staged, range_argv, changed_lint=True, receipt=True):
     # the bare `python3 richos/mobile/physical.py scan` refused every land that selected it (2026-10-02).
     scanner = Path(PHYSICAL_CHECK)
     commands += [f"cd {scanner.parent} && python3 {scanner.name} scan"] if (repo.top / PHYSICAL_CHECK).is_file() else []
-    commands += ["cd richos/engine && python3 scripts/mutation-anchors.py --quiet"] if any(p.startswith("richos/engine/") for p in covered | set(staged)) and (repo.top / "richos/engine/scripts/mutation-anchors.py").is_file() else []  # every mutant's target text still exists (the passes run only in the nightly; ~1 s)
+    commands += anchors_command(repo, covered | set(staged))  # every mutant's target text still exists (the passes run only in the nightly; ~1 s)
     if nightly:
         say(f"autocheck: {what}: left to the nightly: " + ", ".join(f"{row['check']} ({row['why']})" for row in nightly))
     # The lint checks the application (it lives under richos/app). A land that changes nothing

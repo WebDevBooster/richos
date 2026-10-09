@@ -667,6 +667,51 @@ class Commit(Fixture):
         self.assertNotIn("node heavy.js", self.tools())
         self.assertEqual(self.recorded(), "")
 
+    def record_duration(self, label, seconds):
+        """The merge gate's recorded duration of a check (proof-run.py record_weights), where the
+        commit check reads it: <proof-runs>/<sha256(main checkout)[:12]>/weights.tsv."""
+        import hashlib
+        base = self.base / "proof-history"
+        wid = hashlib.sha256(str(self.repo.resolve()).encode()).hexdigest()[:12]
+        (base / wid).mkdir(parents=True, exist_ok=True)
+        (base / wid / "weights.tsv").write_text(f"{label}\t{seconds}\t{seconds}\n")
+        self.env["RICHOS_PROOF_RUN_DIR"] = str(base)
+
+    def test_a_selected_check_that_is_fast_by_its_recorded_duration_refuses_the_commit(self):
+        # 2026-10-09: a merge was refused at the end of a 25-minute gate by two checks of 3 and 4
+        # seconds (mutation-anchors.test.sh, spawn-guard-audience.test.sh); every commit had passed.
+        self.make()
+        self.record_duration("suite", 2.5)
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "BROKEN\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "breaks the owning suite", expect=1)
+        self.assertIn("COMMIT REFUSED: suite failed for this branch", out.stderr)
+        self.assertIn("suite: FAIL src/thing.txt is broken", out.stderr)
+
+    def test_a_fast_check_that_passes_does_not_refuse_the_commit_and_is_named(self):
+        self.make()
+        self.record_duration("suite", 2.5)
+        self.git("checkout", "-q", "-b", "feature")
+        self.write("richos/app/src/thing.txt", "fine, better\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "keeps the owning suite green")
+        self.assertIn("ran suite", out.stderr)
+        self.assertIn("suite-env", self.tools())
+
+    def test_a_check_recorded_as_slow_or_never_recorded_waits_for_the_land(self):
+        for label, seconds in (("suite", 40.0), ("other", 1.0)):   # slow; and fast but not selected
+            with self.subTest(label=label):
+                self.setUp()
+                self.make()
+                self.record_duration(label, seconds)
+                self.git("checkout", "-q", "-b", "feature")
+                self.write("richos/app/src/thing.txt", "BROKEN\n")
+                self.git("add", "-A")
+                out = self.git("commit", "-m", "broken, but the check is not a commit check")
+                self.assertIn("1 heavier check command(s) run at the land", out.stderr)
+                self.tearDown()
+
     def test_fast_forwarding_a_branch_onto_a_land_merge_records_no_skip(self):
         # 2026-09-29: echo-opus-speckle1 fast-forwarded its branch onto main's 5ddcce1c, a
         # land merge, and the ledger said "skipped the automatic checks (--no-verify)". No
