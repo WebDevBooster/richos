@@ -4338,6 +4338,9 @@
       "sha256": "0614a4e703d4dfb40af5650f2f6f8545383c4b756ffcd14455cd6d35833fb3c5",
       "evidence": "Reviewed sessions_dir, launcher_for/fenced, claude_session, alive, iso and JSON read/write helpers reached by claim-start. Local closure adds ancestors/lstart_epoch, repo_paths/git and read_launcher. Git calls read metadata; launcher content is parsed as data, never sourced. Native process identity is shared with the existing proc closure. No orchestration configuration.",
       "keys": [],
+      "literal_keys": {
+        "SECOND_REVIEW_REPOS": "Appears only in operator_fences.review_repos (the _REVIEW_READ bash text and its REVIEW_KEY). claim-start's reviewed closure (sessions_dir, launcher_for/fenced, claude_session, alive, iso, JSON helpers, ancestors, repo_paths, git, read_launcher) never calls review_repos, so the value is not read here."
+      },
       "edges": [
         {
           "to": "scripts/lib/operator_fences.py#proc"
@@ -5020,7 +5023,7 @@
       "source": "scripts/lib/operator_fences.py",
       "sha256": "0614a4e703d4dfb40af5650f2f6f8545383c4b756ffcd14455cd6d35833fb3c5",
       "evidence": "The fixed admin status dispatch imports operator_fences_admin. Its library callbacks are read_json, git, file_digest, read_launcher, repo_paths, _default_home and keyed_paths, and for the declared land-lease holders declared_holders, app_bundle and bundle_candidates (os.walk of a missing holder's app bundle; /usr/bin/codesign -d displays signatures, nothing in the bundle executes). Their only dynamic engine import is workspaces for land lock paths. The lease status/fence/install dispatches are not reached.",
-      "keys": [],
+      "keys": ["SECOND_REVIEW_REPOS"],
       "edges": [
         {
           "to": "scripts/lib/operator_fences_admin.py#status"
@@ -5062,6 +5065,9 @@
       "sha256": "0614a4e703d4dfb40af5650f2f6f8545383c4b756ffcd14455cd6d35833fb3c5",
       "evidence": "The fixed admin holders-notice dispatch imports operator_fences_admin and reaches cmd_holders_notice only. Its library callbacks are read_launcher, repo_paths, git, fenced, declared_holders, app_bundle and bundle_candidates (os.walk of a missing holder's app bundle; /usr/bin/codesign -d displays signatures, nothing in the bundle executes). With --repo the registry and the lease home are not read, so workspaces is not imported.",
       "keys": [],
+      "literal_keys": {
+        "SECOND_REVIEW_REPOS": "Appears only in operator_fences.review_repos. The holders-notice dispatch reaches cmd_holders_notice and the callbacks listed above; none calls review_repos, so the value is not read here."
+      },
       "edges": [
         {
           "to": "scripts/lib/operator_fences_admin.py#holders-notice"
@@ -8757,6 +8763,9 @@
       "sha256": "655a5b67f2bfad30a05b66c0683d23e60d025c1a66337e53938940fd85c37653",
       "evidence": "Reviewed all finite old/new mutation operands: local workspace predicates, records, Git queries and fixed helper calls. No mutant introduces a dynamic configuration reader or executable. Focused inner suite keeps the same fixture boundaries; copied configuration presence remains a harness input.",
       "keys": [],
+      "literal_keys": {
+        "SECOND_REVIEW_REPOS": "Single-quoted old/new source operands of the sr-reader-unset-read-as-empty mutant (the '\"${SECOND_REVIEW_REPOS+set}\"' text) and mutant descriptions; the mutated operator_fences.py reader is the actual reader, run only inside the declared inner suite."
+      },
       "edges": [
         {
           "to": "scripts/lib/mutation-harness.sh"
@@ -9054,6 +9063,9 @@
       "sha256": "0614a4e703d4dfb40af5650f2f6f8545383c4b756ffcd14455cd6d35833fb3c5",
       "evidence": "AST call/import inventory and all external execution boundaries reviewed for fence, lease, merge-owner, turn-end and early-check. Only engine imports are workspace lock paths and the claim predicate. Launcher assignments are data. Git uses the caller repository and its separately bound hooks. Admin is a separate dispatch. declared_holder's moved-holder test (2026-10-01) asks the kernel through ctypes (libSystem csops: the running ancestor's CS_VALID status and team) and runs only /usr/bin/codesign -d to display the bundle's signing team; nothing it finds executes. Renewed 2026-10-09 (second review, slice 3): the fence also reads the review ledger the launcher bakes (OPERATOR_FENCES_REVIEWS) and verdict records as JSON, and runs read-only Git queries (merge-base, rev-list, rev-parse) on the transaction's commits.",
       "keys": [],
+      "literal_keys": {
+        "SECOND_REVIEW_REPOS": "Appears only in operator_fences.review_repos. The fence, lease, merge-owner, turn-end and early-check dispatches reviewed here do not call it; the land check's own read lives in workspaces.py, bound by its own row."
+      },
       "edges": [
         {
           "to": "mega-lander/workspaces.py#land-lock-paths"
