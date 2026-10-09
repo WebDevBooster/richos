@@ -4015,7 +4015,7 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
             return os.path.realpath(repo)
         common = run("git", "-C", repo, "rev-parse", "--git-common-dir").stdout.strip()
         real = os.path.realpath(os.path.join(repo, common))
-        return os.path.dirname(real) if os.path.basename(real) == ".git" else real
+        return real
 
     def verdict(self, tip, verdict="passed", trigger="handover", findings=(), repo=None, legacy=False):
         rid = "rv-test-%s-%d" % (tip[:8], len(open(self.ledger).readlines()) if os.path.exists(self.ledger) else 0)
@@ -4190,6 +4190,41 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         with self.assertRaises(ws.SpecError):
             ws.merge_and_land("zach-opus-rv14", self.sid)
         self.assertEqual(self.head(), before)
+
+    def test_second_review_an_unresolvable_legacy_pass_blocks_even_over_an_older_pass(self):
+        cc, (tip,) = self.finished("zach-opus-rv15")
+        self.verdict(tip, "passed", repo=self.other)
+        self.verdict(tip, "passed", repo=cc, legacy=True)
+        run("git", "-C", self.other, "worktree", "remove", "--force", cc)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv15", self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_a_bare_clone_and_a_separate_git_dir_clone_are_two_repositories(self):
+        spec = importlib.util.spec_from_file_location(
+            "srv_ident", os.path.join(ENGINE, "scripts", "lib", "second_review.py"))
+        sr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sr)
+        base = os.path.join(self.env.root, "ident")
+        storage, local, foreign = (os.path.join(base, n) for n in ("storage", "local", "foreign"))
+        run("git", "clone", "-q", "--bare", "--no-hardlinks", self.other, storage)
+        run("git", "-C", storage, "worktree", "add", "-q", "--detach", local, "HEAD")
+        run("git", "clone", "-q", "--no-hardlinks", "--separate-git-dir", os.path.join(storage, ".git"),
+            self.other, foreign)
+        a, b = sr.repo_identity(local), sr.repo_identity(foreign)
+        self.assertEqual(a, os.path.realpath(storage))
+        self.assertEqual(b, os.path.realpath(os.path.join(storage, ".git")))
+        self.assertNotEqual(a, b)
+        F = ws._fence_program()
+        self.assertEqual(F.review_repo_identity(local), a)
+        self.assertEqual(F.review_repo_identity(foreign), b)
+        tip = run("git", "-C", local, "rev-parse", "HEAD").stdout.strip()
+        rows = [dict(id="local-refusal", repo=local, repo_id=a, tip=tip, verdict="changes-requested", trigger="manual"),
+                dict(id="foreign-pass", repo=foreign, repo_id=b, tip=tip, verdict="passed", trigger="manual")]
+        chosen, _ = F.review_of(rows, tip, local)
+        self.assertEqual(chosen["id"], "local-refusal")
 
     def test_second_review_an_unlisted_repository_is_not_refused(self):
         self.declare("")

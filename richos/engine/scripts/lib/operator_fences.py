@@ -1013,8 +1013,9 @@ def review_repo_resolved(repo):
     it (the common git directory), so every linked worktree of a repository has
     the identity of that repository while an independent clone stays distinct. A
     path Git cannot resolve (gone, moved, or not a repository) is its own real
-    path and is reported as unresolved; a git directory named .git stands for its
-    parent."""
+    path and is reported as unresolved. The common directory is stored and compared
+    exactly as Git reports it, never rewritten (a bare clone at `storage` and a
+    separate-git-dir clone at `storage/.git` are two repositories)."""
     real = os.path.realpath(repo or "")
     resolved = False
     if repo and os.path.isdir(real):
@@ -1023,7 +1024,7 @@ def review_repo_resolved(repo):
         if code == 0 and common:
             real = os.path.realpath(os.path.join(real, common))
             resolved = True
-    return (os.path.dirname(real) if os.path.basename(real) == ".git" else real), resolved
+    return real, resolved
 
 
 def review_repo_identity(repo):
@@ -1035,8 +1036,8 @@ def review_row_belongs(row, ident):
     identity second-review resolved when it WROTE the review (`repo_id`), so a
     worktree that is later moved or removed still resolves. A row without it
     (written before that) is resolved from its path; if the path no longer
-    resolves, its repository is unknown, so it counts against a land when it is
-    anything but a pass, and never as a pass."""
+    resolves, its repository is unknown, so it counts against a land whatever its
+    verdict (see review_row_standing)."""
     if not ident or not row.get("repo"):
         return False
     stored = row.get("repo_id")
@@ -1045,7 +1046,15 @@ def review_row_belongs(row, ident):
     found, resolved = review_repo_resolved(row["repo"])
     if resolved:
         return found == ident
-    return row.get("verdict") != "passed"
+    return True
+
+
+def review_row_standing(row):
+    """The row as it counts: an unresolved legacy row (no stored identity, path no
+    longer resolves) blocks like a changes-requested, even if it says passed."""
+    if row.get("repo_id") or review_repo_resolved(row.get("repo"))[1] or row.get("verdict") != "passed":
+        return row
+    return dict(row, verdict="changes-requested", unresolved_legacy_pass=True)
 
 
 def review_of(rows, tip, repo):
@@ -1053,7 +1062,7 @@ def review_of(rows, tip, repo):
     it). A row of another repository, or with no repository, never counts: the
     ledger is shared, and independent clones or forks can hold the same commit."""
     ident = review_repo_identity(repo) if repo else ""
-    mine = [r for r in rows if review_row_belongs(r, ident)]
+    mine = [review_row_standing(r) for r in rows if review_row_belongs(r, ident)]
     land = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]
     mid = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_MID_JOB]
     return (land[-1] if land else None), (mid[-1] if mid else None)

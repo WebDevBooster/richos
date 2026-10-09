@@ -944,8 +944,8 @@ def keep_fixtures(src, dest):
 
 
 def repo_identity(path):
-    """The canonical identity of the repository at `path`: the real path of its
-    main checkout, from Git's common directory. Recorded in every verdict row when
+    """The canonical identity of the repository at `path`: the real path of Git's
+    common directory, exactly as Git reports it. Recorded in every verdict row when
     the review is written, so a worktree moved or removed later still matches."""
     real = os.path.realpath(path or "")
     try:
@@ -956,7 +956,7 @@ def repo_identity(path):
             real = os.path.realpath(os.path.join(real, common))
     except (OSError, subprocess.TimeoutExpired):
         pass
-    return os.path.dirname(real) if os.path.basename(real) == ".git" else real
+    return real
 
 
 def review(a):
