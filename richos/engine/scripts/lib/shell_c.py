@@ -24,7 +24,7 @@ import json
 import re
 import sys
 
-SHELL_WORD = re.compile(r"(?<![\w.\-])(bash|sh|zsh|dash|ksh)(?=[\s<>'\"]|$)")
+SHELL_WORD = re.compile(r"(?<![\w.\-])(bash|sh|zsh|dash|ksh)(?![\w.\-])")
 OPTION_WORD = re.compile(r"(?<![\w\-])-[A-Za-z0-9-]*")
 
 MESSAGE = (

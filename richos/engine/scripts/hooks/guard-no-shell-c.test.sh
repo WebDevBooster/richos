@@ -108,6 +108,13 @@ check 2 P6 "ksh -c- (dash in the group)" "ksh -c- 'printf INLINE'"
 check 2 P7 "line continuation before -c" $'bash \\\n-c \'printf INLINE\''
 check 2 P7 "&> redirection before -c" "bash &>/dev/null -c 'printf INLINE'"
 check 2 P7 "pipe to grep -c after a shell word (accepted false positive)" "bash x.sh | grep -c y"
+check 2 P8 "&> attached to the shell name" "bash&>/dev/null -c 'printf INLINE'"
+check 2 P8 "line continuation attached to the shell name" $'bash\\\n-c \'printf INLINE\''
+check 2 P8 "pipe attached to the shell name" "bash|grep -c y"
+check 2 P8 "semicolon attached to the shell name" "bash; grep -c y"
+check 0 N4 "script name test.sh then -c word" "test.sh -c x"
+check 0 N4 "bashrc is not a shell word" "bashrc -c x"
+check 0 N4 "ssh -C host" "ssh -C host"
 check 0 N3 "unreadable payload" "x"
 out="$(printf 'not json' | bash "$HOOK" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "N3 unreadable payload passes" || bad "N3 unreadable payload" "rc=$rc $out"
