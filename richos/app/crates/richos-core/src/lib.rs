@@ -222,6 +222,10 @@ pub mod work_host;
 /// review, slice 4): mid-job reviews of the app's workers, and on an operator install the
 /// notices for his team's leads, sent as messages of the host's own.
 pub mod review_watch;
+/// `codex_reviews` — the Settings switch "Let Codex review your team's work" (round 20.2, ruling
+/// §114): the user's choice, saved where the app's review-watch reads it, and what the Mac reports
+/// about Codex (installed, signed in), from Codex's own `login status`.
+pub mod codex_reviews;
 
 /// **THE OPENING OF HIS TURN** (the CEO's ruling §55, 2026-09-18):
 ///   - `first_reply` — what the model did before he heard a word, and whether it was allowed

@@ -91,6 +91,12 @@ pub enum Mode {
         /// this child's environment is cleared, so a switch would otherwise never reach it (the
         /// real second review of 802194f0e, finding 1).
         accounts: PathBuf,
+        /// The Settings switch "Let Codex review your team's work"
+        /// (`<data>/`[`crate::codex_reviews::SETTING_FILE`], round 20.2). Read by the watcher when
+        /// each review starts: on, Codex reviews whenever it is installed and signed in, with the
+        /// isolation that keeps it out of the user's own Codex and ChatGPT apps; off (and on first
+        /// run), Claude.
+        codex_reviews: PathBuf,
     },
     /// The operator install's watcher over his team's registry.
     Operator {
@@ -154,8 +160,9 @@ impl ReviewWatch {
         let mut command = crate::runtime::interpreter_command(&launch.python);
         command.arg(&script).arg("--monitor").arg("--engine-root").arg(&launch.engine);
         match &launch.mode {
-            Mode::App { claude, accounts } => {
-                command.arg("--app-state").arg(&launch.state).arg("--accounts").arg(accounts);
+            Mode::App { claude, accounts, codex_reviews } => {
+                command.arg("--app-state").arg(&launch.state).arg("--accounts").arg(accounts)
+                    .arg("--codex-reviews").arg(codex_reviews);
                 if let Some(claude) = claude {
                     command.arg("--claude").arg(claude);
                 }
@@ -338,7 +345,10 @@ mod tests {
             environment: environment("/usr/bin:/bin:/usr/sbin:/sbin"),
             // The app's account list beside the state (the real second review of 802194f0e,
             // finding 1): an engine whose watcher refuses --accounts exits at once and fails here.
-            mode: Mode::App { claude: None, accounts: root.join(crate::claude_accounts::LIST_FILE) },
+            // And the Codex switch beside it (round 20.2): an engine whose watcher refuses
+            // --codex-reviews exits at once and fails here too.
+            mode: Mode::App { claude: None, accounts: root.join(crate::claude_accounts::LIST_FILE),
+                              codex_reviews: root.join(crate::codex_reviews::SETTING_FILE) },
         };
         let pid = ensure(&launch).unwrap();
         assert_eq!(ensure(&launch).unwrap(), pid, "a second call started a second watcher");
