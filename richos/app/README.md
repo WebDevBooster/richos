@@ -333,6 +333,44 @@ richos/app/
                               the technical view, re-prime machinery that is recorded and
                               structurally cannot render, no session id on the lane's wire,
                               the honest empty lane, and the retention window covering it
+    tests/bug_report_tests.rs 65 tests for Bust a bug (CEO §115, round 21): names (in
+                              any capitals, in every alphabet, with an accent
+                              encoded either Unicode way), file
+                              paths (any word with a slash or a backslash, relative
+                              ones and two plain words too, but not a web address
+                              without a backslash, "and/or", "w/", "w/o", "n/a", "24/7"
+                              or an all-digit fraction or date; the whole line it is
+                              on is left out), email addresses and every name Rich finds private
+                              (in any capitals, one word or several, whatever rule applies
+                              to the app's own names; kept for every later change; overlapping ones left out
+                              together) are replaced by stand-ins that
+                              keep what they replaced for the user's eyes only; the card's
+                              heads-up on the user's own changes is the same scrubber's
+                              answer (`private_in_edit`); Rich is
+                              given the screen's words and a picture of the window to
+                              check against (one stream-json message), and his write-up
+                              is read out of his answer; a report he could not check
+                              (an error, a timeout, no report in his answer, a section
+                              of his last pass that is not all there) is never
+                              offered for sending: it is kept on this Mac and he is
+                              asked again until he answers; the order is the CEO's (§115):
+                              the scanner first, Rich last (every prompt asks him for the
+                              report with this user's private details already left out,
+                              and his last pass, `finished`, given the report before and
+                              after the scanner, puts back what it hid that is not private
+                              and cleans up what it left), the card is his words and the issue is the card word
+                              for word, nothing after him changing a word; what is sent is
+                              decided in one place (`at_send`): the words Rich gave last,
+                              and words changed by hand or by telling Rich go through the
+                              scanner and then Rich first, his version shown before
+                              anything goes when it differs, or wait on this Mac when
+                              Claude cannot answer; a line break typed in a paragraph
+                              joins no two words; a send
+                              files one issue with the token read at send time; a failed
+                              send is kept on this Mac, survives a relaunch and goes out
+                              when it is due; canceling one is confirmed (off this Mac, or
+                              the issue it had already become, or an error and still
+                              waiting). Fake transport and credentials throughout
     tests/feedback_no_outbound_tests.rs 8 tests asserting an ABSENCE: no transport in the
                               module's shipping code, no network-capable dependency in the
                               crate, no other module consuming the feature, and an approval
@@ -1139,7 +1177,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1906 tests + 5 doc-tests (1902 direct, 4 ignored)
+cargo test -p richos-core                       # 1974 tests + 5 doc-tests (1970 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside

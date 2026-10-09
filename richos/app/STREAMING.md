@@ -871,3 +871,20 @@ session) each time that tool says something, and once when its socket closes.
 
 **A nudge, not a record.** The window reads the facts again with `dictation_status` when it hears
 `changed`; nothing in the payload is meant to be drawn. The Dictation sheet and its Settings row are the listener.
+
+## Bust a bug: `rich://bug-report`
+
+The thirteenth family, added 2026-10-09 for Bust a bug (CEO §115, round 21). Source of truth:
+`richos/app/src-tauri/src/bug_report.rs`, the constant `EVENT`, emitted by the loop that tries a
+report waiting on this Mac again once its rest is over (`spawn_retry`), for each one that went out.
+
+| Event name | When | Payload |
+|---|---|---|
+| `rich://bug-report` | A report that could not go when the user pressed Send (offline, GitHub down, no reporting account set up) went out by itself. | `{ delivery }`, a `Delivery::Sent`: `{ state: "sent", id, number, url, account, title, sent_at_ms }` |
+| `rich://bug-report` | Rich checked a report he could not check when the user told him (Claude failed, timed out or answered with no report), from the second loop (`spawn_check`). Said on every pass until the window takes it off this Mac (`bug_report_take_unchecked`). | `{ checked }`: `{ id, draft, digest, here }` |
+
+The report card waiting on that `id` turns to Sent and Rich says it went out; with no card on screen
+(after a relaunch) a notice says so. A report that is still waiting emits nothing. A checked report
+comes as its card, unsent, where the user told Rich about it; one kept before a relaunch comes in
+the Rich panel. No report is offered for sending without Rich's check (review
+rv-20261009T162841Z-69294215-70e6 finding 2).

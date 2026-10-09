@@ -1,0 +1,1416 @@
+// BUST A BUG — the conversation, the report card and the Rich panel (round 21).
+//
+// The CEO's §115 (2026-10-09), the acceptance criterion: "When the user has Claude set up in the
+// app (which is the expected default), we should just let the user say what's wrong and where and
+// let their Rich check and articulate everything properly and then submit a GitHub issue on their
+// behalf." Built exactly as richos-hq design/mockups/rounds/round-21/ shows it (approved "go!"):
+//
+//   ask -> checking -> draft <-> editing -> sending -> sent
+//            |           \-> canceled          \-> waiting (offline / GitHub down) -> sent
+//            \-> unchecked (Claude didn't answer: kept on this Mac, nothing to send) -> draft
+//   sending -> draft again (changed words went through the scanner and then Rich, and his
+//              version differs from the card)
+//   sending -> unchecked (changed words Claude didn't answer about: kept, nothing sent) -> draft
+//
+// No report is offered for sending without Rich's check (review rv-20261009T162841Z-69294215-70e6
+// finding 2): when Claude fails, times out or answers with no report, the shell keeps the user's
+// words on this Mac and answers `{state: "unchecked"}`; Rich says he couldn't check it yet, and the
+// shell asks him again by itself. When he has, `rich://bug-report` brings `{ checked }` and the
+// card comes then, unsent. A report kept before a quit comes in the Rich panel.
+//
+// What is SENT is decided by the shell alone, at Send (`bug_report_send`, `richos_core::
+// bug_report::at_send`), in the CEO's order (§115): the scanner first, Rich last, and nothing
+// after him changes the words. The card's words go as they are when they are the words Rich last
+// gave of this report (`f.report`). Words that changed (by hand, or a change told to Rich) go
+// through the scanner and then Rich first ("Rich is checking your changes…"); when his version
+// differs from the card, the card comes back with his version, to send or not; when Claude can't
+// answer they wait on this Mac, unsent, like any report he couldn't check. This file never decides
+// that a report may go.
+//
+// Pressing Bust a bug opens nothing new: Rich asks in the conversation on screen, under a quiet
+// "Bust a bug" divider. Where a window covers the conversation (Corrections, Feedback, Search, the
+// company picker), or there is no conversation that can take messages, the same exchange happens
+// in a Rich panel at the right and the window stays open beside it.
+//
+// WHAT IS NOT IN THIS FILE: what is private and its stand-ins, Rich's write-up, the issue's words,
+// the send and the keeping of what could not go. All of that is `richos_core::bug_report`, reached
+// through the `bug_report_*` commands, so the rule that decides what reaches GitHub, and what the
+// card's heads-up calls private, is in Rust and tested there. This file draws what those commands
+// answer. Everything it puts on screen is
+// built with textContent; nothing Rich or the user wrote is ever parsed as markup.
+"use strict";
+
+window.RichBug = (function () {
+  var host = null; // main.js's hooks (init)
+  var bridge = null;
+  var context = null; // bug_report_context: the account a report goes out as
+  var flows = [];
+  var seq = 0;
+  var dockVoice = false;
+
+  var GLYPH_BUG = [
+    "m8 2 1.88 1.88", "M14.12 3.88 16 2", "M9 7.13v-1a3.003 3.003 0 1 1 6 0v1",
+    "M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6", "M12 20v-9",
+    "M6.53 9C4.6 8.8 3 7.1 3 5", "M6 13H2", "M3 21c0-2.1 1.7-3.8 3.8-4", "M20.97 5c0 2.1-1.6 3.8-3.5 4",
+    "M22 13h-4", "M17.2 17c2.1.2 3.8 1.9 3.8 4",
+  ];
+  var GLYPH_EYEOFF = [
+    "M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49",
+    "M14.084 14.158a3 3 0 0 1-4.242-4.242",
+    "M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143",
+    "m2 2 20 20",
+  ];
+  var GLYPH_MIC = ["M19 10v1a7 7 0 0 1-14 0v-1", "M12 18v4"];
+
+  function svg(paths, cls, label) {
+    var ns = "http://www.w3.org/2000/svg";
+    var s = document.createElementNS(ns, "svg");
+    s.setAttribute("viewBox", "0 0 24 24");
+    s.setAttribute("fill", "none");
+    s.setAttribute("stroke", "currentColor");
+    s.setAttribute("stroke-width", "2");
+    s.setAttribute("stroke-linecap", "round");
+    s.setAttribute("stroke-linejoin", "round");
+    if (cls) s.setAttribute("class", cls);
+    if (label) {
+      s.setAttribute("role", "img");
+      s.setAttribute("aria-label", label);
+    } else s.setAttribute("aria-hidden", "true");
+    if (paths === GLYPH_MIC) {
+      var r = document.createElementNS(ns, "rect");
+      r.setAttribute("x", "9"); r.setAttribute("y", "2"); r.setAttribute("width", "6"); r.setAttribute("height", "12"); r.setAttribute("rx", "3");
+      s.appendChild(r);
+    }
+    for (var i = 0; i < paths.length; i++) {
+      var p = document.createElementNS(ns, "path");
+      p.setAttribute("d", paths[i]);
+      s.appendChild(p);
+    }
+    return s;
+  }
+
+  function node(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function $(id) { return document.getElementById(id); }
+
+  // ---- what is private: ASKED, never decided here ----------------------------------------------
+  // The card's heads-up after a change ("Acme looks private") is the answer of the same Rust
+  // scrubber that cleans the report (`bug_report_private_in`, `richos_core::bug_report::
+  // private_in_edit`), with the same private words. This file keeps no copy of the rules: its own
+  // copy fell behind the core three times (paths, file addresses and drives, then an address like
+  // alice@büro.de; fourth review finding 2). `f.private` is what Rich found private in this
+  // report (the draft's and every change's), so a name he left out once is named when the user
+  // types it back in. It never decides what is sent: the user may send anyway, having been told.
+  function askPrivate(text, f) {
+    return bridge.invoke("bug_report_private_in", { text: text, private: (f && f.private) || [] }).then(function (found) {
+      return Array.isArray(found) ? found : [];
+    });
+  }
+
+  // ---- where the user was -------------------------------------------------------------------
+  // [element, key, what the user calls it (the panel's header and Rich's sentence), the same
+  // place for the public report]. The three windows round 21 names first, then the other sheets
+  // that cover the conversation.
+  var WINDOWS = [
+    ["corrections-overlay", "corrections", "Corrections", "the Corrections window"],
+    ["feedback-overlay", "feedback", "Feedback", "the Feedback window"],
+    ["search-overlay", "search", "Search", "the Search window"],
+    ["entity-picker", "picker", "the company picker", "the window that asks which company a new conversation belongs to"],
+    ["setup-sheet", "setup", "the setup window", "the window that sets RichOS up"],
+    ["memory-setup", "setup", "the memory folder window", "the window that asks where RichOS keeps what it is told"],
+  ];
+  function openWindow() {
+    for (var i = 0; i < WINDOWS.length; i++) {
+      var n = $(WINDOWS[i][0]);
+      if (n && !n.hidden) return WINDOWS[i];
+    }
+    return null;
+  }
+  /// Close every window over the conversation with its own close (`main.js`'s `POPUP_CLOSERS`).
+  /// The two setup questions have none and stay: while one is up, Settings cannot be pressed.
+  function closeWindows() {
+    for (var w = openWindow(), n = 0; w && n < WINDOWS.length; w = openWindow(), n++)
+      if (!host || !host.closeWindow || !host.closeWindow(w[0])) return;
+  }
+  // ---- what was on the screen: for the user's own Rich to check against ----------------------
+  // Round 21: "Looked at the screen you were on". The words the user could SEE when they pressed
+  // Bust a bug, top to bottom: every text that is rendered, inside the window and inside every
+  // scrolling box around it (a conversation scrolled away is not on screen). The exchange itself,
+  // the Settings menu, notices and screen-reader-only text are not the screen. Private names stay
+  // in: this goes to the user's own Claude, never into the issue (second review finding 6).
+  var NOT_THE_SCREEN = "#bug-flows, #bugdock, #set-menu, #bug-toast, #bug-subtip, .sr-only, [aria-hidden='true'], [hidden], script, style, noscript, template";
+  var SCREEN_MAX = 12000;
+  function screenContent() {
+    var clipOf = new Map();
+    function visibleBox(el) {
+      if (!el || el === document.body || el === document.documentElement) return { l: 0, t: 0, r: window.innerWidth, b: window.innerHeight };
+      if (clipOf.has(el)) return clipOf.get(el);
+      var box = visibleBox(el.parentElement);
+      var st = getComputedStyle(el);
+      if (st.overflowX !== "visible" || st.overflowY !== "visible") {
+        var r = el.getBoundingClientRect();
+        box = { l: Math.max(box.l, r.left), t: Math.max(box.t, r.top), r: Math.min(box.r, r.right), b: Math.min(box.b, r.bottom) };
+      }
+      clipOf.set(el, box);
+      return box;
+    }
+    var lines = [], line = "", lastTop = null, total = 0;
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (var t = walker.nextNode(); t && total < SCREEN_MAX; t = walker.nextNode()) {
+      var words = t.textContent.replace(/\s+/g, " ").trim();
+      var el = t.parentElement;
+      if (!words || !el || el.closest(NOT_THE_SCREEN)) continue;
+      var st = getComputedStyle(el);
+      if (st.visibility === "hidden" || st.display === "none" || Number(st.opacity) === 0) continue;
+      var r = el.getBoundingClientRect();
+      var box = visibleBox(el.parentElement);
+      if (r.width === 0 || r.height === 0 || r.right <= box.l || r.left >= box.r || r.bottom <= box.t || r.top >= box.b) continue;
+      if (lastTop !== null && Math.abs(r.top - lastTop) > 4) { lines.push(line); line = ""; }
+      line = line ? line + " " + words : words;
+      lastTop = r.top;
+      total += words.length + 1;
+    }
+    if (line) lines.push(line);
+    return lines.join("\n").slice(0, SCREEN_MAX);
+  }
+
+  // ---- the two screens that cover the whole window ------------------------------------------
+  /// The opening screen, up and not yet going: the same reading as `home.js`'s `splashStillUp`.
+  function curtainUp() {
+    var s = window.RichSplash && window.RichSplash.state;
+    return !!(s && s.shown && !s.reason && $("splash"));
+  }
+  function homeOpen() {
+    return !!(window.RichHome && window.RichHome.isOpen && window.RichHome.isOpen());
+  }
+
+  function screenNow() {
+    var scale = window.RichTheme && window.RichTheme.scale ? window.RichTheme.scale() : 100;
+    var theme = document.documentElement.dataset.theme || "";
+    var techy = !!document.querySelector("#techy-chip:not([hidden])");
+    var base = { textSize: scale, theme: theme, technicalView: techy, conversation: null, content: screenContent() };
+    // Pressed on the held opening screen (the settings button is on it only while it is held,
+    // CEO §62): that is the screen the user was looking at, whatever is under it.
+    if (curtainUp())
+      return Object.assign(base, { key: "opening", dock: true, label: "the opening screen", here: "the opening screen", public: "the opening screen RichOS shows as it starts" });
+    var w = openWindow();
+    if (w) return Object.assign(base, { key: w[1], dock: true, label: w[2], here: w[2], public: w[3] });
+    var view = host ? host.view() : "conversation";
+    var thread = host ? host.activeThread() : null;
+    var title = thread && host ? host.threadTitle(thread) : "";
+    if (window.RichHome && window.RichHome.isOpen && window.RichHome.isOpen())
+      return Object.assign(base, { key: "home", dock: true, label: "the home screen", here: "the home screen", public: "the home screen, with a button for each company" });
+    if (view === "unbound")
+      return Object.assign(base, { key: "unbound", dock: true, label: title || "this conversation", here: title ? "the " + title + " conversation" : "a conversation", conversation: title || null, public: "a conversation that isn't filed under a company yet, where sending is off" });
+    if (view === "entity")
+      return Object.assign(base, { key: "company", dock: true, label: "this company's page", here: "a company's page", public: "a company's page, with its conversations" });
+    if (view !== "conversation" || !thread || (host && host.blocked()))
+      return Object.assign(base, { key: "other", dock: true, label: "this screen", here: "this screen", public: "a RichOS screen" });
+    return Object.assign(base, { key: "conversation", dock: false, label: title, here: "the " + (title || "current") + " conversation", conversation: title || null, public: "a conversation, the main RichOS screen" });
+  }
+
+  // ---- flows --------------------------------------------------------------------------------
+  // "changing": Rich is folding a change in; Send, Change it and Cancel wait for him.
+  // "withdrawing": a waiting report is being taken off this Mac (to cancel it or to change it),
+  // and nothing is said about it until the shell confirms what became of it.
+  // "unchecked": Rich could not check the report yet; it waits on this Mac with nothing to send.
+  var LIVE = ["ask", "checking", "unchecked", "draft", "editing", "changing", "sending", "queued", "withdrawing"];
+  var TAKES_WORDS = ["ask", "draft", "queued", "editing", "changing"];
+  function live(f) { return LIVE.indexOf(f.step) !== -1; }
+  function liveFlow() { return flows.filter(live)[0] || null; }
+  function dockFlow() { return flows.filter(function (f) { return f.dock; }).slice(-1)[0] || null; }
+
+  function box(f) { return f.dock ? $("bugdock-msgs") : f.el; }
+  function scroller(f) { return f.dock ? $("bugdock-msgs") : $("conversation"); }
+  function inputOf(f) { return f.dock ? $("bugdock-input") : $("input"); }
+
+  function scrollDown(f) {
+    window.setTimeout(paintStuck, 450);
+    var sc = scroller(f);
+    if (!sc) return;
+    window.requestAnimationFrame(function () { sc.scrollTop = sc.scrollHeight; });
+  }
+
+  /// One of Rich's lines, drawn the way the conversation draws his messages.
+  function richSays(f, lines, opts) {
+    opts = opts || {};
+    var wrap = node("div", "bug-turn");
+    if (opts.worked) {
+      var row = node("div", "tl-duration bug-worked");
+      row.dataset.tone = "done";
+      row.appendChild(node("span", "tl-duration-label", "Worked for " + opts.worked));
+      row.appendChild(node("span", "tl-rule"));
+      wrap.appendChild(row);
+    }
+    if (opts.digest) wrap.appendChild(node("p", "bug-digest", opts.digest));
+    var art = node("article", "tl-rich bug-rich");
+    art.appendChild(node("span", "sr-only", "Rich said"));
+    var meta = node("div", "tl-rich-meta");
+    meta.appendChild(node("span", "tl-who", "Rich"));
+    art.appendChild(meta);
+    lines.forEach(function (line) {
+      var p = node("p", "tl-prose bug-prose");
+      if (typeof line === "string") p.textContent = line;
+      else p.appendChild(line);
+      art.appendChild(p);
+    });
+    wrap.appendChild(art);
+    box(f).appendChild(wrap);
+    scrollDown(f);
+    if (host) host.announce(lines.filter(function (l) { return typeof l === "string"; }).join(" "));
+    return art;
+  }
+
+  function userSays(f, text, spoken) {
+    var art = node("article", "tl-user bug-user");
+    art.appendChild(node("span", "sr-only", spoken ? "You said aloud" : "You said"));
+    var bubble = node("div", "tl-user-bubble");
+    var t = node("div", "tl-user-text");
+    if (spoken) t.appendChild(svg(GLYPH_MIC, "bug-said", "Said aloud"));
+    t.appendChild(document.createTextNode(text));
+    bubble.appendChild(t);
+    art.appendChild(bubble);
+    box(f).appendChild(art);
+    scrollDown(f);
+  }
+
+  function working(f, words) {
+    var w = node("p", "bug-working");
+    w.setAttribute("role", "status");
+    w.appendChild(node("span", "bug-working-dot"));
+    w.appendChild(document.createTextNode(words));
+    box(f).appendChild(w);
+    scrollDown(f);
+    return w;
+  }
+
+  function placeholderFor(f) {
+    if (!f) return null;
+    if (f.step === "ask") return "Tell Rich what went wrong…";
+    if (f.step === "draft" || f.step === "queued" || f.step === "editing") return "Tell Rich what to change, or press Send…";
+    if (f.step === "changing") return "Tell Rich what else to change…";
+    return null;
+  }
+
+  function paintComposers() {
+    var f = liveFlow();
+    var dockInput = $("bugdock-input");
+    if (dockInput) dockInput.placeholder = (f && f.dock && placeholderFor(f)) || "Talk to Rich…";
+    if (host) host.syncComposer();
+    paintDock();
+    syncVoiceHold();
+  }
+
+  /// **START.** One report at a time: pressing it while one is in progress takes the user back to
+  /// it and pulses its card.
+  function start(seen) {
+    var cur = liveFlow();
+    if (cur) {
+      if (cur.dock) {
+        raiseDock(covered());
+        showDock();
+      } else {
+        // The report is in a conversation, and the home screen or a window (Corrections,
+        // Feedback, Search, the company picker) is in front of it: go to it. A window left open
+        // covered the report while the composer behind it took the keys (review of 665df1bb3).
+        if (homeOpen()) window.RichHome.hide("bug-report");
+        closeWindows();
+        if (host && cur.threadId !== host.activeThread()) host.openThread(cur.threadId);
+      }
+      if (cur.card) {
+        cur.card.classList.remove("is-flash");
+        void cur.card.offsetWidth;
+        cur.card.classList.add("is-flash");
+        cur.card.scrollIntoView({ block: "center" });
+      } else scrollDown(cur);
+      window.setTimeout(function () { var i = inputOf(cur); if (i) i.focus(); }, 0);
+      return cur;
+    }
+    var scr = seen || screenNow();
+    var f = { id: ++seq, dock: scr.dock, threadId: host ? host.activeThread() : null, screen: scr, step: "ask", el: node("section", "bugflow") };
+    f.el.dataset.flow = String(f.id);
+    f.el.setAttribute("aria-label", "Bust a bug");
+    flows.push(f);
+    if (f.dock) {
+      $("bugdock-msgs").textContent = "";
+      $("bugdock-where").textContent = "· " + scr.label;
+      raiseDock(covered());
+      showDock();
+    } else {
+      $("bug-flows").appendChild(f.el);
+      var dv = node("div", "bug-divider");
+      dv.appendChild(svg(GLYPH_BUG));
+      dv.appendChild(node("span", null, "Bust a bug"));
+      f.el.appendChild(dv);
+      sync();
+    }
+    var where =
+      scr.key === "conversation" ? "I've noted that you were on " + scr.here + "."
+      : scr.key === "unbound" ? "I've noted that you were on " + scr.here + ", which can't take messages yet, so we're talking here."
+      : openWindow() ? "I've noted that you were in " + scr.here + ", and it stays open beside us."
+      : "I've noted that you were on " + scr.here + ".";
+    var art = richSays(f, ["What went wrong? Tell me in your own words, typed or out loud, and where it happened if it wasn't here. " + where]);
+    var acts = node("div", "bug-actions-inline");
+    var nm = node("button", "desk-btn", "Never mind");
+    nm.type = "button";
+    nm.id = "bug-never-mind";
+    nm.addEventListener("click", function () { neverMind(f); });
+    acts.appendChild(nm);
+    art.appendChild(acts);
+    f.neverMind = acts;
+    paintComposers();
+    window.setTimeout(function () { var i = inputOf(f); if (i) i.focus(); }, 0);
+    return f;
+  }
+
+  /// **LOOK, THEN ASK.** What the user was looking at is read BEFORE the exchange draws anything:
+  /// the screen's words at once, and the shell's picture of the window (`bug_report_look`) before
+  /// Rich's question appears, so neither shows the exchange instead of the screen. A picture that
+  /// does not come within 1.5 s is not waited for; Rich then has the words.
+  function lookThenStart() {
+    if (liveFlow()) return start();
+    var seen = screenNow();
+    var started = false;
+    function go() {
+      if (started) return;
+      started = true;
+      start(seen);
+    }
+    bridge.invoke("bug_report_look").then(go, go);
+    window.setTimeout(go, 1500);
+  }
+
+  function neverMind(f, quiet) {
+    if (f.neverMind) { f.neverMind.remove(); f.neverMind = null; }
+    f.step = "closed";
+    if (!quiet) richSays(f, ["No problem. Nothing was written up or sent."]);
+    paintComposers();
+  }
+
+  /// **THE WORDS OF ONE PART OF THE CARD, WITH ITS LINE BREAKS KEPT.** A line break typed while
+  /// changing it is a `<br>` or a new `<div>` (WebKit makes a `<div>` for both Enter and
+  /// Shift+Enter inside a paragraph), and `textContent` drops both, so "Click" and "Send" on two
+  /// lines were read, and sent, as "ClickSend". Each is read as a line break here.
+  function wordsOf(el) {
+    var out = "";
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) out += c.data;
+        else if (c.nodeName === "BR") out += "\n";
+        else if (c.nodeType === 1) {
+          var block = /^(DIV|P|LI)$/.test(c.nodeName);
+          if (block && out && out.slice(-1) !== "\n") out += "\n";
+          walk(c);
+          if (block && out && out.slice(-1) !== "\n") out += "\n";
+        }
+      }
+    })(el);
+    return out.trim();
+  }
+
+  /// **A SECTION'S OWN FIELDS, EACH ONCE**: its paragraphs and its list's steps, as the card
+  /// draws them (`buildCard`), and never an element inside one of them. Whatever a field holds is
+  /// read with it by `wordsOf`; reading every `li` as well read a list inside a step twice, so
+  /// Send read words the card showed once (review rv-20261009T225657Z-b3b5c573-96c0).
+  function fieldsIn(sec) {
+    var paragraphs = [], steps = [];
+    Array.prototype.forEach.call(sec.children, function (n) {
+      if (n.nodeName === "P") paragraphs.push(n);
+      else if (n.nodeName === "OL") Array.prototype.forEach.call(n.children, function (li) { if (li.nodeName === "LI") steps.push(li); });
+    });
+    return { paragraphs: paragraphs, steps: steps };
+  }
+  /// Every field of the card (or of a copy of its `.bug-doc`): what can be changed by hand, what
+  /// the heads-up reads and what Send reads are the same fields.
+  function fieldsOf(root) {
+    var all = [root.querySelector(".bug-title")];
+    Array.prototype.forEach.call(root.querySelectorAll(".bug-sec"), function (s) {
+      var own = fieldsIn(s);
+      all = all.concat(own.paragraphs, own.steps);
+    });
+    return all;
+  }
+
+  function sheetOf(f) {
+    var c = f.card;
+    return {
+      title: wordsOf(c.querySelector(".bug-title")),
+      sections: Array.prototype.map.call(c.querySelectorAll(".bug-sec"), function (s) {
+        var own = fieldsIn(s);
+        return {
+          heading: s.querySelector("h4").textContent.trim(),
+          paragraphs: own.paragraphs.map(wordsOf).filter(Boolean),
+          steps: own.steps.map(wordsOf).filter(Boolean),
+        };
+      }),
+    };
+  }
+
+  function worked(ms) {
+    var t = window.RichTimeline && window.RichTimeline.formatDuration ? window.RichTimeline.formatDuration(ms) : null;
+    return t || "1s";
+  }
+
+  /// **THE USER'S WORDS**: the answer to Rich's question, or a change to the report.
+  function say(f, text, spoken) {
+    if (f.step === "ask") {
+      if (f.neverMind) { f.neverMind.remove(); f.neverMind = null; }
+      userSays(f, text, spoken);
+      f.step = "checking";
+      paintComposers();
+      var w = working(f, "Rich is checking…");
+      bridge.invoke("bug_report_write", { answer: text, screen: publicScreen(f.screen) }).then(function (answer) {
+        w.remove();
+        if (answer && answer.state === "unchecked") return keptUnchecked(f, answer.id);
+        showDraft(f, answer, HERE_IT_IS, worked(answer.workedMs));
+      }).catch(function (e) {
+        w.remove();
+        f.step = "ask";
+        richSays(f, [typeof e === "string" && e ? e : "I couldn't write that up just now. Tell me again and I'll try once more."]);
+        paintComposers();
+      });
+      return;
+    }
+    // A change, said to Rich: he folds it into the report, which waits for approval again.
+    if (f.step === "withdrawing") return; // the card says what is happening; the words wait for it
+    userSays(f, text, spoken);
+    if (f.step === "changing") {
+      // He is still making the last change: this one follows it, in the order said.
+      (f.nextChanges = f.nextChanges || []).push(text);
+      return;
+    }
+    if (f.step === "editing") finishEdit(f);
+    if (f.step === "queued" && f.pendingId) {
+      // A changed report is approved again, so the copy waiting on this Mac must not go out
+      // first: it is taken off, CONFIRMED, before Rich changes a word.
+      return withdraw(f, "change", function () { askChange(f, text, true); });
+    }
+    askChange(f, text, false);
+  }
+
+  var HERE_IT_IS = "Here's the report as I'd file it. Nothing goes out until you press Send. Anyone can read GitHub issues, so I left out names, company details and file paths.";
+  var NOT_CHECKED = "I couldn't check this report for private details yet, because Claude didn't answer, so it isn't ready to send. It's saved on this Mac, and I'll check it by myself as soon as Claude answers, then show it to you here.";
+
+  var CHECKING_CHANGES = "Rich is checking your changes…";
+  var CHANGES_NOT_CHECKED = "I couldn't check your changes for private details yet, because Claude didn't answer, so I didn't send the report. It's saved on this Mac, and I'll check it by myself as soon as Claude answers, then show it to you here.";
+  // Said when changed words went through the scanner and then Rich, and his version differs from
+  // the card in any character (more left out, or a title's backtick written as an apostrophe).
+  var SHOWN_AGAIN = "I checked it again before sending, and some of its words would go out differently from how the card showed them. Here it is exactly as it would go. Nothing goes out until you press Send.";
+
+  /// Rich's checked report on its card, waiting for the user: `answer` is `{report, draft,
+  /// digest}`. `report` is the id the shell keeps his check under; Send names it, and the shell
+  /// sends only words that are what he checked (`bug_report_send`).
+  function showDraft(f, answer, lead, workedFor) {
+    var old = f.card;
+    f.report = answer.report || null;
+    f.handEdited = false;
+    f.draft = answer.draft;
+    f.private = (answer.draft && answer.draft.private) || [];
+    richSays(f, [lead], { worked: workedFor, digest: answer.digest });
+    // A card shown again (Rich's version of changed words) replaces
+    // the one before it: one report, one card.
+    if (old) old.remove();
+    f.card = buildCard(f);
+    box(f).appendChild(f.card);
+    f.step = "draft";
+    paintCard(f);
+    paintComposers();
+    scrollDown(f);
+    window.setTimeout(function () { if (f.card) f.card.classList.remove("is-new"); }, 2600);
+  }
+
+  /// **RICH COULD NOT CHECK IT YET** (review rv-20261009T162841Z-69294215-70e6 finding 2): there
+  /// is no card and nothing to send. The shell keeps it on this Mac and asks him again; the way
+  /// out is Cancel report, which takes it off this Mac.
+  function keptUnchecked(f, id) {
+    f.uncheckedId = id;
+    f.step = "unchecked";
+    var art = richSays(f, [NOT_CHECKED]);
+    var acts = node("div", "bug-actions-inline");
+    acts.appendChild(button("Cancel report", false, function () { dropUnchecked(f); }, "bug-unchecked-cancel"));
+    art.appendChild(acts);
+    f.uncheckedActs = acts;
+    paintComposers();
+  }
+
+  /// The ids of reports Rich could not check that this window has done with (shown on a card,
+  /// or canceled). The shell says a checked one on every pass until it is taken off this Mac, so
+  /// a repeat only takes it off again.
+  var taken = {};
+  function takeOff(id) {
+    // Not taken off: it stays kept, the shell says it again, and this takes it then.
+    bridge.invoke("bug_report_take_unchecked", { id: id }).catch(function () {});
+  }
+
+  /// **CHANGED WORDS RICH COULD NOT CHECK AT SEND**: nothing was sent. The card stays, with no
+  /// Send on it, until he has checked them (`onChecked` shows it again); the way out is Cancel
+  /// report, which takes them off this Mac.
+  function changesKept(f, id) {
+    f.uncheckedId = id;
+    f.step = "unchecked";
+    paintCard(f);
+    var art = richSays(f, [CHANGES_NOT_CHECKED]);
+    var acts = node("div", "bug-actions-inline");
+    acts.appendChild(button("Cancel report", false, function () { dropUnchecked(f); }, "bug-unchecked-cancel"));
+    art.appendChild(acts);
+    f.uncheckedActs = acts;
+    paintComposers();
+  }
+
+  function dropUnchecked(f) {
+    if (f.step !== "unchecked" || !f.uncheckedActs || f.uncheckedActs.hidden) return;
+    var id = f.uncheckedId;
+    taken[id] = true;
+    f.uncheckedActs.hidden = true;
+    bridge.invoke("bug_report_take_unchecked", { id: id }).then(function () {
+      if (f.step !== "unchecked") return;
+      f.uncheckedActs.remove();
+      f.uncheckedActs = null;
+      f.uncheckedId = null;
+      f.step = f.card ? "canceled" : "closed";
+      if (f.card) paintCard(f);
+      richSays(f, ["Canceled. Nothing was sent, and it's no longer saved on this Mac."]);
+      paintComposers();
+    }).catch(function (e) {
+      delete taken[id];
+      if (f.step !== "unchecked") return;
+      f.uncheckedActs.hidden = false;
+      richSays(f, [typeof e === "string" && e ? e : "I couldn't take the report off this Mac, so it's still saved here. Press Cancel report to try again."]);
+    });
+  }
+
+  /// **RICH HAS CHECKED IT**: `{id, draft, digest, here}` from the shell's check loop. The card
+  /// comes where the report waits; one kept from before a quit or a reload, with no exchange in
+  /// this window, comes in the Rich panel, unless another report is in progress (then the shell
+  /// says it again later: one report at a time).
+  function onChecked(c) {
+    if (!c || !c.id) return;
+    if (taken[c.id]) return takeOff(c.id);
+    var f = flows.filter(function (x) { return x.uncheckedId === c.id; })[0];
+    var earlier = !f;
+    if (earlier) {
+      if (liveFlow()) return;
+      var label = c.here || "this screen";
+      f = { id: ++seq, dock: true, threadId: null, screen: { key: "other", dock: true, label: label, here: label, public: "a RichOS screen" }, step: "unchecked", uncheckedId: c.id, el: node("section", "bugflow") };
+      flows.push(f);
+      $("bugdock-msgs").textContent = "";
+      $("bugdock-where").textContent = "· " + label;
+      raiseDock(false); // shown by itself, never over the home screen or the opening screen
+    }
+    if (f.step !== "unchecked") return;
+    taken[c.id] = true;
+    takeOff(c.id);
+    f.uncheckedId = null;
+    if (f.uncheckedActs) { f.uncheckedActs.remove(); f.uncheckedActs = null; }
+    if (f.dock) showDock();
+    var lead = earlier ? "I've checked the bug report you told me about earlier. " : f.card ? "I've checked your changes now. " : "I've checked it now. ";
+    showDraft(f, c, lead + HERE_IT_IS, null);
+    if (!f.dock && f.el.hidden && host) host.toast("Rich checked your bug report. It's waiting for you to send it.");
+  }
+
+  /// Rich folds one change in. While he does, the report is "changing": Send, Change it and
+  /// Cancel wait for him, so what is sent is what he changed, and a reply that finds the report
+  /// no longer changing (it can no longer be, but the reply is checked anyway) changes nothing.
+  function askChange(f, text, wasQueued) {
+    f.step = "changing";
+    paintCard(f);
+    paintComposers();
+    var w2 = working(f, "Rich is changing the report…");
+    function next() {
+      var more = f.nextChanges && f.nextChanges.shift();
+      if (more && f.step === "draft") askChange(f, more, false);
+    }
+    bridge.invoke("bug_report_change", { said: text, sheet: sheetOf(f), private: f.private || [] }).then(function (answer) {
+      w2.remove();
+      if (f.step !== "changing") return;
+      if (answer.private) f.private = answer.private;
+      var secs = f.card.querySelectorAll(".bug-sec");
+      var sec = null;
+      for (var i = 0; i < secs.length; i++) if (secs[i].querySelector("h4").textContent === answer.section) sec = secs[i];
+      if (!sec) sec = secs[0];
+      var p = node("p", "is-added");
+      appendSegments(p, answer.add);
+      var ol = sec.querySelector("ol");
+      sec.insertBefore(p, ol);
+      f.edited = true;
+      // The card changed: at Send it goes through the scanner and then Rich, last (CEO §115).
+      f.handEdited = true;
+      f.step = "draft";
+      paintCard(f);
+      paintComposers();
+      richSays(f, ["Added that to " + sec.querySelector("h4").textContent + ", above." + (wasQueued ? " The report changed, so it waits for you to send it again." : " It still waits for you to send it.")]);
+      flash(f);
+      next();
+    }).catch(function () {
+      w2.remove();
+      if (f.step !== "changing") return;
+      f.step = "draft";
+      paintCard(f);
+      paintComposers();
+      richSays(f, ["I couldn't change the report just now. Press Change it and change the words yourself, or tell me again."]);
+      next();
+    });
+  }
+
+  /// **TAKE A WAITING REPORT BACK, CONFIRMED** (second review finding 2), to cancel it or to
+  /// change it. Nothing is said about it until the shell answers, which it does only after any
+  /// send already in flight has finished: "canceled" when its copy is off this Mac (then `then`),
+  /// the issue when it had already gone out (then the card says Sent and Rich says so), an error
+  /// when the copy could not be removed (then it is still waiting, and Rich says that).
+  function withdraw(f, purpose, then) {
+    var id = f.pendingId;
+    if (!id) return then();
+    f.step = "withdrawing";
+    f.withdrawFor = purpose;
+    paintCard(f);
+    paintComposers();
+    bridge.invoke("bug_report_cancel", { id: id }).then(function (r) {
+      if (f.step !== "withdrawing") return; // it went out meanwhile, and the card already says so
+      if (r && r.state === "sent") return wentOutFirst(f, r);
+      f.pendingId = null;
+      then();
+    }).catch(function () {
+      if (f.step !== "withdrawing") return;
+      f.step = "queued";
+      paintCard(f);
+      paintComposers();
+      richSays(f, [purpose === "cancel"
+        ? "I couldn't cancel the report: it's still saved on this Mac and will go out by itself. Press Cancel report to try again."
+        : "I couldn't take the report back to change it: it's still saved on this Mac and will go out by itself. Press Change it to try again."]);
+    });
+  }
+
+  /// A waiting report went out before it could be taken back: the card says Sent, and Rich says
+  /// it went out rather than that nothing was sent.
+  function wentOutFirst(f, d) {
+    var purpose = f.withdrawFor;
+    f.withdrawFor = null;
+    f.nextChanges = [];
+    markSent(f, d, null, purpose === "cancel" ? "It had already gone out before I could cancel it." : "It had already gone out, so it can't be changed.");
+  }
+
+  function publicScreen(s) {
+    return { key: s.key, here: s.here, public: s.public, conversation: s.conversation, textSize: s.textSize, theme: s.theme, technicalView: s.technicalView, content: s.content || "" };
+  }
+
+  function flash(f) {
+    if (!f.card) return;
+    f.card.classList.remove("is-flash");
+    void f.card.offsetWidth;
+    f.card.classList.add("is-flash");
+  }
+
+  // ---- the report card: the send-before-approve step ------------------------------------------
+  function appendSegments(parent, segments) {
+    (segments || []).forEach(function (s) {
+      if (s.was == null) {
+        parent.appendChild(document.createTextNode(s.text));
+        return;
+      }
+      var sub = node("span", "bug-sub", s.text);
+      sub.tabIndex = 0;
+      sub.dataset.was = s.was;
+      sub.dataset.kind = s.kind || "";
+      sub.dataset.stand = s.text;
+      parent.appendChild(sub);
+    });
+  }
+
+  /// The card draws the draft word for word and changes none: every draft the shell gives it is
+  /// Rich's last word on what the scanner made of the report (`richos_core::bug_report::finished`),
+  /// and Send posts these words, or, when they changed, shows his version of them first.
+  function buildCard(f) {
+    var d = f.draft;
+    var c = node("article", "bugcard is-new");
+    c.setAttribute("aria-label", "Bug report");
+    var head = node("header", "bug-head");
+    head.appendChild(svg(GLYPH_BUG, "bug-glyph"));
+    head.appendChild(node("span", "bug-kind", "Bug report"));
+    var pill = node("span", "bug-pill");
+    pill.setAttribute("role", "status");
+    head.appendChild(pill);
+    c.appendChild(head);
+    c.appendChild(node("p", "bug-ctitle"));
+    var route = node("dl", "bug-route");
+    route.appendChild(node("dt", null, "From"));
+    route.appendChild(node("dd", "r-from"));
+    route.appendChild(node("dt", null, "To"));
+    route.appendChild(node("dd", null, "RichOS on GitHub, as an issue anyone can read"));
+    c.appendChild(route);
+    var doc = node("div", "bug-doc");
+    var title = node("h3", "bug-title");
+    appendSegments(title, d.title);
+    doc.appendChild(title);
+    d.sections.forEach(function (s) {
+      var sec = node("section", "bug-sec");
+      sec.appendChild(node("h4", null, s.heading));
+      (s.paragraphs || []).forEach(function (p) {
+        var para = node("p");
+        appendSegments(para, p);
+        sec.appendChild(para);
+      });
+      if (s.steps && s.steps.length) {
+        var ol = node("ol");
+        s.steps.forEach(function (st) {
+          var li = node("li");
+          appendSegments(li, st);
+          ol.appendChild(li);
+        });
+        sec.appendChild(ol);
+      }
+      doc.appendChild(sec);
+    });
+    c.appendChild(doc);
+    var lo = node("p", "bug-leftout");
+    lo.appendChild(svg(GLYPH_EYEOFF));
+    lo.appendChild(node("span", "lo-text"));
+    c.appendChild(lo);
+    var warn = node("p", "bug-warn");
+    warn.hidden = true;
+    c.appendChild(warn);
+    var hint = node("p", "bug-edithint", "Change any of the words above, or tell Rich what to change.");
+    hint.hidden = true;
+    c.appendChild(hint);
+    c.appendChild(node("div", "bug-actions"));
+    var sentRow = node("div", "bug-sentrow");
+    sentRow.hidden = true;
+    c.appendChild(sentRow);
+    doc.addEventListener("input", function () { paintWarn(f); });
+    title.addEventListener("keydown", function (e) { if (e.key === "Enter") e.preventDefault(); });
+    return c;
+  }
+
+  function accountIsUser() {
+    return !!(context && context.account && context.account.kind === "user");
+  }
+  function paintFrom(dd) {
+    dd.textContent = "";
+    if (accountIsUser()) {
+      dd.appendChild(document.createTextNode("your GitHub account, "));
+      dd.appendChild(node("b", null, "@" + context.account.login));
+    } else {
+      dd.appendChild(node("b", null, "the RichOS reporting account"));
+      dd.appendChild(document.createTextNode(", because RichOS isn't signed in to a GitHub account of yours"));
+    }
+  }
+
+  var KIND_WORDS = {
+    conversation_name: ["conversation name", "conversation names"],
+    company_name: ["company name", "company names"],
+    person_name: ["person's name", "people's names"],
+    folder_name: ["folder name", "folder names"],
+    file_path: ["file path", "file paths"],
+    email_address: ["email address", "email addresses"],
+    private_word: ["private word", "private words"],
+  };
+  var NUM = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  /// The line under the sheet, counted from the stand-ins on it now, in Rust's words
+  /// (`left_out_line`): a stand-in the user deleted is no longer counted.
+  function leftOutText(f) {
+    var subs = f.card.querySelectorAll(".bug-doc .bug-sub");
+    var counts = {}, order = [];
+    subs.forEach(function (s) {
+      var k = s.dataset.kind;
+      if (!counts[k]) { counts[k] = 0; order.push(k); }
+      counts[k] += 1;
+    });
+    if (!order.length) return "Nothing private was in it, so nothing was left out. Anyone can read GitHub issues.";
+    var parts = order.map(function (k) {
+      var n = counts[k], w = KIND_WORDS[k] || ["private word", "private words"];
+      return (NUM[n] || n) + " " + (n === 1 ? w[0] : w[1]);
+    });
+    var list = parts.length === 1 ? parts[0] : parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
+    return "Left out, because anyone can read GitHub issues: " + list + ". The underlined words stand in for " + (subs.length === 1 ? "it" : "them") + "; point at one to see what it replaced.";
+  }
+
+  /// A stand-in whose words the user changed is the user's own text from then on: no longer
+  /// marked, counted or explained as a stand-in, and read by the heads-up like any other words
+  /// (third review: a name typed inside "[a person]" was sent with no heads-up). It stays a plain
+  /// span so the caret the user is typing at does not move.
+  function releaseEdited(f) {
+    var released = false;
+    f.card.querySelectorAll(".bug-doc .bug-sub").forEach(function (s) {
+      if (s.textContent === s.dataset.stand) return;
+      s.className = "";
+      delete s.dataset.was;
+      delete s.dataset.kind;
+      delete s.dataset.stand;
+      s.removeAttribute("tabindex");
+      released = true;
+    });
+    // Its "Stands in for" tooltip, if it was showing, no longer describes anything.
+    if (released) hideSubTip();
+  }
+
+  function warns(f) { return f.step === "editing" || f.step === "draft" || f.step === "queued"; }
+
+  /// The heads-up, from the core's answer about the words on the card now. Each change asks
+  /// again; an answer that comes after a later question is dropped, so the heads-up is always
+  /// about the latest words.
+  ///
+  /// Send waits for that answer (review rv-20261009T151254Z-84d1bdce-20df finding 2: on the tip
+  /// the report could go out while the answer was on its way, and its heads-up was never shown).
+  /// A press while the latest question is out is held (`f.sendHeld`, the heads-up as it read at
+  /// the press); when the answer arrives the report goes, unless the answer brought a heads-up
+  /// the user had not seen when pressing: then it stays unsent under it, and Send is the user's
+  /// again, after it. An answer that never comes (`catch`) sends what was pressed, as before:
+  /// the heads-up decides nothing.
+  function paintWarn(f) {
+    releaseEdited(f);
+    var w = f.card.querySelector(".bug-warn");
+    if (!warns(f)) {
+      f.warnAsked = (f.warnAsked || 0) + 1;
+      f.warnAnswered = f.warnAsked;
+      f.sendHeld = null;
+      w.hidden = true;
+      w.textContent = "";
+      return;
+    }
+    // Read the way Send reads the card (`wordsOf`), so a line break typed in a change is a break
+    // here too: "Jane" and "Doe" on two lines are not asked about as "JaneDoe" (review of 665df1bb3).
+    var doc = f.card.querySelector(".bug-doc").cloneNode(true);
+    doc.querySelectorAll(".bug-sub").forEach(function (s) { s.remove(); });
+    var text = fieldsOf(doc).map(wordsOf).join("\n");
+    var asked = (f.warnAsked = (f.warnAsked || 0) + 1);
+    askPrivate(text, f).then(function (all) {
+      if (asked !== f.warnAsked || !warns(f)) return;
+      var found = all.slice(0, 3);
+      w.hidden = found.length === 0;
+      w.textContent = "";
+      if (!found.length) return;
+      w.appendChild(node("strong", null, found.map(function (x) { return "“" + x + "”"; }).join(", ") + (found.length === 1 ? " looks" : " look") + " private."));
+      w.appendChild(document.createTextNode(" Anyone can read this report on GitHub."));
+    }).catch(function () {
+      // Not answered: the heads-up stays as it was. It decides nothing; Send is the user's.
+    }).then(function () {
+      if (asked !== f.warnAsked) return;
+      f.warnAnswered = asked;
+      var held = f.sendHeld;
+      f.sendHeld = null;
+      if (held === null || held === undefined || f.step !== "draft") return;
+      if (!w.hidden && w.textContent !== held) return;
+      send(f);
+    });
+  }
+
+  /// **THE CARD TAKES PLAIN TEXT ONLY** (review rv-20261009T225657Z-b3b5c573-96c0). A rich-text
+  /// field let a paste bring its markup onto the card (a list inside a step, a table, styled
+  /// words), and what Send read of it was not what the card showed. `plaintext-only` (WebKit, and
+  /// WebView2's Chromium) refuses markup from every way in: paste, drop and the formatting keys.
+  /// Where an engine does not know it, the field is ordinary rich text and `pastePlain` still
+  /// keeps a paste's markup out.
+  function plainTextOnly(n) {
+    n.setAttribute("contenteditable", "plaintext-only");
+    if (n.contentEditable !== "plaintext-only") n.setAttribute("contenteditable", "true");
+  }
+  /// A paste into a field being changed is the clipboard's plain text, put in as if typed: a
+  /// line is a line (WebKit makes each one a `<div>`, which `wordsOf` reads as a break) and a tab
+  /// is a space, so a pasted table's cells are words apart on the card and in what Send reads.
+  function pastePlain(e) {
+    var t = e.target && (e.target.nodeType === 1 ? e.target : e.target.parentElement);
+    if (!t || !t.closest || !t.closest(".bugcard.is-editing [contenteditable]")) return;
+    e.preventDefault();
+    var text = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
+    text = text.replace(/\r\n?/g, "\n").replace(/\t/g, " ");
+    if (text) document.execCommand("insertText", false, text);
+  }
+
+  function button(label, primary, fn, id) {
+    var b = node("button", "desk-btn" + (primary ? " desk-btn--confirm" : ""), label);
+    b.type = "button";
+    if (id) b.id = id;
+    b.addEventListener("click", fn);
+    return b;
+  }
+
+  function paintCard(f) {
+    var c = f.card;
+    if (!c) return;
+    ["is-sending", "is-queued", "is-sent", "is-editing", "is-canceled"].forEach(function (k) { c.classList.remove(k); });
+    var pill = c.querySelector(".bug-pill"), acts = c.querySelector(".bug-actions"), row = c.querySelector(".bug-sentrow");
+    acts.textContent = "";
+    row.hidden = true;
+    acts.hidden = false;
+    c.querySelector(".bug-edithint").hidden = f.step !== "editing";
+    if (f.step !== "sent" && f.step !== "sending") paintFrom(c.querySelector(".r-from"));
+    c.querySelector(".lo-text").textContent = leftOutText(f);
+    var editable = f.step === "editing";
+    fieldsOf(c).forEach(function (n) {
+      if (editable) plainTextOnly(n);
+      else n.removeAttribute("contenteditable");
+    });
+    switch (f.step) {
+      case "draft":
+        pill.textContent = f.edited ? "Not sent yet · changed" : "Not sent yet";
+        acts.appendChild(button("Send report", true, function () { send(f); }, "bug-send"));
+        acts.appendChild(button("Change it", false, function () { edit(f); }, "bug-change"));
+        acts.appendChild(button("Cancel", false, function () { cancel(f); }, "bug-cancel"));
+        break;
+      case "editing":
+        c.classList.add("is-editing");
+        pill.textContent = "Changing it";
+        acts.appendChild(button("Done", true, function () { finishEdit(f); }, "bug-done"));
+        break;
+      case "sending":
+        c.classList.add("is-sending");
+        pill.textContent = f.handEdited ? CHECKING_CHANGES : "Sending…";
+        acts.hidden = true;
+        break;
+      case "unchecked":
+        // Changed words Rich couldn't check yet: nothing to send until he has (`changesKept`).
+        c.classList.add("is-queued");
+        pill.textContent = "Waiting for Rich's check · saved on this Mac";
+        acts.hidden = true;
+        break;
+      case "changing":
+        // Send, Change it and Cancel wait for Rich: what is sent is what he changed.
+        pill.textContent = "Changing it…";
+        acts.hidden = true;
+        break;
+      case "withdrawing":
+        // Still waiting on this Mac until the shell confirms it is off.
+        c.classList.add("is-queued");
+        pill.textContent = f.withdrawFor === "cancel" ? "Canceling…" : "Taking it back to change it…";
+        acts.hidden = true;
+        break;
+      case "queued":
+        c.classList.add("is-queued");
+        pill.textContent = "Waiting to send · saved on this Mac";
+        acts.appendChild(button("Try now", true, function () { tryNow(f); }, "bug-try-now"));
+        acts.appendChild(button("Change it", false, function () { edit(f); }, "bug-change"));
+        acts.appendChild(button("Cancel report", false, function () { cancel(f); }, "bug-cancel"));
+        break;
+      case "sent":
+        c.classList.add("is-sent");
+        pill.textContent = "Sent · #" + f.issue.number;
+        acts.hidden = true;
+        row.hidden = false;
+        row.textContent = "";
+        var a = node("a", "bug-link", "Open issue #" + f.issue.number + " on GitHub");
+        a.href = "#";
+        a.dataset.issue = String(f.issue.number);
+        row.appendChild(a);
+        row.appendChild(node("span", null, "filed from " + (f.issue.account && f.issue.account.kind === "user" ? "@" + f.issue.account.login : "the RichOS reporting account")));
+        break;
+      case "canceled":
+        c.classList.add("is-canceled");
+        pill.textContent = "Canceled · nothing sent";
+        c.querySelector(".bug-ctitle").textContent = c.querySelector(".bug-title").textContent;
+        break;
+    }
+    paintWarn(f);
+    window.requestAnimationFrame(paintStuck);
+  }
+
+  function edit(f) {
+    if (f.step !== "draft" && f.step !== "queued") return;
+    // Changing a waiting report takes it out of the queue, confirmed, first: a changed report is
+    // approved again, and one that went out meanwhile is not opened as if it had not.
+    if (f.step === "queued" && f.pendingId) return withdraw(f, "change", function () { openEditor(f); });
+    openEditor(f);
+  }
+  function openEditor(f) {
+    f.sendHeld = null; // a Send pressed before changing it is not a Send of the changed words
+    f.beforeEdit = JSON.stringify(sheetOf(f));
+    f.step = "editing";
+    paintCard(f);
+    paintComposers();
+    var t = f.card.querySelector(".bug-title");
+    t.focus();
+    var r = document.createRange();
+    r.selectNodeContents(t);
+    r.collapse(false);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+  function finishEdit(f) {
+    if (f.step !== "editing") return;
+    f.edited = true;
+    // Only says what Send will be doing first ("Rich is checking your changes…"): whether the
+    // words may go is the shell's to decide, against Rich's own check, never this flag's.
+    if (JSON.stringify(sheetOf(f)) !== f.beforeEdit) f.handEdited = true;
+    f.step = "draft";
+    paintCard(f);
+    paintComposers();
+  }
+
+  // ---- send, and what happens when it can't go ----------------------------------------------
+  var WAITING_FIRST = {
+    offline: "This Mac is offline, so the report didn't go out. Nothing is lost: it's saved on this Mac exactly as you approved it. I'll send it by myself as soon as you're back online, and tell you here when it's gone.",
+    "github-down": "GitHub isn't answering right now, so the report didn't go out. Nothing is lost: it's saved on this Mac exactly as you approved it. I'll keep trying every few minutes and tell you here when it's filed.",
+    "not-set-up": "The RichOS reporting account isn't set up on this Mac yet, so the report didn't go out. Nothing is lost: it's saved on this Mac exactly as you approved it. I'll send it by myself once the account is set up, and tell you here when it's filed.",
+    refused: "GitHub didn't accept the report from the RichOS reporting account, so it didn't go out. Nothing is lost: it's saved on this Mac exactly as you approved it. I'll try again in a few minutes and tell you here when it's filed.",
+  };
+  var WAITING_AGAIN = {
+    offline: "Still offline. It stays saved here and goes out by itself when you're back online.",
+    "github-down": "GitHub still isn't answering. It stays saved here, and I'll keep trying.",
+  };
+  var CAME_BACK = {
+    offline: "You're back online, so I sent your bug report.",
+    "github-down": "GitHub is answering again, so I sent your bug report.",
+  };
+
+  function send(f) {
+    if (f.step !== "draft") return; // held while Rich changes it; never twice
+    if (f.warnAnswered !== f.warnAsked) {
+      // The heads-up on these words is still on its way: the press waits for it (`paintWarn`).
+      var w = f.card.querySelector(".bug-warn");
+      f.sendHeld = w.hidden ? "" : w.textContent;
+      return;
+    }
+    f.step = "sending";
+    paintCard(f);
+    paintComposers();
+    var checking = f.handEdited ? working(f, CHECKING_CHANGES) : null;
+    bridge.invoke("bug_report_send", { report: f.report || null, sheet: sheetOf(f), screen: publicScreen(f.screen) }).then(function (a) {
+      if (checking) checking.remove();
+      if (f.step !== "sending") return;
+      // Not sent: the changed words went through the scanner and then Rich, and his version
+      // differs from the card. The card comes back as it would go.
+      if (a && a.state === "checked") return showDraft(f, a, SHOWN_AGAIN, null);
+      // Not sent: Rich couldn't check the changed words yet; they wait on this Mac.
+      if (a && a.state === "unchecked") return changesKept(f, a.id);
+      delivered(f, a, null);
+    }).catch(function () {
+      if (checking) checking.remove();
+      f.step = "draft";
+      paintCard(f);
+      paintComposers();
+      richSays(f, ["I couldn't save the report on this Mac, so nothing was sent. Press Send report to try again."]);
+    });
+  }
+
+  function tryNow(f) {
+    if (f.step !== "queued") return;
+    if (!f.pendingId) { f.step = "draft"; return send(f); }
+    var id = f.pendingId;
+    f.step = "sending";
+    paintCard(f);
+    paintComposers();
+    bridge.invoke("bug_report_try_now", { id: id }).then(function (d) {
+      if (!d) return; // it went out by itself a moment ago; the event says so
+      delivered(f, d, null);
+    }).catch(function () {
+      f.step = "queued";
+      paintCard(f);
+      paintComposers();
+    });
+  }
+
+  function delivered(f, d, why) {
+    if (d.state === "sent") return markSent(f, d, why);
+    var again = f.queuedOnce;
+    f.pendingId = d.id;
+    f.reason = d.reason;
+    f.queuedOnce = true;
+    f.step = "queued";
+    paintCard(f);
+    paintComposers();
+    if (why) return; // a retry by itself that failed again says nothing new
+    richSays(f, [(again && (WAITING_AGAIN[d.reason] || "It still didn't go out. It stays saved here, and I'll keep trying.")) || WAITING_FIRST[d.reason] || WAITING_FIRST["github-down"]]);
+  }
+
+  /// `lead`, when given, is Rich's first sentence instead (a report that went out before it
+  /// could be canceled or changed).
+  function markSent(f, d, why, lead) {
+    if (f.step === "sent") return; // already said: the event and a command's answer can both bring it
+    f.issue = { number: d.number, account: d.account };
+    f.pendingId = null;
+    f.step = "sent";
+    paintCard(f);
+    paintComposers();
+    var pill = f.card.querySelector(".bug-pill");
+    pill.classList.remove("pop");
+    void pill.offsetWidth;
+    pill.classList.add("pop");
+    var acct = d.account && d.account.kind === "user" ? "filed from your GitHub account, @" + d.account.login + "."
+      : "filed from the RichOS reporting account, because RichOS isn't signed in to a GitHub account of yours.";
+    var opening = lead ? lead + " It's issue #" + d.number + " on GitHub, "
+      : why ? (CAME_BACK[why] || "I sent your bug report.") + " It's issue #" + d.number + " on GitHub, "
+      : "Sent. It's issue #" + d.number + " on GitHub, ";
+    var link = node("a", "bug-link", "github.com/WebDevBooster/richos/issues/" + d.number);
+    link.href = "#";
+    link.dataset.issue = String(d.number);
+    richSays(f, [opening + acct, link]);
+    if (why && host) host.toast("Your bug report went out: issue #" + d.number + " on GitHub.");
+  }
+
+  /// *Cancel* on a report not yet sent ends it at once: nothing of it is anywhere but this card.
+  /// *Cancel report* on a waiting one says "Nothing was sent" only once its copy is confirmed off
+  /// this Mac; if it went out first, the card says Sent and Rich says so (finding 2).
+  function cancel(f) {
+    if (f.step !== "draft" && f.step !== "queued") return;
+    withdraw(f, "cancel", function () {
+      f.step = "canceled";
+      paintCard(f);
+      paintComposers();
+      richSays(f, ["Canceled. Nothing was sent."]);
+    });
+  }
+
+  /// A waiting report went out by itself (the shell's retry): the card and Rich say so, and a
+  /// notice says the same wherever the user is. After a relaunch there is no card to update, so
+  /// the notice is the whole of it.
+  function onDelivered(payload) {
+    if (payload && payload.checked) return onChecked(payload.checked);
+    if (!payload || !payload.delivery || payload.delivery.state !== "sent") return;
+    var d = payload.delivery;
+    var f = flows.filter(function (x) { return x.pendingId === d.id; })[0];
+    if (f && f.step === "withdrawing") wentOutFirst(f, d);
+    else if (f) markSent(f, d, f.reason || "github-down");
+    else if (host) host.toast("Your bug report went out: issue #" + d.number + " on GitHub.");
+  }
+
+  // ---- the Rich panel ------------------------------------------------------------------------
+  /// The panel's words are written when it is first shown rather than shipped in index.html:
+  /// a hidden panel's text is still text on the page, and the contrast gate's floors count every
+  /// text node of the bare shell (tests/contrast.js check 9z).
+  function fillDock() {
+    var dock = $("bugdock");
+    if (dock.dataset.filled) return;
+    dock.dataset.filled = "1";
+    dock.querySelector(".bugdock-title").textContent = "Bust a bug";
+    $("bugdock-x").textContent = "✕";
+    $("bugdock-send").firstElementChild.textContent = "▷";
+    $("bugdock-voice-label").textContent = "listening…";
+  }
+  /// ON TOP OF THE SCREEN THE BUG IS ON. The home screen (`#home`, 150) and the held opening
+  /// screen (`.splash`, 200) cover the whole window, and the panel sits at 65: pressed there, the
+  /// report opened underneath and the user saw nothing (echo-opus-bug20's finding on f619e9e5f).
+  /// `bugdock--over` lifts it to 250, above both and below `.settings` (300); the screen stays up
+  /// behind it, as it is the screen the report is about and the one in its picture.
+  function covered() {
+    return curtainUp() || homeOpen();
+  }
+  function raiseDock(on) {
+    $("bugdock").classList.toggle("bugdock--over", !!on);
+  }
+  function showDock() {
+    fillDock();
+    $("bugdock").hidden = false;
+    document.body.classList.add("bug-dock-open");
+    paintDock();
+  }
+  function hideDock() {
+    $("bugdock").hidden = true;
+    document.body.classList.remove("bug-dock-open");
+    setDockVoice(false);
+  }
+  function paintDock() {
+    var f = dockFlow();
+    var busy = f && ["checking", "draft", "editing", "changing", "sending", "withdrawing"].indexOf(f.step) !== -1;
+    var x = $("bugdock-x");
+    if (x) x.hidden = !!busy; // while a report waits on a decision, Send or Cancel is the way out
+  }
+
+  // ---- paint the sticky actions' edge only while they float over the report -----------------
+  function paintStuck() {
+    document.querySelectorAll(".bug-actions").forEach(function (a) {
+      if (a.hidden) return;
+      var sc = a.closest(".bugdock-msgs") || $("conversation");
+      var card = a.closest(".bugcard");
+      if (!sc || !card) return;
+      a.classList.toggle("is-stuck", card.getBoundingClientRect().bottom > sc.getBoundingClientRect().bottom + 2);
+    });
+  }
+
+  // ---- voice ---------------------------------------------------------------------------------
+  /// While a report waits on the user's words, what they SAY goes to it rather than to Rich's
+  /// conversation. The shell holds the spoken words back from the spine while this is on.
+  var voiceHeld = false;
+  /// **Whether what the user says now is the report's.** The ONE condition both the shell's hold
+  /// (`syncVoiceHold`) and the report's taking of a transcript (`takeSpoken`) follow: a report
+  /// waiting on words, and either the panel's own talk button, or voice mode on with the report's
+  /// conversation on screen (the conditions `sync` shows its exchange under). Two conditions
+  /// drifted apart once: the hold stayed on in another conversation, and the shell dropped every
+  /// spoken turn there (fourth review finding 3).
+  function takesSpeech(f) {
+    if (!f || TAKES_WORDS.indexOf(f.step) === -1) return false;
+    if (f.dock) return dockVoice;
+    return !!(host && host.voiceOn() && host.view() === "conversation" && f.threadId === host.activeThread());
+  }
+  function syncVoiceHold() {
+    var want = takesSpeech(liveFlow());
+    if (want === voiceHeld || !bridge) return;
+    voiceHeld = want;
+    bridge.invoke("bug_report_voice", { on: want }).catch(function () {});
+  }
+  function setDockVoice(on) {
+    if (dockVoice === on) return;
+    dockVoice = on;
+    var t = $("bugdock-talk");
+    if (t) t.setAttribute("aria-pressed", String(on));
+    $("bugdock-form").hidden = on;
+    $("bugdock-voice").hidden = !on;
+    syncVoiceHold();
+    if (!bridge) return;
+    bridge.invoke(on ? "start_voice_capture" : "stop_voice_capture", { threadId: host ? host.activeThread() : null }).catch(function (e) {
+      if (!on) return;
+      dockVoice = false;
+      if (t) t.setAttribute("aria-pressed", "false");
+      $("bugdock-form").hidden = false;
+      $("bugdock-voice").hidden = true;
+      syncVoiceHold();
+      var f = dockFlow();
+      if (f) richSays(f, [typeof e === "string" && e ? e : "I couldn't open the microphone. Type it instead."]);
+    });
+  }
+
+  /// A recognized utterance. True when it was the bug report's.
+  function takeSpoken(text) {
+    var f = liveFlow();
+    if (!takesSpeech(f)) return false;
+    say(f, text, true);
+    return true;
+  }
+
+  /// Typed words from the conversation's composer. True when they were the bug report's.
+  function takeWords(text, threadId) {
+    var f = liveFlow();
+    if (!f || f.dock || f.threadId !== threadId || TAKES_WORDS.indexOf(f.step) === -1) return false;
+    say(f, text, false);
+    return true;
+  }
+
+  // ---- what a stand-in replaced: seen only here --------------------------------------------
+  function showSubTip(s) {
+    var tip = $("bug-subtip");
+    var k = KIND_WORDS[s.dataset.kind] || ["private word", "private words"];
+    tip.textContent = "";
+    tip.appendChild(node("b", null, "Stands in for “" + s.dataset.was + "”"));
+    tip.appendChild(document.createTextNode(", " + (/^[aeiou]/.test(k[0]) ? "an " : "a ") + k[0] + ". Only you see this; it isn't in the report."));
+    tip.hidden = false;
+    var r = s.getBoundingClientRect(), w = tip.offsetWidth;
+    tip.style.left = Math.max(12, Math.min(window.innerWidth - w - 12, r.left + r.width / 2 - w / 2)) + "px";
+    tip.style.top = r.bottom + 10 + "px";
+    void tip.offsetWidth;
+    tip.classList.add("is-shown");
+  }
+  function hideSubTip() {
+    var t = $("bug-subtip");
+    if (!t) return;
+    t.classList.remove("is-shown");
+    t.hidden = true;
+  }
+
+  /// Show this thread's flows and only them (the conversation is redrawn for every thread), and
+  /// let the shell hold spoken words back only while the report's conversation is the one on
+  /// screen: leaving it gives the voice back to Rich, coming back gives it to the report again.
+  function sync() {
+    var thread = host ? host.activeThread() : null;
+    var shown = host ? host.view() === "conversation" : true;
+    flows.forEach(function (f) {
+      if (!f.dock) f.el.hidden = !(shown && f.threadId === thread);
+    });
+    syncVoiceHold();
+  }
+
+  function wire() {
+    var conv = $("conversation");
+    if (conv) conv.addEventListener("scroll", paintStuck);
+    window.addEventListener("resize", paintStuck);
+    $("bugdock-msgs").addEventListener("scroll", paintStuck);
+    $("bugdock-x").addEventListener("click", function () {
+      var f = dockFlow();
+      if (f && f.step === "ask") neverMind(f, true);
+      if (f && f.step === "queued" && host) host.toast("Your bug report is saved on this Mac and goes out by itself when it can.");
+      if (f && f.step === "unchecked" && host) host.toast("Your bug report is saved on this Mac. Rich will check it as soon as Claude answers, and show it to you here.");
+      hideDock();
+    });
+    function dockSubmit() {
+      var input = $("bugdock-input");
+      var v = input.value.trim();
+      if (!v) return;
+      var f = dockFlow();
+      if (!f || TAKES_WORDS.indexOf(f.step) === -1) return;
+      input.value = "";
+      paintDockSend();
+      say(f, v, false);
+    }
+    $("bugdock-send").addEventListener("click", dockSubmit);
+    $("bugdock-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        dockSubmit();
+      }
+    });
+    $("bugdock-input").addEventListener("input", paintDockSend);
+    $("bugdock-talk").addEventListener("click", function () { setDockVoice(!dockVoice); });
+    document.addEventListener("mouseover", function (e) { var s = e.target.closest && e.target.closest(".bug-sub"); if (s) showSubTip(s); });
+    document.addEventListener("mouseout", function (e) { if (e.target.closest && e.target.closest(".bug-sub")) hideSubTip(); });
+    document.addEventListener("focusin", function (e) { if (e.target.classList && e.target.classList.contains("bug-sub")) showSubTip(e.target); });
+    document.addEventListener("focusout", function (e) { if (e.target.classList && e.target.classList.contains("bug-sub")) hideSubTip(); });
+    document.addEventListener("scroll", hideSubTip, true);
+    document.addEventListener("paste", pastePlain, true);
+    document.addEventListener("click", function (e) {
+      var a = e.target.closest && e.target.closest(".bug-link");
+      if (!a) return;
+      e.preventDefault();
+      bridge.invoke("bug_report_open_issue", { number: Number(a.dataset.issue) }).catch(function (err) {
+        if (host) host.toast(typeof err === "string" && err ? err : "This Mac wouldn't open the issue. It's at github.com/WebDevBooster/richos/issues/" + a.dataset.issue + ".");
+      });
+    });
+  }
+  function paintDockSend() {
+    var i = $("bugdock-input");
+    $("bugdock-send").classList.toggle("is-live", i.value.trim().length > 0);
+    i.style.height = "auto";
+    i.style.height = Math.min(i.scrollHeight, 120) + "px";
+  }
+
+  function refreshContext() {
+    return bridge.invoke("bug_report_context").then(function (c) {
+      context = c;
+      flows.forEach(function (f) { if (f.card && f.step !== "sent" && f.step !== "canceled") paintCard(f); });
+    }).catch(function () {});
+  }
+
+  return {
+    /// Called by main.js once the shell is up. `h` carries the conversation's own facts and
+    /// controls, so this file never reaches into main.js's variables.
+    init: function (h) {
+      host = h;
+      bridge = h.bridge;
+      wire();
+      refreshContext();
+      // A webview reload must not leave the shell holding spoken words back for a report that
+      // is no longer on screen.
+      bridge.invoke("bug_report_voice", { on: false }).catch(function () {});
+      bridge.listen("rich://bug-report", function (e) { onDelivered(e.payload); });
+      bridge.listen("rich://voice-state", function (e) {
+        if (!dockVoice || !e.payload) return;
+        var label = $("bugdock-voice-label");
+        if (label) label.textContent = e.payload.state === "hearing" ? "hearing you…" : e.payload.state === "thinking" ? "got it…" : "listening…";
+        if (e.payload.state === "off") setDockVoice(false);
+      });
+      // The panel's own talk button: main.js's voice mode is off then, so its listener does not
+      // take the words and this one does. (With the composer's voice mode on, main.js asks
+      // `takeSpoken` itself, before it draws anything.)
+      bridge.listen("rich://voice-transcript", function (e) {
+        if (dockVoice && e.payload && e.payload.text) takeSpoken(e.payload.text);
+      });
+      if (window.RichSettings && window.RichSettings.registerBugReport) {
+        window.RichSettings.registerBugReport({ open: function () { refreshContext(); lookThenStart(); } });
+      }
+    },
+    start: start,
+    sync: sync,
+    takeWords: takeWords,
+    takeSpoken: takeSpoken,
+    placeholder: function (threadId) {
+      var f = liveFlow();
+      return f && !f.dock && f.threadId === threadId ? placeholderFor(f) : null;
+    },
+    /// The voice hold follows main.js's voice mode, which only main.js sees change.
+    voiceChanged: syncVoiceHold,
+    /// READ-ONLY, for the acceptance harness.
+    state: function () {
+      return flows.map(function (f) { return { step: f.step, dock: f.dock, threadId: f.threadId, pendingId: f.pendingId || null, issue: f.issue || null, screen: f.screen.key }; });
+    },
+  };
+})();

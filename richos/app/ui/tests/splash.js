@@ -3563,7 +3563,12 @@ async function main() {
     assert(openedMenu.state.paused, "opening the menu took the hold off");
     assert(await page.locator("#bug-btn").isVisible(), "§15's floor is missing from the held screen's menu");
     await page.click("#bug-btn");
-    await page.waitForSelector("#bug-toast", { state: "attached" });
+    // Round 21 (CEO §115): the button opens the report itself, so what is waited for is Rich's
+    // first question — in the conversation or in the panel beside a window — not a notice.
+    await page.waitForSelector("#bug-flows .bug-rich, #bugdock-msgs .bug-rich", { state: "attached" });
+    const asked = await page.evaluate(() =>
+      document.querySelector("#bug-flows .bug-rich .tl-prose, #bugdock-msgs .bug-rich .tl-prose").textContent.trim());
+    assert(asked.startsWith("What went wrong?"), "Bust a bug did not open the report: " + JSON.stringify(asked));
     const afterBug = await splashState(page);
     assert(afterBug.present, "reporting a bug navigated away from the screen the bug is on");
     assertEqual(afterBug.state.reason, null, "Bust a bug took the curtain down: " + afterBug.state.reason);
@@ -3585,7 +3590,7 @@ async function main() {
     assert(dismissed, "the first-input dismissal is otherwise UNCHANGED — the exception is exactly one control wide");
     const said = noErrors(page, "25d");
     await page.__ctx.close();
-    return "held: button " + shown.box + " " + shown.hit + " · menu opened, Bust a bug pressed, space pressed on the " +
+    return "held: button " + shown.box + " " + shown.hit + " · menu opened, Bust a bug pressed (the report opened), space pressed on the " +
       "control itself — the curtain survived all three and stayed held · a click elsewhere still dismissed it" + said;
   });
 

@@ -881,6 +881,8 @@ window.RichHome = (function () {
     var t = e.target;
     if (t && t.closest) {
       if (t.closest(".home-prefs")) return;
+      // Enter in Bust a bug's panel sends the answer to Rich; it never goes through the door.
+      if (t.closest("#bugdock")) return;
       if (t.closest(".settings") && settingsMenuUp()) return;
       if (t.closest("#home button, #home a[href], #home input, #home textarea, #home select, #home [tabindex]")) return;
     }
@@ -1443,6 +1445,10 @@ window.RichHome = (function () {
     // the panel he reaches FROM the home screen could not be typed into at all. `page.fill()`
     // hid it from the older checks because it writes the value without holding focus.
     if (t.closest && t.closest(".home-prefs")) return;
+    // ...AND BUST A BUG'S RICH PANEL, which the settings menu opens ON TOP of this screen
+    // (`#bugdock.bugdock--over`): its answer box takes focus, and pulling it back to the door
+    // would leave a report on screen that cannot be answered.
+    if (t.closest && t.closest("#bugdock")) return;
     focusHome();
   }
 

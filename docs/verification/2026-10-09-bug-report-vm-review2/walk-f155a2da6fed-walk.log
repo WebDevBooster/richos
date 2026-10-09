@@ -1,0 +1,36 @@
+[walk] 13:24:35Z ok: a conversation in Northwind Traders
+[walk] 13:24:50Z ok: Rich asks what went wrong
+[walk] 13:25:02Z ok: the report card, not sent yet
+[walk] 13:25:09Z ok: the company is a stand-in
+[walk] 13:25:15Z ok: the person is a stand-in
+[walk] 13:25:41Z ok: the path with spaces is a stand-in
+[walk] 13:25:47Z ok: the whole path is one stand-in
+[walk] 13:25:54Z ok: From the RichOS reporting account
+[walk] 13:25:58Z ok: Rich says he looked at the screen
+[walk] 13:25:58Z ok: Rich was given the user's words
+[walk] 13:25:58Z ok: Rich was given the screen's words
+[walk] 13:25:58Z ok: the screen's words are the conversation's
+[walk] 13:25:58Z ok: Rich was given a JPEG picture of the window
+[walk] 13:27:20Z ok: waiting to send, saved on this Mac
+[walk] 13:27:25Z ok: Rich's offline line
+[walk] 13:27:26Z ok: on disk, waiting, offline (/Users/admin/testvm/walk-f155a2da6fed/home/Library/Application Support/com.richos.app/bug-reports/waiting)
+[walk] 13:28:30Z the stand-in endpoint is up; waiting for the report to go out by itself
+[walk] 13:28:56Z ok: Sent · #412, by itself
+[walk] 13:29:00Z ok: Rich says it went out
+[walk] 13:29:00Z ok: one POST to /repos/WebDevBooster/richos/issues
+[walk] 13:29:00Z ok: the keychain's token, read at send time
+[walk] 13:29:00Z ok: the issue says a file was left out
+[walk] 13:29:00Z ok: the title Rich wrote
+[walk] 13:29:00Z ok: recorded as sent
+[walk] 13:30:36Z ok: the second report card
+[walk] 13:31:13Z pressing 'Send report' failed; clicking it at its center (629 778 124 37) instead
+[walk] 13:31:24Z ok: the second report waits to send
+[walk] 13:31:34Z Cancel report is at 913,673
+[walk] 13:31:55Z ok: the retry's request is in flight
+[walk] 13:32:06Z ok: the card says Canceling…
+[walk] 13:32:45Z ok: Sent · #413: it had gone out
+[walk] 13:32:48Z ok: Rich says it had already gone out
+[walk] 13:33:46Z ok: the second report was filed once
+[walk] 13:33:46Z ok: nothing left waiting
+[walk] 13:33:46Z ok: recorded as sent, #413
+[walk] 13:34:55Z done

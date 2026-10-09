@@ -861,17 +861,22 @@ async function main() {
     await openMenu(page);
     assert(await page.evaluate(() => !!document.getElementById("splash")), "opening the menu did not lift the curtain");
     await page.click("#bug-btn");
-    // `bustABug` is synchronous — `close(true)` and then `toast(...)` — so this waits for the
-    // toast to EXIST, not for it to say anything. What it says is asserted below, and a toast
-    // that arrived empty would still fail there.
-    await page.waitForSelector("#bug-toast", { state: "attached" });
+    // SINCE ROUND 21 (CEO §115) THE BUTTON OPENS THE REPORT, NOT A NOTICE: `bug-report.js` is
+    // registered, so `bustABug` hands over to it and Rich's first question is drawn — in the
+    // conversation (`#bug-flows`) or in the panel beside a window (`#bugdock-msgs`), whichever
+    // the screen under the curtain is. The wait is for that question to EXIST; what it says is
+    // asserted below.
+    await page.waitForSelector("#bug-flows .bug-rich, #bugdock-msgs .bug-rich", { state: "attached" });
     await settledPage(page);
-    const after = await page.evaluate(() => ({
-      splash: !!document.getElementById("splash"),
-      toast: (document.getElementById("bug-toast") || {}).textContent || "",
-    }));
+    const after = await page.evaluate(() => {
+      const q = document.querySelector("#bug-flows .bug-rich .tl-prose, #bugdock-msgs .bug-rich .tl-prose");
+      return { splash: !!document.getElementById("splash"), asked: q ? q.textContent.trim() : "" };
+    });
     assert(after.splash, "and neither did pressing Bust a bug");
-    assert(after.toast.length > 20, "something acknowledged it — a control that appears to do nothing reads as broken");
+    assert(
+      after.asked.startsWith("What went wrong?"),
+      "the report did not start — a control that appears to do nothing reads as broken: " + JSON.stringify(after.asked)
+    );
     // ...while an ordinary click still dismisses, exactly as it did before.
     await page.mouse.click(700, 400);
     // THE WAIT AND THE CLAIM ARE THE SAME SENTENCE HERE, and that is fine BECAUSE IT IS
@@ -889,8 +894,8 @@ async function main() {
       "the first-input dismissal is otherwise UNCHANGED — the exception is exactly one control wide"
     );
     await page.close();
-    return "held by the space key, the curtain survives the settings button and Bust a bug, and still yields to " +
-      "any other input";
+    return "held by the space key, the curtain survives the settings button and Bust a bug (the report opened: " +
+      JSON.stringify(after.asked.slice(0, 40) + "…") + "), and still yields to any other input";
   });
 
   // ---- 7. the button is everywhere, above everything ------------------------------------

@@ -1335,10 +1335,18 @@
   /// would be one keystroke doing two things. A held-down key repeats; the repeats are
   /// swallowed rather than toggled on, because holding space is one press to a person.
   ///
+  /// AND WHAT THE MENU'S BUST A BUG OPENS (round 21, CEO §115). The report opens in the Rich
+  /// panel ON TOP of this held screen (`#bugdock.bugdock--over`, z-index 250), and the user
+  /// answers it there: a click into it, and every key typed into it, spaces included, belongs to
+  /// the report. Measured with this exemption taken out (`tests/bug-report.js`, "Bust a bug on
+  /// the held opening screen"): the first click into the answer box took the screen the bug is on
+  /// down. A first key would have too, and a space would have been eaten by the branch below as
+  /// the hold's own toggle rather than typed.
+  ///
   /// Everything else still dismisses on first input, unchanged, paused or not.
   function onInput(e) {
     var t = e && e.target;
-    if (t && t.closest && t.closest(".settings")) return;
+    if (t && t.closest && t.closest(".settings, #bugdock")) return;
     if (e.type === "keydown" && isSpace(e)) {
       e.preventDefault();
       e.stopPropagation();

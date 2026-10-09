@@ -677,11 +677,11 @@ window.RichSettings = (function () {
       bug.open();
       return;
     }
-    // WHAT "Bust a bug" OPENS IS NOT DESIGNED IN THIS ROUND — the round-10.1 index says so
-    // in as many words. What it must not do is nothing: a control that appears to do
-    // nothing is indistinguishable from a broken one, and this is the control a stuck
-    // first-run user reaches for. So it acknowledges, in Rich's voice, and says the one
-    // thing about it that IS decided — that nothing leaves the machine unasked.
+    // In the app, `bug-report.js` registers what this opens (round 21: Rich asks what went
+    // wrong, writes it up, and files it once the user says Send). This notice is only for a
+    // page with nothing registered — this component lifted onto the website, say — where it
+    // must still not do nothing: a control that appears to do nothing is indistinguishable
+    // from a broken one.
     toast(
       "Got it. The bug report starts from this exact screen, as it stands. " +
         "Nothing leaves this machine until you say so."
@@ -902,7 +902,7 @@ window.RichSettings = (function () {
       rebuild();
     },
 
-    /** What "Bust a bug" opens, when something exists to open. Not designed this round. */
+    /** What "Bust a bug" opens: `bug-report.js` registers round 21's exchange with Rich. */
     registerBugReport: function (host) {
       bug = host || null;
     },

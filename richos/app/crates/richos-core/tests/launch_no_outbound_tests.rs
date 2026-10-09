@@ -149,6 +149,9 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
     // offsets. Its parsing feature works on bytes and date/time values without a
     // socket, HTTP client or TLS dependency. The launch record still uses its own
     // local-calendar arithmetic and cannot reach the quota transport.
+    //
+    // `unicode-normalization` does Unicode-normalized name matching: a pure-Rust text
+    // library over `&str`/`char` data tables, with no socket, HTTP client or TLS dependency.
     let mut found: BTreeSet<&str> = BTreeSet::new();
     let mut in_deps = false;
     for line in MANIFEST.lines() {
@@ -165,7 +168,7 @@ fn the_crate_depends_on_nothing_that_could_open_a_connection() {
         }
     }
     let expected: BTreeSet<&str> =
-        ["serde", "serde_json", "uuid", "thiserror", "sha2", "time"].into_iter().collect();
+        ["serde", "serde_json", "uuid", "thiserror", "sha2", "time", "unicode-normalization"].into_iter().collect();
     assert_eq!(
         found, expected,
         "richos-core's dependency set changed. The launch record's 'never outbound' \

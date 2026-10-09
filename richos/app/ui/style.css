@@ -9748,6 +9748,674 @@ body.panel-full .op-body {
 .bugbtn:hover #set-dictation-state.is-attention { color: inherit; }
 @media (prefers-reduced-motion: reduce) { #dictation-sheet, #dictation-sheet * { animation: none !important; transition: none !important; } }
 
+/* =========================================================================================
+   BUST A BUG — round 21 (richos-hq design/mockups/rounds/round-21/, approved "go!"; CEO §115).
+
+   The exchange is ordinary conversation: Rich's lines are `.tl-rich`/`.tl-prose` and the user's
+   are `.tl-user` bubbles, drawn by `bug-report.js` with the timeline's own classes. The one new
+   object is the REPORT CARD, the send-before-approve step: the whole issue as it will appear on
+   GitHub, who it goes out as, what was left out, and Send report / Change it / Cancel. Where a
+   window covers the conversation, the same exchange happens in the RICH PANEL at the right.
+
+   Round 21's tokens, mapped onto this file's: its --inset is --surface-sunk, its --surface (the
+   panel) is --surface-raised, its --sw-off (the dashed edges) is --ink-faint. No new token.
+
+   SIZES: everything here that is meant to be read is 16px or larger (the card, the sheet, the
+   stand-in tooltip, the badge, the buttons and the digest of what Rich checked (`.bug-digest`,
+   text the user reads) at 1rem; the report title at 1.1875rem; Rich's lines at 1.125rem,
+   1.0625rem in the panel). DECLARED 14px, each a claim that it is skippable, all of them the
+   conversation's own and none new to this round: Rich's speaker label (`.tl-rich-meta`), the
+   "Worked for" line (`.tl-duration-btn`'s size, here on `.bug-worked`) and the send glyph in the
+   panel's composer (`.bugdock-send`, the composer's own ▷).
+
+   CONTRAST is measured by `ui/tests/bug-report.js` in both themes with the shipping walker's
+   arithmetic (tests/lib/contrast.js), never eyeballed; its output is in that suite's run.
+   ========================================================================================= */
+#bug-flows {
+  max-width: var(--reading-width);
+  margin: 0 auto;
+  padding: 0 28px 24px;
+}
+#bug-flows:empty {
+  display: none;
+}
+.bugflow {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bug-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0 4px;
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+.bug-divider::before,
+.bug-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.bug-divider svg {
+  width: 16px;
+  height: 16px;
+  color: var(--gold-text);
+  flex: none;
+  margin-right: -4px;
+}
+.bug-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bug-worked {
+  margin: 2px 0 0;
+}
+.bug-worked .tl-duration-label {
+  font-size: 0.875rem;
+}
+.bug-digest {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink-faint);
+}
+.bug-prose {
+  margin: 0;
+}
+.bug-actions-inline {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.bug-said {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  color: var(--ink-soft);
+}
+.bug-working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+.bug-working-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  /* Full opacity, always: `--live-mark` is the aliveness mark and owes 3:1 at every instant,
+     which a fading pulse does not pay (see the token's own note). */
+  background: var(--live-mark);
+}
+.bug-link {
+  color: var(--gold-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  overflow-wrap: anywhere;
+}
+.bug-link:hover {
+  text-decoration-thickness: 2px;
+}
+.bug-link:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ---- the report card ---- */
+.bugcard {
+  position: relative;
+  margin: 4px 0 6px;
+  max-width: 680px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px -26px var(--shadow-soft);
+  transition: border-color 0.35s ease;
+}
+.bugcard.is-new {
+  animation: op-rise 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+/* the strike: a gold line traveling along the top edge while it sends */
+.bugcard::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: -1px;
+  height: 3px;
+  width: 0;
+  max-width: calc(100% - 28px);
+  border-radius: 0 0 3px 3px;
+  background: var(--gold);
+  z-index: 2;
+}
+.bugcard.is-sending::before {
+  animation: bug-strike 1.3s cubic-bezier(0.55, 0.05, 0.3, 1) forwards;
+}
+@keyframes bug-strike {
+  to {
+    width: calc(100% - 28px);
+  }
+}
+.bugcard.is-queued::before {
+  width: 62%;
+  animation: none;
+  background: repeating-linear-gradient(90deg, var(--ink-faint) 0 7px, transparent 7px 12px);
+}
+.bugcard.is-sent::before {
+  width: calc(100% - 28px);
+  animation: none;
+}
+.bugcard.is-sent {
+  border-color: var(--gold);
+}
+.bugcard.is-queued {
+  border: 1.5px dashed var(--ink-faint);
+}
+.bugcard.is-flash {
+  animation: bug-flash 1.2s ease;
+}
+@keyframes bug-flash {
+  0% {
+    box-shadow: 0 0 0 3px var(--gold);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+.bug-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px 12px;
+}
+.bug-glyph {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--gold-text);
+}
+.bug-kind {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--ink);
+}
+.bug-pill {
+  margin-left: auto;
+  font-size: 1rem;
+  line-height: 1.4;
+  padding: 2px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--ink-faint);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.bugcard.is-sending .bug-pill {
+  color: var(--gold-text);
+  border-color: var(--gold);
+}
+.bugcard.is-sent .bug-pill {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--on-gold);
+  font-weight: 600;
+}
+.bugcard.is-sent .bug-pill.pop {
+  animation: op-rise 0.45s cubic-bezier(0.3, 1.5, 0.5, 1) both;
+}
+.bugcard.is-queued .bug-pill {
+  border-style: dashed;
+  color: var(--ink);
+}
+.bug-route {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0 18px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+.bug-route dt {
+  font-weight: 600;
+  color: var(--ink);
+}
+.bug-route dd {
+  margin: 0;
+}
+.bug-route dd b {
+  font-weight: 600;
+  color: var(--ink);
+}
+/* the page that goes to GitHub, word for word — set into the card like a sheet */
+.bug-doc {
+  margin: 2px 14px 0;
+  padding: 14px 16px 12px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  transition: border-color 0.2s ease;
+}
+.bug-title {
+  margin: 0;
+  font-size: 1.1875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.bug-sec {
+  margin-top: 11px;
+}
+.bug-sec h4 {
+  margin: 0 0 1px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.bug-sec p,
+.bug-sec li {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.bug-sec p + p {
+  margin-top: 6px;
+}
+.bug-sec ol {
+  margin: 0;
+  padding-left: 22px;
+}
+.bug-sec p.is-added {
+  animation: bug-sub-flash 1.6s ease;
+}
+/* a word that stands in for something private: dotted gold underline; point at it to see what it replaced */
+/* A DOTTED BORDER, NOT `text-decoration: underline dotted`: the test VM's WKWebView (macOS 15.7,
+   walk-aba5c01c19ce, captures 2-report-dark/light) painted no underline at all under the
+   stand-ins, where Playwright's WebKit painted one. A bottom border on an inline box is drawn by
+   every engine, wraps with the words, and its color is a plain property the contrast walk reads. */
+.bug-sub {
+  border-bottom: 2px dotted var(--gold);
+  padding-bottom: 1px;
+  cursor: help;
+}
+.bug-sub:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.bugcard.is-new .bug-sub {
+  animation: bug-sub-flash 1.6s ease 0.7s both;
+}
+@keyframes bug-sub-flash {
+  0%,
+  30% {
+    background: var(--tint-gold-strong);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.bug-leftout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0 18px;
+  padding: 12px 0 2px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.bug-leftout svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--gold-text);
+}
+.bug-warn {
+  margin: 8px 18px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--gold);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.bug-warn strong {
+  color: var(--gold-text);
+  font-weight: 600;
+}
+.bug-edithint {
+  margin: 10px 18px 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.bug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 18px 16px;
+  /* the way to send, change or cancel stays in view while the report is read */
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--card);
+  border-radius: 0 0 14px 14px;
+}
+.bug-actions.is-stuck {
+  box-shadow: 0 -14px 18px -14px var(--shadow-soft);
+  border-top: 1px solid var(--line-soft);
+}
+.bug-actions .desk-btn {
+  padding: 7px 16px;
+}
+.bug-sentrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  padding: 14px 18px 16px;
+  font-size: 1rem;
+  color: var(--ink-soft);
+}
+/* changing it: the sheet becomes editable in place, outlined in dashed gold */
+.bugcard.is-editing .bug-doc {
+  border: 1.5px dashed var(--gold);
+  background: var(--card);
+}
+.bugcard.is-editing [contenteditable] {
+  outline: none;
+  border-radius: 4px;
+  cursor: text;
+}
+.bugcard.is-editing [contenteditable]:focus {
+  box-shadow: 0 2px 0 -1px var(--gold);
+}
+.bugcard.is-editing .bug-sub {
+  cursor: text;
+}
+/* canceled: the card folds to its title line */
+.bugcard.is-canceled .bug-route,
+.bugcard.is-canceled .bug-doc,
+.bugcard.is-canceled .bug-leftout,
+.bugcard.is-canceled .bug-actions,
+.bugcard.is-canceled .bug-warn {
+  display: none;
+}
+.bugcard.is-canceled .bug-head {
+  padding-bottom: 14px;
+}
+.bug-ctitle {
+  display: none;
+  margin: 0 18px 14px;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-faint);
+}
+.bugcard.is-canceled .bug-ctitle {
+  display: block;
+}
+/* what a stand-in replaced — only the user sees it, never part of the report.
+   299: above every layer its stand-in can sit in (the conversation, `#bugdock` at 65, or 250
+   over the home screen and the held opening screen), and
+   below `.settings` (300), which §15 puts above every overlay. */
+#bug-subtip {
+  position: fixed;
+  z-index: 299;
+  max-width: 320px;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px -30px var(--shadow-strong);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+#bug-subtip.is-shown {
+  opacity: 1;
+  transform: none;
+}
+#bug-subtip b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ---- the Rich panel: where a window covers the conversation, the exchange happens beside it,
+        and the window moves left and stays open ---- */
+#bugdock {
+  position: fixed;
+  right: 18px;
+  top: 64px;
+  bottom: 18px;
+  width: 452px;
+  max-width: calc(100vw - 36px);
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 60px 120px -40px var(--shadow-strong);
+  animation: bug-dock-in 0.4s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+/* Bust a bug pressed on the home screen (`#home`, 150) or the held opening screen (`.splash`,
+   200): the panel opens ON TOP of the screen the bug is on, which stays up behind it, and below
+   `.settings` (300), which §15 puts above every overlay. `bug-report.js` sets this only when the
+   user presses Bust a bug there; a report shown by itself (one kept from before a quit) never
+   covers either screen. */
+#bugdock.bugdock--over {
+  z-index: 250;
+}
+@keyframes bug-dock-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+body.bug-dock-open .overlay {
+  padding-right: 488px;
+}
+body.bug-dock-open .overlay-panel {
+  width: min(620px, calc(100vw - 540px));
+}
+body.bug-dock-open .overlay-panel--desk {
+  width: min(760px, calc(100vw - 540px));
+}
+.bugdock-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.bugdock-mark {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--ink);
+}
+.bugdock-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--ink);
+}
+.bugdock-where {
+  font-size: 1rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bugdock-x {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 1rem;
+}
+.bugdock-x:hover {
+  background: var(--gold-soft);
+  color: var(--ink);
+}
+.bugdock-x:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+.bugdock-msgs {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 14px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.bugdock-msgs .tl-user-bubble {
+  max-width: 88%;
+}
+.bugdock-msgs .bugcard {
+  margin-left: -4px;
+  margin-right: -4px;
+}
+.bugdock-msgs .tl-prose {
+  font-size: 1.0625rem;
+}
+.bugdock-compose {
+  border-top: 1px solid var(--line-soft);
+  padding: 12px 14px 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.bugdock-form {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--line-control);
+  border-radius: 21px;
+  padding: 5px 5px 5px 16px;
+}
+.bugdock-form:focus-within {
+  border-color: var(--gold);
+}
+#bugdock-input {
+  flex: 1;
+  resize: none;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.45;
+  padding: 7px 0;
+  max-height: 120px;
+}
+#bugdock-input::placeholder {
+  color: var(--ink-soft);
+  /* One line, as round 21 draws it: the panel's field is narrower than the composer's. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bugdock-talk {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.bugdock-talk .talk-icon {
+  width: 40px;
+  height: 40px;
+}
+.bugdock-talk:hover {
+  color: var(--accent-text);
+}
+.bugdock-talk:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.bugdock-talk[aria-pressed="true"] .talk-icon-disc {
+  fill: var(--on-gold);
+}
+.bugdock-talk[aria-pressed="true"] .talk-icon-bar {
+  fill: var(--accent);
+}
+.bugdock-send {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line-control);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 0.875rem;
+  background: var(--card);
+  color: var(--ink-soft);
+}
+.bugdock-send.is-live {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--on-gold);
+}
+.bugdock-voice {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 2px 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bugcard,
+  .bugcard *,
+  #bugdock {
+    animation: none !important;
+  }
+  .bugcard.is-sending::before {
+    width: calc(100% - 28px);
+  }
+}
+
 /* ---------------------------------------------------------------------------------------------
    "LET CODEX REVIEW YOUR TEAM'S WORK" — round 20.2 (richos-hq design/mockups/rounds/round-20.2/),
    copied from its index.html ("ROUND 20", "ROUND 20.1", "ROUND 20.2" blocks) with the selectors

@@ -68,6 +68,9 @@ pub mod american_spelling;
 /// the session that reads them (CEO §86, 2026-09-24).
 pub mod attachments;
 pub mod belief;
+/// Bust a bug (CEO §115, round 21): what is private and its stand-ins, Rich's write-up, the
+/// issue word for word, and the reports on this Mac that wait to be sent. Opens no connection.
+pub mod bug_report;
 pub mod claude_accounts;
 pub mod cognition;
 pub mod company;

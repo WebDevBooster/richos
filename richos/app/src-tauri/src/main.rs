@@ -127,6 +127,12 @@ mod mac_attachments;
 /// an output id, never a path, and the `richos-output` scheme serves only what the active
 /// thread's record holds.
 mod output_files;
+/// BUST A BUG (CEO §115, round 21): Rich writes the report, the reporting account's token is
+/// read from the keychain at send time, and a report that could not go waits on this Mac.
+mod bug_report;
+/// Bust a bug's picture of RichOS's own window, for the user's own Claude to look at
+/// (WKWebView's snapshot: no screen-recording permission).
+mod window_picture;
 
 // Headless integration harness; absent from the shipped executable.
 #[cfg(test)]
@@ -3669,6 +3675,10 @@ fn main() {
             let output_cache = app.path().app_cache_dir().unwrap_or_else(|_| attachments_home.join("cache"));
             let output_reader = app.state::<AppState>().reader.clone();
             app.manage(output_files::OutputFiles::for_app(output_store, output_reader, &attachments_home, &output_cache));
+            // Bust a bug (round 21): the reports on this Mac, and the loop that sends a waiting
+            // one by itself once it can go, from this launch on.
+            app.manage(bug_report::BugReports::for_app(&attachments_home, &app.package_info().version.to_string()));
+            bug_report::spawn_retry(app.handle().clone());
             // DICTATION (plan slice 1): when dictation.json says on, the tool starts as this
             // app's child, on a thread of its own so first paint never waits for it.
             #[cfg(target_os = "macos")]
@@ -3997,6 +4007,18 @@ fn main() {
             dictation_take_sheet_request,
             #[cfg(target_os = "macos")]
             dictation_app::dictation_capture_key,
+            // --- Bust a bug (round 21, CEO §115) — appended ---
+            bug_report::bug_report_context,
+            bug_report::bug_report_private_in,
+            bug_report::bug_report_look,
+            bug_report::bug_report_write,
+            bug_report::bug_report_take_unchecked,
+            bug_report::bug_report_change,
+            bug_report::bug_report_send,
+            bug_report::bug_report_try_now,
+            bug_report::bug_report_cancel,
+            bug_report::bug_report_voice,
+            bug_report::bug_report_open_issue,
             // --- "Let Codex review your team's work" (round 20.2, ruling §114) — appended ---
             codex_reviews_status,
             codex_reviews_set
@@ -4723,6 +4745,12 @@ fn start_voice_capture(app: AppHandle, thread_id: Option<String>) -> Result<serd
     // was. See `richos_voice::controller::AdmittedUtterance::rich_audible`.
     let submit: Arc<dyn Fn(String, bool) + Send + Sync> =
         Arc::new(move |text: String, rich_audible: bool| {
+            // BUST A BUG (round 21): while a report waits on the user's words, what they say is
+            // the report's. The window takes it from `rich://voice-transcript`; it is not a turn.
+            if bug_report::holding_voice(&submit_app) {
+                eprintln!("[richos] a spoken answer went to the bug report, not to the conversation");
+                return;
+            }
             let state = submit_app.state::<AppState>();
             let Some(spine) = take_the_spine_or_give_up(&state.spine) else { return };
             // ===========================================================================

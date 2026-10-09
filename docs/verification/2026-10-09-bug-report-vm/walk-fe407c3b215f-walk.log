@@ -1,0 +1,18 @@
+[walk] 10:14:47Z ok: a conversation in Northwind Traders
+[walk] 10:15:08Z ok: Rich asks what went wrong
+[walk] 10:15:24Z ok: the report card, not sent yet
+[walk] 10:15:33Z ok: the company is a stand-in
+[walk] 10:15:42Z ok: the person is a stand-in
+[walk] 10:16:11Z ok: From the RichOS reporting account
+[walk] 10:16:13Z ok: Rich was given the user's words
+[walk] 10:17:49Z ok: waiting to send, saved on this Mac
+[walk] 10:17:53Z ok: Rich's offline line
+[walk] 10:17:54Z ok: on disk, waiting, offline (/Users/admin/testvm/walk-fe407c3b215f/home/Library/Application Support/com.richos.app/bug-reports/waiting)
+[walk] 10:19:09Z the stand-in endpoint is up; waiting for the report to go out by itself
+[walk] 10:19:23Z ok: Sent · #412, by itself
+[walk] 10:19:28Z ok: Rich says it went out
+[walk] 10:19:29Z ok: one POST to /repos/WebDevBooster/richos/issues
+[walk] 10:19:29Z ok: the keychain's token, read at send time
+[walk] 10:19:29Z ok: the title Rich wrote
+[walk] 10:19:29Z ok: recorded as sent
+[walk] 10:20:33Z done
