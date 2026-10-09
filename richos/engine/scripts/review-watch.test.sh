@@ -89,6 +89,9 @@
 #   W28  a mid-job verdict is recorded delivered only once the app's worker hook has
 #        written and flushed its answer: a closed pipe leaves it for the next tool call
 #        (the reviewer's fixture mid_job_failed_output.py)
+#   W29  the quit keeps ending the review's own session after its launcher exits:
+#        a platform tool that hides the mark is ended, and the lock is settled only
+#        then (the reviewer's fixture orphan_platform_same_session.py)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1829,6 +1832,92 @@ sys.exit(0 if got == {"the hook's output failed": True, "recorded delivered afte
                       "recorded delivered once told": True, "the hook after that tells it again": False} else 1)
 PY
 check "W28 a mid-job verdict is recorded delivered only once the worker hook's answer is written and flushed" $? "see above"
+
+# --- W29 ---------------------------------------------------------------------
+# The real second review of 283b4379d, finding 1 (fixtures/orphan_platform_same_session.py): once
+# the launcher exited, a member of the review's own session that hides the mark (an Apple platform
+# binary such as /bin/sleep: the kernel withholds its environment) was no longer the review's, so a
+# quit settled the lock as stopped and the tool ran on. Now the session stays the review's until a
+# read finds it empty: at the quit of the watcher that started it, and at a later watcher's look
+# (the lock's own_session). The environment is unreadable here for every process, as for a
+# platform binary on macOS, so only the session can find the tool.
+python3 - "$LIB" "$SB/w29" <<'PY'
+import json, os, shlex, signal, subprocess, sys, time
+lib, root = sys.argv[1:3]
+os.makedirs(root)
+os.environ["REVIEW_WATCH_STATE_DIR"] = root
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "reviews")
+sys.path.insert(0, lib)
+import review_watch as rw
+rw.environment = lambda pid: []                 # every mark hidden, as a platform binary's is
+launcher = os.path.join(root, "launcher.py")
+with open(launcher, "w") as f:
+    f.write("import subprocess, sys, time\np = subprocess.Popen(['/bin/sleep', '40'])\n"
+            "open(sys.argv[1], 'w').write(str(p.pid))\ntime.sleep(0.3)\n")
+tools, got = [], {}
+
+
+def exists(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def started(case, tip):
+    w = rw.Watcher("/fixture/engine", "", world=object())
+    fake = os.path.join(root, "second-review-%s.sh" % case)
+    with open(fake, "w") as f:
+        f.write("exec %s\n" % " ".join(map(shlex.quote, [sys.executable, "-B", launcher, os.path.join(root, case)])))
+    os.environ["REVIEW_WATCH_SECOND_REVIEW"] = fake
+    info = w.start(rw.Item("teammate:fixture", "fixture", root, tip, "b" * 40, "running"), "long-job", time.time(), 1)
+    end = time.monotonic() + 5
+    while not os.path.exists(os.path.join(root, case)) or not open(os.path.join(root, case)).read():
+        assert time.monotonic() < end
+        time.sleep(0.01)
+    tool = int(open(os.path.join(root, case)).read())
+    tools.append(tool)
+    w.children[info["pid"]].wait(timeout=5)     # the launcher has exited
+    return w, info, tool
+
+
+def gone(pid):
+    for _ in range(40):                         # an orphan is reaped by launchd, not by us
+        if not exists(pid):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+try:
+    w, info, tool = started("quit", "a" * 40)
+    got["quit: the tool is in the review's session"] = os.getsid(tool) == info["pid"]
+    w.stop_own(time.time())
+    got["quit: the tool is ended"] = gone(tool)
+    got["quit: lock left"] = os.path.exists(rw.lock_path(root, "a" * 40))
+    w, info, tool = started("look", "c" * 40)
+    got["look: recorded as leading its own session"] = rw.stall_watch._read_json(rw.lock_path(root, "c" * 40)).get("own_session")
+    rw.Watcher("/fixture/engine", "", world=object()).reconcile(time.time(), [])   # another watcher's look
+    got["look: the tool is ended"] = gone(tool)
+    got["look: lock left"] = os.path.exists(rw.lock_path(root, "c" * 40))
+    got["attempts"] = [a["outcome"] for a in rw.read_jsonl(rw._p("attempts.jsonl"))]
+finally:
+    for t in tools:
+        try:
+            os.kill(t, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+print("    %s" % json.dumps(got, sort_keys=True))
+sys.exit(0 if got == {"quit: the tool is in the review's session": True, "quit: the tool is ended": True,
+                      "quit: lock left": False, "look: recorded as leading its own session": True,
+                      "look: the tool is ended": True, "look: lock left": False,
+                      "attempts": ["stopped", "lost"]} else 1)
+PY
+check "W29 a review's own session stays its own after its launcher exits: a tool that hides the mark is ended before the lock is settled" \
+    $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate

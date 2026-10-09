@@ -273,6 +273,14 @@ def group_gone(pgid):
     return False
 
 
+def leads_session(pid):
+    """Does a live process with this pid lead a session (its session id is its own pid)?"""
+    try:
+        return os.getsid(int(pid)) == int(pid)
+    except (OSError, ValueError):
+        return False
+
+
 _PROCARGS = {}
 
 
@@ -306,14 +314,16 @@ def environment(pid):
 
 
 def owned_processes(reviews):
-    """[{pid: (pgid, stat)}], one per (leader pid, mark, leader verified) in `reviews`: the live
+    """[{pid: (pgid, stat, sid)}], one per (leader pid, mark, session owned) in `reviews`: the live
     processes of this user that carry that review's mark in their environment, from one read of the
     process table; every one {} when the table cannot be read. Ownership captured at the review's
     start, never a name, a path or an ancestry: the exact mark and the user id.
     AND THE SESSION ITS LEADER LEADS (spawn starts each review in a session of its own), for what
-    hides its environment (MARK_ENV): its members count while the leader is verified alive (its
-    start identity, or this watcher's own child), or when one of them carries the mark. A dead
-    leader's pid can be reused once its session is gone, so its session id alone is never proof."""
+    hides its environment (MARK_ENV): its members count while the session is owned (the caller's
+    word: its leader verified alive, or recorded so and the session not seen empty since; Watcher.
+    stop_all), or when one of them carries the mark. A session id is never reused while a member is
+    left; once none is, the leader's pid can lead a new session, so an empty session is never owned
+    again."""
     out = [{} for _ in reviews]
     try:
         r = subprocess.run(["ps", "-A", "-o", "pid=,uid=,pgid=,stat="], capture_output=True, text=True,
@@ -323,9 +333,9 @@ def owned_processes(reviews):
     if r.returncode != 0:
         return out
     uid, me = os.getuid(), os.getpid()
-    marks = [("%s=%s" % (MARK_ENV, mark)).encode() if mark else None for _leader, mark, _verified in reviews]
+    marks = [("%s=%s" % (MARK_ENV, mark)).encode() if mark else None for _leader, mark, _owned in reviews]
     session = [{} for _ in reviews]
-    proven = [verified for _leader, _mark, verified in reviews]
+    proven = [owned for _leader, _mark, owned in reviews]
     for line in r.stdout.splitlines():
         parts = line.split()
         try:
@@ -336,39 +346,16 @@ def owned_processes(reviews):
         except (IndexError, ValueError, OSError):
             continue
         env = environment(pid) if any(marks) else []
-        for n, (leader, _mark, _verified) in enumerate(reviews):
+        for n, (leader, _mark, _owned) in enumerate(reviews):
             marked = bool(marks[n]) and marks[n] in env
             if marked:
-                out[n][pid] = (pgid, stat)
+                out[n][pid] = (pgid, stat, sid)
             if sid == leader:
-                session[n][pid] = (pgid, stat)
+                session[n][pid] = (pgid, stat, sid)
                 proven[n] = proven[n] or marked
     for n in range(len(reviews)):
         if proven[n]:
             out[n].update(session[n])
-    return out
-    if r.returncode != 0:
-        return out
-    uid, me = os.getuid(), os.getpid()
-    marks = [("%s=%s" % (MARK_ENV, mark)).encode() if mark else None for _leader, mark in reviews]
-    for line in r.stdout.splitlines():
-        parts = line.split()
-        try:
-            pid, puid, pgid, stat = int(parts[0]), int(parts[1]), int(parts[2]), parts[3]
-            if puid != uid or pid == me or stat.startswith("Z"):
-                continue
-            sid = os.getsid(pid)
-        except (IndexError, ValueError, OSError):
-            continue
-        env = None
-        for n, (leader, _mark) in enumerate(reviews):
-            if sid != leader:
-                if not marks[n]:
-                    continue
-                env = environment(pid) if env is None else env
-                if marks[n] not in env:
-                    continue
-            out[n][pid] = (pgid, stat)
     return out
 
 
@@ -996,14 +983,27 @@ class Watcher(object):
         leader's group is SIGKILLed, and the group gets SIGTERM and SIGCONT, so second-review exits
         and releases its scratch. Whatever is left after term_seconds is frozen again and
         SIGKILLed, again on every read, until none is left. Returns the infos with a process NOT
-        seen gone inside the bound (normally none), so a caller never settles a running review."""
+        seen gone inside the bound (normally none), so a caller never settles a running review.
+
+        ITS SESSION STAYS ITS OWN AFTER ITS LAUNCHER EXITS (the second review of 283b4379d,
+        finding 1): an Apple tool hides the mark, so it is found only as a member of the session
+        the leader led. That session is owned while the leader is verified alive, and, once the
+        leader has exited, while the review was recorded as leading it (own_session in its lock,
+        start; or this watcher's own child) and no read has found it empty, unless its pid now
+        leads a session again, which only a new process can (owned_processes)."""
         live = [i for i in infos if i.get("pid")]
         for i in live:
             i["_verified"] = bool(self.alive(i))
+            pid = int(i["pid"])
+            i["_session"] = i["_verified"] or (bool(i.get("own_session") or pid in self.children)
+                                               and not leads_session(pid))
 
         def scan(infos):
-            return owned_processes([(int(i["pid"]), i.get("mark") or self.marks.get(i["pid"], ""), i["_verified"])
-                                    for i in infos])
+            found = owned_processes([(int(i["pid"]), i.get("mark") or self.marks.get(i["pid"], ""), i["_session"])
+                                     for i in infos])
+            for i, procs in zip(infos, found):
+                i["_session"] = i["_session"] and any(s == int(i["pid"]) for _g, _st, s in procs.values())
+            return found
 
         def kill(pids, sig):
             for p in pids:
@@ -1037,7 +1037,7 @@ class Watcher(object):
             while True:
                 killpg(infos, signal.SIGSTOP)
                 found = scan(infos)
-                running = [p for procs in found for p, (_g, stat) in procs.items() if stat[:1] != "T"]
+                running = [p for procs in found for p, (_g, stat, _s) in procs.items() if stat[:1] != "T"]
                 if not running or time.monotonic() >= end:
                     return found
                 kill(running, signal.SIGSTOP)
@@ -1047,7 +1047,7 @@ class Watcher(object):
         if not live:
             return []
         found = freeze(live)
-        kill([p for i, procs in zip(live, found) for p, (g, _s) in procs.items()
+        kill([p for i, procs in zip(live, found) for p, (g, _st, _s) in procs.items()
               if not (i["_verified"] and g == int(i["pid"]))], signal.SIGKILL)
         killpg(live, signal.SIGTERM)
         killpg(live, signal.SIGCONT)
@@ -1188,6 +1188,9 @@ class Watcher(object):
             self._starting = None
             return None
         info["pid"], info["pid_start"], info["mark"] = pid, pstart, self.marks.get(pid, "")
+        # It leads a session of its own (spawn), recorded while it is verified alive, so the session
+        # stays the review's after it exits, for the members that hide the mark (stop_all).
+        info["own_session"] = bool(self.alive(info))
         self.rewrite_lock(path, info)
         self._starting = None
         return info
