@@ -1,0 +1,18 @@
+[walk] 01:04:36Z app data: /Users/admin/testvm/walk-3b8f01f185cf/home/Library/Application Support/com.richos.app
+[walk] 01:04:36Z the sign-in runs out for the back end; ask for the two jobs
+[walk] 01:05:42Z ok: the front desk wrote the jobs down
+[walk] 01:05:48Z ok: the back end's first turn was refused (nobody signed in)
+[walk] 01:06:54Z ok: two jobs written down
+[walk] 01:06:54Z ok: one attempt for the two jobs, nothing else started
+[walk] 01:06:54Z ok: the attempt was the first job
+[walk] 01:06:54Z FAILED: not held: Prepare the Northwind invoice summary. ()
+[walk] 01:06:55Z FAILED: not held: Draft the Contoso welcome note. ()
+[walk] 01:06:55Z ok: the held notice is shown once
+[walk] 01:06:55Z the sign-in comes back
+[walk] 01:07:46Z ok: the first held job started
+[walk] 01:07:51Z ok: the second held job started
+[walk] 01:08:14Z ok: the first held job first, then the second
+[walk] 01:08:14Z ok: the first job started 50 s after the sign-in came back
+[walk] 01:08:14Z ok: no front-desk turn after the sign-in came back
+[walk] 01:08:14Z ok: no work record says failed (held: "state":"registered" "state":"registered" ; now: "state":"settled" "state":"settled" )
+[walk] 01:08:14Z done, with 2 failed step(s): not held: Prepare the Northwind invoice summary. (); not held: Draft the Contoso welcome note. (); 
