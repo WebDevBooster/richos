@@ -153,7 +153,25 @@ impl bug::Transport for GitHub {
         let url = format!("{}{}", self.base, path);
         let body = request.to_string();
         let token = credential.token.clone();
-        tauri::async_runtime::block_on(async move {
+        // ITS OWN THREAD AND ITS OWN RUNTIME, because of where it is called from: a
+        // `#[tauri::command(async)]` runs on one of the async runtime's worker threads, and
+        // blocking on a runtime there panics ("Cannot start a runtime from within a runtime"),
+        // which left the card on Sending… for good in walk-aba5c01c19ce. A plain thread has no
+        // runtime around it, so the request runs the same from a command, the retry loop or a test.
+        let request = std::thread::spawn(move || -> bug::Outcome {
+            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(r) => r,
+                Err(_) => return bug::Outcome::Unreachable,
+            };
+            runtime.block_on(Self::post(url, token, body))
+        });
+        request.join().unwrap_or(bug::Outcome::Unreachable)
+    }
+}
+
+impl GitHub {
+    async fn post(url: String, token: String, body: String) -> bug::Outcome {
+        {
             let client = match reqwest::Client::builder()
                 .timeout(Duration::from_secs(25))
                 .connect_timeout(Duration::from_secs(8))
@@ -190,7 +208,7 @@ impl bug::Transport for GitHub {
                 // not answering properly, so the report waits rather than claiming it was filed.
                 None => bug::Outcome::Status { code: 502 },
             }
-        })
+        }
     }
 }
 
@@ -310,55 +328,85 @@ pub fn bug_report_context(state: State<crate::AppState>) -> serde_json::Value {
 
 /// **Rich writes it up.** Sends nothing.
 #[tauri::command(async)]
-pub fn bug_report_write(state: State<crate::AppState>, bugs: State<Arc<BugReports>>, answer: String, screen: bug::Screen) -> serde_json::Value {
+pub async fn bug_report_write(app: AppHandle, answer: String, screen: bug::Screen) -> Result<serde_json::Value, String> {
     let started = Instant::now();
-    let terms = private_terms(&state);
-    let scrubber = bug::Scrubber::new(terms.clone());
-    let (bin, folder) = claude_for(&state);
-    let prompt = bug::writer_prompt(&answer, &screen, &bugs.version, scrubber.terms());
-    let (written, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &prompt).and_then(|raw| bug::parse_written(&raw)) {
-        Ok(w) => (w, true),
-        Err(why) => {
-            eprintln!("[richos] bug report: Rich's write-up was not used ({why}); the plain write-up is");
-            (bug::plain_write_up(&answer, &screen), false)
-        }
-    };
-    let draft = bug::draft_from(&written, &bugs.version, &scrubber);
-    serde_json::json!({
-        "draft": draft,
-        "digest": digest(&screen, by_rich),
-        "workedMs": started.elapsed().as_millis() as u64,
-        "byRich": by_rich,
+    let (scrubber, (bin, folder), bugs) = read_state(&app);
+    // Rich's write-up waits on `claude` for up to WRITE_DEADLINE, so it waits on the blocking
+    // pool and never on one of the threads the window's other commands are answered on.
+    off_the_ipc_threads(move || {
+        let prompt = bug::writer_prompt(&answer, &screen, &bugs.version, scrubber.terms());
+        let (written, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &prompt).and_then(|raw| bug::parse_written(&raw)) {
+            Ok(w) => (w, true),
+            Err(why) => {
+                eprintln!("[richos] bug report: Rich's write-up was not used ({why}); the plain write-up is");
+                (bug::plain_write_up(&answer, &screen), false)
+            }
+        };
+        let draft = bug::draft_from(&written, &bugs.version, &scrubber);
+        Ok(serde_json::json!({
+            "draft": draft,
+            "digest": digest(&screen, by_rich),
+            "workedMs": started.elapsed().as_millis() as u64,
+            "byRich": by_rich,
+        }))
     })
+    .await
 }
 
 /// **A change said to Rich**: the sentence to add and where it goes. Sends nothing.
 #[tauri::command(async)]
-pub fn bug_report_change(state: State<crate::AppState>, bugs: State<Arc<BugReports>>, said: String, sheet: bug::Sheet) -> serde_json::Value {
+pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet) -> Result<serde_json::Value, String> {
     let started = Instant::now();
-    let scrubber = bug::Scrubber::new(private_terms(&state));
-    let (bin, folder) = claude_for(&state);
-    let headings: Vec<String> = sheet.sections.iter().map(|s| s.heading.clone()).collect();
-    let (change, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::change_prompt(&sheet, &said))
-        .and_then(|raw| bug::parse_change(&raw))
-        .and_then(|c| if headings.contains(&c.section) { Ok(c) } else { Err(format!("no section {:?}", c.section)) })
-    {
-        Ok(c) => (c, true),
-        Err(why) => {
-            eprintln!("[richos] bug report: Rich's change was not used ({why}); the user's own words are");
-            (bug::plain_change(&said), false)
-        }
-    };
-    serde_json::json!({
-        "section": change.section,
-        "add": scrubber.scrub(&change.add),
-        "workedMs": started.elapsed().as_millis() as u64,
-        "byRich": by_rich,
+    let (scrubber, (bin, folder), bugs) = read_state(&app);
+    off_the_ipc_threads(move || {
+        let headings: Vec<String> = sheet.sections.iter().map(|s| s.heading.clone()).collect();
+        let (change, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::change_prompt(&sheet, &said))
+            .and_then(|raw| bug::parse_change(&raw))
+            .and_then(|c| if headings.contains(&c.section) { Ok(c) } else { Err(format!("no section {:?}", c.section)) })
+        {
+            Ok(c) => (c, true),
+            Err(why) => {
+                eprintln!("[richos] bug report: Rich's change was not used ({why}); the user's own words are");
+                (bug::plain_change(&said), false)
+            }
+        };
+        Ok(serde_json::json!({
+            "section": change.section,
+            "add": scrubber.scrub(&change.add),
+            "workedMs": started.elapsed().as_millis() as u64,
+            "byRich": by_rich,
+        }))
     })
+    .await
+}
+
+/// What the two writing commands read before they wait: the private words, which `claude` and
+/// which account, and the reports' state. Read from the app handle, so an async command holds no
+/// borrowed state across its wait.
+fn read_state(app: &AppHandle) -> (bug::Scrubber, (PathBuf, Option<PathBuf>), Arc<BugReports>) {
+    let state = app.state::<crate::AppState>();
+    (bug::Scrubber::new(private_terms(&state)), claude_for(&state), app.state::<Arc<BugReports>>().inner().clone())
+}
+
+/// Run `work` on the blocking pool and hand back its answer. A command that waits on a child
+/// process, the keychain or the network must not hold one of the async runtime's worker threads,
+/// where every other command of the window is answered.
+async fn off_the_ipc_threads<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work).await.map_err(|e| {
+        eprintln!("[richos] bug report: the work stopped ({e})");
+        "Something went wrong on this Mac, and nothing was sent.".to_string()
+    })?
+}
+
+/// The one-attempt-at-a-time lock. A thread that panicked while holding it leaves nothing
+/// half-written (every write in the outbox is atomic), so the lock is taken back rather than
+/// letting one panic stop every report on this Mac from ever being sent again.
+fn one_at_a_time(bugs: &BugReports) -> std::sync::MutexGuard<'_, ()> {
+    bugs.sending.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn deliver(bugs: &BugReports, attempt: impl FnOnce(&bug::Outbox) -> std::io::Result<Option<bug::Delivery>>) -> Result<Option<bug::Delivery>, String> {
-    let _one_at_a_time = bugs.sending.lock().map_err(|_| "the report store is unavailable".to_string())?;
+    let _one_at_a_time = one_at_a_time(bugs);
     attempt(&bugs.outbox).map_err(|e| {
         eprintln!("[richos] bug report: the report could not be kept on this Mac ({e})");
         "I couldn't save the report on this Mac, so nothing was sent.".to_string()
@@ -367,22 +415,30 @@ fn deliver(bugs: &BugReports, attempt: impl FnOnce(&bug::Outbox) -> std::io::Res
 
 /// **SEND THE APPROVED SHEET.** Kept on this Mac first, then tried once.
 #[tauri::command(async)]
-pub fn bug_report_send(bugs: State<Arc<BugReports>>, sheet: bug::Sheet) -> Result<bug::Delivery, String> {
-    let github = GitHub::from_env();
-    deliver(&bugs, |o| o.send(&sheet, &KeychainCredentials, &github, now_ms()).map(Some))?.ok_or_else(|| "nothing was sent".into())
+pub async fn bug_report_send(app: AppHandle, sheet: bug::Sheet) -> Result<bug::Delivery, String> {
+    let bugs = app.state::<Arc<BugReports>>().inner().clone();
+    off_the_ipc_threads(move || {
+        let github = GitHub::from_env();
+        deliver(&bugs, |o| o.send(&sheet, &KeychainCredentials, &github, now_ms()).map(Some))?.ok_or_else(|| "nothing was sent".into())
+    })
+    .await
 }
 
 /// *Try now*. `None` when it is no longer waiting.
 #[tauri::command(async)]
-pub fn bug_report_try_now(bugs: State<Arc<BugReports>>, id: String) -> Result<Option<bug::Delivery>, String> {
-    let github = GitHub::from_env();
-    deliver(&bugs, |o| o.try_now(&id, &KeychainCredentials, &github, now_ms()))
+pub async fn bug_report_try_now(app: AppHandle, id: String) -> Result<Option<bug::Delivery>, String> {
+    let bugs = app.state::<Arc<BugReports>>().inner().clone();
+    off_the_ipc_threads(move || {
+        let github = GitHub::from_env();
+        deliver(&bugs, |o| o.try_now(&id, &KeychainCredentials, &github, now_ms()))
+    })
+    .await
 }
 
 /// *Cancel report*, and a waiting report that is being changed (a changed report is approved again).
 #[tauri::command(async)]
 pub fn bug_report_cancel(bugs: State<Arc<BugReports>>, id: String) -> Result<bool, String> {
-    let _one_at_a_time = bugs.sending.lock().map_err(|_| "the report store is unavailable".to_string())?;
+    let _one_at_a_time = one_at_a_time(&bugs);
     bugs.outbox.cancel(&id).map_err(|e| e.to_string())
 }
 
@@ -416,7 +472,7 @@ pub fn spawn_retry(app: AppHandle) {
             let Some(bugs) = app.try_state::<Arc<BugReports>>() else { continue };
             let bugs = bugs.inner().clone();
             let github = GitHub::from_env();
-            let Ok(guard) = bugs.sending.lock() else { continue };
+            let guard = one_at_a_time(&bugs);
             let due = bugs.outbox.send_due(&KeychainCredentials, &github, now_ms());
             drop(guard);
             match due {
@@ -494,6 +550,21 @@ mod tests {
         assert!(headers.iter().any(|h| h.eq_ignore_ascii_case("authorization: Bearer stand-in-token")), "{headers:?}");
         assert!(headers.iter().any(|h| h.eq_ignore_ascii_case("accept: application/vnd.github+json")), "{headers:?}");
         assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap(), request, "the body is the sheet's request, nothing added");
+    }
+
+    /// WHERE A COMMAND RUNS IT FROM: inside a runtime. A `#[tauri::command(async)]` runs on an
+    /// async runtime's worker thread, and the first build blocked on a runtime there, which
+    /// panicked and left the card on Sending… (walk-aba5c01c19ce's app log: "Cannot start a
+    /// runtime from within a runtime"). Red on that build, green on its own thread.
+    #[test]
+    fn the_request_completes_when_it_is_made_from_inside_a_runtime_as_a_command_makes_it() {
+        let (base, server) = stand_in("201 Created", r#"{"number": 7}"#);
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let outcome = runtime.block_on(async move {
+            GitHub { base }.create_issue(&credential(), "/repos/WebDevBooster/richos/issues", &serde_json::json!({"title": "t", "body": "b"}))
+        });
+        assert_eq!(outcome, bug::Outcome::Created { number: 7, url: bug::issue_page(7) });
+        server.join().unwrap();
     }
 
     #[test]
