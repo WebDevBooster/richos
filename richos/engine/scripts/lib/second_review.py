@@ -55,8 +55,10 @@ WHICH MODEL (plan §2.3, Sage's catches 3, 4 and 10)
     Codex cannot run (missing, signed out, at its usage limit: any exit without
     an answer that is not the time limit). The fallback is Opus, at high
     effort, in a fresh headless context with no setting sources (none of the
-    lead's hooks or plugins), Bash confined by Claude Code's sandbox to the
-    export, and --json-schema for the same answer shape. It respects his quota
+    lead's hooks or plugins), every write going through Bash, which Claude
+    Code's OS sandbox confines to the export (the file-writing tools, which
+    the sandbox does not confine, are removed), and --json-schema for the
+    same answer shape. It respects his quota
     rule: quota-watch's own reading is taken first, and while a pause is in
     force (quota-watch --once exit 1) no Claude review starts.
   * A same-model reviewer is NOT refused (Sage's catch 3: what made the four
@@ -750,21 +752,26 @@ def codex_argv(codex, export, schema_path, answer_path):
 
 
 def claude_settings():
-    """Bash confined to the export by Claude Code's own sandbox (it writes only
-    in its working folder and reads anywhere), the same boundary as Codex's
-    workspace-write; edits allowed only there."""
+    """Every write goes through Bash, and Bash is confined by Claude Code's OS
+    sandbox to the working folder (it reads anywhere), the same boundary as
+    Codex's workspace-write. No command may leave the sandbox."""
     return json.dumps({"sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True,
-                                   "allowUnsandboxedCommands": False},
-                       "permissions": {"defaultMode": "acceptEdits"}})
+                                   "allowUnsandboxedCommands": False}})
 
 
 def claude_argv(claude):
+    # bypassPermissions, because with acceptEdits the first real run
+    # (2026-10-09, rv-20261009T004917Z-2d5aaf84-fc47) had its `cargo test` and
+    # a `cd tree && ...` refused as prompts nobody answers. The boundary is the
+    # OS sandbox, which bypassPermissions does not lift; the file-writing tools,
+    # which the sandbox does not confine, are removed.
     return [claude, "-p",
             "--model", CLAUDE_MODEL,
             "--effort", CLAUDE_EFFORT,
             "--setting-sources", "",
             "--settings", claude_settings(),
-            "--permission-mode", "acceptEdits",
+            "--permission-mode", "bypassPermissions",
+            "--disallowedTools", "Edit,Write,NotebookEdit",
             "--permission-prompts", "none",
             "--json-schema", json.dumps(SCHEMA),
             "--output-format", "json",

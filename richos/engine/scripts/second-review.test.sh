@@ -294,6 +294,9 @@ CARGV="$(field "$(cat "$CL/call.json")" '" ".join(r["argv"])')"
 check "C06 Codex at its usage limit: the Claude fallback reviews on Opus, and says why" $? "rc=$RC row=$ROW argv=$CARGV"
 [ "$(field "$ROW" 'r["reviewer_model"]')" = "claude-opus-5-5" ] && [ "$(field "$ROW" 'r["author_model"]')" = "sonnet" ]
 check "C06 the verdict says which model reviewed" $? "$ROW"
+has "$CARGV" '"sandbox": {"enabled": true' && has "$CARGV" '"allowUnsandboxedCommands": false' \
+  && has "$CARGV" "--disallowedTools Edit,Write,NotebookEdit" && has "$CARGV" "--setting-sources  "
+check "C06 the Claude reviewer writes only through sandboxed Bash, with none of the lead's settings" $? "$CARGV"
 
 # --- C07 ---------------------------------------------------------------------
 N0="$(calls)"
