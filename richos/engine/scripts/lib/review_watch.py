@@ -1231,17 +1231,20 @@ def for_this_monitor(owner):
     a block goes to this lead session's monitor when this session owns it, when no session does,
     or when its owner has no live monitor of its own to print it (that session ended), so a
     verdict reaches its lead and is never dropped. Without a known session, every block.
-    The owner's monitor counts once it has finished a look: looks take turns under look.lock, so
-    its next look starts at or before this row; a monitor that has not looked yet starts at the
-    shared cursor, past what this look reads, and would never tell it."""
+    A live owner's monitor prints its verdicts itself, on its first look too: tell() delivers a
+    session's own undelivered verdicts there, wherever the shared cursor is (second review of
+    b5ff41f02, finding 2)."""
     me = MONITOR["session"]
     if not me or not owner or owner == me:
         return True
     if os.sep in owner or owner.startswith("."):
         return True                                 # not a session id this watcher could have written
-    d = _p("sessions", owner)
-    looked = stall_watch._read_json(os.path.join(d, "told.json")).get("last_look")
-    return not (looked and stall_watch.lock_held(os.path.join(d, "monitor.lock")))
+    return not stall_watch.lock_held(os.path.join(_p("sessions", owner), "monitor.lock"))
+
+
+def _row_key(row):
+    """A verdict's key in last-told.json's `delivered`: its review id (every second-review row has one)."""
+    return str(row.get("id") or "%s:%s:%s:%s" % (row.get("repo"), row.get("tip"), row.get("work"), row.get("at")))
 
 
 def host_json_lines(now, body, owners):
@@ -1275,14 +1278,34 @@ def tell(now, sstate, rows, book, items, problems, attempts):
         body.append(block)
         owners.append(session if session is not None else (getattr(it, "session", "") or ""))
     # -- new verdicts, from where this session last read the ledger ---------------
+    # ONLY A VERDICT'S RECORDED OWNER CONSUMES IT (second review of b5ff41f02, finding 2).
+    # last-told.json's `rows` is where a monitor's FIRST look starts reading, so a verdict written
+    # while nobody watched is still told; any look moves it, and it is nobody's record of an owned
+    # verdict. That record is `delivered` beside it ({review id: when}), written only where the
+    # verdict reaches its owner: the owner's own monitor, or the operator host (--host-json), which
+    # sends each block to its owner. So a monitor's first look also tells every verdict its session
+    # owns that was never delivered to it, however far the cursor has moved: another lead's monitor
+    # may have shown it (the owner had no live monitor then) or left it (it had one), and neither
+    # consumes it. Passed and mid-job verdicts have no reminder; this is their only delivery.
+    me = MONITOR["session"]
+    shared = stall_watch._read_json(_p("last-told.json"))
+    delivered = shared.get("delivered") if isinstance(shared.get("delivered"), dict) else {}
     start = sstate.get("rows")
-    if not isinstance(start, int) or start > len(rows):
-        shared = stall_watch._read_json(_p("last-told.json"))
+    first = not isinstance(start, int) or start > len(rows)
+    if first:
         start = shared.get("rows") if isinstance(shared.get("rows"), int) and shared["rows"] <= len(rows) else len(rows)
-    for row in rows[start:]:
+    for i, row in enumerate(rows):
         if not row.get("verdict"):
             continue
+        backlog = i < start
+        if backlog and not (first and me and _row_key(row) not in delivered
+                            and now - (parse_iso(row.get("at")) or 0) <= KEEP_SECONDS):
+            continue
         session = owner_session(row, items, book, attempts)
+        if backlog and session != me:
+            continue
+        if session and (session == me or HOST_JSON["on"]):
+            delivered[_row_key(row)] = now
         add(render_verdict(row, items_by_key), session=session)
         if row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB:
             told[_cr_key(row.get("repo"), row.get("tip"), row.get("work"))] = {"first": now, "last": now, "count": 1}
@@ -1297,8 +1320,9 @@ def tell(now, sstate, rows, book, items, problems, attempts):
                 "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."],
                 session=session)
     sstate["rows"] = len(rows)
-    shared = stall_watch._read_json(_p("last-told.json"))
     shared["rows"] = max(len(rows), int(shared.get("rows") or 0)) if isinstance(shared.get("rows"), int) else len(rows)
+    shared["delivered"] = dict((k, t) for k, t in delivered.items()
+                               if isinstance(t, (int, float)) and now - t <= KEEP_SECONDS)
     stall_watch._write_json(_p("last-told.json"), shared)
     # -- an unhandled changes-requested handover, again every 30 minutes ------------
     # THE SAME OWNER AS THE FIRST NOTICE (second review of 783a8dba1, finding 2): another work can

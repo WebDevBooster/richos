@@ -65,7 +65,10 @@
 #   W19  the repeated handover notice goes to the recorded owner of the same
 #        work, on that work's own clock, never to another work at the tip
 #   W20  the plain monitor prints a verdict only in its owner's session, unless
-#        no live monitor of the owner will print it
+#        the owner has no live monitor to print it
+#   W21  only a verdict's owner consumes it: a monitor's first look tells its own
+#        session's verdicts another lead's monitor saw or left (the reviewer's
+#        fixture monitor_first_look_owner_loss.py)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1120,8 +1123,9 @@ check "W19 the repeated handover notice goes to the recorded owner of the same w
 # The same class in the plain monitor (review-watch.sh --monitor inside each lead session): there a
 # notice is delivered by printing it in the session whose monitor runs, so another lead's monitor
 # printed every lead's verdicts. Now a monitor prints a block it owns, one with no owner, and one
-# whose owner has no monitor that has looked (that session ended), never one another live lead's
-# monitor will print.
+# whose owner has no live monitor (that session ended), never one another live lead's monitor will
+# print: since the second review of b5ff41f02 (finding 2) that includes a monitor that has not
+# looked yet, whose first look tells it (W21).
 python3 - "$LIB" "$SB/w20" <<'PY'
 import fcntl, json, os, sys
 lib, root = sys.argv[1:3]
@@ -1155,12 +1159,82 @@ def told(me):
     lines = rw.tell(100, {"rows": 0, "told": {}}, rows, rw.Book(rows, {}, attempts), [], [], attempts)
     return sorted(t for t in ("a", "b", "c", "d", "e") if any("@" + t * 12 in ln for ln in lines))
 got = {"lead-A's monitor": told("lead-A"), "lead-B's monitor": told("lead-B"), "no session known": told("")}
-want = {"lead-A's monitor": ["a", "c", "d", "e"], "lead-B's monitor": ["b", "c", "d", "e"],
+want = {"lead-A's monitor": ["a", "c", "d"], "lead-B's monitor": ["b", "c", "d"],
         "no session known": ["a", "b", "c", "d", "e"]}
 print(got)
 sys.exit(0 if got == want else 1)
 PY
-check "W20 the plain monitor prints a verdict only in its owner's session, unless no live monitor of the owner will" \
+check "W20 the plain monitor prints a verdict only in its owner's session, unless the owner has no live monitor" \
+    $? "see above"
+
+# --- W21 ---------------------------------------------------------------------
+# Second review of b5ff41f02, finding 2 (fixtures/monitor_first_look_owner_loss.py): lead-A's
+# monitor was live but had not looked yet, so lead-B's monitor printed lead-A's verdict and moved
+# last-told.json past it, and lead-A's first look started there: lead-A never got its passed
+# verdict, which has no reminder. Now only the owner (its own monitor, or the operator host on its
+# behalf) records a verdict delivered, and a monitor's first look tells every verdict its session
+# owns that was never delivered to it. The real tell(), owner_session and for_this_monitor over
+# real state files and real monitor locks.
+python3 - "$LIB" "$SB/w21" <<'PY'
+import fcntl, os, sys
+lib, root = sys.argv[1:3]
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+sys.path.insert(0, lib)
+import review_watch as rw
+repo = os.path.realpath(os.path.join(root, "fictional-repository"))
+now = rw.parse_iso("2026-10-09T01:00:00Z")
+row = {"id": "rv-of-A", "repo": repo, "tip": "a" * 40, "work": "teammate:lead-A--worker", "author": "worker-A",
+       "verdict": "passed", "trigger": "handover", "record": "", "findings": 0, "at": "2026-10-09T00:30:00Z"}
+attempts = [{"repo": repo, "tip": row["tip"], "work": row["work"], "session": "lead-A", "outcome": "verdict"}]
+book = rw.Book([row], {}, attempts)
+
+
+def monitor(sid):
+    fd = os.open(os.path.join(rw.session_dir(sid), "monitor.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return fd
+
+
+def look(me, state, t):
+    rw.MONITOR["session"] = me
+    return any("[PASSED]" in ln for ln in rw.tell(t, state, [row], book, [], [], attempts))
+
+
+def scenario(name, a_live_first, host_first=False):
+    os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, name)
+    held = [monitor("lead-B")]
+    got = {}
+    if host_first:
+        rw.HOST_JSON["on"] = True                   # the operator host sends the block to lead-A
+        got["host"] = look("", {"rows": 0, "told": {}}, now)
+        rw.HOST_JSON["on"] = False
+    if a_live_first:
+        held.append(monitor("lead-A"))              # lead-A's monitor is up and has not looked yet
+    got["lead-B"] = look("lead-B", {"rows": 0, "told": {}}, now)   # lead-B has looked before
+    if not a_live_first:
+        held.append(monitor("lead-A"))              # lead-A's session comes back after lead-B looked
+    a_state = {}
+    got["lead-A first look"] = look("lead-A", a_state, now + 60)
+    got["lead-A next look"] = look("lead-A", a_state, now + 120)
+    for fd in held:
+        os.close(fd)
+    return got
+
+
+got = {"owner live, not looked yet (the reviewer's fixture)": scenario("live", True),
+       "owner without a live monitor, back later": scenario("gone", False),
+       "delivered to the owner by the operator host": scenario("host", False, host_first=True)}
+want = {"owner live, not looked yet (the reviewer's fixture)":
+            {"lead-B": False, "lead-A first look": True, "lead-A next look": False},
+        "owner without a live monitor, back later":
+            {"lead-B": True, "lead-A first look": True, "lead-A next look": False},
+        "delivered to the owner by the operator host":
+            {"host": True, "lead-B": True, "lead-A first look": False, "lead-A next look": False}}
+for k in want:
+    print("%s: %s" % (k, got[k]))
+sys.exit(0 if got == want else 1)
+PY
+check "W21 only a verdict's owner consumes it: the owner's first look still gets a verdict another lead's monitor saw" \
     $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
