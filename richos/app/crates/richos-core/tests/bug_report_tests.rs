@@ -87,10 +87,14 @@ fn names_paths_and_addresses_are_replaced_by_stand_ins_and_what_they_replaced_is
         .filter_map(|s| s.was.as_deref().map(|w| (w, s.kind.unwrap())))
         .collect();
     assert!(replaced.contains(&("acme deal", Kind::ConversationName)), "{replaced:?}");
-    assert!(replaced.contains(&("/Users/alex/ab/femcboost/notes.txt", Kind::FilePath)), "{replaced:?}");
+    // A path takes the rest of its clause with it (third review): the words up to the semicolon.
+    assert!(
+        replaced.contains(&("/Users/alex/ab/femcboost/notes.txt and ~/Desktop/plan.md went missing", Kind::FilePath)),
+        "{replaced:?}"
+    );
     assert!(replaced.contains(&("dana@northwind.example", Kind::EmailAddress)), "{replaced:?}");
-    // The path's sentence punctuation stays outside the stand-in.
-    assert!(text.contains("[a file on this Mac] and"), "{text}");
+    // The clause's own punctuation stays outside the stand-in.
+    assert!(text.contains("notes at [a file on this Mac]; mail [an email address]"), "{text}");
 }
 
 #[test]
@@ -447,14 +451,15 @@ fn a_path_in_backticks_is_left_out_whole() {
 #[test]
 fn a_path_with_spaces_is_left_out_whole() {
     // Finding 1: on the tip only "/Users/alex/Client" was replaced and "Plans/SecretCo.xlsx" went public.
+    // Since the third review a plain path takes the rest of its clause ("disappeared") with it.
     let (text, was) = paths_left_out("The file /Users/alex/Client Plans/SecretCo.xlsx disappeared.");
-    assert_eq!(text, "The file [a file on this Mac] disappeared.");
-    assert_eq!(was, ["/Users/alex/Client Plans/SecretCo.xlsx"]);
+    assert_eq!(text, "The file [a file on this Mac].");
+    assert_eq!(was, ["/Users/alex/Client Plans/SecretCo.xlsx disappeared"]);
     // The common Mac shape: a folder with a space in it, written plainly, and one that ENDS on it.
     let (text, _) = paths_left_out("Logs are in ~/Library/Application Support/RichOS/logs/today.log now");
-    assert_eq!(text, "Logs are in [a file on this Mac] now");
+    assert_eq!(text, "Logs are in [a file on this Mac]");
     let (text, _) = paths_left_out("It wrote to ~/Library/Application Support and stopped.");
-    assert_eq!(text, "It wrote to [a file on this Mac] and stopped.");
+    assert_eq!(text, "It wrote to [a file on this Mac].");
 }
 
 #[test]
@@ -465,15 +470,19 @@ fn a_quoted_or_escaped_path_with_spaces_is_left_out_whole() {
         ("Open “~/Documents/Secret Co/plan.pdf” please", "~/Documents/Secret Co/plan.pdf"),
         ("Open `~/Library/Application Support/RichOS` please", "~/Library/Application Support/RichOS"),
         ("Open (/Users/alex/Secret Co/plan.pdf) please", "/Users/alex/Secret Co/plan.pdf"),
-        ("Open /Users/alex/Secret\\ Co/plan.pdf please", "/Users/alex/Secret\\ Co/plan.pdf"),
+        // Written plainly, it takes the rest of its clause (third review).
+        ("Open /Users/alex/Secret\\ Co/plan.pdf please", "/Users/alex/Secret\\ Co/plan.pdf please"),
     ] {
         let (text, was) = paths_left_out(said);
         assert_eq!(was, [path], "{said}");
         assert!(!text.contains("Secret") && !text.contains("alex"), "{said} => {text}");
     }
-    // Words after a plain path are not taken with it when nothing says the path goes on.
+    // Words after a plain path go with it to the end of the clause (the third review replaced the
+    // rule that kept them public): nothing in the words says where a name with spaces ends.
     let (text, _) = paths_left_out("Open /Users/alex/notes.txt and then quit.");
-    assert_eq!(text, "Open [a file on this Mac] and then quit.");
+    assert_eq!(text, "Open [a file on this Mac].");
+    let (text, _) = paths_left_out("Open /Users/alex/notes.txt, then quit.");
+    assert_eq!(text, "Open [a file on this Mac], then quit.");
 }
 
 #[test]
@@ -612,4 +621,71 @@ fn a_private_name_rich_found_stays_left_out_on_every_later_change() {
     assert_eq!(joined(&add), "[a person] and [a person] saw it.");
     let (add, _) = scrub_change(&plain_change("Marta saw it again"), &[], &kept);
     assert_eq!(joined(&add), "[a person] saw it again.");
+}
+
+// ---------------------------------------------------------------------------------------
+// THE THIRD REVIEW'S CASES (rv-20261009T135204Z-9f4d77d4-1892, on 9f4d77d44), fixture
+// `path-cases.py`: one test per case. The rule changed here instead of growing another shape:
+// from where a path starts, everything up to the end of its clause is left out.
+// ---------------------------------------------------------------------------------------
+
+#[test]
+fn a_file_name_with_spaces_is_left_out_to_the_end_of_its_clause() {
+    // On the tip: "The file [a file on this Mac] Budget.xlsx disappeared."
+    let (text, was) = paths_left_out("The file /Users/alex/Documents/Client Budget.xlsx disappeared.");
+    assert_eq!(text, "The file [a file on this Mac].");
+    assert_eq!(was, ["/Users/alex/Documents/Client Budget.xlsx disappeared"]);
+    let (text, _) = paths_left_out("Open ~/Documents/Client Plans please.");
+    assert_eq!(text, "Open [a file on this Mac].");
+    let (text, _) = paths_left_out("The file /Users/alex/Client Plans/budget.xlsx disappeared, twice.");
+    assert_eq!(text, "The file [a file on this Mac], twice.");
+    // Between delimiters it still runs to the closing mark, commas and all.
+    let (text, was) = paths_left_out("The file `/Users/alex/Documents/Client Budget.xlsx` disappeared.");
+    assert_eq!(text, "The file `[a file on this Mac]` disappeared.");
+    assert_eq!(was, ["/Users/alex/Documents/Client Budget.xlsx"]);
+    let (text, _) = paths_left_out("Open \"/Users/alex/Smith, Jones/plan.pdf\" please.");
+    assert_eq!(text, "Open \"[a file on this Mac]\" please.");
+}
+
+#[test]
+fn a_file_url_is_left_out() {
+    // On the tip it reached the report unchanged.
+    let (text, was) = paths_left_out("Open file:///Users/alex/Documents/budget.xlsx please.");
+    assert_eq!(text, "Open [a file on this Mac].");
+    assert_eq!(was, ["file:///Users/alex/Documents/budget.xlsx please"]);
+    let (text, _) = paths_left_out("It linked FILE:///Volumes/Work/Secret Co/plan.pdf; nothing opened.");
+    assert_eq!(text, "It linked [a file on this Mac]; nothing opened.");
+}
+
+#[test]
+fn every_named_path_start_hides_its_clause_whatever_comes_before_it() {
+    for (said, left) in [
+        ("Saved to /Volumes/Backup Disk/Clients/x.xlsx, then it froze.", "Saved to [a file on this Mac], then it froze."),
+        ("Temp files in /private/var/folders/ab/Secret Co stay.", "Temp files in [a file on this Mac]."),
+        ("Look at /var/log/Secret Co.log: it is empty.", "Look at [a file on this Mac]."),
+        ("It wrote /tmp/Secret Co notes and stopped!", "It wrote [a file on this Mac]!"),
+        ("The path=/Users/alex/Secret Co/x.txt; that is all.", "The path=[a file on this Mac]; that is all."),
+        ("Windows saved C:\\Users\\alex\\Client Plans\\budget.xlsx, then closed.", "Windows saved [a file on this Mac], then closed."),
+        ("Windows saved D:/Clients/Secret Co/budget.xlsx? Yes.", "Windows saved [a file on this Mac]? Yes."),
+        ("Line one /Users/alex/Secret Co\nline two stays.", "Line one [a file on this Mac]\nline two stays."),
+        ("It said “/Users/alex/Rich’s notes.txt” twice.", "It said “[a file on this Mac]” twice."),
+        ("It opened /Users/alex/Rich's notes.txt, then froze.", "It opened [a file on this Mac], then froze."),
+    ] {
+        let (text, _) = paths_left_out(said);
+        assert_eq!(text, left, "{said}");
+    }
+    // A web address, "and/or", "24/7" and a colon after a word are not paths.
+    let said = "See https://example.com/a/b and/or 24/7, or Note:/x.";
+    assert_eq!(paths_left_out(said).0, said);
+}
+
+#[test]
+fn a_short_home_path_does_not_panic() {
+    // Finding 4: on the tip both panicked in debug builds (an unsigned subtraction underflowed).
+    let (text, _) = paths_left_out("~/a disappeared.");
+    assert_eq!(text, "[a file on this Mac].");
+    let (text, _) = paths_left_out("~/foo won't open.");
+    assert_eq!(text, "[a file on this Mac].");
+    let (text, _) = paths_left_out("~/a");
+    assert_eq!(text, "[a file on this Mac]");
 }

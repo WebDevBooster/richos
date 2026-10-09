@@ -181,9 +181,11 @@ impl Segment {
 ///     is written with a capital, so "deeply" in a sentence is left alone. One written in lower case
 ///     ("femcboost", a folder) is matched in any case, because it is not an ordinary word.
 ///   - Every match is a whole word: "Acmes" and "subAcme" are not "Acme".
-///   - **File paths** start a word with `/` and hold at least two slashes (`/Users/alex`), or start
-///     with `~/`; "and/or" and "24/7" are not paths. Each is left out WHOLE, spaces included,
-///     between backticks, quotes or brackets and written plainly alike ([`find_paths`]).
+///   - **File paths** start at `/Users/`, `/Volumes/`, `/private/`, `/var/`, `/tmp/`, `~/`,
+///     `file://` or a drive (`C:\`), or at a word starting with `/` whose clause holds a second
+///     slash; "and/or" and "24/7" are not paths. From its start, everything to the end of its
+///     clause is left out (between backticks, quotes or brackets, to the closing mark), so a name
+///     with spaces in it never leaves a piece behind ([`find_paths`]).
 ///     **Email addresses** are `local@host.tld`.
 #[derive(Debug, Clone, Default)]
 pub struct Scrubber {
@@ -314,75 +316,67 @@ fn find_term(text: &str, term: &str) -> Vec<(usize, usize)> {
 const PATH_DELIMITERS: [(char, char); 9] =
     [('`', '`'), ('"', '"'), ('\'', '\''), ('“', '”'), ('‘', '’'), ('(', ')'), ('[', ']'), ('<', '>'), ('{', '}')];
 
-/// Folders macOS itself names with a space in them. A plain path that reaches one of these takes
-/// the whole name, so `~/Library/Application Support` is left out whole even where it ends.
-const SPACED_FOLDERS: [&str; 6] =
-    ["Application Support", "Application Scripts", "Mobile Documents", "Group Containers", "Saved Application State", "Address Book"];
+/// Where a path starts whatever is written before it (anything but a letter, a digit or a slash):
+/// the Mac's own top-level folders, the home folder and a file address, matched in any letter case.
+const NAMED_PATH_STARTS: [&str; 7] = ["/Users/", "/Volumes/", "/private/", "/var/", "/tmp/", "~/", "file://"];
 
-/// Where a path that is not between delimiters stops being one word: at a space (unless it is
-/// escaped, `Client\ Plans`) or at punctuation that closes a phrase.
-fn path_word_end(text: &str, from: usize) -> usize {
-    let mut escaped = false;
-    for (i, c) in text[from..].char_indices() {
-        if c.is_whitespace() && !escaped || ",;)\"'”’]>`}".contains(c) {
-            return from + i;
+/// An apostrophe between two letters ("won't", "Rich's") is part of a word, not a closing quote.
+fn is_apostrophe_in_a_word(text: &str, at: usize, c: char) -> bool {
+    let after = at + c.len_utf8();
+    (c == '\'' || c == '’') && char_before(text, at).is_some_and(is_word_char) && char_after(text, after).is_some_and(is_word_char)
+}
+
+/// **The end of the clause** a path starts at `from`: the next comma, semicolon, closing bracket
+/// or closing quote, a sentence end (`.`, `!`, `?` followed by a space or the end of the line) or
+/// the end of the line. A path's name can hold spaces, dots and anything else, so nothing short of
+/// this says where it ends; the words between the path and the clause's end go with it.
+fn clause_end(text: &str, from: usize) -> usize {
+    let mut chars = text[from..].char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let at = from + i;
+        let sentence_end = ".!?".contains(c) && chars.peek().is_none_or(|&(_, next)| next.is_whitespace());
+        let closes = ",;)]>}\"`”".contains(c) || (c == '\'' || c == '’') && !is_apostrophe_in_a_word(text, at, c);
+        if c == '\n' || sentence_end || closes {
+            return at;
         }
-        escaped = c == '\\';
     }
     text.len()
 }
 
-/// A folder macOS names with a space, starting at the path's last segment: where it ends.
-fn spaced_folder_end(text: &str, start: usize, end: usize) -> Option<usize> {
-    let path = &text[start..end];
-    SPACED_FOLDERS.iter().find_map(|name| {
-        let first = name.split(' ').next().unwrap_or(name);
-        let from = end - first.len();
-        let fits = path.ends_with(&format!("/{first}")) && text[from..].starts_with(name);
-        let after = from + name.len();
-        (fits && !char_after(text, after).is_some_and(is_word_char)).then_some(after)
-    })
+/// Where the path between delimiters closes, on the same line: the first closing mark that is not
+/// an apostrophe inside a word.
+fn closing_mark(text: &str, from: usize, close: char) -> Option<usize> {
+    let line_end = text[from..].find('\n').map_or(text.len(), |n| from + n);
+    text[from..line_end]
+        .char_indices()
+        .map(|(i, c)| (from + i, c))
+        .find(|&(at, c)| c == close && !is_apostrophe_in_a_word(text, at, c))
+        .map(|(at, _)| at)
 }
 
-/// **A path with spaces in it, written plainly** (`/Users/alex/Client Plans/budget.xlsx`): when
-/// one of the next three words carries on with a `/` (and none before it ends a phrase), the path
-/// goes on through it. A path whose last segment already names a file (`notes.txt`) stops there.
-fn path_goes_on(text: &str, start: usize, end: usize) -> Option<usize> {
-    let last = text[start..end].rsplit('/').next().unwrap_or("");
-    if last.contains('.') || last.is_empty() {
-        return None;
-    }
-    let mut at = end;
-    for _ in 0..3 {
-        // One space between the words of a name; anything else ends the path.
-        if !text[at..].starts_with(' ') || text[at + 1..].starts_with(char::is_whitespace) {
-            return None;
-        }
-        at += 1;
-        let word_end = at + text[at..].find(char::is_whitespace).unwrap_or(text.len() - at);
-        let word = &text[at..word_end];
-        if let Some(slash) = word.find('/') {
-            let before_slash = &word[..slash];
-            let plain = !before_slash.is_empty() && !before_slash.contains(|c: char| ",;:.!?\"'`()[]<>{}“”‘’".contains(c));
-            return plain.then(|| path_word_end(text, at));
-        }
-        if word.is_empty() || word.ends_with(|c: char| ",;:.!?\"'`)]>}”’".contains(c)) {
-            return None;
-        }
-        at = word_end;
-    }
-    None
+/// The length of the start of a path at the head of `rest`, if one is there and is followed by
+/// something that is not a space: one of [`NAMED_PATH_STARTS`], or a drive (`C:\`, `D:/`).
+fn named_start(rest: &str) -> Option<usize> {
+    let named = NAMED_PATH_STARTS.iter().find(|s| rest.get(..s.len()).is_some_and(|head| head.eq_ignore_ascii_case(s))).map(|s| s.len());
+    let mut chars = rest.chars();
+    let drive = matches!((chars.next(), chars.next(), chars.next()), (Some(l), Some(':'), Some('\\' | '/')) if l.is_ascii_alphabetic());
+    let len = named.or(drive.then_some(3))?;
+    rest[len..].starts_with(|c: char| !c.is_whitespace()).then_some(len)
 }
 
-/// **File paths**, complete: a path starts a word with `~/`, or with `/` and holds two slashes.
+/// **File paths**, and with each everything up to the end of its clause ([`clause_end`]).
 ///
+///   - **Where one starts:** at one of [`NAMED_PATH_STARTS`] or a drive (`C:\`), after anything
+///     but a letter, digit or slash (`path=/Users/…` too); or, after a space, a delimiter or the
+///     start of the text, at any `/name` whose clause holds a second slash (`/opt/homebrew`).
 ///   - **Between delimiters** (`` `…` ``, quotes, brackets) it runs to the closing mark on the
-///     same line, spaces and all: `"~/Documents/Secret Co/plan.pdf"`.
-///   - **Written plainly** it runs to the end of the word, through escaped spaces, through a
-///     folder macOS names with a space, and through later words that carry on with a `/`
-///     ([`path_goes_on`]). Sentence punctuation at its end stays outside.
+///     same line, commas and all: `"~/Documents/Smith, Jones/plan.pdf"`.
+///   - **Written plainly** it runs to the end of its clause. A name with spaces in it (`Client
+///     Budget.xlsx`) cannot be told from the words after it, so they are left out too: hiding a
+///     few words is safe, leaving part of a path in a public report is not. Sentence punctuation
+///     at its end stays outside.
 ///
-/// "and/or" and "24/7" are not paths (no leading `/`).
+/// "and/or", "24/7" and `https://…` are not paths (no start after a space or delimiter).
 fn find_paths(text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut skip_to = 0;
@@ -391,38 +385,24 @@ fn find_paths(text: &str) -> Vec<(usize, usize)> {
             continue;
         }
         let rest = &text[i..];
-        let opens = rest.starts_with("~/") || (rest.starts_with('/') && rest[1..].starts_with(|c: char| c.is_alphanumeric() || c == '.' || c == '_'));
-        if !opens {
-            continue;
-        }
         let before = char_before(text, i);
         let delimiter = before.and_then(|b| PATH_DELIMITERS.iter().find(|(open, _)| *open == b).map(|&(_, close)| close));
-        if before.is_some_and(|c| !c.is_whitespace() && delimiter.is_none()) {
+        let named = named_start(rest).is_some();
+        let starts = if named {
+            !before.is_some_and(|c| is_word_char(c) || c == '/')
+        } else {
+            rest.starts_with('/')
+                && rest[1..].starts_with(|c: char| c.is_alphanumeric() || c == '.' || c == '_')
+                && before.is_none_or(|c| c.is_whitespace() || delimiter.is_some())
+        };
+        if !starts {
             continue;
         }
-        let line = &rest[..rest.find('\n').unwrap_or(rest.len())];
-        let end = match delimiter.and_then(|close| line.find(close)) {
-            Some(close_at) => i + close_at,
-            None => {
-                let mut end = path_word_end(text, i);
-                loop {
-                    if let Some(after) = spaced_folder_end(text, i, end) {
-                        end = if text[after..].starts_with('/') { path_word_end(text, after) } else { after };
-                        continue;
-                    }
-                    match path_goes_on(text, i, end) {
-                        Some(further) => end = further,
-                        None => break,
-                    }
-                }
-                while end > i && text[..end].ends_with(['.', ':', '!', '?']) {
-                    end -= 1;
-                }
-                end
-            }
-        };
-        let candidate = &text[i..end];
-        if candidate.starts_with("~/") && candidate.len() > 2 || candidate.matches('/').count() >= 2 {
+        let mut end = delimiter.and_then(|close| closing_mark(text, i, close)).unwrap_or_else(|| clause_end(text, i));
+        while end > i && text[..end].ends_with(['.', ':', '!', '?']) {
+            end -= 1;
+        }
+        if end > i && (named || text[i..end].matches('/').count() >= 2) {
             out.push((i, end));
             skip_to = end;
         }
