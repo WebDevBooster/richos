@@ -929,9 +929,19 @@ window.RichBug = (function () {
   /// While a report waits on the user's words, what they SAY goes to it rather than to Rich's
   /// conversation. The shell holds the spoken words back from the spine while this is on.
   var voiceHeld = false;
+  /// **Whether what the user says now is the report's.** The ONE condition both the shell's hold
+  /// (`syncVoiceHold`) and the report's taking of a transcript (`takeSpoken`) follow: a report
+  /// waiting on words, and either the panel's own talk button, or voice mode on with the report's
+  /// conversation on screen (the conditions `sync` shows its exchange under). Two conditions
+  /// drifted apart once: the hold stayed on in another conversation, and the shell dropped every
+  /// spoken turn there (fourth review finding 3).
+  function takesSpeech(f) {
+    if (!f || TAKES_WORDS.indexOf(f.step) === -1) return false;
+    if (f.dock) return dockVoice;
+    return !!(host && host.voiceOn() && host.view() === "conversation" && f.threadId === host.activeThread());
+  }
   function syncVoiceHold() {
-    var f = liveFlow();
-    var want = !!(f && TAKES_WORDS.indexOf(f.step) !== -1 && (f.dock ? dockVoice : host && host.voiceOn()));
+    var want = takesSpeech(liveFlow());
     if (want === voiceHeld || !bridge) return;
     voiceHeld = want;
     bridge.invoke("bug_report_voice", { on: want }).catch(function () {});
@@ -960,8 +970,7 @@ window.RichBug = (function () {
   /// A recognized utterance. True when it was the bug report's.
   function takeSpoken(text) {
     var f = liveFlow();
-    if (!f || TAKES_WORDS.indexOf(f.step) === -1) return false;
-    if (f.dock ? !dockVoice : !(host && host.voiceOn() && f.threadId === host.activeThread())) return false;
+    if (!takesSpeech(f)) return false;
     say(f, text, true);
     return true;
   }
@@ -995,13 +1004,16 @@ window.RichBug = (function () {
     t.hidden = true;
   }
 
-  /// Show this thread's flows and only them (the conversation is redrawn for every thread).
+  /// Show this thread's flows and only them (the conversation is redrawn for every thread), and
+  /// let the shell hold spoken words back only while the report's conversation is the one on
+  /// screen: leaving it gives the voice back to Rich, coming back gives it to the report again.
   function sync() {
     var thread = host ? host.activeThread() : null;
     var shown = host ? host.view() === "conversation" : true;
     flows.forEach(function (f) {
       if (!f.dock) f.el.hidden = !(shown && f.threadId === thread);
     });
+    syncVoiceHold();
   }
 
   function wire() {

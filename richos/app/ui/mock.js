@@ -2576,6 +2576,9 @@
     waiting: () => bugMock.waiting.slice(),
     releaseChange: () => bugRelease("change"),
     releaseCancel: () => bugRelease("cancel"),
+    /// An utterance recognized by the shell, as `rich://voice-transcript` carries it. The shell
+    /// emits it whether or not it held the words back for a report (`bug_report_voice`).
+    say(text) { emit("rich://voice-transcript", { text, at: now() }); },
     /// A retry that was already sending when the user pressed Cancel: it goes out, and says so.
     retryGoesOut() {
       bugMock.waiting.splice(0).forEach((w) => {
@@ -3983,6 +3986,14 @@
         case "bug_report_voice":
           bugMock.calls.push({ cmd, on: !!args.on });
           return !!args.on;
+        // The preview has no microphone, so voice mode never opens here (main.js says so in one
+        // line). `preset.bugVoice` opens it for the Bust a bug suite, which drives what the user
+        // says with `__RICHOS_MOCK_BUG__.say` and reads the hold off `bug_report_voice`'s calls.
+        case "start_voice_capture":
+        case "stop_voice_capture":
+          if (!preset.bugVoice) return Promise.reject(`mock: no such command "${cmd}"`);
+          bugMock.calls.push({ cmd, threadId: args.threadId });
+          return { started: cmd === "start_voice_capture" };
         case "bug_report_open_issue":
           bugMock.calls.push({ cmd, number: args.number });
           return null;

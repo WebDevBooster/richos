@@ -366,6 +366,44 @@ async function main() {
     return warn;
   });
 
+  await run.check("leaving the report's conversation gives the voice back to Rich, and coming back gives it to the report", async () => {
+    // Finding 3, fixture `voice-routing.js`: on the tip the shell's hold (`bug_report_voice`)
+    // stayed on after another conversation opened, so the shell dropped every spoken turn there
+    // while the window drew it as sent. The hold now follows the same conditions as the report's
+    // own taking of a transcript, on every navigation.
+    const page = await open("dark", { bugVoice: true });
+    const holding = (on) => page.waitForFunction((want) => {
+      const v = window.__RICHOS_MOCK_BUG__.calls.filter((c) => c.cmd === "bug_report_voice");
+      return v.length > 0 && v[v.length - 1].on === want;
+    }, on);
+    const said = (text) => page.evaluate((t) => window.__RICHOS_MOCK_BUG__.say(t), text);
+    await bustABug(page);
+    await page.waitForSelector("#bug-flows .bugflow .bug-divider");
+    await page.click("#talk-toggle");
+    await holding(true);
+    // Said in the report's conversation: the report's words, not a message to Rich.
+    const before = await page.locator("#messages .tl-user").count();
+    await said("The names on the left get cut off when the text is bigger.");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet')");
+    assertEqual(await page.locator("#messages .tl-user").count(), before, "the report's answer went to Rich's conversation");
+    await holding(true);
+    // Another conversation: the shell stops holding, so what is said there is a turn for Rich.
+    await openThread(page, "hiring");
+    await holding(false);
+    await said("Is the hiring plan ready?");
+    await page.waitForSelector("#messages .tl-user:has-text('Is the hiring plan ready?')");
+    assertEqual(await page.locator("#bug-flows .bug-user").count(), 1, "the report took words said in another conversation");
+    // Back to the report's conversation: the report takes what is said again.
+    await openThread(page, "acme");
+    await holding(true);
+    await said("Also say it happens in the light theme too");
+    await page.waitForSelector(".bug-sec p.is-added");
+    assertEqual(await page.locator(".bug-sec p.is-added").innerText(), "It happens in the light theme too.", "the spoken change");
+    const holds = (await calls(page, "bug_report_voice")).map((c) => c.on);
+    await page.close();
+    return "bug_report_voice: " + holds.join(" → ");
+  });
+
   await run.check("what Rich checked, under Worked for, is at least 16px in both themes", async () => {
     // Finding 3, fixture `readable-type.py`: on the tip it was 14px and exempt from the size check.
     const sizes = [];
