@@ -1908,6 +1908,54 @@ class TimeLimit(unittest.TestCase):
                 os.kill(pid, 9)
             self.assertFalse(alive, "the browser outlived its suite: the wrapper's exit cut the grace short")
 
+    def load(self):
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_process_in_the_group_gets_exactly_one_sigterm(self):
+        # Counted at the send, not at the receiver: two SIGTERMs sent back to back coalesce in a Python
+        # handler, so a receiver-side count would be red only some of the time.
+        import signal
+        from unittest import mock
+        module = self.load()
+        sent = []
+        real_kill, real_killpg = os.kill, os.killpg
+
+        def kill(pid, sig):
+            if sig == signal.SIGTERM:
+                sent.append(("pid", pid, os.getpgid(pid)))
+            return real_kill(pid, sig)
+
+        def killpg(group, sig):
+            if sig == signal.SIGTERM:
+                sent.append(("group", group, group))
+            return real_killpg(group, sig)
+
+        stays = "import signal, time; signal.signal(signal.SIGTERM, lambda *_: None); time.sleep(300)"  # outlives the first SIGTERM
+        argv = ["bash", "-c", '"$@"; :', "wrapper", sys.executable, "-c", stays]
+        with mock.patch.object(module.os, "kill", kill), mock.patch.object(module.os, "killpg", killpg):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                # load-bound: the 2 s limit is the stimulus (the suite sleeps 300 s)
+                module.run_bounded(argv, timeout=2, grace=1, text=True)
+        self.assertEqual([entry[0] for entry in sent], ["group"],
+                         f"every process here is in the group, so each must get SIGTERM once, from the group alone: {sent}")
+
+    def test_a_failed_process_listing_is_reported_not_read_as_no_descendants(self):
+        import contextlib
+        import io
+        from unittest import mock
+        module = self.load()
+        with mock.patch.object(module.subprocess, "run", side_effect=OSError("no ps")):
+            self.assertIsNone(module._descendants(os.getpid()))
+            seen = io.StringIO()
+            with contextlib.redirect_stderr(seen):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    # load-bound: the 1 s limit is the stimulus (sleep 300 never finishes)
+                    module.run_bounded(["sleep", "300"], timeout=1, grace=1, text=True)
+        self.assertIn("could not list", seen.getvalue())
+
 
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result

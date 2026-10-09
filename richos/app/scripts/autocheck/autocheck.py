@@ -83,11 +83,15 @@ def _alive(pid):
 
 
 def _descendants(root):
-    """Every live descendant pid of `root`, whatever its process group."""
+    """Every live descendant pid of `root`, whatever its process group, or None when the
+    process table could not be read (never read as "no descendants")."""
     try:
-        table = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=10).stdout
+        done = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
-        return set()
+        return None
+    if done.returncode:
+        return None
+    table = done.stdout
     children = {}
     for line in table.splitlines():
         parts = line.split()
@@ -103,16 +107,19 @@ def _descendants(root):
 
 
 def _signal_all(pids, sig, group):
+    """Signal the group once, then each other pid that is NOT in that group (a process in the
+    group already got the signal; a second SIGTERM makes Playwright force-kill at once)."""
     try:
         os.killpg(group, sig)
     except ProcessLookupError:
         pass
     for pid in pids:
-        if pid != group:
-            try:
-                os.kill(pid, sig)
-            except ProcessLookupError:
-                pass
+        try:
+            if os.getpgid(pid) == group:
+                continue
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
 
 
 def run_bounded(argv, timeout, grace=None, **kwargs):
@@ -135,16 +142,18 @@ def run_bounded(argv, timeout, grace=None, **kwargs):
         # Every descendant, in any process group (Playwright's browser has its own), is recorded
         # before the first signal; the wait is for ALL of them, not just the direct child, since a
         # shell wrapper dies on SIGTERM at once and would cut the grace short.
-        victims = {proc.pid, *_descendants(proc.pid)}
+        found = _descendants(proc.pid)
+        if found is None:
+            say(f"autocheck: could not list the check's processes (ps failed); signalling its process group only, "
+                f"so a browser in another group may be left running (pid {proc.pid})")
+            found = set()
+        victims = {proc.pid, *found}
         _signal_all(victims, signal.SIGTERM, group=proc.pid)
         deadline = time.monotonic() + grace
         while time.monotonic() < deadline:
-            try:
-                proc.wait(timeout=0.05)
-            except subprocess.TimeoutExpired:
-                pass
             if proc.poll() is not None and not any(_alive(pid) for pid in victims - {proc.pid}):
                 break
+            time.sleep(0.1)
         _signal_all(victims, signal.SIGKILL, group=proc.pid)
         proc.communicate()
         raise expired
