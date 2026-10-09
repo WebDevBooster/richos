@@ -546,6 +546,8 @@ class AppWorld(World):
         (<app state>/workspaces/<sha256>), so each look reads every partition.
       * Every connected repository is reviewed: the user connected it for this work; there is no
         orchestration.config to list it in.
+      * WORKERS ONLY: an item is a registry workspace whose receipt says request.role worker; a
+        handover reviewer's cc/ workspace is never itself picked for a review.
       * MID-JOB ONLY (long-job, gone quiet). A handover in the app is already reviewed, and
         `integrate` refuses without that review's pass (DESKTOP.md step 5, app.py integrate);
         a second handover review would only spend the user's subscription twice.
@@ -577,19 +579,36 @@ class AppWorld(World):
         return sorted(p for p in glob.glob(os.path.join(self.app_state, "workspaces", "*"))
                       if os.path.isdir(p) and not os.path.islink(p))
 
-    def words_for(self, partition, name):
-        """The user's turn app.py prepare kept beside the receipt that started `name`."""
+    def receipt_for(self, partition, name):
+        """(receipt, path) app.py prepare wrote for `name` in this partition; (None, "") if none."""
         receipts = os.path.join(self.app_state, "work-receipts", os.path.basename(partition))
         for path in sorted(glob.glob(os.path.join(receipts, "*.json"))):
             try:
                 with open(path, encoding="utf-8") as f:
-                    if json.load(f).get("name") != name:
-                        continue
+                    receipt = json.load(f)
+                if receipt.get("name") != name:
+                    continue
             except (OSError, ValueError, AttributeError):
                 continue
-            words = path[:-len(".json")] + ".words"
-            return [words] if os.path.isfile(words) else []
-        return []
+            return receipt, path
+        return None, ""
+
+    def words_for(self, partition, name):
+        """The user's turn app.py prepare kept beside the receipt that started `name`."""
+        _receipt, path = self.receipt_for(partition, name)
+        words = path[:-len(".json")] + ".words" if path else ""
+        return [words] if words and os.path.isfile(words) else []
+
+    @staticmethod
+    def is_worker(receipt):
+        """Only implementation work gets a mid-job review: a receipt whose request.role is worker.
+        A handover reviewer also gets a cc/ workspace, at the worker's commit (app.py prepare), and
+        a quiet or long review would otherwise be reviewed itself, with a verdict that names the
+        reviewer's branch and so never reaches the worker (app.py worker_spaces: role worker)."""
+        try:
+            return receipt.get("request", {}).get("role") == "worker"
+        except AttributeError:
+            return False
 
     def registry_items(self, now, seen):
         items, problems = [], []
@@ -599,9 +618,12 @@ class AppWorld(World):
                 os.environ["RICHOS_WORKSPACES_DIR"] = part
                 got, probs = World.registry_items(self, now, seen)
                 for it in got:
+                    receipt, _path = self.receipt_for(part, it.name)
+                    if not self.is_worker(receipt):
+                        continue
                     it.source, it.env, it.claude = "app", {"RICHOS_WORKSPACES_DIR": part}, self.claude
                     it.words = self.words_for(part, it.name)
-                items += got
+                    items.append(it)
                 problems += probs
         finally:
             if before is None:

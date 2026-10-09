@@ -51,6 +51,8 @@
 #   W13  the host's quit (SIGTERM, five-second bound): the watcher stops every
 #        review it started at once, escalating to SIGKILL itself, and exits on
 #        its own inside the bound with none left running
+#   W14  the app's watcher picks only receipts with request.role worker for a
+#        mid-job review, never a quiet handover reviewer's cc/ workspace
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -586,6 +588,51 @@ W13OUT="$(python3 "$SB/w13.py" "$LIB" "$SB/w13" 2>&1)"; W13RC=$?
 printf '    %s\n' "$W13OUT"
 check "W13 the host's quit: every review is stopped at once, inside the five-second bound, none left running" $W13RC \
     "$W13OUT"
+
+# --- W14 ---------------------------------------------------------------------
+# Finding 3 (fixtures/reviewer_as_worker.py): AppWorld took every cc/ workspace as implementation
+# work, and a handover reviewer gets one at the worker's commit, so a quiet or long reviewer was
+# itself picked for a mid-job review whose verdict could never reach the worker.
+python3 - "$LIB" "$SB/w14" <<'PY'
+import json, os, sys
+from types import SimpleNamespace
+from unittest.mock import patch
+lib, root = sys.argv[1:3]
+os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, "rw")
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+sys.path.insert(0, lib)
+import review_watch as rw
+app = os.path.join(root, "app")
+part = os.path.join(app, "workspaces", "p" * 64)
+receipts = os.path.join(app, "work-receipts", "p" * 64)
+os.makedirs(part)
+os.makedirs(receipts)
+repo = os.path.join(root, "fictional-project")
+recs = []
+for n, (name, role) in enumerate((("mark-sonnet-w", "worker"), ("frank-opus-review", "reviewer"))):
+    json.dump({"id": "r%d" % n, "name": name, "request": {"role": role}},
+              open(os.path.join(receipts, "r%d.json" % n), "w"))
+    recs.append({"key": "lead--" + name, "name": name, "session_id": "lead",
+                 "registered_at": "2026-10-09T00:00:00Z", "started_at": "2026-10-09T00:00:00Z",
+                 "workspaces": [{"kind": "cc", "repo": repo, "path": os.path.join(repo, name), "branch": "cc/" + name}]})
+world = rw.AppWorld.__new__(rw.AppWorld)
+world.app_state, world.claude, world.repos, world._merge_bases = app, "fictional-claude", ["(every)"], {}
+world.ws = SimpleNamespace(all_agents=lambda: recs, finished_state=lambda r, c: (False, False, ""), _chain=lambda r: [r])
+world.src = SimpleNamespace()
+now = rw.parse_iso("2026-10-09T01:01:00Z")
+with patch.object(world, "integration_tip", return_value=("b" * 40, "")), \
+     patch.object(world, "merge_base", return_value="b" * 40), \
+     patch.object(rw, "git", return_value="a" * 40), \
+     patch.object(rw.stall_watch, "_git_last_commit", return_value=None), \
+     patch.object(rw.stall_watch, "_transcript", return_value=""):
+    seen = {}
+    items, _problems = world.registry_items(now, seen)
+    due = rw.due(items, rw.Book([], {}, []), now, seen, 3600, handover=False)
+picked = [(i.name, t) for i, t, _ in due]
+print("picked for a mid-job review:", picked)
+sys.exit(0 if picked == [("mark-sonnet-w", "long-job")] else 1)
+PY
+check "W14 the app's watcher reviews mid-job only receipts with request.role worker, never a handover reviewer" $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
