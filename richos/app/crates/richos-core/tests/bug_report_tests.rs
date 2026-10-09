@@ -1694,3 +1694,57 @@ fn every_card_is_word_for_word_the_issue_that_is_posted() {
         assert!(!words.contains("ClickSend") && !words.contains("doesnothing"), "{public:?}");
     }
 }
+
+// ---- the review of 593f4791b (rv-20261009T204435Z-593f4791-c2ff), fixture `core_probe.rs` ----
+
+#[test]
+fn a_last_pass_with_a_malformed_section_is_not_a_report_and_waits_on_this_mac() {
+    // Finding 2: on 593f4791b `finished` read sections `[{"paragraphs": "The window froze."}, {}]`
+    // as a report, made the paragraph list empty, filled in the headings itself, and Send was
+    // permitted with the body "### What happened\n\n### Version\n".
+    let dir = scratch("malformed-sections");
+    let outbox = Outbox::open(&dir);
+    let said = "The window froze.";
+    let answer = serde_json::json!({"title": "Window froze", "what_happened": said, "private": []}).to_string();
+    let version = serde_json::json!({"heading": "Version", "paragraphs": [VERSION], "steps": []});
+    let malformed = [
+        ("the review's fixture", serde_json::json!([{"paragraphs": said}, {}])),
+        ("a section with no heading", serde_json::json!([{"paragraphs": [said], "steps": []}, version])),
+        ("a heading that is not words", serde_json::json!([{"heading": 1, "paragraphs": [said], "steps": []}, version])),
+        ("a paragraph that is not words", serde_json::json!([{"heading": "What happened", "paragraphs": [7], "steps": []}, version])),
+        ("steps that are not a list", serde_json::json!([{"heading": "What happened", "paragraphs": [said], "steps": "none"}, version])),
+        ("a section that is not an object", serde_json::json!(["What happened", version])),
+        ("a section whose words are gone", serde_json::json!([{"heading": "What happened", "paragraphs": [], "steps": []}, version])),
+    ];
+    let card = Sheet {
+        title: "Window froze".into(),
+        sections: vec![
+            SheetSection { heading: "What happened".into(), paragraphs: vec![said.into()], steps: vec![] },
+            SheetSection { heading: "Version".into(), paragraphs: vec![VERSION.into()], steps: vec![] },
+        ],
+    };
+    let mut offered = Vec::new();
+    for (label, sections) in &malformed {
+        let reply = serde_json::json!({"title": "Window froze", "sections": sections, "private": []}).to_string();
+        let check = checked(Ok(answer.clone()), &screen(), false, VERSION, &Scrubber::default(), |_| Ok(reply.clone()));
+        if let WriteUp::Checked(c) = outbox.keep_unless_checked(said, &screen(), check, 1_000).unwrap() {
+            offered.push(format!("{label}: offered for sending, body {:?}", issue_body(&sheet_of(&c.draft))));
+        }
+        // Words changed by hand, given to Rich last at Send: nothing goes either.
+        match at_send(&card, None, &[], |_| Ok(reply.clone())) {
+            AtSend::Unchecked(_) => {}
+            other => offered.push(format!("{label}: at Send, {other:?}")),
+        }
+    }
+    assert!(offered.is_empty(), "a malformed last pass was offered:\n{}", offered.join("\n"));
+    // Every one is kept on this Mac, unsent, to ask Rich again.
+    assert_eq!(outbox.unchecked().unwrap().len(), malformed.len());
+    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty());
+    assert!(outbox.unchecked().unwrap().iter().all(|u| u.checked.is_none() && u.next_try_at_ms == 1_000 + CHECK_RETRY_MS));
+
+    // A well-formed last pass is still a report; a list a section never had may be left out.
+    let good = serde_json::json!({"title": "Window froze", "sections": [{"heading": "What happened", "paragraphs": [said], "steps": []}, {"heading": "Version", "paragraphs": [VERSION]}], "private": []}).to_string();
+    let done = checked(Ok(answer), &screen(), false, VERSION, &Scrubber::default(), |_| Ok(good.clone())).unwrap();
+    assert_eq!(sheet_of(&done.draft), card);
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -26,7 +26,8 @@
 //!     given to Rich once more, to clean up whatever private detail of this user's case is still
 //!     there. **The card shows his words, and the issue is those words**, with only the escaping
 //!     GitHub needs. **No report is offered for sending without him** ([`checked`]): when he cannot
-//!     be had (an error, a timeout, an answer that is not a report), the user's words are kept on
+//!     be had (an error, a timeout, an answer that is not a report, a section of it that is not
+//!     all there), the user's words are kept on
 //!     this Mac and Rich is asked again by himself until he answers ([`Outbox::keep_unless_checked`],
 //!     [`Outbox::check_due`]).
 //!   - **The issue, word for word** ([`Sheet`], [`issue_body`], [`issue_request`]). What goes to
@@ -1130,16 +1131,54 @@ company, conversation, folder, file, email, other. [] when there was none.",
     )
 }
 
-/// Words of a list in Rich's answer, each trimmed, the empty ones dropped.
-fn texts_of(value: &serde_json::Value) -> Vec<String> {
-    value.as_array().map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()).unwrap_or_default()
+/// **THE WORDS OF ONE LIST OF A SECTION IN RICH'S ANSWER, OR NO ANSWER**: `key` (`paragraphs` or
+/// `steps`) of section `n`, each entry trimmed, the blank ones dropped. A list that is there must
+/// be a list of words; a list left out is no words. When `had` (the scanner's section had words
+/// there) and none are left, the section's text is missing. Any of it is a malformed answer
+/// (review rv-20261009T204435Z-593f4791-c2ff finding 2: on 593f4791b a paragraph list given as a
+/// string became an empty list, and an empty report was offered for sending).
+fn words_of(section: &serde_json::Map<String, serde_json::Value>, key: &str, n: usize, had: bool) -> Result<Vec<String>, String> {
+    let words: Vec<String> = match section.get(key) {
+        None => Vec::new(),
+        Some(serde_json::Value::Array(list)) => {
+            let mut words = Vec::new();
+            for entry in list {
+                let text = entry.as_str().ok_or_else(|| format!("section {n} of the answer had {key} that were not words"))?;
+                if !text.trim().is_empty() {
+                    words.push(text.trim().to_string());
+                }
+            }
+            words
+        }
+        Some(_) => return Err(format!("section {n} of the answer had {key} that were not a list")),
+    };
+    if had && words.is_empty() {
+        return Err(format!("section {n} of the answer had no {key} where the report had some"));
+    }
+    Ok(words)
+}
+
+/// **ONE SECTION OF RICH'S ANSWER, OR NO ANSWER**: section `n` must be an object with a heading in
+/// words, and its paragraphs and steps as [`words_of`] reads them, against `ours`, the scanner's.
+/// Nothing is filled in for him: a section that is not all there is a malformed answer, refused
+/// like a Claude failure (not offered, kept, asked again).
+fn section_of(his: &serde_json::Value, n: usize, ours: &DraftSection) -> Result<(String, Vec<String>, Vec<String>), String> {
+    let section = his.as_object().ok_or_else(|| format!("section {n} of the answer was not a section"))?;
+    let heading = section.get("heading").and_then(|h| h.as_str()).map(str::trim).unwrap_or("");
+    if heading.is_empty() {
+        return Err(format!("section {n} of the answer had no heading"));
+    }
+    let paragraphs = words_of(section, "paragraphs", n, !ours.paragraphs.is_empty())?;
+    let steps = words_of(section, "steps", n, !ours.steps.is_empty())?;
+    Ok((heading.to_string(), paragraphs, steps))
 }
 
 /// **RICH'S LAST WORDS AS THE CARD'S DRAFT, OR NONE**: `rich` is his answer to [`finish_prompt`]
 /// about `scanned`. His title, headings, paragraphs and steps are the draft's words exactly, his
-/// sections in order (a section he gives no heading keeps the scanner's). An answer with no title,
-/// another number of sections, or a malformed `private` list ([`private_of`]) is no answer, and
-/// the report waits.
+/// sections in order. An answer with no title, another number of sections, a section that is not
+/// all there ([`section_of`]: not an object, no heading, a list that is not words, or text the
+/// report had gone), or a malformed `private` list ([`private_of`]) is no answer, and the report
+/// waits.
 ///
 /// Nothing here changes a word of his. Each stand-in in his words is only MARKED for the card's
 /// tooltip ([`marked`]): with what the scanner replaced there, in order, then what he says he
@@ -1152,6 +1191,8 @@ pub fn finished(rich: Result<String, String>, scanned: &Draft) -> Result<Draft, 
     if title.is_empty() || theirs.len() != scanned.sections.len() {
         return Err(format!("the answer had no title, or {} sections for the report's {}", theirs.len(), scanned.sections.len()));
     }
+    let his_sections =
+        scanned.sections.iter().zip(theirs).enumerate().map(|(n, (ours, his))| section_of(his, n + 1, ours)).collect::<Result<Vec<_>, String>>()?;
     let replaced = private_of(&value)?;
     // What each stand-in in his words stands for, in the order they will be met.
     let mut queue: Vec<(Kind, String)> = Vec::new();
@@ -1165,14 +1206,12 @@ pub fn finished(rich: Result<String, String>, scanned: &Draft) -> Result<Draft, 
     queue.extend(replaced.iter().map(|t| (t.kind, t.text.clone())));
     let mut mark = |text: &str| marked(text, &mut queue);
     let title = mark(&title);
-    let sections = scanned
-        .sections
-        .iter()
-        .zip(theirs)
-        .map(|(ours, his)| DraftSection {
-            heading: Some(text_of(his, "heading")).filter(|h| !h.is_empty()).unwrap_or_else(|| ours.heading.clone()),
-            paragraphs: texts_of(&his["paragraphs"]).iter().map(|p| mark(p)).collect(),
-            steps: texts_of(&his["steps"]).iter().map(|s| mark(s)).collect(),
+    let sections = his_sections
+        .into_iter()
+        .map(|(heading, paragraphs, steps)| DraftSection {
+            heading,
+            paragraphs: paragraphs.iter().map(|p| mark(p)).collect(),
+            steps: steps.iter().map(|s| mark(s)).collect(),
         })
         .collect();
     Ok(Draft { title, sections, private: distinct(scanned.private.iter().cloned().chain(replaced)) })
