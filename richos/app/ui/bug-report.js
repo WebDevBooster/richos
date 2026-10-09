@@ -80,9 +80,11 @@ window.RichBug = (function () {
   // ---- what is private, client side: only for the card's heads-up after a change --------------
   // The authority is Rust (`Scrubber`); this mirrors its rules so the card can say "Acme looks
   // private" while the user types. It never decides what is sent: the user may send anyway.
-  function privateIn(text) {
+  // `f.private` is what Rich found private in this report (the draft's and every change's), so
+  // a name he left out once is named here too when the user types it back in.
+  function privateIn(text, f) {
     var found = [];
-    var terms = (context && context.privateTerms) || [];
+    var terms = ((context && context.privateTerms) || []).concat((f && f.private) || []);
     for (var i = 0; i < terms.length; i++) {
       var t = terms[i].text;
       var oneWord = !/\s/.test(t);
@@ -325,6 +327,7 @@ window.RichBug = (function () {
       bridge.invoke("bug_report_write", { answer: text, screen: publicScreen(f.screen) }).then(function (answer) {
         w.remove();
         f.draft = answer.draft;
+        f.private = (answer.draft && answer.draft.private) || [];
         richSays(f, ["Here's the report as I'd file it. Nothing goes out until you press Send. Anyone can read GitHub issues, so I left out names, company details and file paths."], { worked: worked(answer.workedMs), digest: answer.digest });
         f.card = buildCard(f);
         box(f).appendChild(f.card);
@@ -353,8 +356,9 @@ window.RichBug = (function () {
     }
     userSays(f, text, spoken);
     var w2 = working(f, "Rich is changing the report…");
-    bridge.invoke("bug_report_change", { said: text, sheet: sheetOf(f) }).then(function (answer) {
+    bridge.invoke("bug_report_change", { said: text, sheet: sheetOf(f), private: f.private || [] }).then(function (answer) {
       w2.remove();
+      if (answer.private) f.private = answer.private;
       var secs = f.card.querySelectorAll(".bug-sec");
       var sec = null;
       for (var i = 0; i < secs.length; i++) if (secs[i].querySelector("h4").textContent === answer.section) sec = secs[i];
@@ -510,7 +514,7 @@ window.RichBug = (function () {
     var doc = f.card.querySelector(".bug-doc").cloneNode(true);
     doc.querySelectorAll(".bug-sub").forEach(function (s) { s.remove(); });
     var text = Array.prototype.map.call(doc.querySelectorAll(".bug-title,.bug-sec p,.bug-sec li"), function (n) { return n.textContent; }).join("\n");
-    var found = privateIn(text).slice(0, 3);
+    var found = privateIn(text, f).slice(0, 3);
     var show = found.length > 0 && (f.step === "editing" || f.step === "draft" || f.step === "queued");
     w.hidden = !show;
     w.textContent = "";

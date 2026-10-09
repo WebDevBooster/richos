@@ -651,10 +651,13 @@ pub fn change_prompt(sheet: &Sheet, said: &str) -> String {
 yet. It is public once sent; words in square brackets stand in for private details and stay as they are.\n\n\
 The report:\n<<<\n# {title}\n\n{body}>>>\n\n\
 The user just told you what to change:\n<<<\n{said}\n>>>\n\n\
-Answer with ONLY a JSON object, no other text: {{\"section\": \"...\", \"add\": \"...\"}}\n\
+Answer with ONLY a JSON object, no other text: {{\"section\": \"...\", \"add\": \"...\", \"private\": []}}\n\
 - section: the heading the change belongs under, exactly one of: {headings}.\n\
 - add: the sentence or two to add there, in plain American English, written about \"the user\" the way \
-the report is.",
+the report is.\n\
+- private: every name of a person, company, conversation, product, client or folder, and anything else \
+private, that is in what you add, copied exactly, each as {{\"text\": \"...\", \"kind\": \"person\"}} with kind \
+one of person, company, conversation, folder, file, email, other. [] when there is none.",
         title = sheet.title,
         body = issue_body(sheet),
         said = said.trim(),
@@ -687,6 +690,32 @@ fn text_of(value: &serde_json::Value, key: &str) -> String {
     value[key].as_str().unwrap_or("").trim().to_string()
 }
 
+/// The `private` list of Rich's answer, each in the kind he named.
+fn private_of(value: &serde_json::Value) -> Vec<PrivateTerm> {
+    value["private"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|p| {
+                    let text = p["text"].as_str()?.trim();
+                    (!text.is_empty()).then(|| PrivateTerm::new(text, Kind::from_rich(p["kind"].as_str().unwrap_or(""))))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `terms` without repeats (the same words in any letter case are one term; the first kind wins).
+fn distinct(terms: impl IntoIterator<Item = PrivateTerm>) -> Vec<PrivateTerm> {
+    let mut out: Vec<PrivateTerm> = Vec::new();
+    for term in terms {
+        if !term.text.is_empty() && !out.iter().any(|t| t.text.eq_ignore_ascii_case(&term.text)) {
+            out.push(term);
+        }
+    }
+    out
+}
+
 /// Rich's answer, read. A report needs a title and something that happened; anything less is
 /// refused so the plain write-up is used instead of a hollow one.
 pub fn parse_written(raw: &str) -> Result<Written, String> {
@@ -700,17 +729,7 @@ pub fn parse_written(raw: &str) -> Result<Written, String> {
             .map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
             .unwrap_or_default(),
         expected: text_of(&value, "expected"),
-        private: value["private"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|p| {
-                        let text = p["text"].as_str()?.trim();
-                        (!text.is_empty()).then(|| PrivateTerm::new(text, Kind::from_rich(p["kind"].as_str().unwrap_or(""))))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
+        private: private_of(&value),
     };
     if written.title.is_empty() || written.what_happened.is_empty() {
         return Err("the answer had no title or no account of what happened".into());
@@ -770,16 +789,18 @@ pub fn plain_write_up(answer: &str, screen: &Screen) -> Written {
     }
 }
 
-/// A change said to Rich: the heading it goes under and the words to add.
+/// A change said to Rich: the heading it goes under, the words to add, and any private words
+/// Rich names in them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
     pub section: String,
     pub add: String,
+    pub private: Vec<PrivateTerm>,
 }
 
 pub fn parse_change(raw: &str) -> Result<Change, String> {
     let value = json_object(raw)?;
-    let change = Change { section: text_of(&value, "section"), add: text_of(&value, "add") };
+    let change = Change { section: text_of(&value, "section"), add: text_of(&value, "add"), private: private_of(&value) };
     if change.section.is_empty() || change.add.is_empty() {
         return Err("the answer had no section or nothing to add".into());
     }
@@ -804,7 +825,18 @@ pub fn plain_change(said: &str) -> Change {
             break;
         }
     }
-    Change { section: "What happened".into(), add: as_sentence(text) }
+    Change { section: "What happened".into(), add: as_sentence(text), private: vec![] }
+}
+
+/// **A CHANGE, SCRUBBED WITH EVERYTHING THE REPORT KNOWS IS PRIVATE**: the names RichOS holds
+/// (`app`), the ones Rich found while writing the report and every change before this one
+/// (`report`), and any he names in this change. Returns the words to add and the report's
+/// private words from now on, so a name Rich found once stays left out on every later change
+/// (second review finding 4: on 1c3dda1dc his names applied to the first draft only).
+pub fn scrub_change(change: &Change, app: &[PrivateTerm], report: &[PrivateTerm]) -> (Vec<Segment>, Vec<PrivateTerm>) {
+    let report = distinct(report.iter().chain(&change.private).cloned());
+    let scrubber = Scrubber::new(app.iter().chain(&report).cloned().collect());
+    (scrubber.scrub(&change.add), report)
 }
 
 /// One section of the draft card, with stand-ins in place.
@@ -820,6 +852,10 @@ pub struct DraftSection {
 pub struct Draft {
     pub title: Vec<Segment>,
     pub sections: Vec<DraftSection>,
+    /// The private words Rich found in this report beyond the ones RichOS holds. The card keeps
+    /// them for every later change ([`scrub_change`]) and for its heads-up ("Jane Doe" looks private).
+    #[serde(default)]
+    pub private: Vec<PrivateTerm>,
 }
 
 /// Rich's write-up as a draft: every section scrubbed, the version line added as it is.
@@ -845,7 +881,7 @@ pub fn draft_from(written: &Written, version: &str, scrubber: &Scrubber) -> Draf
         sections.push(DraftSection { heading: "What the user expected".into(), paragraphs: paragraphs(&written.expected), steps: vec![] });
     }
     sections.push(DraftSection { heading: "Version".into(), paragraphs: vec![vec![Segment::plain(version)]], steps: vec![] });
-    Draft { title: scrubber.scrub(&written.title), sections }
+    Draft { title: scrubber.scrub(&written.title), sections, private: distinct(written.private.iter().cloned()) }
 }
 
 // ---------------------------------------------------------------------------------------

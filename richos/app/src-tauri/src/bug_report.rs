@@ -353,11 +353,14 @@ pub async fn bug_report_write(app: AppHandle, answer: String, screen: bug::Scree
     .await
 }
 
-/// **A change said to Rich**: the sentence to add and where it goes. Sends nothing.
+/// **A change said to Rich**: the sentence to add and where it goes. Sends nothing. `private` is
+/// the report's own private words so far (the draft's, and every change's since); they go on
+/// applying, with any Rich names in this change, and come back for the card to keep.
 #[tauri::command(async)]
-pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet) -> Result<serde_json::Value, String> {
+pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet, private: Option<Vec<bug::PrivateTerm>>) -> Result<serde_json::Value, String> {
     let started = Instant::now();
     let (scrubber, (bin, folder), bugs) = read_state(&app);
+    let report_private = private.unwrap_or_default();
     off_the_ipc_threads(move || {
         let headings: Vec<String> = sheet.sections.iter().map(|s| s.heading.clone()).collect();
         let (change, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::change_prompt(&sheet, &said))
@@ -370,9 +373,11 @@ pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet) 
                 (bug::plain_change(&said), false)
             }
         };
+        let (add, private) = bug::scrub_change(&change, scrubber.terms(), &report_private);
         Ok(serde_json::json!({
             "section": change.section,
-            "add": scrubber.scrub(&change.add),
+            "add": add,
+            "private": private,
             "workedMs": started.elapsed().as_millis() as u64,
             "byRich": by_rich,
         }))

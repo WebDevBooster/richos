@@ -488,3 +488,31 @@ fn a_change_in_accented_words_is_read_on_character_boundaries() {
     assert_eq!(plain_change("Ändern: it happens in light mode").add, "Ändern: it happens in light mode.");
     assert_eq!(plain_change("Also say it happens in light mode").add, "It happens in light mode.");
 }
+
+#[test]
+fn a_private_name_rich_found_stays_left_out_on_every_later_change() {
+    // Finding 4, fixture `core-edge-cases.py`: on the tip "Jane Doe", whom Rich named private in
+    // his write-up, was left out of the draft and then went public on the first change.
+    let written = Written {
+        title: "Names are cut off".into(),
+        what_happened: "Jane Doe saw it.".into(),
+        private: vec![PrivateTerm::new("Jane Doe", Kind::PersonName)],
+        ..Written::default()
+    };
+    let draft = draft_from(&written, VERSION, &Scrubber::default());
+    assert_eq!(joined(&draft.sections[0].paragraphs[0]), "[a person] saw it.");
+    assert_eq!(draft.private, vec![PrivateTerm::new("Jane Doe", Kind::PersonName)], "the card is not given the report's private words");
+
+    // A change with none of its own private words: the report's still apply.
+    let change = plain_change("Also say Jane Doe saw it in light mode too");
+    let (add, kept) = scrub_change(&change, &[], &draft.private);
+    assert_eq!(joined(&add), "[a person] saw it in light mode too.");
+    assert_eq!(kept, draft.private);
+
+    // Rich names another one while changing it: it is left out, and kept from then on.
+    let change = parse_change(r#"{"section": "What happened", "add": "Marta and Jane Doe saw it.", "private": [{"text": "Marta", "kind": "person"}]}"#).unwrap();
+    let (add, kept) = scrub_change(&change, &[], &draft.private);
+    assert_eq!(joined(&add), "[a person] and [a person] saw it.");
+    let (add, _) = scrub_change(&plain_change("Marta saw it again"), &[], &kept);
+    assert_eq!(joined(&add), "[a person] saw it again.");
+}
