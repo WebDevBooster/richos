@@ -407,12 +407,25 @@ def resolve_work(a):
     return w
 
 
-def earlier_findings(work_key, tip):
-    """The findings still open from the newest earlier verdict on this work:
-    its own findings, plus those it reported still-open. [(id, finding)]
-    A finding a passed review already filed as a follow-up carries
-    "filed": true, so a later pass never files it twice."""
-    rows = [r for r in read_ledger() if r.get("work") == work_key and r.get("verdict")]
+def same_repo(row, repo, repo_id):
+    """Whether a verdict row is of this repository: by the identity both recorded
+    (`repo_id`) when both have one, otherwise by the repository's real path."""
+    if row.get("repo_id") and repo_id:
+        return row["repo_id"] == repo_id
+    return os.path.realpath(row.get("repo") or "") == os.path.realpath(repo or "")
+
+
+def earlier_findings(work_key, tip, repo, repo_id=""):
+    """The findings still open from the newest earlier verdict on this work in
+    THIS repository: its own findings, plus those it reported still-open.
+    [(id, finding)] One teammate's workspaces in several repositories share a
+    work key, so the history is taken per repository: a review is only ever
+    asked about, and only ever files, findings of the repository it reviews
+    (review rv-20261009T104053Z-8662354d-47b2). A finding a passed review
+    already filed as a follow-up carries "filed": true, so a later pass never
+    files it twice."""
+    rows = [r for r in read_ledger() if r.get("work") == work_key and r.get("verdict")
+            and same_repo(r, repo, repo_id)]
     if not rows:
         return []
     last = rows[-1]
@@ -1007,7 +1020,8 @@ def repo_identity(path):
 def review(a):
     say = lambda s: (sys.stderr.write(s + "\n"), sys.stderr.flush())
     w = resolve_work(a)
-    earlier = earlier_findings(w.work_key, w.tip)
+    repo_id = repo_identity(w.repo)
+    earlier = earlier_findings(w.work_key, w.tip, w.repo, repo_id)
     started_at = time.time()
     rid = "rv-%s-%s-%s" % (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(started_at)), w.tip[:8], secrets.token_hex(2))
     record = os.path.join(state_root(), "reviews", rid)
@@ -1019,7 +1033,7 @@ def review(a):
         json.dump(SCHEMA, f)
     prompt = ""
 
-    row = {"id": rid, "at": iso(started_at), "repo": w.repo, "repo_id": repo_identity(w.repo), "branch": w.branch, "base": w.base, "tip": w.tip,
+    row = {"id": rid, "at": iso(started_at), "repo": w.repo, "repo_id": repo_id, "branch": w.branch, "base": w.base, "tip": w.tip,
            "work": w.work_key, "author": w.author, "author_model": w.author_model, "trigger": a.trigger,
            "reviewer": "", "reviewer_model": "", "reviewer_effort": "", "cli_version": "",
            "verdict": None, "forced": False, "findings": 0, "blocking": 0, "p1": 0, "follow_ups": 0,

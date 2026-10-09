@@ -39,6 +39,8 @@
 #   C15  a recheck marks filed findings as already on the list; a pass with
 #        them still open does not file them twice
 #   C16  an earlier finding still open that blocks requests changes
+#   C17  one work in two repositories: each repository's review carries and
+#        files only its own repository's findings
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -447,6 +449,53 @@ ROW="$(last_row)"
 [ "$RC" -eq 1 ] && [ "$(field "$ROW" 'r["verdict"]')" = "changes-requested" ] && [ "$(field "$ROW" 'r["forced"]')" = "True" ] \
   && [ "$(wc -l <"$FU" | tr -d ' ')" = "2" ]
 check "C16 an earlier finding the reviewer says is still open and blocks requests changes; nothing is filed" $? "rc=$RC row=$ROW"
+
+# --- C17 ---------------------------------------------------------------------
+# One teammate with workspaces in two repositories: the watcher gives both one
+# work key. Review rv-20261009T104053Z-8662354d-47b2 filed a finding of the
+# first repository under the second, and the first never filed it after that.
+REPO2="$SB/repo2"
+G2() { git -C "$REPO2" -c core.hooksPath=/dev/null -c user.name=Author -c user.email=author@example.invalid -c commit.gpgsign=false "$@"; }
+mkdir -p "$REPO2"
+G2 init -q -b main
+printf 'hq base\n' >"$REPO2/b.txt"
+G2 add -A; G2 commit -qm "hq base"
+G2 checkout -qb cc/echo-sonnet-x1
+printf 'hq base\nhq change\n' >"$REPO2/b.txt"
+G2 commit -qam "hq: the change"
+python3 - "$SB" "$SID" "$REPO2" <<'PY'
+import json, os, sys
+sb, sid, repo2 = sys.argv[1:4]
+p = os.path.join(sb, "workspaces", "agents", sid + "--echo-sonnet-x1.json")
+rec = json.load(open(p))
+rec["workspaces"].append({"repo": repo2, "path": repo2, "branch": "cc/echo-sonnet-x1", "kind": "cc", "deleted_at": None})
+json.dump(rec, open(p, "w"))
+PY
+printf 'base\nslice one\nfix\nmore\n' >"$REPO/a.txt"
+G commit -qam "Dictation slice 1: more"
+FU_BEFORE="$(wc -l <"$FU" | tr -d ' ')"
+FAKE_MODE=blocking-passed run --name echo-sonnet-x1 --repo "$REPO" --work teammate:cross-repo
+RID17="$(field "$(last_row)" 'r["id"]')"
+FAKE_EARLIER=still-open FAKE_MODE=pass run --name echo-sonnet-x1 --repo "$REPO2" --work teammate:cross-repo
+P="$(cat "$(last_call)/prompt.md" 2>/dev/null)"
+ROW="$(last_row)"
+[ "$RC" -eq 0 ] && ! has "$P" "$RID17#" && [ "$(field "$ROW" 'r["earlier_findings"]')" = "0" ] \
+  && [ "$(field "$ROW" 'r["follow_ups"]')" = "0" ] && [ "$(wc -l <"$FU" | tr -d ' ')" = "$FU_BEFORE" ]
+check "C17 a review in a second repository of the same work is not asked about, and files nothing of, the first repository's findings" $? \
+    "rc=$RC row=$ROW ledger=$(cat "$FU" 2>/dev/null)"
+FAKE_EARLIER=still-open FAKE_MODE=pass run --name echo-sonnet-x1 --repo "$REPO" --work teammate:cross-repo
+ROW="$(last_row)"
+python3 - "$FU" "$RID17" "$REPO" "$(field "$ROW" 'r["id"]')" <<'PY'
+import json, os, sys
+path, rid, repo, now = sys.argv[1:5]
+rows = [json.loads(l) for l in open(path)]
+mine = [r for r in rows if r["finding"].startswith(rid + "#")]
+ok = (sorted(r["finding"] for r in mine) == [rid + "#1", rid + "#2"]
+      and all(r["review"] == now and os.path.realpath(r["repo"]) == os.path.realpath(repo) for r in mine))
+sys.exit(0 if ok else 1)
+PY
+check "C17 the first repository's recheck files its own findings, under its own repository" $? \
+    "rc=$RC row=$ROW ledger=$(cat "$FU" 2>/dev/null)"
 
 echo
 echo "second-review.test.sh: $PASS passed, $FAIL failed"
