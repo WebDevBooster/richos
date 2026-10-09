@@ -792,6 +792,8 @@ function setMainView(view) {
   // And the Output buttons belong to the conversation on screen: no thread, no button, and a
   // panel that was open closes with the conversation (output side-panel PRD §6.2, §6.7).
   syncOutputThread();
+  // A bug report started in a conversation stays in it (round 21).
+  if (window.RichBug) window.RichBug.sync();
 }
 
 /// The thread whose output the two buttons count and the panel lists: the conversation on
@@ -1582,6 +1584,8 @@ function flushRender() {
   }
   // Rich's one offer of dictation, a local note after whatever the conversation shows.
   if (mainView === "conversation") renderDictationOffer();
+  // A bug report started in this conversation is shown with it, and only with it (round 21).
+  if (window.RichBug) window.RichBug.sync();
 
   if (focusId) {
     const again = messagesEl.querySelector('[id="' + focusId.replace(/(["\\])/g, "\\$1") + '"]');
@@ -2045,6 +2049,20 @@ async function send(explicitText) {
   // One Send at a time while files are being filed into the conversation: a second Return in
   // that gap would otherwise send the same words twice, once with the files and once without.
   if (foldingAttachments) return;
+  // BUST A BUG (round 21): while Rich waits for the user to say what went wrong, or what to
+  // change in the report, the words in the composer are the report's, not a message to Rich's
+  // conversation. They leave the box exactly as a sent message does.
+  if (typeof explicitText !== "string" && mainView === "conversation" && window.RichBug) {
+    const said = inputEl.value.trim();
+    if (said && window.RichBug.takeWords(said, activeThreadId)) {
+      inputEl.value = "";
+      autoGrow();
+      if (activeThreadId) drafts.delete(activeThreadId);
+      parkViewStateNow();
+      syncComposerMode();
+      return;
+    }
+  }
   // Start/Resume sends its own acceptance without silently submitting or deleting a draft.
   const preserveDraft = typeof explicitText === "string";
   let text = preserveDraft ? explicitText.trim() : inputEl.value.trim();
@@ -2473,7 +2491,9 @@ function syncComposerMode() {
   const empty =
     inputEl.value.trim().length === 0 && !(window.RichAttachments && window.RichAttachments.hasItems());
 
-  inputEl.placeholder = working ? "Add context or steer Rich…" : idlePlaceholder;
+  // A bug report waiting on his words says so in the box he types them into (round 21).
+  const bugPlaceholder = window.RichBug ? window.RichBug.placeholder(activeThreadId) : null;
+  inputEl.placeholder = bugPlaceholder || (working ? "Add context or steer Rich…" : idlePlaceholder);
 
   stopBtn.hidden = !working;
   stopBtn.disabled = stopping;
@@ -3232,6 +3252,26 @@ if (window.RichAttachments) {
       return null;
     },
     onChange: () => syncComposerMode(),
+  });
+}
+
+// BUST A BUG (round 21, `bug-report.js`): what the Settings button's "Bust a bug!" opens. It
+// talks to the bridge itself; what it needs from here is the conversation it happens in.
+if (window.RichBug) {
+  window.RichBug.init({
+    bridge: Bridge,
+    activeThread: () => (mainView === "conversation" || mainView === "unbound" ? activeThreadId : null),
+    threadTitle: (threadId) => {
+      const row = threadRow(threadId);
+      return row ? row.display_title : "";
+    },
+    view: () => mainView,
+    blocked: () => !!sendBlockedReason,
+    openThread: (threadId) => openThread(threadId),
+    syncComposer: () => syncComposerMode(),
+    voiceOn: () => voiceMode,
+    announce,
+    toast: (text) => window.RichSettings && window.RichSettings.toast(text),
   });
 }
 
@@ -4480,11 +4520,13 @@ async function enterVoiceMode() {
   renderVoiceModelState(null);
   renderVoiceState("listening", false);
   renderVoiceLevel(0);
+  if (window.RichBug) window.RichBug.voiceChanged();
 }
 
 async function exitVoiceMode() {
   voiceMode = false;
   setTalkPressed(false);
+  if (window.RichBug) window.RichBug.voiceChanged();
   voicePanelEl.hidden = true;
   composerEl.hidden = false;
   inputEl.focus();
@@ -4663,6 +4705,9 @@ Bridge.listen("rich://voice-state", ({ payload }) => {
 
 Bridge.listen("rich://voice-transcript", ({ payload }) => {
   if (!voiceMode) return;
+  // Said while Rich waits for the words of a bug report: they are the report's, and the shell
+  // has already held them back from the conversation (`bug_report_voice`).
+  if (window.RichBug && payload && payload.text && window.RichBug.takeSpoken(payload.text)) return;
   // What the CEO said appears in the thread the moment it is recognized — voice and text are
   // one conversation, so this is an ordinary user turn, not a call artefact. The reconciled
   // ledger snapshot replaces it when the turn completes.

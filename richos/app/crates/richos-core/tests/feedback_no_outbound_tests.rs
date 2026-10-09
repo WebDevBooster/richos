@@ -300,6 +300,10 @@ const UI_INDEX_HTML: &str = include_str!("../../../ui/index.html");
 /// renderer rather than the three files it happened to name on the day it was written.
 const UI_THEME_BOOT_JS: &str = include_str!("../../../ui/theme-boot.js");
 const UI_SETTINGS_BUTTON_JS: &str = include_str!("../../../ui/settings-button.js");
+/// Bust a bug's renderer (round 21). It files GitHub issues, and it does so ONLY through the
+/// shell's `bug_report_*` commands: the request is made in Rust, so this file has nothing to
+/// send with, and this scan holds it to that.
+const UI_BUG_REPORT_JS: &str = include_str!("../../../ui/bug-report.js");
 
 /// Everything a report could be handed to, or handed through, IN THE SHELL LAYER.
 ///
@@ -640,6 +644,7 @@ fn the_shipped_web_layer_contains_no_network_primitive_at_all() {
         ("index.html", UI_INDEX_HTML),
         ("theme-boot.js", UI_THEME_BOOT_JS),
         ("settings-button.js", UI_SETTINGS_BUTTON_JS),
+        ("bug-report.js", UI_BUG_REPORT_JS),
     ] {
         let lower = strip_xml_namespaces(&src.to_lowercase());
         assert!(lower.len() > 2000, "{name} did not load — the include is pointing at nothing");

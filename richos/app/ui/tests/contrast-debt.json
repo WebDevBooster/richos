@@ -28,6 +28,14 @@
     {
       "id": "outpanel-scrim",
       "why": "The Output panel's scrim below 1180px, on the same footing as the inspector's: a translucent sheet with no text and no boundary of its own. The panel ITSELF is walked (surfaces output-open, output-file, output-empty), and check 8 measures what can be read through a veil."
+    },
+    {
+      "id": "bugdock",
+      "why": "Bust a bug's Rich panel (round 21), COVERED SOMEWHERE ELSE: it exists only while a bug report is in progress beside a window, which no surface driver here starts. tests/bug-report.js opens it beside Corrections with a report card in it and measures every text node (4.5:1, and the 16px floor outside the declared 14px tier) and every indicator (3:1) in both themes."
+    },
+    {
+      "id": "bug-subtip",
+      "why": "The tooltip that says what a stand-in on a bug report replaced (round 21), COVERED SOMEWHERE ELSE: it is shown only while a stand-in is pointed at or focused on a report card. tests/bug-report.js shows it by hover and measures it with the card in both themes."
     }
   ],
   "floorReference": {

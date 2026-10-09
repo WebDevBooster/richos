@@ -2493,6 +2493,76 @@
   const mockSignIn = preset.signIn ? structuredClone(preset.signIn) : null;
   window.__accountCalls = [];
   const changed = (kind, id, label, extra) => mockChanges.push({ at: Date.now(), kind, id, label, ...(extra || {}) });
+  // BUST A BUG (round 21; `src-tauri/src/bug_report.rs` is the real half). The connection is a
+  // switch, as round 21's strip makes it: `preset.bugNet` is "online" (default), "offline",
+  // "down" or "not-set-up", and `__RICHOS_MOCK_BUG__.setNet()` moves it while the page runs.
+  // Going back "online" sends every waiting report by itself, the way the shell's retry does,
+  // and says so on `rich://bug-report`. Every call is recorded with its arguments, so a suite can
+  // read exactly what would have gone to GitHub.
+  //
+  // The write-up here is round 21's PLAIN write-up with this preview's names as the private
+  // words. What is private, and Rich's own write-up, are decided in Rust and tested there
+  // (`crates/richos-core/tests/bug_report_tests.rs`); this only has to answer in the same shape.
+  const bugMock = {
+    net: preset.bugNet || "online",
+    account: preset.bugAccount || { kind: "reporting" },
+    issue: 412,
+    waiting: [],
+    calls: [],
+    seq: 0,
+  };
+  const BUG_REASON = { offline: "offline", down: "github-down", "not-set-up": "not-set-up" };
+  const BUG_VERSION = "RichOS 1.2.0, preview · macOS 15.6 · Apple silicon";
+  const BUG_KINDS = { conversation_name: "[a conversation]", company_name: "[a company]", person_name: "[a person]", file_path: "[a file on this Mac]" };
+  function bugTerms() {
+    const list = [];
+    threads.forEach((t) => { if (/\s/.test(t.title)) list.push({ text: t.title, kind: "conversation_name" }); });
+    entities.forEach((e) => list.push({ text: e.display_name, kind: "company_name" }));
+    if (mockConfig.user_name) list.push({ text: mockConfig.user_name, kind: "person_name" });
+    return list.sort((a, b) => b.text.length - a.text.length);
+  }
+  function bugScrub(text) {
+    const terms = bugTerms();
+    const parts = terms.map((t) => t.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    parts.push("(?:~|/Users)/[^\\s,;)]+");
+    const re = new RegExp(parts.join("|"), "gi");
+    const out = [];
+    let last = 0, m;
+    while ((m = re.exec(text))) {
+      if (m.index > last) out.push({ text: text.slice(last, m.index) });
+      const hit = terms.find((t) => t.text.toLowerCase() === m[0].toLowerCase());
+      const kind = hit ? hit.kind : "file_path";
+      out.push({ text: BUG_KINDS[kind], was: m[0], kind });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length || !out.length) out.push({ text: text.slice(last) });
+    return out;
+  }
+  function bugSentence(t) {
+    t = t.trim();
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+    return /[.!?…]$/.test(t) ? t : t + ".";
+  }
+  function bugDeliver(sheet, id) {
+    const reason = BUG_REASON[bugMock.net];
+    if (!reason) {
+      const number = bugMock.issue++;
+      return { state: "sent", id, number, url: "https://github.com/WebDevBooster/richos/issues/" + number, account: bugMock.account, title: sheet.title, sent_at_ms: now() };
+    }
+    if (!bugMock.waiting.some((w) => w.id === id)) bugMock.waiting.push({ id, sheet });
+    return { state: "waiting", id, reason };
+  }
+  window.__RICHOS_MOCK_BUG__ = {
+    calls: bugMock.calls,
+    waiting: () => bugMock.waiting.slice(),
+    setNet(net) {
+      bugMock.net = net;
+      if (net !== "online") return;
+      const due = bugMock.waiting.splice(0);
+      due.forEach((w) => setTimeout(() => emit("rich://bug-report", { delivery: bugDeliver(w.sheet, w.id) }), 300));
+    },
+  };
+
   window.RichBridge = {
     isMock: true,
 
@@ -3795,6 +3865,65 @@
           // Compatibility endpoint is a read. No live update restarts a session.
           mockUpdate.calls.push("update_relaunch");
           return { ...mockUpdate.view };
+
+        // ---- Bust a bug (round 21): the shapes `src-tauri/src/bug_report.rs` answers in ----
+        case "bug_report_context":
+          bugMock.calls.push({ cmd });
+          return { account: bugMock.account, privateTerms: bugTerms(), repository: "WebDevBooster/richos" };
+        case "bug_report_write": {
+          bugMock.calls.push({ cmd, answer: args.answer, screen: args.screen });
+          await new Promise((r) => setTimeout(r, preset.bugWriteMs ?? 600));
+          const answer = String(args.answer || "").trim();
+          let first = answer.split(/[.!?]\s/)[0].replace(/[.!?]+$/, "");
+          if (first.length > 76) first = first.slice(0, 76).replace(/\s+\S*$/, "");
+          const screen = args.screen || {};
+          const pub = String(screen.public || "a RichOS screen");
+          return {
+            draft: {
+              title: bugScrub(first.charAt(0).toUpperCase() + first.slice(1)),
+              sections: [
+                { heading: "What happened", paragraphs: [bugScrub(bugSentence(answer))], steps: [] },
+                { heading: "Where", paragraphs: [[{ text: pub.charAt(0).toUpperCase() + pub.slice(1) + ". It was on screen when the report was started." }]], steps: [] },
+                { heading: "Version", paragraphs: [[{ text: BUG_VERSION }]], steps: [] },
+              ],
+            },
+            digest: "Noted the screen you were on" + (screen.textSize && screen.textSize !== 100 ? ", at " + screen.textSize + "% text size" : "") + " · Checked the version",
+            workedMs: 9000,
+            byRich: false,
+          };
+        }
+        case "bug_report_change": {
+          bugMock.calls.push({ cmd, said: args.said, sheet: args.sheet });
+          await new Promise((r) => setTimeout(r, preset.bugWriteMs ?? 400));
+          const said = String(args.said || "").replace(/^(also|and|please)\s+/i, "").replace(/^(say|mention|add)\s+(that\s+)?/i, "");
+          return { section: "What happened", add: bugScrub(bugSentence(said)), workedMs: 4000, byRich: false };
+        }
+        case "bug_report_send": {
+          bugMock.calls.push({ cmd, sheet: args.sheet });
+          await new Promise((r) => setTimeout(r, 300));
+          return bugDeliver(args.sheet, "00000000-0000-4000-8000-" + String(++bugMock.seq).padStart(12, "0"));
+        }
+        case "bug_report_try_now": {
+          bugMock.calls.push({ cmd, id: args.id });
+          const at = bugMock.waiting.findIndex((w) => w.id === args.id);
+          if (at === -1) return null;
+          const w = bugMock.waiting[at];
+          const d = bugDeliver(w.sheet, w.id);
+          if (d.state === "sent") bugMock.waiting.splice(at, 1);
+          return d;
+        }
+        case "bug_report_cancel": {
+          bugMock.calls.push({ cmd, id: args.id });
+          const at = bugMock.waiting.findIndex((w) => w.id === args.id);
+          if (at !== -1) bugMock.waiting.splice(at, 1);
+          return at !== -1;
+        }
+        case "bug_report_voice":
+          bugMock.calls.push({ cmd, on: !!args.on });
+          return !!args.on;
+        case "bug_report_open_issue":
+          bugMock.calls.push({ cmd, number: args.number });
+          return null;
 
         default:
           // Unwired-yet commands (voice capture, worker status, assertiveness persistence)
