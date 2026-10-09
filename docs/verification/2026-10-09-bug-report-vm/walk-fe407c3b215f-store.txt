@@ -1,0 +1,2 @@
+       0
+{"id":"8df960ca-dda8-4242-8047-0c1d97c698c8","number":412,"url":"https://github.com/WebDevBooster/richos/issues/412","account":{"kind":"reporting"},"title":"Conversation names in the sidebar are cut off at larger text sizes","sent_at_ms":1791541156559}
