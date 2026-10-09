@@ -27,8 +27,11 @@ default) are not this repository's to check and are skipped.
 """
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
 import types
 from pathlib import Path
 
@@ -37,8 +40,6 @@ ENGINE = "richos/engine/"
 LAND_BRANCH = "main"
 SELF = "richos/app/scripts/autocheck/dependency-pins.py"
 INPUTS = ENGINE + "scripts/lib/verification_inputs.py"
-OMITTED = "omitted known key reads in "
-UNQUALIFIED = "unqualified reader "
 
 
 def git(*args, check=True, text=True):
@@ -91,31 +92,6 @@ def read_blob(rev, path):
     return got.stdout if got.returncode == 0 else None
 
 
-class Batch:
-    """One `git cat-file --batch` for many blob reads (a process per file costs seconds over the
-    declaration's ~900 readers)."""
-    def __init__(self):
-        self.proc = subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-
-    def read(self, rev, path):
-        spec = (":" if rev is None else rev + ":") + path
-        self.proc.stdin.write(spec.encode("utf-8", errors="surrogateescape") + b"\n")
-        self.proc.stdin.flush()
-        header = self.proc.stdout.readline().split()
-        if len(header) != 3 or header[1] != b"blob":
-            if header and header[-1] not in (b"missing", b"ambiguous"):
-                raise RuntimeError("git cat-file --batch: unexpected reply " + repr(header))
-            return None
-        data = self.proc.stdout.read(int(header[2]))
-        self.proc.stdout.read(1)
-        return data
-
-    def close(self):
-        self.proc.stdin.close()
-        self.proc.wait()
-
-
 def branch_paths():
     """The branch's change as the land will see it: merge-base(main, HEAD) against the index
     being committed. With no main to compare to, the staged change alone."""
@@ -160,58 +136,83 @@ def report(found, title):
     say("")
 
 
-def reader_floor(declaration, old, base):
-    """The selector's own refusals over the WHOLE staged declaration, from the selector's own code
-    and with its message: `omitted known key reads` (a known config key a reader reads that its row
-    does not declare) and `unqualified reader` (a node edge or a unit root with no node). Text is
-    read as the verifier reads it (newlines normalized). Anything that is also found over the
-    merge-base's declaration and files is not this commit's and is not refused. Dependencies.node
-    stops at a reader's first problem (a stale pin is reported before this runs), so only these two
-    messages are taken from it. An exception propagates: check() refuses the commit on it."""
-    code = read_blob(None, INPUTS)
-    if code is None:
-        return []
-    module = types.ModuleType("verification_inputs")
-    exec(compile(code.decode("utf-8"), INPUTS, "exec"), module.__dict__)
-    top = Path(git("rev-parse", "--show-toplevel").stdout.strip())
+EXPORTED = ("richos/engine", "richos/app/scripts", "richos/mobile")  # what the declaration's readers live in
 
-    def findings(doc, rev, only=None):
-        def read(path):
-            blob = batch.read(rev, ENGINE + path)
-            if blob is None:
-                raise FileNotFoundError(path)
-            return blob.decode("utf-8", errors="surrogateescape").replace("\r\n", "\n").replace("\r", "\n")
 
-        nodes = doc.get("nodes") or {}
-        graph = module.Dependencies(top / ENGINE.rstrip("/"), doc, read)
-        found = {}
-        for name in sorted(nodes):
-            row = nodes[name]
-            if not isinstance(row, dict) or (only is not None and name not in only):
-                continue
-            try:
-                graph.node(name)
-            except module.Unsupported as exc:
-                if str(exc).startswith(OMITTED):
-                    found.setdefault(str(exc), (row.get("source", name), name))
-            for edge in row.get("edges") or []:
-                if edge["to"] not in nodes:
-                    found.setdefault(UNQUALIFIED + edge["to"], (row.get("source", name), name))
-        for root in (doc.get("units") or {}).values():
-            if root not in nodes:
-                found.setdefault(UNQUALIFIED + str(root), (DECLARATION, None))
-        return found
+def export_tree(tree, into):
+    """The files of TREE (a commit or tree id) the verifier reads, extracted under INTO as the
+    verifier sees a checkout: bytes, modes and layout from the tree, nothing from the working copy.
+    That is the engine, the app scripts, the mobile tools, and every repository-rooted external
+    reader the tree's own declaration names."""
+    wanted = list(EXPORTED)
+    shown = subprocess.run(["git", "show", f"{tree}:{DECLARATION}"], capture_output=True,
+                           stdin=subprocess.DEVNULL)
+    if shown.returncode == 0:
+        for row in (json.loads(shown.stdout).get("nodes") or {}).values():
+            for external in (row.get("external") or []) if isinstance(row, dict) else []:
+                if external.get("root") == "repository" and external.get("path"):
+                    wanted.append(external["path"])
+    present = git("ls-tree", "--name-only", tree, "--", *wanted).stdout.splitlines()
+    if not present:
+        return
+    proc = subprocess.Popen(["git", "archive", "--format=tar", tree, *present],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
+    with tarfile.open(fileobj=proc.stdout, mode="r|") as archive:
+        archive.extractall(into, filter="tar")
+    error = proc.stderr.read().decode("utf-8", errors="replace").strip()
+    if proc.wait():
+        raise RuntimeError(f"git archive {tree} failed: {error}")
 
-    batch = Batch()
+
+def verifier_messages(module, root):
+    """Every refusal the verifier's own Dependencies.node gives for the checkout at ROOT: each node,
+    each edge target and each unit root, with its own message and its own file reads (exactly as
+    verification-inputs.test.py builds it: Dependencies(<engine>, <declaration>)). None when the
+    checkout has no declaration."""
+    engine = Path(root) / ENGINE.rstrip("/")
+    path = Path(root) / DECLARATION
+    if not path.is_file():
+        return None
+    doc = json.loads(path.read_text())
+    graph = module.Dependencies(engine, doc)
+    nodes = doc.get("nodes") or {}
+    names = set(nodes) | set((doc.get("units") or {}).values())
+    for row in nodes.values():
+        names.update(edge["to"] for edge in (row.get("edges") or []) if isinstance(row, dict))
+    found = set()
+    for name in sorted(names, key=str):
+        try:
+            graph.node(name)
+        except module.Unsupported as exc:
+            found.add(str(exc))
+    return found
+
+
+def reader_floor(base):
+    """The selector's own refusals (`unqualified reader`, `omitted known key reads`, and every other
+    reason Dependencies.node gives) over the WHOLE declaration as it would be committed, from the
+    selector's own code run on an export of the staged tree. A message that the merge-base's export
+    gives too is not this commit's and is not refused. An exception propagates: check() refuses the
+    commit on it."""
+    scratch = tempfile.mkdtemp(prefix="dependency-pins-")
     try:
-        now = findings(declaration, None)
+        staged, parent = Path(scratch, "staged"), Path(scratch, "base")
+        export_tree(git("write-tree").stdout.strip(), staged)
+        code = Path(staged, INPUTS)
+        if not code.is_file():
+            return []
+        module = types.ModuleType("verification_inputs")
+        exec(compile(code.read_text(), str(code), "exec"), module.__dict__)
+        now = verifier_messages(module, staged)
         if not now:
             return []
-        # Only the rows that produced a finding are asked again at the merge-base.
-        before = findings(old, base, {name for _, name in now.values() if name}) if base and old else {}
+        before = set()
+        if base:
+            export_tree(base, parent)
+            before = verifier_messages(module, parent) or set()
+        return [(DECLARATION, message) for message in sorted(now - before)]
     finally:
-        batch.close()
-    return [(source, message) for message, (source, _) in now.items() if message not in before]
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def report_floor(found):
@@ -257,11 +258,7 @@ def check():
         report(found, "COMMIT REFUSED: a changed file is pinned in verification-dependencies.json")
         return 1
     try:
-        old = json.loads(read_blob(base, DECLARATION) or b"{}") if base else {}
-    except ValueError:
-        old = {}
-    try:
-        floor = reader_floor(declaration, old, base)
+        floor = reader_floor(base)
     except Exception as exc:  # a check that cannot run refuses; it never passes by silence
         say("")
         say(f"=== COMMIT REFUSED: the reader check could not run ({type(exc).__name__}: {exc}) ===")

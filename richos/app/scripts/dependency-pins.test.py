@@ -316,6 +316,74 @@ class Floor(Fixture):
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "unrelated")
 
+    def refused_text(self, message, expect, stage=True):
+        if stage:
+            self.git("add", "-A")
+        out = self.git("commit", "-m", message, expect=1)
+        text = out.stdout + out.stderr
+        self.assertIn(expect, text)
+        return text
+
+    # review rv-20261009T064208Z-fdb53114: three more places the commit's own logic differed from
+    # the verifier's. Each is refused here by the verifier's own code, run on the staged tree.
+    def test_an_edge_target_emptied_to_a_blank_row_is_refused(self):
+        self.start()
+        self.mutate(self.helper_node)
+        self.renew("richos/engine/scripts/new-helper.py")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "edge and qualified node")
+        self.mutate(lambda d: d["nodes"].update({"scripts/new-helper.py": {}}))
+        self.refused_text("blank the helper row", "unqualified reader scripts/new-helper.py")
+
+    def test_a_unit_root_pointing_at_a_blank_row_is_refused(self):
+        self.start()
+        self.mutate(lambda d: (d["nodes"].update({"scripts/new-helper.py": {}}),
+                               d["units"].update({"scripts/new-unit.test.sh": "scripts/new-helper.py"})))
+        self.refused_text("unit root on a blank row", "unqualified reader scripts/new-helper.py")
+
+    def test_an_unstaged_edit_to_an_external_reader_cannot_hide_an_undeclared_key_read(self):
+        # The verifier reads externals from the checkout it is given; here that is the staged tree,
+        # so the working copy (edited, unstaged) must not stop the key check from running.
+        self.start()
+        self.mutate(lambda d: d["nodes"]["scripts/reader.sh"].update(external=[{
+            "root": "repository", "path": EXTERNAL, "evidence": "fixture external reader",
+            "sha256": "0" * 64}]))
+        self.renew(EXTERNAL)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "declare the external reader")
+        self.write(NODE, 'echo "$TOKEN"\n')
+        self.renew(NODE)
+        self.git("add", "-A")
+        self.write(EXTERNAL, "print('edited and not staged')\n")
+        self.refused_text("read TOKEN", "omitted known key reads in scripts/reader.sh: TOKEN",
+                          stage=False)
+
+    def test_a_check_the_verifier_cannot_finish_refuses_instead_of_passing(self):
+        # Without qualification evidence the verifier stops before its key check; that is a refusal
+        # of its own (new against the merge-base), never a pass by silence.
+        self.start()
+        self.write(NODE, 'echo "$TOKEN"\n')
+        self.mutate(lambda d: d["nodes"]["scripts/reader.sh"].update(evidence=""))
+        self.renew(NODE)
+        self.refused_text("read TOKEN, no evidence", "reader has no qualification evidence")
+
+    def test_a_finding_the_merge_base_has_through_another_parent_is_not_this_commits(self):
+        # Two nodes that reach the same unqualified target: the finding is the merge-base's whether
+        # the node that reaches it sorts first or last.
+        self.start()
+        self.mutate(lambda d: d["nodes"]["scripts/reader.sh"].update(edges=[{"to": "scripts/gone.py"}]))
+        self.git("add", "-A")
+        self.git("commit", "--no-verify", "-q", "-m", "already broken")
+        self.land_on_main()
+        self.mutate(lambda d: d["nodes"].update({"scripts/a-reader.sh": {
+            "source": "scripts/reader.sh", "sha256": "0" * 64, "evidence": "fixture", "keys": [],
+            "edges": [{"to": "scripts/gone.py"}]}}))
+        self.renew(NODE)
+        self.git("add", "-A")
+        before = self.head()
+        self.git("commit", "-q", "-m", "another reader of the same missing target")
+        self.assertNotEqual(self.head(), before)
+
 
 class Parity(Fixture):
     """The digests --renew writes are the ones the selector itself checks."""
