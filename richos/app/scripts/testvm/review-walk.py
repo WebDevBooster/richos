@@ -85,7 +85,8 @@ BUILDER = ('---\nname: builder\ndescription: Python engineer for small library c
 JOB = ('Please have builder add a function slugify(text) to acme/text.py in my Acme repository. It must turn the '
        'text to lowercase, replace every run of spaces with a single hyphen, and remove any leading or trailing '
        'hyphens, so slugify("  -Hello  World- ") returns "hello-world". Add a unittest for it in tests/test_text.py. '
-       'Have it reviewed before it is landed, and land it when the review passes.')
+       'Have it reviewed before it is landed, and land it when the review passes. Do not check or run the work '
+       'yourself: the review is the check.')
 CHECK = ('import sys; sys.path.insert(0, sys.argv[1]); from acme.text import slugify; '
          'print(repr(slugify("  -Hello  World- ")))')
 
@@ -97,6 +98,87 @@ class ReviewWalk(command_walk.CommandWalk):
             raise StepFailed(f'{path} is not the seeded teammate: run review-walk.py --seed-team FIXTURE_HOME '
                              'before run-walk.py boots (the leases read the team at launch)')
         return {'builder': path}
+
+    # --- the folder chooser, driven as folders-walk.py drives it -----------------------------
+    def script(self, text, timeout=90):
+        out = command_walk.command([HERE / 'ax.sh', self.vm, text], timeout)
+        return '\n'.join(l for l in out.splitlines() if not l.startswith('{')).strip()
+
+    def sheet_open(self):
+        """The folder chooser is up: an AXSheet (folders-walk.py's reading), or its own Open button."""
+        for args in (('--role', 'AXSheet'), ('--title', 'Open', '--role', 'AXButton')):
+            try:
+                if [n for n in self.ax('find', *args) if 'x' in n and not n.get('meta')]:
+                    return True
+            except StepFailed as exc:
+                if 'notfound' not in str(exc) and 'nothing matched' not in str(exc):
+                    raise
+        return False
+
+    def evidence_of_screen(self, name):
+        try:
+            self.shot(name + '.png')
+            (self.out / (name + '-tree.txt')).write_text(
+                command_walk.command([HERE / 'ax.sh', self.vm, 'tree', '--depth', '8'], 90))
+        except StepFailed:
+            pass
+
+    def wait_sheet(self, want, seconds=20):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if self.sheet_open() == want:
+                return True
+            time.sleep(1)
+        return False
+
+    def connect(self):
+        """The folder through the Connected folders sheet, the way a user does it now: the sheet
+        pre-selects the only company (repositories.js), and the folder field opens the system
+        folder chooser on a click (main.js attachFolderPicker), so a typed path never reaches it
+        (runs walk-43b1000a38a6 and walk-3b7c52195485 of this walk: command-walk.py's typed path and
+        Company menu both failed). Go to folder, the path, Return, Open, then Connect folder."""
+        self.press('Settings', role='AXPopUpButton')
+        self.press('Connected folders', role='AXMenuItem')
+        self.wait_for('Company', role='AXPopUpButton')
+        time.sleep(2)
+        fields = [n for n in self.ax('find', '--title', 'Project folder location', '--role', 'AXTextField',
+                                     '--contains') if 'x' in n and not n.get('meta')]
+        if not fields:
+            raise StepFailed('no "Project folder location" field on the Connected folders sheet')
+        f = fields[0]
+        self.facts['folder_field'] = {k: f.get(k) for k in ('x', 'y', 'w', 'h', 'title', 'value')}
+        self.save()
+        command_walk.command([HERE / 'ax.sh', self.vm, 'click', '--at',
+                              f"{int(f['x'] + f['w'] / 2)},{int(f['y'] + f['h'] / 2)}"], 90)
+        if not self.wait_sheet(True, 15):
+            # The same field pressed by its title, once, before this is called a failure.
+            self.ax('click', '--title', 'Project folder location', '--role', 'AXTextField', '--contains', '--first')
+            if not self.wait_sheet(True, 15):
+                self.evidence_of_screen('connect-no-chooser')
+                raise StepFailed('the folder field did not open the folder chooser')
+        self.script('tell application "System Events" to keystroke "g" using {command down, shift down}')
+        time.sleep(2)
+        self.script('tell application "System Events" to keystroke ' + json.dumps(self.company))
+        time.sleep(1)
+        self.script('tell application "System Events" to key code 36')
+        time.sleep(2.5)
+        self.ax('click', '--title', 'Open', '--role', 'AXButton', '--in', 'dialog', '--first')
+        if not self.wait_sheet(False, 15):
+            raise StepFailed('the folder chooser did not close after Open')
+        time.sleep(1)
+        self.ax('click', '--title', 'Connect folder', '--role', 'AXButton', '--in', 'dialog', '--first')
+        registry = self.data + '/entities.json'
+        end, value = time.monotonic() + 30, {}
+        while time.monotonic() < end:
+            value = json.loads(guest(self.vm, 'cat ' + shlex.quote(registry)))
+            connected = [p for e in value.get('entities', []) for p in e.get('connected_repositories', [])]
+            if connected:
+                self.press('Close')
+                self.facts['connected'] = connected
+                self.save()
+                return {'connected': connected}
+            time.sleep(1)
+        raise StepFailed('the repository was not connected within 30 s: ' + json.dumps(value))
 
     def fixture(self):
         c = shlex.quote(self.company)
@@ -227,13 +309,19 @@ def judge(rows, record, landed, presses):
                and JOB in (r.get('_brief') or '')) for r in reviewers]
     line('1 every reviewer brief starts with the user turn verbatim', bool(starts) and all(ok for _, ok in starts),
          json.dumps(starts))
-    first_worker = next((w for w in workers if not w.get('continuation')), None)
-    first_review = next((r for r in reviewers if first_worker and reviewed(r) == first_worker['id']), None)
-    line('2 the first review asked for changes', bool(first_review) and verdict_of(first_review) == 'changes-requested',
-         'review %s verdict %s' % (first_review and first_review['id'][:12], first_review and verdict_of(first_review)))
+    # THE CHAIN, not the order (receipts carry no creation time): a review asked for changes on
+    # some worker W, a continuation W2 names W, and a recheck of W2 passed. Run 4 of this walk
+    # (walk-c9eeb4b4e680) is why: the coordinator checked the work itself, continued it before
+    # any review, and the only review then passed, so no review had asked for anything.
+    asked = [r for r in reviewers if verdict_of(r) == 'changes-requested']
+    first_review = next((r for r in asked if any((w.get('continuation') or {}).get('worker_id') == reviewed(r)
+                                                 for w in workers)), asked[0] if asked else None)
+    line('2 a review asked for changes', bool(first_review),
+         'reviews: %s' % json.dumps([(r['id'][:12], verdict_of(r)) for r in reviewers]))
+    first_worker = by_id.get(reviewed(first_review)) if first_review else None
     successor = next((w for w in workers if first_worker
                       and (w.get('continuation') or {}).get('worker_id') == first_worker['id']), None)
-    line('3 the coordinator continued that work', bool(successor),
+    line('3 the coordinator continued the work the review asked to change', bool(successor),
          'continuation %s of %s' % (successor and successor['id'][:12], first_worker and first_worker['id'][:12]))
     recheck = next((r for r in reviewers if successor and reviewed(r) == successor['id']
                     and verdict_of(r) == 'passed'), None)

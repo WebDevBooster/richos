@@ -52,6 +52,12 @@ class Verdict(unittest.TestCase):
     def test_a_first_review_that_passed_the_planted_defect_fails_line_2(self):
         self.assertEqual(self.outcomes(rows(replace={1: reviewer('b', 'a', 'passed')}))['2'], 'FAIL')
 
+    def test_a_coordinator_who_fixed_it_before_any_review_fails_line_2(self):
+        """Run 4 (walk-c9eeb4b4e680): the coordinator ran the work itself, continued it before any
+        review, and the one review passed. The loop under test never ran."""
+        got = self.outcomes([worker('a'), worker('c', continuation='a', integrated=True), reviewer('d', 'c', 'passed')])
+        self.assertEqual(got['2'], 'FAIL')
+
     def test_no_continuation_fails_lines_3_to_5(self):
         got = self.outcomes([worker('a'), reviewer('b', 'a', 'changes-requested')])
         self.assertEqual((got['3'], got['4'], got['5']), ('FAIL', 'FAIL', 'FAIL'))
