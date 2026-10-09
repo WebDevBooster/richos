@@ -5434,6 +5434,8 @@ module.exports = [
   {"s": "the Search window", "c": "FRAGMENT", "why": "Bust a bug (round 21, CEO §115; bug-report.js). The report's Where for Search."},
   {"s": "the company picker", "c": "FRAGMENT", "why": "Bust a bug (round 21, CEO §115; bug-report.js). Where the user was, in Rich's question and the panel's header."},
   {"s": "the home screen", "c": "FRAGMENT", "why": "Bust a bug (round 21, CEO §115; bug-report.js). Where the user was, in Rich's question and the panel's header."},
+  {"s": "the opening screen", "c": "FRAGMENT", "why": "Bust a bug (round 21, CEO §115; bug-report.js). Where the user was, in Rich's question and the panel's header, when Bust a bug is pressed on the held opening screen."},
+  {"s": "the opening screen RichOS shows as it starts", "c": "FRAGMENT", "why": "Bust a bug (round 21, CEO §115; bug-report.js). The report's Where for the held opening screen."},
   {"s": "the home screen, with a button for each company", "c": "FRAGMENT", "why": "Bust a bug (round 21, CEO §115; bug-report.js). The report's Where for the home screen."},
   {"s": "the memory folder window", "c": "FRAGMENT", "why": "Bust a bug (round 21, CEO §115; bug-report.js). Where the user was, in Rich's question and the panel's header."},
   {"s": "the setup window", "c": "FRAGMENT", "why": "Bust a bug (round 21, CEO §115; bug-report.js). Where the user was, in Rich's question and the panel's header."},
