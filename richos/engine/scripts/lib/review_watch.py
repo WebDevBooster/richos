@@ -1468,8 +1468,13 @@ def host_json_lines(now, body, owners, keys):
 # richos-core review_watch.rs), acknowledged on this process's stdin ({"ack": [ids]}) once the host
 # has told the lead. A pipe that fails, or a notice the host's desk refuses, leaves the verdict to
 # be told again at the next look.
+# ONLY WHAT WAS EMITTED (the real second review of 0be50ade1, finding 1): PRINTED is built from the
+# blocks the output really carries, after the monitor's cap, never from every block tell() made.
+# Its "told" entries, the notices with no delivery key (a NOT STARTED problem, a handover reminder,
+# a notice for another lead), are written to the session's told.json only once the output is
+# written and flushed; a block the cap left out, or a pipe that failed, is told at a later look.
 ACKS_ENV = "RICHOS_REVIEW_WATCH_ACKS"
-PRINTED = {"keys": []}
+PRINTED = {"keys": [], "told": {}}
 ACKS = {"fd": 0, "buf": b""}
 
 
@@ -1517,18 +1522,20 @@ def tell(now, sstate, rows, book, items, problems, attempts):
     items_by_key = dict((it.key, it) for it in items)
     items_by_key.update(((it.repo, it.tip, it.work), it) for it in items)
     told = sstate.setdefault("told", {})
-    body, owners, keys = [], [], []
-    PRINTED["keys"] = []
+    body, owners, keys, marks, pending = [], [], [], [], {}
+    PRINTED["keys"], PRINTED["told"] = [], {}
 
-    def add(block, it=None, session=None, key=None):
+    def add(block, it=None, session=None, key=None, mark=None):
         # Each block keeps the session of the lead whose teammate it is about, so the operator
         # host can deliver it to that lead (--host-json); "" when no lead started the work. An
-        # owned verdict's block keeps its review id too, recorded delivered only once accepted.
+        # owned notice's block keeps its delivery key too, recorded delivered only once accepted;
+        # any other keeps its told mark, (told key, value), written only once emitted (PRINTED).
         body.append(block)
         owners.append(session if session is not None else (getattr(it, "session", "") or ""))
         keys.append(key)
-        if key and key not in PRINTED["keys"]:
-            PRINTED["keys"].append(key)
+        marks.append(mark)
+        if mark:
+            pending[mark[0]] = mark[1]
     # -- new verdicts, from where this session last read the ledger ---------------
     # ONLY A VERDICT'S RECORDED OWNER CONSUMES IT (second review of b5ff41f02, finding 2).
     # last-told.json's `rows` is where a monitor's FIRST look starts reading, so a verdict written
@@ -1573,8 +1580,11 @@ def tell(now, sstate, rows, book, items, problems, attempts):
         if (owned and key in delivered) or (i < start and not owned):
             continue                                # told to its owner already, or not this watcher's to tell
         blocks = [render_verdict(row, items_by_key)]
-        nc = [("nc:%s:%s" % (row.get("work"), fid), fid, title) for fid, title in not_converging(row, rows)
-              if "nc:%s:%s" % (row.get("work"), fid) not in told]
+        # NOT CONVERGING is kept until accepted, like its verdict (the real second review of
+        # 0be50ade1, finding 1): an owned one carries its own delivery key, never a told mark.
+        nc = [(k, fid, title) for k, fid, title in (("nc:%s:%s" % (row.get("work"), fid), fid, title)
+                                                    for fid, title in not_converging(row, rows))
+              if k not in told and k not in delivered and k not in pending and k not in keys]
         who, _it = _who(row, items_by_key)
         blocks += [["  [NOT CONVERGING] %s: finding %s (%s) is still open after two rechecks in a row." % (
                         who, fid, " ".join(title.split())[:100]),
@@ -1585,17 +1595,18 @@ def tell(now, sstate, rows, book, items, problems, attempts):
             stop = i                                # the cap: this row and every later one wait for the next look
             break
         used += cost
-        for b in blocks:
-            add(b, session=session, key=key if owned else None)
-        if row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB:
-            told[_cr_key(row.get("repo"), row.get("tip"), row.get("work"))] = {"first": now, "last": now, "count": 1}
-        for k, _fid, _title in nc:
-            told[k] = {"first": now}
+        cr = row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB
+        add(blocks[0], session=session, key=key if owned else None, mark=(
+            _cr_key(row.get("repo"), row.get("tip"), row.get("work")), {"first": now, "last": now, "count": 1})
+            if cr else None)
+        for b, (k, _fid, _title) in zip(blocks[1:], nc):
+            add(b, session=session, key=k if owned else None, mark=None if owned else (k, {"first": now}))
     sstate["rows"] = max(start, stop)
     shared["rows"] = max(stop, seen or 0)
     lost_twice = dict(("lost:%s:%s" % key, key) for key, lost in book.losses.items() if len(lost) >= MAX_LOSSES)
     ids = set(_row_key(r) for r in rows if r.get("verdict")) | set(lost_twice)
-    shared["delivered"] = dict((k, t) for k, t in delivered.items() if k in ids)
+    shared["delivered"] = dict((k, t) for k, t in delivered.items() if k in ids or (
+        k.startswith("nc:") and now - float(t or 0) <= KEEP_SECONDS))
     stall_watch._write_json(_p("last-told.json"), shared)
     verdict_blocks = len(body)
     # -- an unhandled changes-requested handover, again every 30 minutes ------------
@@ -1610,14 +1621,14 @@ def tell(now, sstate, rows, book, items, problems, attempts):
         if not hv or hv[-1].get("verdict") != "changes-requested":
             continue
         k = _cr_key(it.repo, it.tip, it.work)
-        t = told.get(k)
+        t = pending.get(k) or told.get(k)
         if t is None:
-            told[k] = {"first": now, "last": now, "count": 1}
-            add(render_verdict(hv[-1], items_by_key), session=owner_session(hv[-1], items, book, attempts))
+            add(render_verdict(hv[-1], items_by_key), session=owner_session(hv[-1], items, book, attempts),
+                mark=(k, {"first": now, "last": now, "count": 1}))
         elif now - float(t.get("last") or now) >= REPEAT_MINUTES * 60:
-            t["last"], t["count"] = now, int(t.get("count") or 1) + 1
-            add(render_verdict(hv[-1], items_by_key, (t["count"], hhmm(float(t["first"])))),
-                session=owner_session(hv[-1], items, book, attempts))
+            again = dict(t, last=now, count=int(t.get("count") or 1) + 1)
+            add(render_verdict(hv[-1], items_by_key, (again["count"], hhmm(float(again["first"])))),
+                session=owner_session(hv[-1], items, book, attempts), mark=(k, again))
     # -- a commit whose review was lost twice --------------------------------------
     # KEPT UNTIL ACCEPTED, LIKE A VERDICT (the real second review of 802194f0e, finding 2): told once,
     # this is the only word that automatic reviews of the commit have stopped. For an owner this
@@ -1629,38 +1640,40 @@ def tell(now, sstate, rows, book, items, problems, attempts):
             continue
         a = book.losses[key][-1]
         session = a.get("session") or getattr(items_by_key.get(key + (a.get("work") or "",)), "session", "") or ""
-        if not ours(session):
-            told[k] = {"first": now}
         add(["  [NO VERDICT TWICE] %s, %s@%s: %s" % (a.get("name"), os.path.basename(key[0] or ""),
                                                     str(key[1])[:12], " ".join(str(a.get("why")).split())[:300]),
              "      Nothing more starts for this commit by itself. You can: fix the cause, then run "
-             "%s by hand." % "second-review.sh"], session=session, key=k if ours(session) else None)
+             "%s by hand." % "second-review.sh"], session=session, key=k if ours(session) else None,
+            mark=None if ours(session) else (k, {"first": now}))
     # -- what could not be read or started ------------------------------------------
     for p in problems:
         k = "problem:" + p[:120]
-        if k in told:
+        if k in told or k in pending:
             continue
-        told[k] = {"first": now}
-        add(["  [NOT STARTED] " + p[:400]])
+        add(["  [NOT STARTED] " + p[:400]], mark=(k, {"first": now}))
     for k in list(told):
         if now - float(told[k].get("first") or now) > KEEP_SECONDS:
             del told[k]
     if HOST_JSON["on"]:
-        return host_json_lines(now, body, owners, keys) if body else []
-    body = [(n, b) for n, (b, s) in enumerate(zip(body, owners)) if for_this_monitor(s)]
-    if not body:
-        return []
-    lines = ["REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was paused, "
-             "stopped or killed)" % (hhmm(now), len(body), "" if len(body) == 1 else "s")]
-    used = len(lines[0])
-    for n, b in body:
-        cost = sum(len(x) + 1 for x in b)
-        # Verdict blocks were already fitted to the cap above and are recorded as told: never cut here.
-        if n >= verdict_blocks and used + cost > BLOCK_CHARS and len(lines) > 1:
-            lines.append("  ... more in the next look's block, or read %s" % review_ledger())
-            break
-        lines += b
-        used += cost
+        shown = list(range(len(body)))              # the host is given every block
+        lines = host_json_lines(now, body, owners, keys) if body else []
+    else:
+        shown, lines = [n for n, s in enumerate(owners) if for_this_monitor(s)], []
+    if shown and not HOST_JSON["on"]:
+        lines = ["REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was "
+                 "paused, stopped or killed)" % (hhmm(now), len(shown), "" if len(shown) == 1 else "s")]
+        used = len(lines[0])
+        for i, n in enumerate(shown):
+            cost = sum(len(x) + 1 for x in body[n])
+            # Verdict blocks were already fitted to the cap above: never cut here.
+            if n >= verdict_blocks and used + cost > BLOCK_CHARS and len(lines) > 1:
+                lines.append("  ... more in the next look's block, or read %s" % review_ledger())
+                shown = shown[:i]
+                break
+            lines += body[n]
+            used += cost
+    PRINTED["keys"] = list(dict.fromkeys(keys[n] for n in shown if keys[n]))
+    PRINTED["told"] = dict(marks[n] for n in shown if marks[n])
     return lines
 
 
@@ -1734,20 +1747,25 @@ def tick(watcher, sd, now=None, out=None):
             lines = watcher.look(now, sstate)
         except Exception as exc:  # noqa: BLE001: one failed look is said, never the end of watching
             k = "failed:%s" % exc.__class__.__name__
-            told = sstate.setdefault("told", {})
-            lines = [] if k in told else ["REVIEW-WATCH %s: a look failed (%s: %s); the next look tries again" % (
-                hhmm(now), exc.__class__.__name__, str(exc)[:200])]
-            told[k] = {"first": now}
-            PRINTED["keys"] = []
-        printed, PRINTED["keys"] = (PRINTED["keys"] if lines else []), []
+            lines = [] if k in sstate.get("told", {}) else [
+                "REVIEW-WATCH %s: a look failed (%s: %s); the next look tries again" % (
+                    hhmm(now), exc.__class__.__name__, str(exc)[:200])]
+            PRINTED["keys"], PRINTED["told"] = [], {k: {"first": now}}
+        printed, marked = (PRINTED["keys"], PRINTED["told"]) if lines else ([], {})
+        PRINTED["keys"], PRINTED["told"] = [], {}
         sstate["last_look"] = now
         stall_watch._write_json(path, sstate)
     if lines:
         out.write("\n".join(lines) + "\n")
         out.flush()
-    if printed and not host_acks():
+    if (printed and not host_acks()) or marked:
         with look_lock():
-            deliver(printed, now)
+            if not host_acks():
+                deliver(printed, now)
+            if marked:
+                sstate = stall_watch._read_json(path)
+                sstate.setdefault("told", {}).update(marked)
+                stall_watch._write_json(path, sstate)
     return len(lines)
 
 

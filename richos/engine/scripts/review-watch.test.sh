@@ -101,6 +101,10 @@
 #   W32  the NO VERDICT TWICE notice is delivered only once the host accepts it,
 #        like a verdict: a failed pipe, or no acknowledgment, leaves it for the
 #        next look (the reviewer's fixture unacknowledged_host_notice.py)
+#   W33  a notice the monitor's output cap leaves out is neither delivered nor told:
+#        a later look tells it (the reviewer's fixture capped_lost_notice.py)
+#   W34  the NOT CONVERGING notice is kept until its output is accepted, like its
+#        verdict: a failed pipe, or no acknowledgment, tells both again
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -2307,6 +2311,141 @@ for k in want:
 sys.exit(0 if got == want else 1)
 PY
 check "W32 the NO VERDICT TWICE notice is kept until the host accepts it: a failed pipe or no acknowledgment leaves it for the next look" \
+    $? "see above"
+
+# --- W33 ---------------------------------------------------------------------
+# The real second review of 0be50ade1, finding 1 (fixtures/capped_lost_notice.py): add() recorded a
+# notice's delivery key before the monitor's output cap could leave its block out, so a NO VERDICT
+# TWICE notice behind a backlog of verdicts was marked delivered and never shown. A [NOT STARTED]
+# problem behind the same cap was marked told the same way. Through the real tick and tell: eleven
+# passed verdicts for this lead, then two lost attempts and one problem, four looks.
+python3 - "$LIB" "$SB/w33" <<'PY'
+import io, json, os, sys
+lib, root = sys.argv[1:3]
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, "rw")
+os.environ.pop("RICHOS_REVIEW_WATCH_ACKS", None)
+sys.path.insert(0, lib)
+import review_watch as rw
+
+rw.HOST_JSON["on"], rw.MONITOR["session"] = False, "lead-A"
+now = rw.parse_iso("2026-10-09T09:00:00Z")
+repo = os.path.join(root, "fictional-repository")
+rows = [{"id": "rv-%d" % n, "repo": repo, "tip": "%040x" % n, "work": "teammate:work-%d" % n, "at": rw.iso(now),
+         "verdict": "passed", "trigger": "long-job", "reviewer": "claude", "reviewer_model": "opus",
+         "findings": 0, "record": ""} for n in range(1, 12)]
+attempts = [{"repo": r["repo"], "tip": r["tip"], "work": r["work"], "session": "lead-A", "outcome": "verdict"}
+            for r in rows]
+attempts += [{"repo": repo, "tip": "f" * 40, "work": "teammate:lost", "session": "lead-A", "outcome": "lost",
+              "name": "worker-lost", "trigger": "long-job", "why": "no answer"} for _ in range(2)]
+book = rw.Book(rows, {}, attempts)
+
+
+class Watcher(object):
+    def look(self, t, state):
+        return rw.tell(t, state, rows, book, [], ["the reviewer could not be started (fictional)"], attempts)
+
+
+sd = rw.session_dir("lead-A")
+key = "lost:%s:%s" % (repo, "f" * 40)
+looks, early = [], []
+for n in range(4):
+    out = io.StringIO()
+    rw.tick(Watcher(), sd, now=now + 60 * n, out=out)
+    looks.append(out.getvalue())
+    delivered = json.load(open(os.path.join(root, "rw", "last-told.json"))).get("delivered", {})
+    early.append(key in delivered and not any("NO VERDICT TWICE" in b for b in looks))
+got = {"the first look is capped": "more in the next look" in looks[0],
+       "never delivered before it is shown": not any(early),
+       "the lost notice is shown once": sum("NO VERDICT TWICE" in b for b in looks) == 1,
+       "the problem is shown once": sum("NOT STARTED" in b for b in looks) == 1,
+       "every verdict is shown once": sum(b.count("[PASSED]") for b in looks) == 11}
+print("    %s" % got)
+sys.exit(0 if all(got.values()) else 1)
+PY
+check "W33 a notice the output cap leaves out is neither delivered nor told: a later look tells it" $? "see above"
+
+# --- W34 ---------------------------------------------------------------------
+# The same review: the NOT CONVERGING notice was marked told before it was written, so a pipe that
+# failed, or a host that never acknowledged, told its verdict again but never the notice. Through
+# the real tick and tell: three verdicts of one work, finding #1 still open in the last two.
+python3 - "$LIB" "$SB/w34" <<'PY'
+import io, json, os, sys
+lib, root = sys.argv[1:3]
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+os.environ.pop("RICHOS_REVIEW_WATCH_ACKS", None)
+sys.path.insert(0, lib)
+import review_watch as rw
+
+
+class BrokenPipe(object):
+    def write(self, text):
+        raise BrokenPipeError("the host closed the pipe during quit")
+
+    def flush(self):
+        pass
+
+
+now = rw.parse_iso("2026-10-09T09:00:00Z")
+repo = os.path.join(root, "fictional-repository")
+rows = []
+for i in range(3):
+    rec = os.path.join(root, "records", "rv-nc-%d" % i)
+    os.makedirs(rec, exist_ok=True)
+    ans, ein = {"findings": [], "earlier_findings": []}, []
+    if i:
+        ans["earlier_findings"] = [{"id": "rv-nc-0#1", "status": "still-open", "note": ""}]
+        ein = [{"id": "rv-nc-0#1", "title": "Audio left on disk"}]
+    with open(os.path.join(rec, "verdict.json"), "w") as f:
+        json.dump({"answer": ans, "earlier_findings_in": ein}, f)
+    rows.append({"id": "rv-nc-%d" % i, "at": rw.iso(now), "repo": repo, "tip": "%040x" % (i + 1),
+                 "work": "teammate:B", "trigger": "long-job", "verdict": "changes-requested", "findings": 1,
+                 "p1": 0, "reviewer": "codex", "reviewer_model": "m", "record": rec})
+attempts = [{"repo": r["repo"], "tip": r["tip"], "work": r["work"], "session": "lead-B", "outcome": "verdict"}
+            for r in rows]
+
+
+class Watcher(object):
+    def look(self, t, state):
+        return rw.tell(t, state, rows, rw.Book(rows, {}, attempts), [], [], attempts)
+
+
+def look(sd, t, out=None):
+    out = out or io.StringIO()
+    try:
+        rw.tick(Watcher(), sd, now=t, out=out)
+    except BrokenPipeError:
+        return "broken pipe"
+    return out.getvalue()
+
+
+got, want = {}, {}
+for name, host, acks in (("monitor", False, False), ("host", True, False), ("host, acknowledging", True, True)):
+    os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, name)
+    rw.HOST_JSON["on"], rw.MONITOR["session"] = host, ("" if host else "lead-B")
+    if acks:
+        os.environ["RICHOS_REVIEW_WATCH_ACKS"] = "1"
+        r, w = os.pipe()
+        rw.ACKS["fd"] = r
+    sd = rw.session_dir("operator-host" if host else "lead-B")
+    seq = [look(sd, now, BrokenPipe())] + [look(sd, now + 60 * n) for n in (1, 2)]
+    g = {"the pipe failed": seq[0] == "broken pipe",
+         "the next look tells it": seq[1].count("NOT CONVERGING") == 1,
+         "the look after that": seq[2].count("NOT CONVERGING") == 1}
+    if acks:
+        keys = [k for ln in seq[2].splitlines() for k in json.loads(ln).get("keys", [])]
+        os.write(w, (json.dumps({"ack": keys}) + "\n").encode())
+        g["acknowledged, the next look"] = "NOT CONVERGING" in look(sd, now + 180)
+        os.environ.pop("RICHOS_REVIEW_WATCH_ACKS")
+    got[name] = g
+    want[name] = {"the pipe failed": True, "the next look tells it": True, "the look after that": acks}
+    if acks:
+        want[name]["acknowledged, the next look"] = False
+for k in want:
+    print("    %s: %s" % (k, got[k]))
+sys.exit(0 if got == want else 1)
+PY
+check "W34 the NOT CONVERGING notice is kept until accepted, like its verdict: a failed pipe or no acknowledgment tells it again" \
     $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
