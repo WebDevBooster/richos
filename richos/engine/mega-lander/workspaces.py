@@ -5043,7 +5043,8 @@ def _registry_entity_map(F):
     """({main checkout: entity, or "" when unknown}, [why unknown]) from the
     fence registry `operator-fences.sh install` writes
     (operator_fences_admin.registry_path(): REGISTRY_NAME in land_locks_dir()),
-    read through F.registry_entities, the installer's own reading of it. THE
+    read through F.registry_entities (an entry with no recorded entity is
+    unknown, never inferred). THE
     ENTITY THAT GOVERNS A REPOSITORY'S FENCE IS READ FROM HERE, NEVER ONLY
     FROM THE LAUNCHER (review rv-20261009T033652Z-f3bfe22f-9372, finding 2):
     it can differ from the spawning entity, and with the launcher removed

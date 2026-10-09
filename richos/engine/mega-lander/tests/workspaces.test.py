@@ -4419,36 +4419,99 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         run("bash", self.fences, "install", "--repo", repo, "--entity", entity)
         return config
 
-    def test_second_review_a_registry_entry_from_before_entities_were_recorded_still_governs(self):
-        """Review rv-20261009T035450Z-882c7e75-0eab, finding 1 (its fixture
-        registry_edges.py, LEGACY_REGISTRY): an entry the earlier installer
-        wrote carries only common, chain and installed. Installing another
-        repository from another entity overwrote the registry's top-level entity,
-        the reader dropped the entry's missing one, and with the launcher removed
-        unreviewed work reached main. The install now records the old entry's
-        entity first (the registry's last install wrote both it and the
-        top-level entity), so the declaration that lists the repository still
-        governs it."""
-        self.registry(lambda reg: reg["repositories"][self.other].pop("entity"))
-        self.install_unrelated()
-        self.assertEqual(self.registry()["repositories"][self.other].get("entity"), os.path.realpath(self.decl))
+    def legacy_registry(self, entity, stamps, keep=None):
+        """Rewrite the fence registry into the shape the earlier installer left:
+        no entry carries an "entity", each carries the `installed` time in
+        `stamps` ({main checkout: ISO time}), the top-level entity is `entity`
+        (that installer's last install), and only the entries in `keep` remain
+        (its uninstall removed an entry and left the top-level entity as it was)."""
+        def change(reg):
+            reg["entity"] = os.path.realpath(entity)
+            for main in list(reg["repositories"]):
+                if keep is not None and main not in keep:
+                    del reg["repositories"][main]
+                    continue
+                reg["repositories"][main].pop("entity", None)
+                reg["repositories"][main]["installed"] = stamps[main]
+        self.registry(change)
+
+    def assert_unknown_until_installed(self, name):
+        """With the launcher removed, a land into self.other, whose registry
+        entry carries no entity, is refused naming the install command that
+        records it, even with a passing verdict; once that command has run, the
+        declaration it names governs: refused with no verdict on the tip, landed
+        with one."""
         os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
-        _cc, (tip,) = self.finished("zach-opus-rv14")
+        _cc, (tip,) = self.finished(name)
         before = self.head()
         with self.assertRaises(ws.SpecError) as e:
-            ws.merge_and_land("zach-opus-rv14", self.sid)
-        self.assertIn("SECOND REVIEW: cc/zach-opus-rv14 was not merged into", str(e.exception))
-        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+            ws.merge_and_land(name, self.sid)
+        self.assertIn("SECOND REVIEW: cc/%s was not merged into" % name, str(e.exception))
+        self.assertIn("the entity its fence was installed from is not recorded", str(e.exception))
+        self.assertIn("operator-fences.sh install --repo %s" % self.other, str(e.exception))
         self.assertEqual(self.head(), before)
         self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        self.assertEqual(self.registry()["repositories"][self.other].get("entity"), os.path.realpath(self.decl))
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land(name, self.sid)
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
         self.verdict(tip, "passed")
-        _merged, res = ws.merge_and_land("zach-opus-rv14", self.sid)
+        _merged, res = ws.merge_and_land(name, self.sid)
         self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_registry_entry_from_before_entities_were_recorded_is_unknown(self):
+        """Review rv-20261009T040812Z-9efed042-d03e, finding 1: an entry the
+        earlier installer wrote carries only common, chain and installed, and
+        nothing in it names the entity it was installed from. The entity is
+        NEVER inferred from timestamps or the top-level entity: such an entry
+        is unknown and its repository's land refused, naming the
+        `operator-fences.sh install --repo ... --entity ...` that records it.
+        Here the registry holds the one entry, from the one install, so even
+        the history where inferring would have been right is refused; a fresh
+        install always records the entity, so only an old install sees this."""
+        self.legacy_registry(self.decl, {self.other: "2026-10-07T08:00:00Z"})
+        self.assert_unknown_until_installed("zach-opus-rv14")
+
+    def test_second_review_a_legacy_entry_after_the_latest_install_was_uninstalled_is_unknown(self):
+        """The fixture's LATEST_UNINSTALLED history (fixtures/legacy_ownership.py
+        of review rv-20261009T040812Z-9efed042-d03e): the earlier installer
+        installed self.other from self.decl, then a third repository from an
+        unrelated entity, then uninstalled the third. Its top-level entity is
+        the unrelated one and the only entry left is self.other's. Inferring
+        from the newest `installed` time credited the unrelated entity, an
+        upgrade install of the third repository recorded that permanently, and
+        with the launcher removed unreviewed work reached main."""
+        config = self.install_unrelated()
+        third = next(m for m in self.registry()["repositories"] if m != self.other)
+        self.legacy_registry(os.path.dirname(config), {self.other: "2026-10-07T08:00:00Z",
+                                                       third: "2026-10-07T08:01:00Z"}, keep=[self.other])
+        run("bash", self.fences, "install", "--repo", third, "--entity", os.path.dirname(config))
+        self.assertIsNone(self.registry()["repositories"][self.other].get("entity"))
+        self.assert_unknown_until_installed("zach-opus-rv17")
+
+    def test_second_review_a_legacy_entry_installed_in_the_same_second_as_another_is_unknown(self):
+        """The fixture's SAME_SECOND history (fixtures/legacy_ownership.py of
+        review rv-20261009T040812Z-9efed042-d03e): the earlier installer
+        installed self.other from self.decl and a third repository from an
+        unrelated entity within one second. Both `installed` times tie, so
+        inferring credited the unrelated entity to both, an upgrade install
+        recorded that permanently, and with the launcher removed unreviewed
+        work reached main."""
+        config = self.install_unrelated()
+        third = next(m for m in self.registry()["repositories"] if m != self.other)
+        self.legacy_registry(os.path.dirname(config), {self.other: "2026-10-07T08:00:00Z",
+                                                       third: "2026-10-07T08:00:00Z"})
+        run("bash", self.fences, "install", "--repo", third, "--entity", os.path.dirname(config))
+        self.assertIsNone(self.registry()["repositories"][self.other].get("entity"))
+        self.assert_unknown_until_installed("zach-opus-rv18")
 
     def test_second_review_a_repository_whose_governing_entity_is_unknown_is_refused(self):
-        """The same finding's other half: a registry entry whose entity cannot
-        be established (it carries none, and a later install already recorded
-        entities, so the top-level one is not its) leaves the repository's
+        """Review rv-20261009T035450Z-882c7e75-0eab, finding 1: a registry
+        entry whose entity is not recorded leaves the repository's
         governing declaration unknown, and nothing is merged, even with a
         passing verdict, until `operator-fences.sh install` records it."""
         self.install_unrelated()

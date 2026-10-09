@@ -595,10 +595,10 @@ mutant sr-fence-entity-not-consulted "test_second_review_the_entity_the_fence_wa
     '        if mapping[key]:{NL}            pass' \
     "a repository listed only by the entity its fence was installed from would merge unreviewed work once the launcher is removed (review rv-20261009T033652Z-f3bfe22f-9372, finding 2)."
 
-mutant sr-legacy-entity-not-recorded "test_second_review_a_registry_entry_from_before_entities_were_recorded_still_governs" "scripts/lib/operator_fences_admin.py" \
-    '    record_legacy_entities(reg){NL}    reg["entity"] = entity' \
-    '    reg["entity"] = entity' \
-    "an install from another entity would overwrite the only record of which entity governs a registry entry from before entries carried one, and with the launcher removed that repository would merge unreviewed work (review rv-20261009T035450Z-882c7e75-0eab, finding 1)."
+mutant sr-legacy-entity-inferred "test_second_review_a_legacy_entry_installed_in_the_same_second_as_another_is_unknown" "scripts/lib/operator_fences.py" \
+    '        out[main] = v if isinstance(v, str) and v.strip() else ""' \
+    '        out[main] = v if isinstance(v, str) and v.strip() else (reg.get("entity") or "")' \
+    "a registry entry from before entries carried an entity would be credited the registry's top-level entity, which the earlier installer overwrote at every install, an upgrade install would record that permanently, and with the launcher removed that repository would merge unreviewed work (review rv-20261009T040812Z-9efed042-d03e, finding 1)."
 
 mutant sr-unknown-governing-entity-skipped "test_second_review_a_repository_whose_governing_entity_is_unknown_is_refused" "$W" \
     '        else:{NL}            unknown.append("the fence registry records a fence for %s' \

@@ -73,22 +73,6 @@ def read_registry():
     return F.read_json(registry_path()) or {"repositories": {}}
 
 
-def record_legacy_entities(reg):
-    """Write into each registry entry from before entries carried an entity the
-    entity it was installed from, where the registry establishes it
-    (F.registry_entities). RUN BEFORE ANY CHANGE TO THE REGISTRY (review
-    rv-20261009T035450Z-882c7e75-0eab, finding 1): an install from another
-    entity overwrites the top-level entity and an uninstall can remove the
-    newest entry, and either would leave the old entries' entity unknowable.
-    An entry it cannot establish stays without one, and the land command
-    refuses that repository until `install` records it."""
-    for main, entity in F.registry_entities(reg).items():
-        entry = reg.get("repositories", {}).get(main)
-        if entity and isinstance(entry, dict) and not entry.get("entity"):
-            entry["entity"] = entity
-    return reg
-
-
 def write_registry(reg):
     F.write_json_atomic(registry_path(), reg)
 
@@ -248,7 +232,6 @@ def cmd_install(opts, repos):
     if not repos:
         raise SystemExit("operator-fences: no repositories: pass --repo or declare OPERATOR_FENCES_REPOS in %s"
                          % os.path.join(entity, "orchestration.config"))
-    record_legacy_entities(reg)
     reg["entity"] = entity
     for repo in repos:
         r = install_one(repo, entity, decl)
@@ -457,7 +440,7 @@ def cmd_holders_notice(opts, repos):
 
 
 def cmd_uninstall(opts, repos):
-    reg = record_legacy_entities(read_registry())
+    reg = read_registry()
     repos = target_repos(opts, repos)
     rc = 0
     for repo in repos:

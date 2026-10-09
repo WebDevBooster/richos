@@ -247,38 +247,27 @@ def write_json_atomic(path, value):
 
 
 def registry_entities(reg):
-    """{main checkout: the entity its fence was installed from, or "" when that
-    cannot be established} for every repository in the fence registry `reg`
-    (operator_fences_admin.read_registry(); the land command reads it too,
+    """{main checkout: the entity its fence was installed from, or "" when the
+    entry does not record one} for every repository in the fence registry
+    `reg` (operator_fences_admin.read_registry(); the land command reads it,
     mega-lander/workspaces.py _registry_entity_map).
 
     An entry the installer writes now carries its own "entity". AN ENTRY FROM
-    BEFORE THAT (review rv-20261009T035450Z-882c7e75-0eab, finding 1) carries
-    only common, chain and installed; the installer then wrote the entity of
-    each install to the top-level "entity", overwriting the last one. So while
-    NO entry carries an entity (the registry is exactly as the earlier
-    installer left it), the top-level entity is the one the newest install
-    used, and the entries with the newest `installed` time were written by
-    that install. Every other entity-less entry is unknown (""): nothing in
-    the registry names the entity it was installed from."""
+    BEFORE THAT carries only common, chain and installed, and its entity is
+    UNKNOWN (""): it is never inferred from the top-level entity or the
+    `installed` times (review rv-20261009T040812Z-9efed042-d03e, finding 1).
+    The earlier installer overwrote the top-level entity at every install and
+    left it unchanged at uninstall, and its times have one-second resolution,
+    so neither establishes which entity installed an entry; inferring credited
+    the wrong one. The land command refuses a repository whose entry is
+    unknown, naming the `operator-fences.sh install` that records it."""
     repos = reg.get("repositories") if isinstance(reg, dict) else None
     if not isinstance(repos, dict):
         return {}
-    entries = {m: e if isinstance(e, dict) else {} for m, e in repos.items()}
-
-    def recorded(e):
-        v = e.get("entity")
-        return v if isinstance(v, str) and v.strip() else ""
-
-    out = {m: recorded(e) for m, e in entries.items()}
-    top = reg.get("entity")
-    if isinstance(top, str) and top.strip() and not any(out.values()):
-        times = [e.get("installed") for e in entries.values() if isinstance(e.get("installed"), str)
-                 and e.get("installed")]
-        newest = max(times) if times else None          # ISO 8601 UTC (iso()): sorts as time
-        for m, e in entries.items():
-            if newest is not None and e.get("installed") == newest:
-                out[m] = top
+    out = {}
+    for main, entry in repos.items():
+        v = entry.get("entity") if isinstance(entry, dict) else None
+        out[main] = v if isinstance(v, str) and v.strip() else ""
     return out
 
 
