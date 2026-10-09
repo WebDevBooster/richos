@@ -1168,8 +1168,17 @@ pub struct SheetSection {
 /// here would be a way for a name to be shown that the scrub did not read.
 const MARKS: &str = "\\`*_[]<>#|~&";
 
+/// **WHAT FOLLOWS EVERY `@` IN AN ISSUE'S BODY**: a zero-width space, so "@octocat" is not a
+/// mention: GitHub neither links it nor notifies that account, and the reader still sees
+/// "@octocat" (review rv-20261009T183159Z-a2fc94dc-20e7, the leak cc/echo-opus-bug13's handover
+/// named). It is the character Renovate has put after `@` in the pull requests it writes, for the
+/// same reason.
+const MENTION_BREAK: char = '\u{200B}';
+
 /// Markdown's punctuation, escaped so GitHub shows the words the user read rather than
-/// formatting they never saw ([`MARKS`]).
+/// formatting they never saw ([`MARKS`]), and every `@` followed by [`MENTION_BREAK`] so no
+/// one on GitHub is mentioned. Every word of the body, and every stand-in the last scrub puts
+/// in it ([`Scrubber::scrub_markdown`]), is written by this, so every `@` that is sent has it.
 fn escaped(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -1177,13 +1186,18 @@ fn escaped(text: &str) -> String {
             out.push('\\');
         }
         out.push(c);
+        if c == '@' {
+            out.push(MENTION_BREAK);
+        }
     }
     out
 }
 
 /// **THE WORDS GITHUB SHOWS** for a body this module wrote ([`issue_body`]): every escaped mark
-/// read as the mark itself. With them, where each of their characters starts in `markdown`, as
-/// (offset in the words shown, offset in `markdown`), in order.
+/// read as the mark itself, and the [`MENTION_BREAK`] after each `@` read as nothing, so these
+/// are the words as the user wrote them (an email address is whole again for the scrub). With
+/// them, where each of their characters starts in `markdown`, as (offset in the words shown,
+/// offset in `markdown`), in order.
 fn shown(markdown: &str) -> (String, Vec<(usize, usize)>) {
     let mut words = String::with_capacity(markdown.len());
     let mut at = Vec::with_capacity(markdown.len());
@@ -1193,6 +1207,10 @@ fn shown(markdown: &str) -> (String, Vec<(usize, usize)>) {
             Some(&(_, next)) if c == '\\' && MARKS.contains(next) => {
                 chars.next();
                 next
+            }
+            Some(&(_, MENTION_BREAK)) if c == '@' => {
+                chars.next();
+                c
             }
             _ => c,
         };

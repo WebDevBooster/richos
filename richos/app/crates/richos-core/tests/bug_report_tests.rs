@@ -1381,3 +1381,25 @@ fn a_private_name_between_underscores_in_words_changed_by_hand_is_left_out_once_
     let body = sent_body(&edited, &recheck);
     assert!(!body.contains("Jane") && body.contains("\\_\\[a person\\]\\_ saw the window freeze."), "{body}");
 }
+
+#[test]
+fn an_at_name_in_the_body_notifies_nobody_on_github() {
+    // On a2fc94dc4 "@octocat" went out as written, so GitHub linked it and notified that account.
+    let card = Sheet {
+        title: "The window froze".into(),
+        sections: vec![
+            SheetSection { heading: "What happened @team".into(), paragraphs: vec!["@octocat said it froze; (@hubot) too. Mail a@example.com.".into()], steps: vec!["Ask @octo-cat".into()] },
+            SheetSection { heading: "Version".into(), paragraphs: vec![VERSION.into()], steps: vec![] },
+        ],
+    };
+    let body = sent_body(&card, &Check::of(&draft_of(&card, vec![])));
+    assert!(body.matches('@').count() == 4 && body.matches("@\u{200B}").count() == 4, "{body:?}");
+    // The email address is still found and left out, and nothing else changes for the reader.
+    assert!(!body.contains("example.com") && body.contains("\\[an email address\\]"), "{body:?}");
+    assert_eq!(body.replace('\u{200B}', ""), format!("### What happened @team\n\n@octocat said it froze; (@hubot) too. Mail \\[an email address\\].\n\n1. Ask @octo-cat\n\n### Version\n\n{VERSION}\n"));
+    // Rich checks the words as the user wrote them.
+    assert!(edit_check_prompt(&card).contains("@octocat said it froze"));
+    // A zero-width space the user wrote is kept as written.
+    let typed = Sheet { title: "t".into(), sections: vec![SheetSection { heading: "What happened".into(), paragraphs: vec!["@\u{200B}x".into()], steps: vec![] }] };
+    assert_eq!(sent_body(&typed, &Check::of(&draft_of(&typed, vec![]))), "### What happened\n\n@\u{200B}\u{200B}x\n");
+}
