@@ -166,8 +166,10 @@ check "the company is a stand-in" "no [a company] stand-in on the card" wait_tex
 check "the person is a stand-in" "no [a person] stand-in on the card" wait_text '[a person]' 3
 refuse "the person's name is on the card" wait_text "$PERSON" 1
 check "the path with spaces is a stand-in" "no [a file on this Mac] stand-in on the card" wait_text '[a file on this Mac]' 3
-refuse "part of the path with spaces is on the card" wait_text 'Client Plans' 1
-refuse "the file's name is on the card" wait_text 'budget.xlsx' 1
+# The whole path is ONE stand-in: the line under the sheet counts one file path. (Its words are
+# not searched for on screen: the user's own message above the card shows what they typed, so
+# walk-5a15093aaa62 found "Client Plans" there. What leaves the Mac is checked at the endpoint.)
+check "the whole path is one stand-in" "the left-out line does not count one file path" wait_text 'one file path' 3
 check "From the RichOS reporting account" "no From line" wait_text 'the RichOS reporting account' 3
 check "Rich says he looked at the screen" "no 'Looked at the screen you were on' over Rich's answer" wait_text 'Looked at the screen you were on' 3
 refuse "something reached the endpoint before Send" "$T/guest.sh" "$VM" "test -s $G/stand-in.log"
@@ -219,11 +221,15 @@ sleep 2
 "$T/ax.sh" "$VM" type "The Send button flickers when I press it." --role AXTextArea --first --replace || fail "typing the second answer"
 "$T/ax.sh" "$VM" --key 36 || fail "Return (second report)"
 check "the second report card" "no second report card" wait_text 'Not sent yet' 40
-"$T/ax.sh" "$VM" click --title 'Send report' || fail "Send report (second report)"
+# With two cards on screen a search of the whole tree can outlast ax.sh's deadline on a busy host
+# (walk-5a15093aaa62: "Send report" was not clicked), so each click stops at the first match and
+# is tried up to three times.
+click_first() { for _ in 1 2 3; do "$T/ax.sh" "$VM" click --title "$1" --first && return 0; sleep 2; done; return 1; }
+click_first 'Send report' || fail "Send report (second report)"
 check "the second report waits to send" "the second report never said Waiting to send" wait_text 'Waiting to send' 12
-# Back up, holding each answer 15 s (under the app's 25 s request timeout): the retry loop's
+# Back up, holding each answer 22 s (under the app's 25 s request timeout): the retry loop's
 # request arrives and is IN FLIGHT, holding the one-send-at-a-time lock, while Cancel is pressed.
-"$T/guest.sh" "$VM" "nohup python3 $G/github-stand-in.py $PORT $G/stand-in-2.log 15 413 >/dev/null 2>&1 & echo \$! > $G/stand-in.pid; echo started" || fail "starting the holding stand-in"
+"$T/guest.sh" "$VM" "nohup python3 $G/github-stand-in.py $PORT $G/stand-in-2.log 22 413 >/dev/null 2>&1 & echo \$! > $G/stand-in.pid; echo started" || fail "starting the holding stand-in"
 arrived=no
 for _ in $(seq 1 45); do
   if "$T/guest.sh" "$VM" "test -s $G/stand-in-2.log" >/dev/null 2>&1; then arrived=yes; break; fi
@@ -231,8 +237,8 @@ for _ in $(seq 1 45); do
 done
 if [ "$arrived" = yes ]; then
   note "ok: the retry's request is in flight"
-  "$T/ax.sh" "$VM" click --title 'Cancel report' || fail "Cancel report while the send was in flight"
-  check "the card says Canceling…" "the card never said Canceling…" wait_text 'Canceling…' 3
+  "$T/ax.sh" "$VM" click --title 'Cancel report' --first || fail "Cancel report while the send was in flight"
+  check "the card says Canceling…" "the card never said Canceling…" wait_text 'Canceling…' 2
   "$T/shot.sh" "$VM" "$S/5-canceling-dark.png" || fail "capture 5-canceling-dark"
   check "Sent · #413: it had gone out" "the card never said Sent · #413" wait_text 'Sent · #413' 15
   check "Rich says it had already gone out" "Rich did not say it had already gone out" wait_text 'It had already gone out before I could cancel it' 5
