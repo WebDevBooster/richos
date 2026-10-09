@@ -74,6 +74,9 @@ JOBS = {
 # (kind, job): a job is sent when the previous step has ended; a report the moment its job's
 # background command is reported ended.
 STEPS = [('job', 'A'), ('job', 'B'), ('report', 'A'), ('job', 'C'), ('job', 'D'), ('report', 'D')]
+# The words only the host's report request carries (work_host.rs COMMAND_ENDED_HEAD); B's note
+# about other jobs says "has ended" too, so that is not enough to tell them apart.
+REPORT_MARK = 'that is this app telling you'
 # Where each background finish must land for this to be the capture the tests need.
 WANT = {'A': 'outside', 'C': 'folded', 'D': 'outside'}
 # The provider's `command_lifecycle` states that end a message's turn, spelled as it sends them.
@@ -195,7 +198,7 @@ def main(argv):
                 ok = False
                 break
             state['job'] = None
-            u = user(report_request(job), expect='has ended')
+            u = user(report_request(job), expect=REPORT_MARK)
         if not pump(lambda: u in ended, deadline):
             ok = False
             break

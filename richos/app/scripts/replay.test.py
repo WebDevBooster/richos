@@ -125,6 +125,23 @@ class Scrubber(unittest.TestCase):
         self.assertEqual(check.returncode, 1, 'the raw capture must be called out')
         self.assertIn('LEFT: an email address', check.stdout)
 
+    def test_a_path_cut_across_streamed_pieces_is_scrubbed_whole(self):
+        # The 2026-10-09 recording cut `-Users-admin-testvm-walk-...` into pieces like these.
+        def piece(text, index=1):
+            return {'t': 3.0, 'frame': {'type': 'stream_event', 'event': {
+                'type': 'content_block_delta', 'index': index,
+                'delta': {'type': 'input_json_delta', 'partial_json': text}}}}
+        rows = self.RAW[:4] + [
+            {'t': 2.9, 'frame': {'type': 'stream_event', 'event': {'type': 'message_start', 'message': {}}}},
+            piece('{"file_path": "/private/tmp/claude-501/-Users-some'), piece('one-other-'),
+            piece('dir/x"}'), piece('untouched', index=2)]
+        r, text, _ = self.scrub(rows)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        deltas = [json.loads(l)['frame']['event']['delta']['partial_json'] for l in text.splitlines()
+                  if '"content_block_delta"' in l]
+        self.assertEqual(deltas, ['{"file_path": "/private/tmp/claude-501/-Users-user-other-dir/x"}', '', '',
+                                  'untouched'])
+
     def test_a_capture_that_cannot_be_cleaned_is_refused_and_nothing_is_written(self):
         rows = self.RAW + [{'t': 9.5, 'frame': {'type': 'assistant', 'message': {'content': [
             {'type': 'text', 'text': 'Mail me at someone@example.com'}]}}}]
@@ -162,10 +179,10 @@ class Recorder(unittest.TestCase):
         sent = [row for row in rows if 'sent' in row]
         self.assertEqual(len(sent), 7, 'initialize and six messages')
         reports = [row for row in sent if 'expect' in row]
-        self.assertEqual([row['expect'] for row in reports], [{'contains': 'has ended'}] * 2)
+        self.assertEqual([row['expect'] for row in reports], [{'contains': 'that is this app telling you'}] * 2)
         self.assertEqual([sent.index(row) for row in reports], [3, 6])
         for row in reports:
-            self.assertIn('has ended', row['sent']['message']['content'][0]['text'])
+            self.assertIn('that is this app telling you', row['sent']['message']['content'][0]['text'])
         # Each report was sent after its command's notification, which came outside any turn.
         notified = [row['t'] for row in rows if row.get('frame', {}).get('subtype') == 'task_notification']
         self.assertEqual(len(notified), 3)
@@ -236,7 +253,7 @@ class Child(unittest.TestCase):
         self.assertEqual(p.wait(), 3)
         events = lines_of(transcript)
         self.assertEqual(events[-1]['event'], 'divergence')
-        self.assertIn('has ended', events[-1]['why'])
+        self.assertIn('that is this app telling you', events[-1]['why'])
 
     def test_closed_input_ends_it_cleanly_and_an_unreadable_capture_is_refused(self):
         p, _, transcript = self.start(FIXTURES / '2026-09-27-cap-plain.jsonl')

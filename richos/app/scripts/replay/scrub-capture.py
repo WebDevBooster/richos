@@ -26,7 +26,13 @@ account that recorded it stays out (richos-hq plan 2026-10-09 §4 row 6):
   (`msg_replay_1`, ...), the same id the same placeholder everywhere, so the frames still
   agree with one another;
 - the recording's working folder and the home folder's user name become `/replay/cwd` and
-  `/Users/user`.
+  `/Users/user`, in their path form and in the dash form `claude` names folders with.
+
+A streamed tool input or text arrives in pieces (`content_block_delta`), and a path can be cut
+anywhere between two of them (the 2026-10-09 recording cut `-Users-admin-testvm-walk-…` into
+three). So each block's pieces are joined and scrubbed whole; when that changes anything, the
+whole scrubbed text goes in the block's first piece and the rest are left empty. The number and
+timing of the frames do not change.
 
 What the model said and what the commands printed are kept: they are the recording.
 """
@@ -39,6 +45,8 @@ KEEP_INIT = ('type', 'subtype', 'cwd', 'session_id', 'uuid', 'tools', 'model', '
 DROP_ANYWHERE = ('memory_paths', 'messaging_socket_path')
 IDS = re.compile(r'\b(msg|req|toolu)_01[A-Za-z0-9]{16,}')
 HOME = re.compile(r'/Users/([^/"\s]+)')
+# The same folder in the dash form `claude` gives a project (`/private/tmp/claude-501/-Users-x-...`).
+DASHED_HOME = re.compile(r'-Users-(?!user-)[A-Za-z0-9._]+-')
 REPLAY_CWD = '/replay/cwd'
 # What must not be left. Each is (name, pattern over the scrubbed text).
 LEFT = (
@@ -48,7 +56,7 @@ LEFT = (
     ('an API message, request or tool-call id', IDS),
     ('a claude.ai connector', re.compile(r'"source"\s*:\s*"claudeai"')),
     ('an organization overage setting', re.compile(r'overage\w*"\s*:')),
-    ('a home folder other than /Users/user', re.compile(r'/Users/(?!user\b)[^/"\s]+')),
+    ('a home folder other than /Users/user', re.compile(r'/Users/(?!user\b)[^/"\s]+|' + DASHED_HOME.pattern)),
     ('a thinking signature', re.compile(r'"signature"\s*:\s*"[^"]+"')),
 )
 
@@ -101,21 +109,48 @@ def scrub_lines(lines, expect=None):
     cwds = sorted({row['frame']['cwd'] for row in rows
                    if isinstance(row.get('frame'), dict) and row['frame'].get('subtype') == 'init'
                    and isinstance(row['frame'].get('cwd'), str)}, key=len, reverse=True)
-    out = []
-    for row in rows:
-        if 'frame' in row:
-            row = dict(row, frame=scrub_frame(row['frame']))
-        elif 'sent' in row:
-            row = dict(row, sent=scrub_value(row['sent']))
-        out.append(json.dumps(row))
-    text = '\n'.join(out) + '\n'
-    for cwd in cwds:
-        text = text.replace(cwd, REPLAY_CWD).replace(cwd.replace('/', '-'), REPLAY_CWD.replace('/', '-'))
     names = {}
-    text = IDS.sub(lambda m: names.setdefault(m.group(0), '%s_replay_%d' % (
-        m.group(1), 1 + sum(1 for k in names if k.startswith(m.group(1) + '_')))), text)
-    text = HOME.sub('/Users/user', text)
-    return text
+
+    def replace(text):
+        for cwd in cwds:
+            text = text.replace(cwd, REPLAY_CWD).replace(cwd.replace('/', '-'), REPLAY_CWD.replace('/', '-'))
+        text = IDS.sub(lambda m: names.setdefault(m.group(0), '%s_replay_%d' % (
+            m.group(1), 1 + sum(1 for k in names if k.startswith(m.group(1) + '_')))), text)
+        return DASHED_HOME.sub('-Users-user-', HOME.sub('/Users/user', text))
+
+    rows = [dict(row, frame=scrub_frame(row['frame'])) if 'frame' in row
+            else dict(row, sent=scrub_value(row['sent'])) if 'sent' in row else row for row in rows]
+    join_pieces(rows, replace)
+    return replace('\n'.join(json.dumps(row) for row in rows) + '\n')
+
+
+def join_pieces(rows, replace):
+    """Scrub each streamed block whole (see the module doc): its pieces joined, and when that
+    changes the text, all of it in the first piece and the rest empty."""
+    runs, message = {}, 0
+    for row in rows:
+        frame = row.get('frame')
+        # A block ends at its whole `assistant` frame; a recorder that kept only the deltas
+        # (capture.py) has no `message_start` to cut on.
+        if isinstance(frame, dict) and frame.get('type') == 'assistant':
+            message += 1
+        if not isinstance(frame, dict) or frame.get('type') != 'stream_event':
+            continue
+        event = frame.get('event') or {}
+        if event.get('type') == 'message_start':
+            message += 1
+        delta = event.get('delta') if event.get('type') == 'content_block_delta' else None
+        field = next((k for k in ('partial_json', 'text') if isinstance(delta, dict) and isinstance(delta.get(k), str)), None)
+        if field:
+            key = (message, frame.get('parent_tool_use_id'), event.get('index'))
+            runs.setdefault(key, []).append((delta, field))
+    for pieces in runs.values():
+        joined = ''.join(delta[field] for delta, field in pieces)
+        clean = replace(joined)
+        if clean != joined:
+            pieces[0][0][pieces[0][1]] = clean
+            for delta, field in pieces[1:]:
+                delta[field] = ''
 
 
 def left_in(text):
