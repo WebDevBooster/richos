@@ -490,6 +490,47 @@ fn a_change_in_accented_words_is_read_on_character_boundaries() {
 }
 
 #[test]
+fn cancel_says_canceled_only_once_the_copy_is_gone_and_names_the_issue_when_it_went_out_first() {
+    // Finding 2, fixture `change-races.js`: on the tip Cancel said "Canceled. Nothing was sent."
+    // whatever the shell answered, and the shell only answered whether a file was removed.
+    let dir = scratch("withdraw");
+    let outbox = Outbox::open(&dir);
+    let waiting = |answer: Outcome| match outbox.send(&sheet("x"), &Token(Some("t")), &FakeGitHub::answering(vec![answer]), 0).unwrap() {
+        Delivery::Waiting { id, .. } => id,
+        other => panic!("{other:?}"),
+    };
+
+    // Taken off this Mac: canceled, and nothing is ever tried.
+    let id = waiting(Outcome::Unreachable);
+    assert_eq!(outbox.withdraw(&id).unwrap(), Withdrawn::Canceled);
+    assert!(outbox.pending().unwrap().is_empty());
+
+    // A retry already sending finishes first (the shell holds one lock across both) and files
+    // it: canceling then finds the issue, not "nothing was sent".
+    let id = waiting(Outcome::Unreachable);
+    let retry = FakeGitHub::answering(vec![Outcome::Created { number: 412, url: "u".into() }]);
+    assert!(matches!(outbox.try_now(&id, &Token(Some("t")), &retry, 1).unwrap(), Some(Delivery::Sent(_))));
+    match outbox.withdraw(&id).unwrap() {
+        Withdrawn::AlreadySent(sent) => assert_eq!(sent.number, 412),
+        other => panic!("canceled a report that went out: {other:?}"),
+    }
+    let said = serde_json::to_value(outbox.withdraw(&id).unwrap()).unwrap();
+    assert_eq!((said["state"].as_str(), said["number"].as_u64()), (Some("sent"), Some(412)), "{said}");
+    assert_eq!(serde_json::to_value(Withdrawn::Canceled).unwrap(), serde_json::json!({ "state": "canceled" }));
+
+    // The copy cannot be removed (a folder this app may not write): an error, and it still waits.
+    let id = waiting(Outcome::Unreachable);
+    let folder = dir.join("waiting");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let refused = outbox.withdraw(&id);
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(refused.is_err(), "a copy that is still on disk was reported canceled: {refused:?}");
+    assert_eq!(outbox.pending().unwrap().len(), 1, "the report no longer waits");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_private_name_rich_found_stays_left_out_on_every_later_change() {
     // Finding 4, fixture `core-edge-cases.py`: on the tip "Jane Doe", whom Rich named private in
     // his write-up, was left out of the draft and then went public on the first change.

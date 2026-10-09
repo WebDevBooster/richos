@@ -440,11 +440,22 @@ pub async fn bug_report_try_now(app: AppHandle, id: String) -> Result<Option<bug
     .await
 }
 
-/// *Cancel report*, and a waiting report that is being changed (a changed report is approved again).
+/// *Cancel report*, and a waiting report that is being changed (a changed report is approved
+/// again). Answers what became of it, CONFIRMED: `{state: "canceled"}` once its copy is off this
+/// Mac, or `{state: "sent", number, …}` when it had already gone out. It waits behind a send
+/// already in flight (the one-at-a-time lock, held across the request), so it waits off the IPC
+/// threads, and what that send did is what it answers.
 #[tauri::command(async)]
-pub fn bug_report_cancel(bugs: State<Arc<BugReports>>, id: String) -> Result<bool, String> {
-    let _one_at_a_time = one_at_a_time(&bugs);
-    bugs.outbox.cancel(&id).map_err(|e| e.to_string())
+pub async fn bug_report_cancel(app: AppHandle, id: String) -> Result<bug::Withdrawn, String> {
+    let bugs = app.state::<Arc<BugReports>>().inner().clone();
+    off_the_ipc_threads(move || {
+        let _one_at_a_time = one_at_a_time(&bugs);
+        bugs.outbox.withdraw(&id).map_err(|e| {
+            eprintln!("[richos] bug report {id}: could not be taken off this Mac ({e}); it still waits");
+            "I couldn't take the report off this Mac, so it's still waiting to send.".to_string()
+        })
+    })
+    .await
 }
 
 /// While a report waits on the user's words and voice is on, hold spoken words for it.

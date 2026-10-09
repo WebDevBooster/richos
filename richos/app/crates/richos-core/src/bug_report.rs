@@ -1071,6 +1071,17 @@ pub enum Delivery {
     Waiting { id: String, reason: Reason },
 }
 
+/// What canceling a waiting report came to ([`Outbox::withdraw`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum Withdrawn {
+    /// It is off this Mac and will never be sent.
+    Canceled,
+    /// It had already gone out: the issue it became.
+    #[serde(rename = "sent")]
+    AlreadySent(Sent),
+}
+
 /// The reports on this Mac: one file per waiting report in `<dir>/waiting/`, and one line per
 /// sent report in `<dir>/sent.jsonl`.
 ///
@@ -1130,6 +1141,24 @@ impl Outbox {
             Err(e) => return Err(e),
         };
         Ok(text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect())
+    }
+
+    /// **CANCEL, CONFIRMED.** Take a waiting report off this Mac and say what became of it:
+    /// [`Withdrawn::Canceled`] once its copy is gone (or there was none: nothing by that id will
+    /// ever be sent), or [`Withdrawn::AlreadySent`] with the issue when it went out first. A copy
+    /// that cannot be removed is an error, and the report still waits; the user is told so
+    /// rather than that nothing was sent (second review finding 2).
+    ///
+    /// The shell calls this under the same one-at-a-time lock as every send, so a retry already
+    /// in flight finishes first, and its record of going out is what this finds.
+    pub fn withdraw(&self, id: &str) -> io::Result<Withdrawn> {
+        if self.cancel(id)? {
+            return Ok(Withdrawn::Canceled);
+        }
+        Ok(match self.sent()?.into_iter().find(|s| s.id == id) {
+            Some(sent) => Withdrawn::AlreadySent(sent),
+            None => Withdrawn::Canceled,
+        })
     }
 
     /// Remove a waiting report. `false` when there was none by that id.

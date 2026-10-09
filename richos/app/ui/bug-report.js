@@ -152,8 +152,11 @@ window.RichBug = (function () {
   }
 
   // ---- flows --------------------------------------------------------------------------------
-  var LIVE = ["ask", "checking", "draft", "editing", "sending", "queued"];
-  var TAKES_WORDS = ["ask", "draft", "queued", "editing"];
+  // "changing": Rich is folding a change in; Send, Change it and Cancel wait for him.
+  // "withdrawing": a waiting report is being taken off this Mac (to cancel it or to change it),
+  // and nothing is said about it until the shell confirms what became of it.
+  var LIVE = ["ask", "checking", "draft", "editing", "changing", "sending", "queued", "withdrawing"];
+  var TAKES_WORDS = ["ask", "draft", "queued", "editing", "changing"];
   function live(f) { return LIVE.indexOf(f.step) !== -1; }
   function liveFlow() { return flows.filter(live)[0] || null; }
   function dockFlow() { return flows.filter(function (f) { return f.dock; }).slice(-1)[0] || null; }
@@ -226,6 +229,7 @@ window.RichBug = (function () {
     if (!f) return null;
     if (f.step === "ask") return "Tell Rich what went wrong…";
     if (f.step === "draft" || f.step === "queued" || f.step === "editing") return "Tell Rich what to change, or press Send…";
+    if (f.step === "changing") return "Tell Rich what else to change…";
     return null;
   }
 
@@ -345,19 +349,37 @@ window.RichBug = (function () {
       return;
     }
     // A change, said to Rich: he folds it into the report, which waits for approval again.
-    if (f.step === "editing") finishEdit(f);
-    var wasQueued = f.step === "queued";
-    if (wasQueued && f.pendingId) {
-      // A changed report is approved again, so the copy waiting on this Mac must not go out first.
-      bridge.invoke("bug_report_cancel", { id: f.pendingId }).catch(function () {});
-      f.pendingId = null;
-      f.step = "draft";
-      paintCard(f);
-    }
+    if (f.step === "withdrawing") return; // the card says what is happening; the words wait for it
     userSays(f, text, spoken);
+    if (f.step === "changing") {
+      // He is still making the last change: this one follows it, in the order said.
+      (f.nextChanges = f.nextChanges || []).push(text);
+      return;
+    }
+    if (f.step === "editing") finishEdit(f);
+    if (f.step === "queued" && f.pendingId) {
+      // A changed report is approved again, so the copy waiting on this Mac must not go out
+      // first: it is taken off, CONFIRMED, before Rich changes a word.
+      return withdraw(f, "change", function () { askChange(f, text, true); });
+    }
+    askChange(f, text, false);
+  }
+
+  /// Rich folds one change in. While he does, the report is "changing": Send, Change it and
+  /// Cancel wait for him, so what is sent is what he changed, and a reply that finds the report
+  /// no longer changing (it can no longer be, but the reply is checked anyway) changes nothing.
+  function askChange(f, text, wasQueued) {
+    f.step = "changing";
+    paintCard(f);
+    paintComposers();
     var w2 = working(f, "Rich is changing the report…");
+    function next() {
+      var more = f.nextChanges && f.nextChanges.shift();
+      if (more && f.step === "draft") askChange(f, more, false);
+    }
     bridge.invoke("bug_report_change", { said: text, sheet: sheetOf(f), private: f.private || [] }).then(function (answer) {
       w2.remove();
+      if (f.step !== "changing") return;
       if (answer.private) f.private = answer.private;
       var secs = f.card.querySelectorAll(".bug-sec");
       var sec = null;
@@ -373,10 +395,53 @@ window.RichBug = (function () {
       paintComposers();
       richSays(f, ["Added that to " + sec.querySelector("h4").textContent + ", above." + (wasQueued ? " The report changed, so it waits for you to send it again." : " It still waits for you to send it.")]);
       flash(f);
+      next();
     }).catch(function () {
       w2.remove();
+      if (f.step !== "changing") return;
+      f.step = "draft";
+      paintCard(f);
+      paintComposers();
       richSays(f, ["I couldn't change the report just now. Press Change it and change the words yourself, or tell me again."]);
+      next();
     });
+  }
+
+  /// **TAKE A WAITING REPORT BACK, CONFIRMED** (second review finding 2), to cancel it or to
+  /// change it. Nothing is said about it until the shell answers, which it does only after any
+  /// send already in flight has finished: "canceled" when its copy is off this Mac (then `then`),
+  /// the issue when it had already gone out (then the card says Sent and Rich says so), an error
+  /// when the copy could not be removed (then it is still waiting, and Rich says that).
+  function withdraw(f, purpose, then) {
+    var id = f.pendingId;
+    if (!id) return then();
+    f.step = "withdrawing";
+    f.withdrawFor = purpose;
+    paintCard(f);
+    paintComposers();
+    bridge.invoke("bug_report_cancel", { id: id }).then(function (r) {
+      if (f.step !== "withdrawing") return; // it went out meanwhile, and the card already says so
+      if (r && r.state === "sent") return wentOutFirst(f, r);
+      f.pendingId = null;
+      then();
+    }).catch(function () {
+      if (f.step !== "withdrawing") return;
+      f.step = "queued";
+      paintCard(f);
+      paintComposers();
+      richSays(f, [purpose === "cancel"
+        ? "I couldn't cancel the report: it's still saved on this Mac and will go out by itself. Press Cancel report to try again."
+        : "I couldn't take the report back to change it: it's still saved on this Mac and will go out by itself. Press Change it to try again."]);
+    });
+  }
+
+  /// A waiting report went out before it could be taken back: the card says Sent, and Rich says
+  /// it went out rather than that nothing was sent.
+  function wentOutFirst(f, d) {
+    var purpose = f.withdrawFor;
+    f.withdrawFor = null;
+    f.nextChanges = [];
+    markSent(f, d, null, purpose === "cancel" ? "It had already gone out before I could cancel it." : "It had already gone out, so it can't be changed.");
   }
 
   function publicScreen(s) {
@@ -565,6 +630,17 @@ window.RichBug = (function () {
         pill.textContent = "Sending…";
         acts.hidden = true;
         break;
+      case "changing":
+        // Send, Change it and Cancel wait for Rich: what is sent is what he changed.
+        pill.textContent = "Changing it…";
+        acts.hidden = true;
+        break;
+      case "withdrawing":
+        // Still waiting on this Mac until the shell confirms it is off.
+        c.classList.add("is-queued");
+        pill.textContent = f.withdrawFor === "cancel" ? "Canceling…" : "Taking it back to change it…";
+        acts.hidden = true;
+        break;
       case "queued":
         c.classList.add("is-queued");
         pill.textContent = "Waiting to send · saved on this Mac";
@@ -595,11 +671,13 @@ window.RichBug = (function () {
   }
 
   function edit(f) {
-    if (f.step === "queued" && f.pendingId) {
-      // Changing a waiting report takes it out of the queue: a changed report is approved again.
-      bridge.invoke("bug_report_cancel", { id: f.pendingId }).catch(function () {});
-      f.pendingId = null;
-    }
+    if (f.step !== "draft" && f.step !== "queued") return;
+    // Changing a waiting report takes it out of the queue, confirmed, first: a changed report is
+    // approved again, and one that went out meanwhile is not opened as if it had not.
+    if (f.step === "queued" && f.pendingId) return withdraw(f, "change", function () { openEditor(f); });
+    openEditor(f);
+  }
+  function openEditor(f) {
     f.step = "editing";
     paintCard(f);
     paintComposers();
@@ -637,6 +715,7 @@ window.RichBug = (function () {
   };
 
   function send(f) {
+    if (f.step !== "draft") return; // held while Rich changes it; never twice
     f.step = "sending";
     paintCard(f);
     paintComposers();
@@ -649,7 +728,8 @@ window.RichBug = (function () {
   }
 
   function tryNow(f) {
-    if (!f.pendingId) return send(f);
+    if (f.step !== "queued") return;
+    if (!f.pendingId) { f.step = "draft"; return send(f); }
     var id = f.pendingId;
     f.step = "sending";
     paintCard(f);
@@ -677,7 +757,10 @@ window.RichBug = (function () {
     richSays(f, [(again && (WAITING_AGAIN[d.reason] || "It still didn't go out. It stays saved here, and I'll keep trying.")) || WAITING_FIRST[d.reason] || WAITING_FIRST["github-down"]]);
   }
 
-  function markSent(f, d, why) {
+  /// `lead`, when given, is Rich's first sentence instead (a report that went out before it
+  /// could be canceled or changed).
+  function markSent(f, d, why, lead) {
+    if (f.step === "sent") return; // already said: the event and a command's answer can both bring it
     f.issue = { number: d.number, account: d.account };
     f.pendingId = null;
     f.step = "sent";
@@ -689,22 +772,27 @@ window.RichBug = (function () {
     pill.classList.add("pop");
     var acct = d.account && d.account.kind === "user" ? "filed from your GitHub account, @" + d.account.login + "."
       : "filed from the RichOS reporting account, because RichOS isn't signed in to a GitHub account of yours.";
-    var lead = why ? (CAME_BACK[why] || "I sent your bug report.") + " It's issue #" + d.number + " on GitHub, " : "Sent. It's issue #" + d.number + " on GitHub, ";
+    var opening = lead ? lead + " It's issue #" + d.number + " on GitHub, "
+      : why ? (CAME_BACK[why] || "I sent your bug report.") + " It's issue #" + d.number + " on GitHub, "
+      : "Sent. It's issue #" + d.number + " on GitHub, ";
     var link = node("a", "bug-link", "github.com/WebDevBooster/richos/issues/" + d.number);
     link.href = "#";
     link.dataset.issue = String(d.number);
-    richSays(f, [lead + acct, link]);
+    richSays(f, [opening + acct, link]);
     if (why && host) host.toast("Your bug report went out: issue #" + d.number + " on GitHub.");
   }
 
+  /// *Cancel* on a report not yet sent ends it at once: nothing of it is anywhere but this card.
+  /// *Cancel report* on a waiting one says "Nothing was sent" only once its copy is confirmed off
+  /// this Mac; if it went out first, the card says Sent and Rich says so (finding 2).
   function cancel(f) {
-    var id = f.pendingId;
-    f.pendingId = null;
-    f.step = "canceled";
-    paintCard(f);
-    paintComposers();
-    if (id) bridge.invoke("bug_report_cancel", { id: id }).catch(function () {});
-    richSays(f, ["Canceled. Nothing was sent."]);
+    if (f.step !== "draft" && f.step !== "queued") return;
+    withdraw(f, "cancel", function () {
+      f.step = "canceled";
+      paintCard(f);
+      paintComposers();
+      richSays(f, ["Canceled. Nothing was sent."]);
+    });
   }
 
   /// A waiting report went out by itself (the shell's retry): the card and Rich say so, and a
@@ -714,7 +802,8 @@ window.RichBug = (function () {
     if (!payload || !payload.delivery || payload.delivery.state !== "sent") return;
     var d = payload.delivery;
     var f = flows.filter(function (x) { return x.pendingId === d.id; })[0];
-    if (f) markSent(f, d, f.reason || "github-down");
+    if (f && f.step === "withdrawing") wentOutFirst(f, d);
+    else if (f) markSent(f, d, f.reason || "github-down");
     else if (host) host.toast("Your bug report went out: issue #" + d.number + " on GitHub.");
   }
 
@@ -744,7 +833,7 @@ window.RichBug = (function () {
   }
   function paintDock() {
     var f = dockFlow();
-    var busy = f && ["checking", "draft", "editing", "sending"].indexOf(f.step) !== -1;
+    var busy = f && ["checking", "draft", "editing", "changing", "sending", "withdrawing"].indexOf(f.step) !== -1;
     var x = $("bugdock-x");
     if (x) x.hidden = !!busy; // while a report waits on a decision, Send or Cancel is the way out
   }
