@@ -42,7 +42,19 @@
 #                 priming turn) calls that server's `record` tool with the file's text as the
 #                 assignment, as Claude Code would, and says the receipt's words. The
 #                 file is taken (renamed) first, so the job is written down once. calls.log:
-#                 "register ok <text>" or "register error <text>".
+#                 "register ok <text>" or "register error <text>". A file of several lines
+#                 writes one job per line, in order, in that one turn (the turn's text carries
+#                 the first line); a one-line file is exactly the single job above.
+#
+# NOBODY SIGNED IN (the held queue, richos-hq plan 2026-10-09 §4 row 5). While
+# /Users/admin/fill-first/signed-out exists, `auth status --json` answers loggedIn false with exit
+# 1, and every BACK-END user turn is refused the way Claude Code 2.1.295 refuses one with no login
+# (measured with a scratch HOME): system/init, a <synthetic> assistant text "Not logged in ·
+# Please run /login", then a result with is_error true and no errors key. The front desk's turns
+# are answered as usual: the walk writes its jobs down in a turn that ran just before the sign-in
+# ran out. While /Users/admin/fill-first/log-work-turns exists, each back-end user turn is a line
+# in calls.log: "work-turn refused <text>" or "work-turn answered <text>", and each front-desk user
+# turn "desk-turn <text>" (first 400 chars), so a walk can tell which lease took which turn.
 #   work-agents   one helper per line, launched on the FIRST back-end lease's first user turn (a
 #                 lease whose --mcp-config has richos_work), as work-agent-N; once per walk
 #                 (work-agents-started). A background helper keeps running after the back end's
@@ -81,6 +93,10 @@ if (@ARGV && $ARGV[0] eq 'auth') {
     if (length $who && open(my $out, '>', "$folder/email")) { print $out $who; close $out; }
   }
   if (($ARGV[1] // '') eq 'status') {
+    if (-e "$dir/signed-out") {
+      print $json->encode({ loggedIn => JSON::PP::false, authMethod => 'none', configDirectory => $folder }), "\n";
+      exit 1;
+    }
     # Account 1 is any folder that is not an added account's: the app names it explicitly
     # ($HOME/.claude), so "a folder was named" does not mean "an added account".
     my $email = defined $id ? "added-$id\@fixture.invalid" : 'account-1@fixture.invalid';
@@ -173,36 +189,35 @@ sub register_job {  # the front desk writes the job down through the app's own r
   # own (<executive-continuity>), and the register refuses that one ("This conversation is not
   # open for new assignments right now"; walk walk-4ec19e8a365e).
   open(my $fh, '<', "$dir/register") or return undef;
-  my $text = do { local $/; <$fh> } // ''; close $fh;
-  $text =~ s/\s+/ /g; $text =~ s/\A //; $text =~ s/ \z//;
-  return undef unless length $text && index($sent, $text) >= 0;
+  my @jobs = grep { length } map { my $t = $_; $t =~ s/\s+/ /g; $t =~ s/\A //; $t =~ s/ \z//; $t } <$fh>; close $fh;
+  return undef unless @jobs && index($sent, $jobs[0]) >= 0;
   my $taken = "$dir/register.taken.$$";
   rename("$dir/register", $taken) or return undef;
   my ($from, $to);
   my $pid = eval { open2($from, $to, $server->{command}, @{ $server->{args} || [] }) };
   unless ($pid) { calls_line('register', 'error', 'the register could not be started'); return undef; }
-  my $assignment = length $text ? $text : 'Start the job.';
+  my $n = 1;
   print $to $json->encode($_), "\n" for
     { jsonrpc => '2.0', id => 1, method => 'initialize',
       params => { protocolVersion => '2025-06-18', capabilities => {}, clientInfo => { name => 'fake-claude', version => '1' } } },
     { jsonrpc => '2.0', method => 'notifications/initialized' },
-    { jsonrpc => '2.0', id => 2, method => 'tools/call', params => { name => 'record', arguments => { assignment => $assignment } } };
+    map { $n++; { jsonrpc => '2.0', id => $n, method => 'tools/call', params => { name => 'record', arguments => { assignment => $_ } } } } @jobs;
   close $to;
-  my ($ok, $words) = (0, undef);
+  my ($answered, @words) = (0);
   while (my $line = <$from>) {
     my $reply = eval { $json->decode($line) } or next;
-    next unless ($reply->{id} // '') eq '2';
-    my $result = $reply->{result} || {};
+    my $rid = $reply->{id} // ''; next unless $rid =~ /\A\d+\z/ && $rid >= 2;
+    my ($ok, $result) = (0, $reply->{result} || {});
     my $said = $result->{content} && $result->{content}[0] ? $result->{content}[0]{text} // '' : ($reply->{error}{message} // '');
     if ($result->{content} && !$result->{isError}) {
       my $receipt = eval { $json->decode($said) } || {};
-      $ok = $receipt->{recorded} ? 1 : 0; $words = $receipt->{say};
+      $ok = $receipt->{recorded} ? 1 : 0; push @words, $receipt->{say} if defined $receipt->{say};
     }
     calls_line('register', $ok ? 'ok' : 'error', ($said =~ s/\s+/ /gr));
-    last;
+    last if ++$answered == @jobs;
   }
   close $from; waitpid($pid, 0);
-  return $words;
+  return @words ? join(' ', @words) : undef;
 }
 my $stepper;  # the pid of this lease's background stepper, while it runs
 sub step_in_background {  # the work-agents keep running after the back end's turn ends
@@ -279,6 +294,19 @@ while (my $line = <STDIN>) {
           { hook_event_name => 'PostToolUse', tool_name => 'Agent', tool_response => { status => 'async_launched', agentId => "work-agent-$n" } }) } @who);
       }
     }
+    # NOBODY SIGNED IN: a back-end turn is refused as Claude Code refuses it (header).
+    if (!$internal && $backend && -e "$dir/signed-out") {
+      calls_line('work-turn', 'refused', substr($sent, 0, 400)) if -e "$dir/log-work-turns";
+      # Escaped to ASCII: the middle dot is not a byte this fake's other frames ever print.
+      my $ascii = JSON::PP->new->canonical->ascii;
+      my $refused = "Not logged in \x{b7} Please run /login";
+      print $ascii->encode({ type => 'assistant', message => { model => '<synthetic>', role => 'assistant',
+        content => [ { type => 'text', text => $refused } ] } }), "\n";
+      print $ascii->encode({ type => 'result', subtype => 'success', is_error => JSON::PP::true, result => $refused,
+        stop_reason => 'stop_sequence', terminal_reason => 'api_error' }), "\n";
+      next;
+    }
+    calls_line($backend ? ('work-turn', 'answered') : ('desk-turn'), substr($sent, 0, 400)) if !$internal && -e "$dir/log-work-turns";
     my $receipt = $internal ? undef : register_job($sent);
     unless ($internal) {
       helper_steps();

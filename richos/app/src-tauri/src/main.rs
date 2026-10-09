@@ -3145,6 +3145,22 @@ fn main() {
                 permissions.clone(),
             );
             work.set_quota(quota.clone());
+            // **How a held queue sees the sign-in come back** (T3 idea 1, finished: richos-hq
+            // `docs/plans/2026-10-09-automatic-second-review-and-t3-ideas.md` §3, Sage's check
+            // §1.1): the same `claude auth status` reading Settings shows, for the account a
+            // work lease would run under now, with no model turn. Read at most every few
+            // minutes, and only while a queue is held (`work_host.rs`, `HOLD_CHECK_EVERY`).
+            {
+                let quota = quota.clone();
+                work.set_sign_in(Arc::new(move || {
+                    let folder = quota.lease_account().folder;
+                    match richos_core::provider_auth::status_in(&resolve_claude_bin(), folder.as_deref()).state {
+                        richos_core::provider_auth::AuthState::Connected => Some(true),
+                        richos_core::provider_auth::AuthState::SignedOut => Some(false),
+                        _ => None,
+                    }
+                }));
+            }
             // The back end's written files — its own, its workers', its commands' — reach the
             // assignment's thread's output list after every back-end turn (PRD §4.1 (b)).
             work.set_output_store(output_store.clone());
@@ -5591,6 +5607,11 @@ fn provider_auth_poll(state: State<AppState>) -> richos_core::provider_auth::Aut
     let bin = resolve_claude_bin();
     let view = state.provider_auth.lock().unwrap().poll(&bin);
     state.quota.set_connecting(view.state == richos_core::provider_auth::AuthState::Connecting);
+    // A sign-in has just completed (the window polls only while one runs): a queue held for
+    // sign-in starts its first held job now, not at its next look (T3 idea 1, finished).
+    if view.state == richos_core::provider_auth::AuthState::Connected {
+        state.work.signed_in();
+    }
     view
 }
 #[tauri::command(async)]
@@ -5705,8 +5726,12 @@ fn claude_account_sign_in_poll(state: State<AppState>) -> Option<(String, richos
                 .map(|a| a.label);
             if same_as.is_some() {
                 richos_core::provider_auth::logout_in(&bin, &folder);
-            } else if let Err(error) = state.quota.accounts.signed_in(&id, richos_core::util::now_millis()) {
-                eprintln!("[richos] claude accounts: the adding could not be recorded ({error})");
+            } else {
+                if let Err(error) = state.quota.accounts.signed_in(&id, richos_core::util::now_millis()) {
+                    eprintln!("[richos] claude accounts: the adding could not be recorded ({error})");
+                }
+                // As for Account 1's sign-in: a queue held for sign-in tries its first job now.
+                state.work.signed_in();
             }
         }
     }

@@ -313,6 +313,9 @@ struct Inner {
     /// **The overload schedule for this back end's turns** (CEO, 2026-10-07): consecutive
     /// `529`s since its last turn that answered, the same budget the conversation keeps.
     overload: crate::upstream::RetryBudget,
+    /// **This back end's queue is held** ([`Held`]): the jobs in `queue` wait for the cause to
+    /// clear and are started by the host when it does. `None` is the ordinary queue.
+    held: Option<Held>,
 }
 
 /// **ONE BACK-END RICH, AND THERE IS ONE PER CONVERSATION THREAD.**
@@ -363,6 +366,7 @@ impl Backend {
                 taken_unsaved: Vec::new(),
                 answer_starts: std::collections::HashMap::new(),
                 overload: crate::upstream::RetryBudget::new(),
+                held: None,
             }),
             wake: Condvar::new(),
         })
@@ -437,7 +441,18 @@ pub struct WorkHost {
     output: Mutex<Option<crate::output::OutputStore>>,
     /// How an overload retry waits out the CEO's schedule; shortened by tests, like `screen_poll`.
     retry_clock: Mutex<Arc<dyn crate::upstream::RetryClock>>,
+    /// **Is the Claude account a work lease would run under signed in?** `Some(true)` yes,
+    /// `Some(false)` no, `None` could not tell. Installed by the shell
+    /// ([`WorkHost::set_sign_in`]); with none, a queue held for sign-in waits for
+    /// [`WorkHost::signed_in`].
+    sign_in: Mutex<Option<SignInReading>>,
+    /// [`HOLD_CHECK_EVERY`] in production; shortened by tests, like `screen_poll`.
+    hold_check: Mutex<std::time::Duration>,
 }
+
+/// One reading of whether the account a work lease would run under is signed in; see
+/// [`WorkHost::set_sign_in`].
+pub type SignInReading = Arc<dyn Fn() -> Option<bool> + Send + Sync>;
 
 /// The context window this build assumes while a back end has reported nothing, and the
 /// fraction of it that schedules a rotation.
@@ -673,6 +688,83 @@ pub const QUOTA_WAIT_AFTER_START: [&str; 2] = [
 /// (the work-path design D4), in the design's words.
 pub const ANSWER_RETRY_DETAIL: &str = "Your answer is saved. The back end couldn't take it yet, so I'm trying again.";
 
+/// **What a held job's row says while nobody is signed in to Claude** (T3 idea 1, finished:
+/// richos-hq `docs/plans/2026-10-09-automatic-second-review-and-t3-ideas.md` §3, and Sage's
+/// check of it, §1.1). The job never started, nothing was asked of the back end, and the host
+/// starts it by itself when the sign-in comes back. The row it sits on stays `registered`.
+pub const HELD_FOR_SIGN_IN: &str = "Waiting for you to sign in to Claude, in Settings under Claude accounts. \
+     It will start by itself once you have.";
+
+/// The second half of a held job's row when the back end itself would not open; the first
+/// half is the reason it gave.
+pub const HELD_FOR_BACK_END: &str = "It will start by itself as soon as the work connection opens.";
+
+/// **How often the host looks again at the cause of a held queue**, with no model turn: the
+/// sign-in reading the shell installs ([`WorkHost::set_sign_in`]), or one attempt to open the
+/// back end. Sage's check §1.1: *"checking the sign-in state at most every few minutes, without
+/// a model turn, is a probe and not a retry of work."* `estimate:` two minutes, not measured
+/// against how soon he signs in; the shell also says so the moment a sign-in completes
+/// ([`WorkHost::signed_in`]), so this bounds only a sign-in made outside the app.
+const HOLD_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// **Why this conversation's queue is held.**
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum HoldCause {
+    /// A fresh job's first turn was refused because nobody is signed in to Claude
+    /// ([`crate::interruption::InterruptionCause::NotSignedIn`]). The back end opens when
+    /// signed out (measured, Claude Code 2.1.295: `system/init`, a `<synthetic>` assistant
+    /// text "Not logged in · Please run /login", then a result with `is_error: true`), so this
+    /// is found at the first turn and never at the open.
+    SignIn,
+    /// The back end itself would not open ([`WorkHost::ensure_lease`]), for this reason.
+    BackEnd(String),
+}
+
+impl HoldCause {
+    fn detail(&self) -> String {
+        match self {
+            HoldCause::SignIn => HELD_FOR_SIGN_IN.to_string(),
+            HoldCause::BackEnd(why) => format!("{} {HELD_FOR_BACK_END}", honest(why)),
+        }
+    }
+
+    /// **The one thing he is told when a queue is first held** (Sage's check §1.1: *"Telling
+    /// the user once … is the only words it needs"*): which request, how many wait with it,
+    /// why, what clears it, and that it then starts by itself. Spoken as written.
+    fn notice(&self, title: &str, others: usize) -> String {
+        let (what, it) = match others {
+            0 => (format!("\"{title}\""), "it"),
+            1 => (format!("\"{title}\" or the one request waiting behind it"), "they"),
+            n => (format!("\"{title}\" or the {n} requests waiting behind it"), "they"),
+        };
+        let starts = if it == "it" { "it will start by itself" } else { "they will start by themselves" };
+        match self {
+            HoldCause::SignIn => format!(
+                "I haven't started {what} yet, because nobody is signed in to Claude on this Mac. \
+                 Sign in from Settings, under Claude accounts, and {starts}."
+            ),
+            HoldCause::BackEnd(why) => format!(
+                "I haven't started {what} yet, because the work connection would not open. {} \
+                 As soon as it opens, {starts}.",
+                honest(why)
+            ),
+        }
+    }
+}
+
+/// **A held queue** — the shape of `WaitingForQuota` and `WaitingForScreen` (`quota_gate`,
+/// `screen_gate`): strictly before any work, and it ends by itself. While it stands the runner
+/// takes nothing off this back end's queue.
+struct Held {
+    cause: HoldCause,
+    /// The cause has cleared, or may have: the runner takes the FIRST held job only. If that job
+    /// is held again for a cause, the queue stays held until the next clearance and nothing else
+    /// was started; if it is not, the hold is over and the rest follow in order (Sage §1.1).
+    trial: bool,
+    /// When the cause was last looked at ([`HOLD_CHECK_EVERY`]).
+    checked_at: std::time::Instant,
+}
+
 /// The row's detail while a run cut by a usage limit starts again under the next Claude
 /// account (fill-first, plan §15 answer 3).
 pub const LIMIT_SWITCH_DETAIL: &str = "A Claude usage limit stopped this run. Starting it again on your next Claude account.";
@@ -851,7 +943,38 @@ impl WorkHost {
             worker_wait: Mutex::new(WORKER_WAIT_BUDGET),
             output: Mutex::new(None),
             retry_clock: Mutex::new(Arc::new(crate::upstream::SystemRetryClock)),
+            sign_in: Mutex::new(None),
+            hold_check: Mutex::new(HOLD_CHECK_EVERY),
         })
+    }
+
+    /// **How the host reads whether a held queue's sign-in has come back** — no model turn,
+    /// only the account's own sign-in state (the shell's `claude auth status`, the same reading
+    /// Settings shows). Installed by the shell.
+    pub fn set_sign_in(&self, reading: SignInReading) {
+        *self.sign_in.lock().unwrap() = Some(reading);
+    }
+
+    /// [`HOLD_CHECK_EVERY`], shortened. Test scaffolding, same reason and shape as
+    /// [`Self::set_screen_poll`].
+    #[doc(hidden)]
+    pub fn set_hold_check_every(&self, every: std::time::Duration) {
+        *self.hold_check.lock().unwrap() = every;
+    }
+
+    /// **A sign-in has just completed** (the shell's word, from the sign-in Settings runs). Every
+    /// queue held for sign-in starts its first held job now rather than at its next look. It is
+    /// a clearance like any other: if that job still finds nobody signed in, the queue stays held
+    /// and nothing else is started.
+    pub fn signed_in(&self) {
+        let backends: Vec<Arc<Backend>> = self.backends.lock().unwrap().values().cloned().collect();
+        for backend in backends {
+            let mut inner = backend.inner.lock().unwrap();
+            if let Some(held) = inner.held.as_mut().filter(|held| held.cause == HoldCause::SignIn) {
+                held.trial = true;
+                backend.wake.notify_all();
+            }
+        }
     }
 
     /// Replace the clock an overload retry waits on. Tests only; the app keeps the real one.
@@ -1116,6 +1239,15 @@ impl WorkHost {
             return false;
         }
         inner.binding = Some(binding.clone());
+        // A fresh job that joins a held queue waits with it, and its row says so. Written under
+        // `inner`, so a stop that takes it off the queue writes its own ending after this.
+        if let Some(held) = inner.held.as_ref().filter(|_| !resumed) {
+            if let Err(error) = assignment::advance(&self.state, &record.entity_id, &record.thread_id, &record.id,
+                AssignmentState::Registered, &held.cause.detail())
+            {
+                eprintln!("[richos] work: a job joining a held queue could not say so on its row: {error}");
+            }
+        }
         inner.queue.push_back(Scheduled { binding: binding.clone(), record, resumed });
         backend.wake.notify_all();
         true
@@ -1201,6 +1333,34 @@ impl WorkHost {
                             continue;
                         }
                     }
+                    // **A HELD QUEUE STARTS NOTHING UNTIL ITS CAUSE CLEARS** ([`Held`]). Every
+                    // [`HOLD_CHECK_EVERY`] the host looks at the cause itself, with no model
+                    // turn; when it has cleared, the first held job is taken as the trial.
+                    if inner.held.is_some() && inner.queue.is_empty() {
+                        // Everything it held was stopped: there is nothing left to hold.
+                        inner.held = None;
+                    }
+                    if let Some(held) = inner.held.as_ref().filter(|held| !held.trial) {
+                        let every = *self.hold_check.lock().unwrap();
+                        let since = held.checked_at.elapsed();
+                        if since < every {
+                            let wait = if inner.watching.is_empty() { every - since } else { (every - since).min(COMMAND_WAIT_POLL) };
+                            inner = backend.wake.wait_timeout(inner, wait).unwrap().0;
+                            continue;
+                        }
+                        let (cause, binding) = (held.cause.clone(), inner.binding.clone());
+                        drop(inner);
+                        let cleared = self.hold_cleared(&backend, &cause, binding.as_ref());
+                        inner = backend.inner.lock().unwrap();
+                        if inner.closing {
+                            return;
+                        }
+                        if let Some(held) = inner.held.as_mut() {
+                            held.checked_at = std::time::Instant::now();
+                            held.trial |= cleared;
+                        }
+                        continue;
+                    }
                     if let Some(item) = inner.queue.pop_front() {
                         inner.processing = true;
                         break Next::Work(item);
@@ -1228,6 +1388,11 @@ impl WorkHost {
                     if ran {
                         self.run_one(&backend, &binding, &record, resumed, None);
                         let mut inner = backend.inner.lock().unwrap();
+                        // The trial job was not held again: its cause has cleared, and the rest
+                        // of the queue follows it in order (Sage's check §1.1).
+                        if inner.held.as_ref().is_some_and(|held| held.trial) {
+                            inner.held = None;
+                        }
                         inner.completed += 1;
                         inner.live = None;
                         inner.carrying.clear();
@@ -1429,6 +1594,16 @@ impl WorkHost {
                 eprintln!("[richos] work: the back end did not open for his answer ({why}); trying again");
                 return;
             }
+            // **A FRESH JOB IS HELD, NOT FAILED** (T3 idea 1, finished; Sage's check §1.1).
+            // Nothing was asked of the back end, and it is the same back end for every job
+            // queued behind this one, so this job and those wait together, and the host starts
+            // them by itself once the back end opens. `4a54115d3` settled them all as Failed,
+            // each to be asked for again by hand.
+            if !reporting && !resumed {
+                eprintln!("[richos] work: the back end did not open ({why}); this conversation's queue is held");
+                self.hold(backend, binding, record, HoldCause::BackEnd(why));
+                return;
+            }
             // **"Did not start", not "stopped before it finished".** Nothing has been asked of
             // the back end at this line, so there is nothing that could have stopped. Ray's
             // candidate-.7 failures were all of this shape and all reported as the other one,
@@ -1443,17 +1618,6 @@ impl WorkHost {
                 &assignment::says::failure(record.kind, &record.title, &honest(&why), false),
             );
             self.let_go_if_ended(record);
-            // **The back end did not open, and it is the same back end for every job already
-            // waiting behind this one.** Each of them used to pop, try the same provider and
-            // fail the same way; the first failure has established the shared problem, so the
-            // ones that were queued when it happened are settled with it, each as its own
-            // Failed assignment with its own notice (a failed attempt must never be left
-            // looking live), but without another start. A job registered after this moment
-            // finds the queue empty and tries the provider afresh — the provider may well have
-            // recovered. An answer run keeps its own bounded retry (C10), so it stays queued.
-            if !reporting {
-                self.fail_waiting_with(backend, &why);
-            }
             return;
         }
 
@@ -1844,6 +2008,41 @@ impl WorkHost {
                 None => Err(CognitionError::Protocol("The work connection closed.".into())),
             }
         };
+        // **NOBODY IS SIGNED IN: HELD, NOT FAILED** (T3 idea 1, finished; Sage's check §1.1).
+        // Claude Code opens a back end with nobody signed in and refuses its first turn
+        // locally, with no model call: a `<synthetic>` "Not logged in · Please run /login" and
+        // an error result (measured on 2.1.295). So a fresh job whose first turn ends that way
+        // got nothing done, and every job queued behind it would end the same way. They wait
+        // together, and the host starts them by itself when the sign-in comes back. Only a
+        // fresh job carrying nothing of his: a job he approved, answered or is watching keeps
+        // the path it had. His Stop outranks it.
+        let signed_out = outcome.as_ref().err().is_some_and(|why| {
+            crate::interruption::classify(&why.to_string()) == crate::interruption::InterruptionCause::NotSignedIn
+        });
+        if signed_out && !reporting && !resumed && carried.is_empty() && rewatched.is_none() && !{
+            let inner = backend.inner.lock().unwrap();
+            inner.closing || inner.stopped.contains(&record.id)
+        } {
+            if let Some(lease) = backend.lease.lock().unwrap().as_mut() {
+                if let Err(error) = lease.revoke_work_assignment() {
+                    eprintln!("[richos] work: the grant of a job held for sign-in could not be revoked: {error}");
+                }
+            }
+            self.forget_at_the_desk(record);
+            // Retired as every failed turn's back end is (the `Err` arm below): the next
+            // attempt opens a fresh one under whatever sign-in there is then.
+            *backend.lease.lock().unwrap() = None;
+            {
+                let mut inner = backend.inner.lock().unwrap();
+                inner.cancel = None;
+                inner.lease_session = None;
+                inner.context_chars = 0;
+                inner.context_usage = None;
+            }
+            eprintln!("[richos] work: nobody is signed in to Claude; this conversation's queue is held");
+            self.hold(backend, binding, record, HoldCause::SignIn);
+            return;
+        }
         keep_words(&mut answer, &said);
         let mut last_said = said.clone();
         // The back-end turn is over: what it, its workers and its commands wrote so far goes
@@ -3603,32 +3802,62 @@ impl WorkHost {
         }
     }
 
-    /// Settle the jobs already waiting on this back end as "did not start" for the reason the
-    /// back end just failed to open (see `run_one`). Only fresh jobs are taken: an answer run
-    /// (`resumed`) has its own bounded retry and stays queued.
-    fn fail_waiting_with(self: &Arc<Self>, backend: &Arc<Backend>, why: &str) {
-        let taken: Vec<Scheduled> = {
-            let mut inner = backend.inner.lock().unwrap();
-            let (taken, kept): (VecDeque<Scheduled>, VecDeque<Scheduled>) =
-                std::mem::take(&mut inner.queue).into_iter().partition(|job| !job.resumed);
-            inner.queue = kept;
-            taken.into_iter().collect()
-        };
-        for Scheduled { record, .. } in taken {
-            assignment::advance(
-                &self.state, &record.entity_id, &record.thread_id, &record.id,
-                AssignmentState::Failed, &honest(why),
-            )
-            .ok();
-            self.raise(
-                &record,
-                NoticeKind::Failed,
-                &assignment::says::failure(record.kind, &record.title, &honest(why), false),
-            );
-            self.let_go_if_ended(&record);
-            let mut inner = backend.inner.lock().unwrap();
-            inner.completed += 1;
-            backend.wake.notify_all();
+    /// **Hold this conversation's queue** ([`Held`]): `record`, a fresh job that got nothing
+    /// done for `cause`, goes back to the FRONT of the queue, and every fresh job in the queue
+    /// is `registered` again with the row saying what it waits for and that it will start by
+    /// itself. No notice: nothing ended. The runner takes nothing off the queue until the
+    /// cause clears ([`Self::hold_cleared`], [`Self::signed_in`]).
+    ///
+    /// The rows are written under `inner`, so a stop that takes one off the queue
+    /// (`stop_assignment`) writes its ending after this and never under it.
+    fn hold(self: &Arc<Self>, backend: &Arc<Backend>, binding: &ThreadBinding, record: &Assignment, cause: HoldCause) {
+        let detail = cause.detail();
+        let mut inner = backend.inner.lock().unwrap();
+        // A quit's sweep has already written this job's honest state, `interrupted`; a Stop
+        // that reached it before its back end opened wrote "Stopped before it started"
+        // (`stop_assignment`: it was not live). The one caller that runs on a live job checks
+        // for a Stop itself, so the Stop's own ending is written there.
+        if inner.closing || inner.stopped.contains(&record.id) {
+            drop(inner);
+            self.let_go_if_ended(record);
+            return;
+        }
+        inner.queue.push_front(Scheduled { binding: binding.clone(), record: record.clone(), resumed: false });
+        // Told once: when the queue is first held, never again at a trial that is held again.
+        let first = inner.held.is_none();
+        let notice = first.then(|| cause.notice(&record.title, inner.queue.len() - 1));
+        inner.held = Some(Held { cause, trial: false, checked_at: std::time::Instant::now() });
+        for job in inner.queue.iter().filter(|job| !job.resumed) {
+            if let Err(error) = assignment::advance(&self.state, &job.record.entity_id, &job.record.thread_id,
+                &job.record.id, AssignmentState::Registered, &detail)
+            {
+                eprintln!("[richos] work: a held job could not say so on its row: {error}");
+            }
+        }
+        backend.wake.notify_all();
+        drop(inner);
+        if let Some(text) = notice {
+            self.raise(record, NoticeKind::Held, &text);
+        }
+    }
+
+    /// **Has a held queue's cause cleared?** Looked at with no model turn: for a sign-in, the
+    /// shell's reading of the account ([`Self::set_sign_in`]; none installed is "not yet"); for
+    /// a back end that would not open, one attempt to open it, which on success stands as the
+    /// back end the first held job then runs on.
+    fn hold_cleared(self: &Arc<Self>, backend: &Arc<Backend>, cause: &HoldCause, binding: Option<&ThreadBinding>) -> bool {
+        match cause {
+            HoldCause::SignIn => {
+                let reading = self.sign_in.lock().unwrap().clone();
+                reading.is_some_and(|read| read() == Some(true))
+            }
+            HoldCause::BackEnd(_) => binding.is_some_and(|binding| match self.ensure_lease(backend, binding) {
+                Ok(()) => true,
+                Err(why) => {
+                    eprintln!("[richos] work: the back end still does not open ({why}); the queue stays held");
+                    false
+                }
+            }),
         }
     }
 
@@ -4143,6 +4372,12 @@ impl WorkHost {
         }
         match self.open_assignments() {
             Ok(open) => {
+                // **A queue held because the back end would not open is not open work.** An update
+                // is the likeliest cure for a broken build, so counting those jobs would hold the
+                // very update that fixes it (and keep a windowless app open for nothing). A queue
+                // held for sign-in still counts: an update does not fix a sign-in.
+                let back_end_held = self.back_end_held_ids();
+                let open: Vec<Assignment> = open.into_iter().filter(|row| !back_end_held.contains(&row.id)).collect();
                 let awaiting_you = open.iter().filter(|row| self.pending_decision(row).is_some()).count();
                 crate::work_gate::BackgroundWork {
                     running: open.len() - awaiting_you,
@@ -4152,6 +4387,20 @@ impl WorkHost {
             }
             Err(_) => crate::work_gate::BackgroundWork { running: 0, awaiting_you: 0, readable: false },
         }
+    }
+
+    /// The ids of the fresh jobs waiting in a queue held because the back end would not open
+    /// ([`HoldCause::BackEnd`]); see [`Self::background_work`].
+    fn back_end_held_ids(&self) -> std::collections::HashSet<String> {
+        let backends: Vec<Arc<Backend>> = self.backends.lock().unwrap().values().cloned().collect();
+        let mut ids = std::collections::HashSet::new();
+        for backend in backends {
+            let inner = backend.inner.lock().unwrap();
+            if inner.held.as_ref().is_some_and(|held| matches!(held.cause, HoldCause::BackEnd(_))) {
+                ids.extend(inner.queue.iter().filter(|job| !job.resumed).map(|job| job.record.id.clone()));
+            }
+        }
+        ids
     }
 
     /// This conversation's back end, if one has been opened. Never creates one — a reader
@@ -4758,6 +5007,9 @@ mod tests {
         unrun: Arc<Mutex<VecDeque<String>>>,
         /// The next work turns fail before streaming, one per turn (a dead lease, `Closed`).
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        /// While set, nobody is signed in: every work turn is refused the way Claude Code
+        /// refuses one (measured on 2.1.295, see `HoldCause::SignIn`).
+        signed_out: Arc<AtomicBool>,
         /// Fill-first: the account this lease was spawned under, and the shared script.
         account: Option<String>,
         fill: Arc<Mutex<FillFirst>>,
@@ -4790,6 +5042,9 @@ mod tests {
         /// (`account_switch_due`), so a test can wait for the host to have checked again.
         command_reads: usize,
     }
+
+    /// Claude Code's own words for a turn it refuses with nobody signed in (`interruption.rs`).
+    const NOT_LOGGED_IN: &str = "Not logged in \u{b7} Please run /login";
 
     /// In a scripted reply: a keep-alive `ping` frame between two deltas.
     const PING: char = '\u{1}';
@@ -4885,6 +5140,12 @@ mod tests {
         fn prompt(&mut self, _text: &str, _on: &mut dyn FnMut(TurnItem)) -> Result<String, CognitionError> {
             self.work_prompts.lock().unwrap().push(_text.to_string());
             self.fill.lock().unwrap().turns.push(self.account.clone());
+            if self.signed_out.load(Ordering::SeqCst) {
+                // The `<synthetic>` assistant text, then the result `native.rs` turns into this
+                // error (`is_error: true`, no `errors` key, so the `result` string is the detail).
+                _on(TurnItem::Text { seq: 0, text: NOT_LOGGED_IN });
+                return Err(CognitionError::Protocol(format!("\"{NOT_LOGGED_IN}\"")));
+            }
             if self.account.is_some() && self.account == self.fill.lock().unwrap().limited {
                 return Err(CognitionError::Protocol(crate::claude_accounts::usage_limit_error(
                     None, "[\"You've hit your session limit\"]")));
@@ -5079,6 +5340,7 @@ mod tests {
         first_item_gate: Arc<StartGate>,
         unrun: Arc<Mutex<VecDeque<String>>>,
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        signed_out: Arc<AtomicBool>,
         fill: Arc<Mutex<FillFirst>>,
         team: Arc<Mutex<TeamScript>>,
     }
@@ -5138,6 +5400,7 @@ mod tests {
                 first_item_gate: self.first_item_gate.clone(),
                 unrun: self.unrun.clone(),
                 fail_next: self.fail_next.clone(),
+                signed_out: self.signed_out.clone(),
                 team: self.team.clone(),
             }))
         }
@@ -5184,6 +5447,7 @@ mod tests {
         first_item_gate: Arc<StartGate>,
         unrun: Arc<Mutex<VecDeque<String>>>,
         fail_next: Arc<Mutex<VecDeque<String>>>,
+        signed_out: Arc<AtomicBool>,
         fill: Arc<Mutex<FillFirst>>,
         team: Arc<Mutex<TeamScript>>,
     }
@@ -5225,11 +5489,13 @@ mod tests {
         let first_item_gate = StartGate::open_now();
         let unrun = Arc::new(Mutex::new(VecDeque::new()));
         let fail_next = Arc::new(Mutex::new(VecDeque::new()));
+        let signed_out = Arc::new(AtomicBool::new(false));
         let broken = Arc::new(AtomicBool::new(false));
         let attempts = Arc::new(AtomicUsize::new(0));
         let fill = Arc::new(Mutex::new(FillFirst::default()));
         let team = Arc::new(Mutex::new(TeamScript::default()));
         let factory = WorkFactory {
+            signed_out: signed_out.clone(),
             team: team.clone(),
             fill: fill.clone(),
             broken: broken.clone(),
@@ -5266,7 +5532,7 @@ mod tests {
         Harness { root, state, host, bound, revoked, fence, notices, binding, obligation, desk, spawns,
             usage, reprimes, handoffs, handoff_reply, answer_reply, refuse_next, readiness, turn_error,
             work_prompts, start_gate, commands, drop_probe, drops, background, start_in_turn, replies,
-            silent, first_item_gate, unrun, fail_next, broken, attempts, fill, team }
+            silent, first_item_gate, unrun, fail_next, signed_out, broken, attempts, fill, team }
     }
 
     /// **A second lease factory over the SAME scripted state as `h`'s** — every knob and every
@@ -5274,6 +5540,7 @@ mod tests {
     /// (design §4.1 tests 2 and 3), or a host with a different notifier.
     fn factory_over(h: &Harness, step_ms: u64) -> WorkFactory {
         WorkFactory {
+            signed_out: h.signed_out.clone(),
             team: h.team.clone(),
             fill: h.fill.clone(),
             broken: h.broken.clone(),
@@ -5647,36 +5914,134 @@ mod tests {
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
-    /// **A provider that stays down is opened once for the jobs already waiting, not once per
-    /// job** (hunt part 1 finding 22). The gate holds the first job at its first step so three
-    /// are queued behind one back end; released, every one ends Failed with its own notice,
-    /// and the factory was asked once.
+    /// The settled run a held job ends in once it is started: its obligation closed and its
+    /// back end's evidence readable, for each back end the test can open.
+    fn every_job_settles(h: &Harness, sessions: &[&str]) {
+        *h.obligation.lock().unwrap() = Some(crate::cognition::ObligationState::Settled);
+        for session in sessions {
+            let folder = h.state.join("evidence").join(session);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join(".lock"), "").unwrap();
+            std::fs::write(folder.join("callbacks.jsonl"), "").unwrap();
+        }
+    }
+
+    fn held_rows(h: &Harness, ids: &[String], detail: &str) -> bool {
+        ids.iter().all(|id| {
+            let row = assignment::read(&h.state, "depot", "thread-one", id).unwrap();
+            row.state == AssignmentState::Registered && row.detail == detail
+        })
+    }
+
+    fn settled_rows(h: &Harness, ids: &[String]) -> bool {
+        ids.iter().all(|id| assignment::read(&h.state, "depot", "thread-one", id).unwrap().state == AssignmentState::Settled)
+    }
+
+    fn bound_ids(h: &Harness) -> Vec<String> {
+        h.bound.lock().unwrap().iter().map(|work| work.assignment_id.clone()).collect()
+    }
+
+    /// **Three jobs queued while nobody is signed in: one attempt, three held, none failed;
+    /// when the sign-in comes back the host itself starts the first held job, then the rest in
+    /// order, and starts nothing else** (T3 idea 1, finished: richos-hq
+    /// `docs/plans/2026-10-09-automatic-second-review-and-t3-ideas.md` §4 row 5, and Sage's
+    /// check of it §1.1). The gate holds the first job at its first step so three are queued
+    /// behind one back end. The fake refuses a turn the way Claude Code 2.1.295 does with
+    /// nobody signed in. A clearance whose first job still finds nobody signed in tries that
+    /// job alone and holds the queue again. No model turn is spent on any clearance: every
+    /// prompt the back end receives is a job's own.
     #[test]
-    fn a_broken_provider_is_tried_once_for_the_jobs_already_waiting() {
+    fn a_signed_out_queue_is_held_and_the_host_resumes_it_in_order_when_the_sign_in_returns() {
         let h = harness(5);
+        every_job_settles(&h, &["work-session-one", "work-session-rotated-1", "work-session-rotated-2"]);
+        let account_signed_in = Arc::new(AtomicBool::new(false));
+        let readings = Arc::new(AtomicUsize::new(0));
+        let (signed, counted) = (account_signed_in.clone(), readings.clone());
+        h.host.set_sign_in(Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Some(signed.load(Ordering::SeqCst))
+        }));
+        h.host.set_hold_check_every(std::time::Duration::from_millis(20));
+        h.host.start();
+        h.signed_out.store(true, Ordering::SeqCst);
+        h.start_gate.shut();
+        let ids: Vec<String> = (0..3)
+            .map(|n| {
+                let reg = Registration { obligation_id: format!("obligation-q{n}"), ..registration(&h) };
+                h.host.register(&h.binding, &reg).unwrap().id
+            })
+            .collect();
+        h.start_gate.release();
+        until("three jobs queued while signed out were not held", || held_rows(&h, &ids, HELD_FOR_SIGN_IN));
+        // The host keeps looking at the sign-in, and starts nothing while it says no.
+        let seen = readings.load(Ordering::SeqCst);
+        until("the host never looked at the sign-in again", || readings.load(Ordering::SeqCst) >= seen + 3);
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 1, "one attempt for the three, not one per job");
+        assert!(held_rows(&h, &ids, HELD_FOR_SIGN_IN), "none of them failed: all three are held");
+        let told = |h: &Harness| h.notices.0.lock().unwrap().iter().map(|(_, n)| (n.kind, n.text.clone())).collect::<Vec<_>>();
+        assert_eq!(told(&h), vec![(NoticeKind::Held, "I haven't started \"landing the three branches\" or the 2 requests \
+            waiting behind it yet, because nobody is signed in to Claude on this Mac. Sign in from Settings, under \
+            Claude accounts, and they will start by themselves.".to_string())], "told once, and nothing announced as ended");
+        // A clearance whose first job still finds nobody signed in: that job alone is tried,
+        // the queue is held again, and nothing else is started.
+        h.host.signed_in();
+        until("the shell's word did not try the first held job", || h.work_prompts.lock().unwrap().len() == 2);
+        until("the queue was not held again", || held_rows(&h, &ids, HELD_FOR_SIGN_IN));
+        let seen = readings.load(Ordering::SeqCst);
+        until("the host stopped looking at the sign-in", || readings.load(Ordering::SeqCst) >= seen + 3);
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 2, "a failed trial starts nothing else");
+        assert_eq!(bound_ids(&h), vec![ids[0].clone(), ids[0].clone()], "the trial is the first held job");
+        assert_eq!(told(&h).len(), 1, "a trial held again is not told again");
+        // The sign-in comes back. The host's own look sees it, with no turn of anyone's.
+        h.signed_out.store(false, Ordering::SeqCst);
+        account_signed_in.store(true, Ordering::SeqCst);
+        until("the held jobs were never started", || settled_rows(&h, &ids));
+        assert_eq!(
+            bound_ids(&h),
+            vec![ids[0].clone(), ids[0].clone(), ids[0].clone(), ids[1].clone(), ids[2].clone()],
+            "the first held job first, then the rest, in order"
+        );
+        assert_eq!(h.work_prompts.lock().unwrap().len(), 5,
+            "two refused first turns, then one turn per job: no turn spent on a clearance");
+        assert!(h.notices.0.lock().unwrap().iter().all(|(_, n)| n.kind != NoticeKind::Failed), "none of them failed");
+        h.host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A back end that will not open holds the queue the same way** (hunt part 1 finding 22
+    /// kept: it is opened once for the jobs already waiting, not once per job). Every look
+    /// afterwards is one attempt to open it and touches no job; a job registered meanwhile
+    /// waits with the others; when it opens, the jobs run on that back end in order.
+    #[test]
+    fn a_back_end_that_will_not_open_holds_the_queue_and_the_host_resumes_it_when_it_opens() {
+        let h = harness(5);
+        every_job_settles(&h, &["work-session-one"]);
+        h.host.set_hold_check_every(std::time::Duration::from_millis(20));
         h.host.start();
         h.broken.store(true, Ordering::SeqCst);
         h.start_gate.shut();
-        let mut receipts = Vec::new();
-        for n in 0..3 {
-            let reg = Registration { obligation_id: format!("obligation-q{n}"), ..registration(&h) };
-            receipts.push(h.host.register(&h.binding, &reg).unwrap());
-        }
+        let mut ids: Vec<String> = (0..3)
+            .map(|n| {
+                let reg = Registration { obligation_id: format!("obligation-q{n}"), ..registration(&h) };
+                h.host.register(&h.binding, &reg).unwrap().id
+            })
+            .collect();
         h.start_gate.release();
-        assert!(h.host.wait_for_completed(3, std::time::Duration::from_secs(10)));
-        assert_eq!(h.attempts.load(Ordering::SeqCst), 1, "the same broken provider was opened once per job");
-        for receipt in &receipts {
-            let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
-            assert_eq!(row.state, AssignmentState::Failed, "every waiting job is settled, none left live");
-        }
-        assert_eq!(h.notices.0.lock().unwrap().len(), 3, "each job still says what happened to it");
-        // A job registered afterwards tries the provider afresh: it may have recovered.
-        h.broken.store(false, Ordering::SeqCst);
+        let held = format!("The provider is down. {HELD_FOR_BACK_END}");
+        until("three jobs queued behind a broken back end were not held", || held_rows(&h, &ids, &held));
+        let seen = h.attempts.load(Ordering::SeqCst);
+        until("the host never looked at the back end again", || h.attempts.load(Ordering::SeqCst) >= seen + 3);
+        assert!(held_rows(&h, &ids, &held), "none of them failed: all three are held");
+        assert!(h.work_prompts.lock().unwrap().is_empty() && h.bound.lock().unwrap().is_empty(), "no job was started");
+        let kinds: Vec<NoticeKind> = h.notices.0.lock().unwrap().iter().map(|(_, n)| n.kind).collect();
+        assert_eq!(kinds, vec![NoticeKind::Held], "told once, and nothing announced as ended");
         let late = Registration { obligation_id: "obligation-late".into(), ..registration(&h) };
-        h.host.register(&h.binding, &late).unwrap();
-        assert!(h.host.wait_for_completed(4, std::time::Duration::from_secs(10)));
-        assert_eq!(h.attempts.load(Ordering::SeqCst), 2, "a later job is not refused on the strength of the earlier failure");
-        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "and the recovered provider opened");
+        ids.push(h.host.register(&h.binding, &late).unwrap().id);
+        until("a job registered while held did not wait with the others", || held_rows(&h, &ids, &held));
+        h.broken.store(false, Ordering::SeqCst);
+        until("the held jobs were never started", || settled_rows(&h, &ids));
+        assert_eq!(bound_ids(&h), ids, "in the order they were registered");
+        assert_eq!(h.spawns.load(Ordering::SeqCst), 1, "the back end the host's look opened is the one they ran on");
         h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
@@ -6491,10 +6856,12 @@ mod tests {
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
-    /// Spec §1.4 and §2.1: a lease that refuses to exist is a FAILED REGISTRATION reported
-    /// as one, not a worker that never speaks.
+    /// Spec §1.4 and §2.1: a lease that refuses to exist is reported as what it is, not a
+    /// worker that never speaks. **Since slice 5 of the 2026-10-09 plan (T3 idea 1, finished)
+    /// what it is, is a job held until the back end opens**, said to him once, and never one
+    /// that started: it was a failure he had to ask for again by hand.
     #[test]
-    fn a_work_lease_that_refuses_to_open_is_reported_as_a_failure_not_as_started() {
+    fn a_work_lease_that_refuses_to_open_is_reported_as_held_not_as_started() {
         let h = harness(5);
         struct Refusing;
         impl LeaseFactory for Refusing {
@@ -6510,16 +6877,18 @@ mod tests {
         let receipt = host.register(&h.binding, &registration(&h)).unwrap();
         assert!(host.wait_for_completed(1, std::time::Duration::from_secs(10)));
         let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
-        assert_eq!(row.state, AssignmentState::Failed);
+        assert_eq!(row.state, AssignmentState::Registered);
+        assert_eq!(row.detail, format!("The engine release gate refused this lease. {HELD_FOR_BACK_END}"));
         let notices = h.notices.0.lock().unwrap();
         let (thread, notice) = notices.last().unwrap();
         assert_eq!(thread, "thread-one");
-        assert_eq!(notice.kind, NoticeKind::Failed);
+        assert_eq!(notice.kind, NoticeKind::Held);
         // **This test's own name was already the invariant: "not as started".** It used to
         // assert *"stopped before it finished"*, which claims there was something to stop — the
         // lease never opened, so nothing was ever asked of the back end. Ray's candidate-.7
         // failures were every one of them this shape and every one reported the other way.
-        assert!(notice.text.contains("did not start"), "{}", notice.text);
+        assert!(notice.text.contains("I haven't started"), "{}", notice.text);
+        assert!(notice.text.contains("it will start by itself"), "{}", notice.text);
         assert!(!notice.text.contains("stopped before it finished"), "{}", notice.text);
         // Capitalized, because `honest` now opens the card like the sentence it is — the seam
         // label it replaced used to be the first thing on the line.
@@ -6527,6 +6896,46 @@ mod tests {
         assert!(!notice.text.contains("cognition"), "a seam label reached his card: {}", notice.text);
         drop(notices);
         host.shutdown();
+        std::fs::remove_dir_all(h.root).unwrap();
+    }
+
+    /// **A queue held because the back end cannot open is not open work for the update check;
+    /// a queue held for sign-in still is** (an update fixes a broken build, not a sign-in).
+    /// Positive control: the held row is open in the register either way.
+    #[test]
+    fn a_queue_held_for_a_broken_back_end_does_not_block_an_update_but_one_held_for_sign_in_does() {
+        use crate::work_gate::{self, Liveness};
+        let h = harness(5);
+        struct Refusing;
+        impl LeaseFactory for Refusing {
+            fn spawn(&self) -> Result<Box<dyn Cognition>, CognitionError> {
+                Err(CognitionError::Io("no".into()))
+            }
+            fn spawn_work(&self, _b: &ThreadBinding) -> Result<Box<dyn Cognition>, CognitionError> {
+                Err(CognitionError::Io("the build is broken".into()))
+            }
+        }
+        let host = WorkHost::new(&h.state, Box::new(Refusing), h.notices.clone(), Arc::clone(&h.desk));
+        host.start();
+        let receipt = host.register(&h.binding, &registration(&h)).unwrap();
+        assert!(host.wait_for_completed(1, std::time::Duration::from_secs(10)));
+        let row = assignment::read(&h.state, "depot", "thread-one", &receipt.id).unwrap();
+        assert_eq!(row.state, AssignmentState::Registered, "the job is held");
+        assert_eq!(host.open_assignments().unwrap().len(), 1, "positive control: the row is open");
+        assert_eq!(work_gate::background(&host.background_work(), &[]).0, Liveness::Clear,
+            "a queue held for a broken back end blocked the update that fixes it");
+        host.shutdown();
+        std::fs::remove_dir_all(&h.root).unwrap();
+
+        let h = harness(5);
+        every_job_settles(&h, &["work-session-one"]);
+        h.host.start();
+        h.signed_out.store(true, Ordering::SeqCst);
+        let ids = vec![h.host.register(&h.binding, &registration(&h)).unwrap().id];
+        until("the job was not held for sign-in", || held_rows(&h, &ids, HELD_FOR_SIGN_IN));
+        assert_eq!(work_gate::background(&h.host.background_work(), &[]).0, Liveness::Busy,
+            "a queue held for sign-in must still count as open work");
+        h.host.shutdown();
         std::fs::remove_dir_all(h.root).unwrap();
     }
 
