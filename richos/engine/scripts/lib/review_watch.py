@@ -1586,7 +1586,8 @@ def tell(now, sstate, rows, book, items, problems, attempts):
             told[k] = {"first": now}
     sstate["rows"] = max(start, stop)
     shared["rows"] = max(stop, seen or 0)
-    ids = set(_row_key(r) for r in rows if r.get("verdict"))
+    lost_twice = dict(("lost:%s:%s" % key, key) for key, lost in book.losses.items() if len(lost) >= MAX_LOSSES)
+    ids = set(_row_key(r) for r in rows if r.get("verdict")) | set(lost_twice)
     shared["delivered"] = dict((k, t) for k, t in delivered.items() if k in ids)
     stall_watch._write_json(_p("last-told.json"), shared)
     verdict_blocks = len(body)
@@ -1611,19 +1612,22 @@ def tell(now, sstate, rows, book, items, problems, attempts):
             add(render_verdict(hv[-1], items_by_key, (t["count"], hhmm(float(t["first"])))),
                 session=owner_session(hv[-1], items, book, attempts))
     # -- a commit whose review was lost twice --------------------------------------
-    for key, lost in book.losses.items():
-        if len(lost) < MAX_LOSSES:
+    # KEPT UNTIL ACCEPTED, LIKE A VERDICT (the real second review of 802194f0e, finding 2): told once,
+    # this is the only word that automatic reviews of the commit have stopped. For an owner this
+    # watcher delivers to it carries its key and is recorded in `delivered` only once accepted
+    # (PRINTED, tick); a refused or failed delivery tells it again at the next look. `told` still
+    # holds one told under the earlier rule, and one shown to a lead that is not this watcher's.
+    for k, key in lost_twice.items():
+        if k in told or k in delivered:
             continue
-        k = "lost:%s:%s" % key
-        if k in told:
-            continue
-        told[k] = {"first": now}
-        a = lost[-1]
+        a = book.losses[key][-1]
+        session = a.get("session") or getattr(items_by_key.get(key + (a.get("work") or "",)), "session", "") or ""
+        if not ours(session):
+            told[k] = {"first": now}
         add(["  [NO VERDICT TWICE] %s, %s@%s: %s" % (a.get("name"), os.path.basename(key[0] or ""),
                                                     str(key[1])[:12], " ".join(str(a.get("why")).split())[:300]),
              "      Nothing more starts for this commit by itself. You can: fix the cause, then run "
-             "%s by hand." % "second-review.sh"], session=(
-                a.get("session") or getattr(items_by_key.get(key + (a.get("work") or "",)), "session", "") or ""))
+             "%s by hand." % "second-review.sh"], session=session, key=k if ours(session) else None)
     # -- what could not be read or started ------------------------------------------
     for p in problems:
         k = "problem:" + p[:120]

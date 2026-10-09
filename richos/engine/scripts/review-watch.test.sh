@@ -98,6 +98,9 @@
 #   W31  the host's watcher knows its host before the first look: a host that died
 #        while it started means no look and an exit (the reviewer's fixture
 #        parent_exit_before_init.py)
+#   W32  the NO VERDICT TWICE notice is delivered only once the host accepts it,
+#        like a verdict: a failed pipe, or no acknowledgment, leaves it for the
+#        next look (the reviewer's fixture unacknowledged_host_notice.py)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -2227,6 +2230,82 @@ print("    %s" % json.dumps(got, sort_keys=True))
 sys.exit(0 if got == {"the watcher has exited": True, "it looked": False} else 1)
 PY
 check "W31 the host's watcher knows its host before the first look: a host gone while it started means no look and an exit" \
+    $? "see above"
+
+# --- W32 ---------------------------------------------------------------------
+# The real second review of 802194f0e, finding 2 (fixtures/unacknowledged_host_notice.py): the
+# NO VERDICT TWICE notice was recorded told before it was written and carried no key, so a host
+# that refused it, or a pipe that failed, lost the only word that automatic reviews of that commit
+# had stopped. Now it carries a delivery identity and is recorded only once accepted, like a
+# verdict (W27). Through the real tick and tell, two lost attempts and no verdict row.
+python3 - "$LIB" "$SB/w32" <<'PY'
+import io, json, os, sys
+lib, root = sys.argv[1:3]
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+os.environ.pop("RICHOS_REVIEW_WATCH_ACKS", None)
+sys.path.insert(0, lib)
+import review_watch as rw
+
+
+class BrokenPipe(object):
+    def write(self, text):
+        raise BrokenPipeError("the host closed the pipe during quit")
+
+    def flush(self):
+        pass
+
+
+now = rw.parse_iso("2026-10-09T09:00:00Z")
+attempts = [{"repo": os.path.join(root, "fictional-repository"), "tip": "b" * 40, "work": "teammate:B",
+             "name": "worker-B", "session": "lead-B", "outcome": "lost", "trigger": "long-job",
+             "why": "the reviewer exited without a verdict"} for _ in range(2)]
+
+
+class Watcher(object):
+    def look(self, t, state):
+        return rw.tell(t, state, [], rw.Book([], {}, attempts), [], [], attempts)
+
+
+def look(sd, t, out=None):
+    out = out or io.StringIO()
+    try:
+        rw.tick(Watcher(), sd, now=t, out=out)
+    except BrokenPipeError:
+        return "broken pipe"
+    return out.getvalue()
+
+
+got, want = {}, {}
+for name, host, acks in (("monitor", False, False), ("host", True, False), ("host, acknowledging", True, True)):
+    os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, name)
+    rw.HOST_JSON["on"], rw.MONITOR["session"] = host, ("" if host else "lead-B")
+    if acks:
+        os.environ["RICHOS_REVIEW_WATCH_ACKS"] = "1"
+        r, w = os.pipe()
+        rw.ACKS["fd"] = r
+    sd = rw.session_dir("operator-host" if host else "lead-B")
+    seq = [look(sd, now, BrokenPipe())]
+    seq += [look(sd, now + 60 * n) for n in (1, 2)]
+    g = {"the host pipe failed": seq[0] == "broken pipe", "the next look tells it": "NO VERDICT TWICE" in seq[1],
+         "the look after that": "NO VERDICT TWICE" in seq[2]}
+    if host:
+        g["it carries a key"] = bool([k for ln in seq[1].splitlines() for k in json.loads(ln).get("keys", [])])
+    if acks:
+        keys = [k for ln in seq[2].splitlines() for k in json.loads(ln).get("keys", [])]
+        os.write(w, (json.dumps({"ack": keys}) + "\n").encode())
+        g["acknowledged, the next look"] = "NO VERDICT TWICE" in look(sd, now + 180)
+        os.environ.pop("RICHOS_REVIEW_WATCH_ACKS")
+    got[name] = g
+    want[name] = {"the host pipe failed": True, "the next look tells it": True, "the look after that": acks}
+    if host:
+        want[name]["it carries a key"] = True
+    if acks:
+        want[name]["acknowledged, the next look"] = False
+for k in want:
+    print("    %s: %s" % (k, got[k]))
+sys.exit(0 if got == want else 1)
+PY
+check "W32 the NO VERDICT TWICE notice is kept until the host accepts it: a failed pipe or no acknowledgment leaves it for the next look" \
     $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
