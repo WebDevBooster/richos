@@ -95,9 +95,14 @@ window.RichBug = (function () {
         if (found.indexOf(hit) === -1) found.push(hit);
       }
     }
-    var more = text.match(/(?:^|\s)((?:~\/|\/[\w.])[^\s,;)"'\]>]*)/g) || [];
-    more.forEach(function (p) {
-      p = p.trim().replace(/[.:!?]+$/, "");
+    // A path between backticks, quotes or brackets is taken whole, spaces and all; a plain one
+    // to the end of its word (Rust's `find_paths` also follows a plain path through spaces).
+    var paths = [];
+    var quoted = /([`"'“‘(\[<{])((?:~\/|\/[\w.])[^\n]*?)(?=[`"'”’)\]>}])/g, q;
+    while ((q = quoted.exec(text))) paths.push(q[2]);
+    (text.match(/(?:^|\s)((?:~\/|\/[\w.])[^\s,;)"'\]>`}]*)/g) || []).forEach(function (p) { paths.push(p.trim().replace(/[.:!?]+$/, "")); });
+    paths.forEach(function (p) {
+      if (paths.some(function (o) { return o !== p && o.indexOf(p) === 0; })) return; // part of a longer one
       if ((p.indexOf("~/") === 0 && p.length > 2) || (p.match(/\//g) || []).length >= 2) if (found.indexOf(p) === -1) found.push(p);
     });
     (text.match(/[\w.%+-]+@[\w-]+(?:\.[\w-]+)+/g) || []).forEach(function (e) { if (found.indexOf(e) === -1) found.push(e); });

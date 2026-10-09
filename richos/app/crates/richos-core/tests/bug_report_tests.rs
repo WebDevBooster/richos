@@ -418,3 +418,73 @@ fn what_github_answered_decides_what_the_user_is_told() {
     assert!(Reason::Offline.retry_after_ms() < Reason::GithubDown.retry_after_ms());
     assert!(Reason::GithubDown.retry_after_ms() >= 120_000);
 }
+
+// ---------------------------------------------------------------------------------------
+// THE SECOND REVIEW'S CASES (rv-20261009T102303Z-1c3dda1d-4c78, on 1c3dda1dc): one test per
+// fixture case, each a thing a user hits in normal use.
+// ---------------------------------------------------------------------------------------
+
+/// The scrubbed text, and what each file-path stand-in replaced.
+fn paths_left_out(text: &str) -> (String, Vec<String>) {
+    let segments = Scrubber::default().scrub(text);
+    let was = segments.iter().filter(|s| s.kind == Some(Kind::FilePath)).filter_map(|s| s.was.clone()).collect();
+    (joined(&segments), was)
+}
+
+#[test]
+fn a_path_in_backticks_is_left_out_whole() {
+    // Finding 1, fixture `core-edge-cases.py`: on the tip the backtick kept the path out of the
+    // detector and the whole path reached the public report.
+    let (text, was) = paths_left_out("The file `/Users/alex/Clients/SecretCo/budget.xlsx` disappeared.");
+    assert_eq!(text, "The file `[a file on this Mac]` disappeared.");
+    assert_eq!(was, ["/Users/alex/Clients/SecretCo/budget.xlsx"]);
+}
+
+#[test]
+fn a_path_with_spaces_is_left_out_whole() {
+    // Finding 1: on the tip only "/Users/alex/Client" was replaced and "Plans/SecretCo.xlsx" went public.
+    let (text, was) = paths_left_out("The file /Users/alex/Client Plans/SecretCo.xlsx disappeared.");
+    assert_eq!(text, "The file [a file on this Mac] disappeared.");
+    assert_eq!(was, ["/Users/alex/Client Plans/SecretCo.xlsx"]);
+    // The common Mac shape: a folder with a space in it, written plainly, and one that ENDS on it.
+    let (text, _) = paths_left_out("Logs are in ~/Library/Application Support/RichOS/logs/today.log now");
+    assert_eq!(text, "Logs are in [a file on this Mac] now");
+    let (text, _) = paths_left_out("It wrote to ~/Library/Application Support and stopped.");
+    assert_eq!(text, "It wrote to [a file on this Mac] and stopped.");
+}
+
+#[test]
+fn a_quoted_or_escaped_path_with_spaces_is_left_out_whole() {
+    for (said, path) in [
+        ("Open \"/Users/alex/My Clients/Secret Co/plan.pdf\" please", "/Users/alex/My Clients/Secret Co/plan.pdf"),
+        ("Open '~/Documents/Secret Co/plan.pdf' please", "~/Documents/Secret Co/plan.pdf"),
+        ("Open “~/Documents/Secret Co/plan.pdf” please", "~/Documents/Secret Co/plan.pdf"),
+        ("Open `~/Library/Application Support/RichOS` please", "~/Library/Application Support/RichOS"),
+        ("Open (/Users/alex/Secret Co/plan.pdf) please", "/Users/alex/Secret Co/plan.pdf"),
+        ("Open /Users/alex/Secret\\ Co/plan.pdf please", "/Users/alex/Secret\\ Co/plan.pdf"),
+    ] {
+        let (text, was) = paths_left_out(said);
+        assert_eq!(was, [path], "{said}");
+        assert!(!text.contains("Secret") && !text.contains("alex"), "{said} => {text}");
+    }
+    // Words after a plain path are not taken with it when nothing says the path goes on.
+    let (text, _) = paths_left_out("Open /Users/alex/notes.txt and then quit.");
+    assert_eq!(text, "Open [a file on this Mac] and then quit.");
+}
+
+#[test]
+fn an_address_after_an_emoji_is_found_on_character_boundaries() {
+    // Finding 5: on the tip this panicked slicing inside the emoji's four bytes.
+    let text = joined(&Scrubber::default().scrub("Mail 🐛alice@example.com"));
+    assert_eq!(text, "Mail 🐛[an email address]");
+    let text = joined(&Scrubber::default().scrub("Écrivez à josé.ñ@example.com — merci"));
+    assert!(!text.contains("example.com"), "{text}");
+}
+
+#[test]
+fn a_change_in_accented_words_is_read_on_character_boundaries() {
+    // Finding 5: on the tip this panicked slicing "ééé " at byte 4, inside the second "é".
+    assert_eq!(plain_change("ééé also happens in light mode").add, "Ééé also happens in light mode.");
+    assert_eq!(plain_change("Ändern: it happens in light mode").add, "Ändern: it happens in light mode.");
+    assert_eq!(plain_change("Also say it happens in light mode").add, "It happens in light mode.");
+}

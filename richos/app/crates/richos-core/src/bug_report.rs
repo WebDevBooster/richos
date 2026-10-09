@@ -182,7 +182,9 @@ impl Segment {
 ///     ("femcboost", a folder) is matched in any case, because it is not an ordinary word.
 ///   - Every match is a whole word: "Acmes" and "subAcme" are not "Acme".
 ///   - **File paths** start a word with `/` and hold at least two slashes (`/Users/alex`), or start
-///     with `~/`; "and/or" and "24/7" are not paths. **Email addresses** are `local@host.tld`.
+///     with `~/`; "and/or" and "24/7" are not paths. Each is left out WHOLE, spaces included,
+///     between backticks, quotes or brackets and written plainly alike ([`find_paths`]).
+///     **Email addresses** are `local@host.tld`.
 #[derive(Debug, Clone, Default)]
 pub struct Scrubber {
     terms: Vec<PrivateTerm>,
@@ -307,12 +309,84 @@ fn find_term(text: &str, term: &str) -> Vec<(usize, usize)> {
     out
 }
 
-/// File paths: a word starting `~/`, or a word starting `/` with at least two slashes.
+/// The marks a path is commonly written between, each with the mark that closes it: Markdown's
+/// backticks, straight and curly quotes, and brackets.
+const PATH_DELIMITERS: [(char, char); 9] =
+    [('`', '`'), ('"', '"'), ('\'', '\''), ('“', '”'), ('‘', '’'), ('(', ')'), ('[', ']'), ('<', '>'), ('{', '}')];
+
+/// Folders macOS itself names with a space in them. A plain path that reaches one of these takes
+/// the whole name, so `~/Library/Application Support` is left out whole even where it ends.
+const SPACED_FOLDERS: [&str; 6] =
+    ["Application Support", "Application Scripts", "Mobile Documents", "Group Containers", "Saved Application State", "Address Book"];
+
+/// Where a path that is not between delimiters stops being one word: at a space (unless it is
+/// escaped, `Client\ Plans`) or at punctuation that closes a phrase.
+fn path_word_end(text: &str, from: usize) -> usize {
+    let mut escaped = false;
+    for (i, c) in text[from..].char_indices() {
+        if c.is_whitespace() && !escaped || ",;)\"'”’]>`}".contains(c) {
+            return from + i;
+        }
+        escaped = c == '\\';
+    }
+    text.len()
+}
+
+/// A folder macOS names with a space, starting at the path's last segment: where it ends.
+fn spaced_folder_end(text: &str, start: usize, end: usize) -> Option<usize> {
+    let path = &text[start..end];
+    SPACED_FOLDERS.iter().find_map(|name| {
+        let first = name.split(' ').next().unwrap_or(name);
+        let from = end - first.len();
+        let fits = path.ends_with(&format!("/{first}")) && text[from..].starts_with(name);
+        let after = from + name.len();
+        (fits && !char_after(text, after).is_some_and(is_word_char)).then_some(after)
+    })
+}
+
+/// **A path with spaces in it, written plainly** (`/Users/alex/Client Plans/budget.xlsx`): when
+/// one of the next three words carries on with a `/` (and none before it ends a phrase), the path
+/// goes on through it. A path whose last segment already names a file (`notes.txt`) stops there.
+fn path_goes_on(text: &str, start: usize, end: usize) -> Option<usize> {
+    let last = text[start..end].rsplit('/').next().unwrap_or("");
+    if last.contains('.') || last.is_empty() {
+        return None;
+    }
+    let mut at = end;
+    for _ in 0..3 {
+        // One space between the words of a name; anything else ends the path.
+        if !text[at..].starts_with(' ') || text[at + 1..].starts_with(char::is_whitespace) {
+            return None;
+        }
+        at += 1;
+        let word_end = at + text[at..].find(char::is_whitespace).unwrap_or(text.len() - at);
+        let word = &text[at..word_end];
+        if let Some(slash) = word.find('/') {
+            let before_slash = &word[..slash];
+            let plain = !before_slash.is_empty() && !before_slash.contains(|c: char| ",;:.!?\"'`()[]<>{}“”‘’".contains(c));
+            return plain.then(|| path_word_end(text, at));
+        }
+        if word.is_empty() || word.ends_with(|c: char| ",;:.!?\"'`)]>}”’".contains(c)) {
+            return None;
+        }
+        at = word_end;
+    }
+    None
+}
+
+/// **File paths**, complete: a path starts a word with `~/`, or with `/` and holds two slashes.
+///
+///   - **Between delimiters** (`` `…` ``, quotes, brackets) it runs to the closing mark on the
+///     same line, spaces and all: `"~/Documents/Secret Co/plan.pdf"`.
+///   - **Written plainly** it runs to the end of the word, through escaped spaces, through a
+///     folder macOS names with a space, and through later words that carry on with a `/`
+///     ([`path_goes_on`]). Sentence punctuation at its end stays outside.
+///
+/// "and/or" and "24/7" are not paths (no leading `/`).
 fn find_paths(text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
-    let starts: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
     let mut skip_to = 0;
-    for &i in &starts {
+    for (i, _) in text.char_indices() {
         if i < skip_to {
             continue;
         }
@@ -322,13 +396,31 @@ fn find_paths(text: &str) -> Vec<(usize, usize)> {
             continue;
         }
         let before = char_before(text, i);
-        if before.is_some_and(|c| !(c.is_whitespace() || "(\"'[“‘<".contains(c))) {
+        let delimiter = before.and_then(|b| PATH_DELIMITERS.iter().find(|(open, _)| *open == b).map(|&(_, close)| close));
+        if before.is_some_and(|c| !c.is_whitespace() && delimiter.is_none()) {
             continue;
         }
-        let mut end = i + rest.find(|c: char| c.is_whitespace() || ",;)\"'”’]>".contains(c)).unwrap_or(rest.len());
-        while end > i && text[..end].ends_with(['.', ':', '!', '?']) {
-            end -= 1;
-        }
+        let line = &rest[..rest.find('\n').unwrap_or(rest.len())];
+        let end = match delimiter.and_then(|close| line.find(close)) {
+            Some(close_at) => i + close_at,
+            None => {
+                let mut end = path_word_end(text, i);
+                loop {
+                    if let Some(after) = spaced_folder_end(text, i, end) {
+                        end = if text[after..].starts_with('/') { path_word_end(text, after) } else { after };
+                        continue;
+                    }
+                    match path_goes_on(text, i, end) {
+                        Some(further) => end = further,
+                        None => break,
+                    }
+                }
+                while end > i && text[..end].ends_with(['.', ':', '!', '?']) {
+                    end -= 1;
+                }
+                end
+            }
+        };
         let candidate = &text[i..end];
         if candidate.starts_with("~/") && candidate.len() > 2 || candidate.matches('/').count() >= 2 {
             out.push((i, end));
@@ -338,13 +430,14 @@ fn find_paths(text: &str) -> Vec<(usize, usize)> {
     out
 }
 
-/// Email addresses: `local@host.tld`.
+/// Email addresses: `local@host.tld`. Every offset is a character boundary: the address may
+/// follow an emoji or an accented letter.
 fn find_emails(text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
-    let local = |c: char| c.is_ascii_alphanumeric() || "._%+-".contains(c);
-    let host = |c: char| c.is_ascii_alphanumeric() || ".-".contains(c);
+    let local = |c: char| c.is_alphanumeric() || "._%+-".contains(c);
+    let host = |c: char| c.is_alphanumeric() || ".-".contains(c);
     for (at, _) in text.match_indices('@') {
-        let start = text[..at].rfind(|c: char| !local(c)).map(|p| p + 1).unwrap_or(0);
+        let start = text[..at].char_indices().rev().find(|&(_, c)| !local(c)).map(|(p, c)| p + c.len_utf8()).unwrap_or(0);
         let mut end = at + 1 + text[at + 1..].find(|c: char| !host(c)).unwrap_or(text.len() - at - 1);
         while end > at + 1 && text[..end].ends_with(['.', '-']) {
             end -= 1;
@@ -696,14 +789,17 @@ pub fn parse_change(raw: &str) -> Result<Change, String> {
 /// Without Rich: the user's own words, tidied the way round 21 tidies them ("Also say it
 /// happens…" becomes "It happens…"), added to What happened.
 pub fn plain_change(said: &str) -> Change {
+    // `get` rather than an index: the first bytes of "ééé" are not a whole character, and a
+    // prefix that is not one is simply not the lead.
+    let leads = |text: &str, lead: &str| text.len() > lead.len() && text.get(..lead.len()).is_some_and(|p| p.eq_ignore_ascii_case(lead));
     let mut text = said.trim();
     for lead in ["also ", "and ", "please "] {
-        if text.len() > lead.len() && text[..lead.len()].eq_ignore_ascii_case(lead) {
+        if leads(text, lead) {
             text = text[lead.len()..].trim_start();
         }
     }
     for lead in ["say that ", "mention that ", "add that ", "say ", "mention ", "add "] {
-        if text.len() > lead.len() && text[..lead.len()].eq_ignore_ascii_case(lead) {
+        if leads(text, lead) {
             text = text[lead.len()..].trim_start();
             break;
         }
