@@ -119,6 +119,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import stall_watch  # noqa: E402  (sibling: session, lock, JSON and silent-teammate helpers)
+from app_review import app_paths  # noqa: E402  (sibling: the app's review paths, shared with its hook)
 
 POLL_SECONDS = 60
 LONG_JOB_MINUTES = 60
@@ -271,9 +272,23 @@ class Item(object):
     def key(self):
         return (self.repo, self.tip)
 
+    env = None          # app mode: the partition this item's registry lives in (RICHOS_WORKSPACES_DIR)
+    session = ""        # the lead session that registered the work (the operator host delivers to it)
+    claude = ""         # app mode: the Claude CLI the app ships
+
     def args(self, trigger):
         """second-review's arguments for this item."""
         a = ["--repo", self.repo, "--tip", self.tip, "--base", self.base, "--trigger", trigger, "--work", self.work]
+        if self.source == "app":
+            # A regular RichOS user: Claude reviews (plan §2.3, "RichOS is Claude", §16), on the
+            # CLI the app ships, with the user's own turn as the original words beside the
+            # brief the worker received.
+            a = ["--name", self.ref] + a + ["--reviewer", "claude"]
+            for w in self.words:
+                a += ["--words-file", w]
+            if self.claude:
+                a += ["--claude", self.claude]
+            return a
         if self.source == "codex":
             a += ["--branch", self.branch, "--author", "codex"]
             for w in self.words:
@@ -308,6 +323,9 @@ class World(object):
             if not r.startswith(os.sep) and os.path.basename(real) == r:
                 return True
         return False
+
+    def wants_space(self, w):
+        return self.wanted(w["repo"])
 
     def repo_named(self, name):
         for r in self.repos or []:
@@ -366,7 +384,7 @@ class World(object):
                 continue
             spaces = [w for w in rec.get("workspaces") or []
                       if w.get("branch") and not w.get("deleted_at") and not w.get("branch_deleted_at")
-                      and w.get("repo") and self.wanted(w["repo"])]
+                      and w.get("repo") and self.wants_space(w)]
             if not spaces:
                 continue
             try:
@@ -409,8 +427,10 @@ class World(object):
                         except OSError:
                             pass
                     quiet = now - max(marks) >= th_silent
-                items.append(Item(work, name, repo, tip, base, state, started=started, branch=w["branch"],
-                                  ref=rec["key"], quiet=quiet, continued=rec["key"] in continued))
+                item = Item(work, name, repo, tip, base, state, started=started, branch=w["branch"],
+                            ref=rec["key"], quiet=quiet, continued=rec["key"] in continued)
+                item.session = str(rec.get("session_id") or "")
+                items.append(item)
         return items, problems
 
     # -- Codex's handovers --------------------------------------------------------
@@ -509,6 +529,84 @@ class World(object):
                 "words": [wpath], "claims": [cpath], "at": now, "title": header[3:].strip()[:120]}
 
 
+class AppWorld(World):
+    """THE APP'S OWN WATCHER (second review, slice 4): the same looks over the app's registry.
+
+    A regular RichOS user's app runs this as the host's own child (richos-core review_watch.rs),
+    because a product lease loads no settings and no monitors (`--setting-sources ''`, Sage's
+    check §1.3). What differs from his team's watcher, and why:
+      * The registry is partitioned, one per company and conversation
+        (<app state>/workspaces/<sha256>), so each look reads every partition.
+      * Every connected repository is reviewed: the user connected it for this work; there is no
+        orchestration.config to list it in.
+      * MID-JOB ONLY (long-job, gone quiet). A handover in the app is already reviewed, and
+        `integrate` refuses without that review's pass (DESKTOP.md step 5, app.py integrate);
+        a second handover review would only spend the user's subscription twice.
+      * Claude reviews, on the CLI the app ships (--claude), with the user's own turn, kept
+        beside the worker's receipt by app.py prepare, as the original words.
+      * No Codex channel: that is his team's.
+    """
+
+    def __init__(self, engine_root, app_state, claude=""):
+        self.engine_root = engine_root
+        self.config = ""
+        self.app_state = os.path.realpath(app_state)
+        self.claude = claude
+        self.repos = ["(every connected repository)"]
+        self.ws = stall_watch._load("review_watch_workspaces",
+                                    os.path.join(engine_root, "mega-lander", "workspaces.py"))
+        self.src = stall_watch.Sources(engine_root)
+        self._merge_bases = {}
+
+    def wanted(self, repo):
+        return True
+
+    def wants_space(self, w):
+        # The implementation workspace in a connected repository (cc/), never the provider's
+        # native coordination worktree, which is not the work (app.py target_workspaces).
+        return w.get("kind") == "cc"
+
+    def partitions(self):
+        return sorted(p for p in glob.glob(os.path.join(self.app_state, "workspaces", "*"))
+                      if os.path.isdir(p) and not os.path.islink(p))
+
+    def words_for(self, partition, name):
+        """The user's turn app.py prepare kept beside the receipt that started `name`."""
+        receipts = os.path.join(self.app_state, "work-receipts", os.path.basename(partition))
+        for path in sorted(glob.glob(os.path.join(receipts, "*.json"))):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    if json.load(f).get("name") != name:
+                        continue
+            except (OSError, ValueError, AttributeError):
+                continue
+            words = path[:-len(".json")] + ".words"
+            return [words] if os.path.isfile(words) else []
+        return []
+
+    def registry_items(self, now, seen):
+        items, problems = [], []
+        before = os.environ.get("RICHOS_WORKSPACES_DIR")
+        try:
+            for part in self.partitions():
+                os.environ["RICHOS_WORKSPACES_DIR"] = part
+                got, probs = World.registry_items(self, now, seen)
+                for it in got:
+                    it.source, it.env, it.claude = "app", {"RICHOS_WORKSPACES_DIR": part}, self.claude
+                    it.words = self.words_for(part, it.name)
+                items += got
+                problems += probs
+        finally:
+            if before is None:
+                os.environ.pop("RICHOS_WORKSPACES_DIR", None)
+            else:
+                os.environ["RICHOS_WORKSPACES_DIR"] = before
+        return items, problems
+
+    def codex_items(self, now, codex_state):
+        return [], []
+
+
 def split_entries(text):
     """[(header line or '', body)] split at `## ` headers."""
     out = []
@@ -598,12 +696,16 @@ class Book(object):
         return max(ts) if ts else None
 
 
-def due(items, book, now, seen, long_seconds):
+def due(items, book, now, seen, long_seconds, handover=True):
     """[(item, trigger, supersede lock info or None)]: the reviews to start now.
-    Pure: everything it needs is in its arguments."""
+    Pure: everything it needs is in its arguments. handover=False is the app's watcher
+    (AppWorld): its handovers are reviewed by the app's own reviewer, so it starts mid-job
+    reviews only."""
     out = []
     for it in items:
         if it.tip == it.base:
+            continue
+        if it.state == "ended" and not handover:
             continue
         key = it.key
         lost = book.losses.get(key) or []
@@ -654,9 +756,10 @@ class Watcher(object):
     def spawn(self, item, trigger, log_path):
         """(pid, start identity) of a started review."""
         argv = ["bash", self.second_review()] + item.args(trigger)
+        env = dict(os.environ, **item.env) if item.env else None
         with open(log_path, "ab") as log:
             p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True,
-                                 cwd=state_root())
+                                 cwd=state_root(), env=env)
         self.children[p.pid] = p
         return p.pid, self.process_start(p.pid)
 
@@ -821,6 +924,23 @@ class Watcher(object):
         self.rewrite_lock(path, info)
         return info
 
+    def stop_own(self, now):
+        """The app quit (or its host died): every review THIS watcher started is stopped by its
+        recorded process id and settled as stopped, never as lost, so a quit does not count
+        toward the two losses after which nothing starts by itself. It starts again at the
+        first look after the app opens, if it is still due. Reviews another watcher started are
+        never touched."""
+        rows = read_jsonl(review_ledger())
+        for path in sorted(glob.glob(_p("locks", "*.lock"))):
+            info = stall_watch._read_json(path)
+            if not info or info.get("pid") not in self.children:
+                continue
+            info["path"] = path
+            self.stop(info)
+            self.settle(path, info, now, rows, "stopped",
+                        "the app quit while it ran; it starts again at a look after the app opens, if still due")
+            self.children.pop(info.get("pid"), None)
+
     # -- one look --------------------------------------------------------------------
     def look(self, now, session_state):
         """Lines to print. Starts what is due; settles what ended."""
@@ -842,7 +962,8 @@ class Watcher(object):
         problems += cproblems
         attempts = read_jsonl(_p("attempts.jsonl"))
         book = Book(rows, running, attempts)
-        for it, trigger, supersede in due(items, book, now, seen, LONG_JOB_MINUTES * 60):
+        handover = not isinstance(self.world, AppWorld)
+        for it, trigger, supersede in due(items, book, now, seen, LONG_JOB_MINUTES * 60, handover):
             n = len(book.losses.get(it.key) or []) + 1
             info = self.start(it, trigger, now, n, supersede, rows)
             if info:
@@ -924,10 +1045,39 @@ def not_converging(row, rows):
     return [(fid, titles.get(fid) or "") for fid in sorted(both)]
 
 
+# --host-json (the operator host's child, richos-core review_watch.rs): every look's notices as
+# JSON lines, one per lead session, which the host sends to that lead as a message of its own.
+HOST_JSON = {"on": False}
+
+
+def host_json_lines(now, body, owners):
+    """[JSON line]: one {"session", "text"} per lead session, its blocks under the usual head."""
+    out, order = {}, []
+    for block, session in zip(body, owners):
+        if session not in out:
+            out[session] = []
+            order.append(session)
+        out[session].append(block)
+    lines = []
+    for session in order:
+        blocks = out[session]
+        head = ("REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was "
+                "paused, stopped or killed)" % (hhmm(now), len(blocks), "" if len(blocks) == 1 else "s"))
+        text = "\n".join([head] + [line for b in blocks for line in b])
+        lines.append(json.dumps({"session": session, "text": text}, sort_keys=True))
+    return lines
+
+
 def tell(now, sstate, rows, book, items, problems, attempts):
     items_by_key = dict((it.key, it) for it in items)
     told = sstate.setdefault("told", {})
-    body = []
+    body, owners = [], []
+
+    def add(block, it=None):
+        # Each block keeps the session of the lead whose teammate it is about, so the operator
+        # host can deliver it to that lead (--host-json); "" when no lead started the work.
+        body.append(block)
+        owners.append(getattr(it, "session", "") or "")
     # -- new verdicts, from where this session last read the ledger ---------------
     start = sstate.get("rows")
     if not isinstance(start, int) or start > len(rows):
@@ -936,7 +1086,7 @@ def tell(now, sstate, rows, book, items, problems, attempts):
     for row in rows[start:]:
         if not row.get("verdict"):
             continue
-        body.append(render_verdict(row, items_by_key))
+        add(render_verdict(row, items_by_key), _who(row, items_by_key)[1])
         if row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB:
             told["cr:%s:%s" % (row.get("repo"), row.get("tip"))] = {"first": now, "last": now, "count": 1}
         for fid, title in not_converging(row, rows):
@@ -945,9 +1095,9 @@ def tell(now, sstate, rows, book, items, problems, attempts):
                 continue
             told[k] = {"first": now}
             who, _it = _who(row, items_by_key)
-            body.append(["  [NOT CONVERGING] %s: finding %s (%s) is still open after two rechecks in a row." % (
+            add(["  [NOT CONVERGING] %s: finding %s (%s) is still open after two rechecks in a row." % (
                 who, fid, " ".join(title.split())[:100]),
-                "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."])
+                "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."], _it)
     sstate["rows"] = len(rows)
     shared = stall_watch._read_json(_p("last-told.json"))
     shared["rows"] = max(len(rows), int(shared.get("rows") or 0)) if isinstance(shared.get("rows"), int) else len(rows)
@@ -963,10 +1113,10 @@ def tell(now, sstate, rows, book, items, problems, attempts):
         t = told.get(k)
         if t is None:
             told[k] = {"first": now, "last": now, "count": 1}
-            body.append(render_verdict(hv[-1], items_by_key))
+            add(render_verdict(hv[-1], items_by_key), it)
         elif now - float(t.get("last") or now) >= REPEAT_MINUTES * 60:
             t["last"], t["count"] = now, int(t.get("count") or 1) + 1
-            body.append(render_verdict(hv[-1], items_by_key, (t["count"], hhmm(float(t["first"])))))
+            add(render_verdict(hv[-1], items_by_key, (t["count"], hhmm(float(t["first"])))), it)
     # -- a commit whose review was lost twice --------------------------------------
     for key, lost in book.losses.items():
         if len(lost) < MAX_LOSSES:
@@ -976,22 +1126,24 @@ def tell(now, sstate, rows, book, items, problems, attempts):
             continue
         told[k] = {"first": now}
         a = lost[-1]
-        body.append(["  [NO VERDICT TWICE] %s, %s@%s: %s" % (a.get("name"), os.path.basename(key[0] or ""),
-                                                            str(key[1])[:12], " ".join(str(a.get("why")).split())[:300]),
-                     "      Nothing more starts for this commit by itself. You can: fix the cause, then run "
-                     "%s by hand." % "second-review.sh"])
+        add(["  [NO VERDICT TWICE] %s, %s@%s: %s" % (a.get("name"), os.path.basename(key[0] or ""),
+                                                    str(key[1])[:12], " ".join(str(a.get("why")).split())[:300]),
+             "      Nothing more starts for this commit by itself. You can: fix the cause, then run "
+             "%s by hand." % "second-review.sh"], items_by_key.get(key))
     # -- what could not be read or started ------------------------------------------
     for p in problems:
         k = "problem:" + p[:120]
         if k in told:
             continue
         told[k] = {"first": now}
-        body.append(["  [NOT STARTED] " + p[:400]])
+        add(["  [NOT STARTED] " + p[:400]])
     for k in list(told):
         if now - float(told[k].get("first") or now) > KEEP_SECONDS:
             del told[k]
     if not body:
         return []
+    if HOST_JSON["on"]:
+        return host_json_lines(now, body, owners)
     lines = ["REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was paused, "
              "stopped or killed)" % (hhmm(now), len(body), "" if len(body) == 1 else "s")]
     used = len(lines[0])
@@ -1108,6 +1260,64 @@ def run_loop(watcher, engine_root):
     return 0
 
 
+def run_host_loop(watcher, name):
+    """A watcher that is the app host's own child (richos-core review_watch.rs): the app's
+    (--app-state, name "app") or the operator install's (--host-json, name "operator-host").
+
+    It ends with the app, three ways, and each one stops the reviews it started first:
+    SIGTERM (the host's quit path), SIGHUP, and its parent going away (an app that crashed or
+    was killed: the parent process id changes when the host dies, so a review never runs on for
+    an app that is gone)."""
+    sd = session_dir(name)
+    fd = stall_watch._try_lock(os.path.join(sd, "monitor.lock"))
+    if fd is None:
+        return 0                                    # another copy of the app already watches
+    parent = os.getppid()
+
+    def alive():
+        return os.getppid() == parent
+
+    def ended(signum, _frame):
+        raise SystemExit(128 + signum)
+
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, ended)
+    prune(sd)
+    poll = stall_watch._env_float("REVIEW_WATCH_POLL_SECONDS", POLL_SECONDS)
+    try:
+        while alive():
+            tick(watcher, sd)
+            stall_watch._nap(poll, alive)
+    finally:
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
+        watcher.stop_own(clock())
+        os.close(fd)
+    return 0
+
+
+def app_mode(a, engine_root):
+    """--app-state: the app's watcher. Its state and its ledger live under the app's own
+    engine state (app_paths); the transcripts its reviews read are the app's platform record."""
+    paths = app_paths(a.app_state)
+    os.environ["REVIEW_WATCH_STATE_DIR"] = paths["watch"]
+    os.environ["SECOND_REVIEW_STATE_DIR"] = paths["reviews"]
+    if not (os.environ.get("RICHOS_PROJECTS_DIR") or "").strip():
+        os.environ["RICHOS_PROJECTS_DIR"] = os.path.join(os.path.realpath(a.app_state), "platform-projects")
+    watcher = Watcher(engine_root, "", AppWorld(engine_root, a.app_state, a.claude))
+    if a.status:
+        for path in sorted(glob.glob(_p("locks", "*.lock"))):
+            info = stall_watch._read_json(path)
+            print("  running: %s %s@%s (%s) since %s, pid %s" % (
+                info.get("name"), os.path.basename(info.get("repo") or ""), str(info.get("tip"))[:12],
+                info.get("trigger"), iso(float(info.get("started_at") or 0)), info.get("pid")))
+        return 0
+    if a.tick:
+        tick(watcher, session_dir("app"))
+        return 0
+    return run_host_loop(watcher, "app")
+
+
 def mode_status(engine_root):
     sid, _pid = current_session(engine_root)
     sd = _p("sessions", sid or "no-session")
@@ -1131,13 +1341,26 @@ def main(argv):
         g.add_argument(flag, action="store_true")
     ap.add_argument("--config", default="")
     ap.add_argument("--engine-root", default="")
+    ap.add_argument("--app-state", default="", help="the app's engine state: the app's own watcher (AppWorld)")
+    ap.add_argument("--claude", default="", help="app mode: the Claude CLI the app ships")
+    ap.add_argument("--host-json", action="store_true",
+                    help="the operator host's child: notices as JSON lines, one per lead session")
     a = ap.parse_args(argv)
     engine_root = a.engine_root or os.path.dirname(os.path.dirname(HERE))
+    if a.app_state:
+        return app_mode(a, engine_root)
     if a.status:
         return mode_status(engine_root)
     if not a.config:
         return 0                                    # a repository that never adopted the engine: nothing to watch
     watcher = Watcher(engine_root, a.config)
+    if a.host_json:
+        # The operator install's host runs this as its child and sends each line's text to the
+        # lead of that session as a message of its own (Sage's check §1.3): a monitor inside a
+        # print-mode lead would start a turn the host never asked for and cannot attribute.
+        HOST_JSON["on"] = True
+        if a.monitor:
+            return run_host_loop(watcher, "operator-host")
     if a.tick:
         sid, _pid = current_session(engine_root)
         tick(watcher, session_dir(sid))

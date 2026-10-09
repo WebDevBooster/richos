@@ -378,9 +378,14 @@ def resolve_work(a):
     if a.author:
         w.author = a.author
     w.author = w.author or "unknown"
+    # Given words come FIRST: in the app they are the user's own turn, and the transcript's first
+    # message is the coordinator's brief to the worker (plan §2.2: "the user's own turn, then
+    # Stu's brief"). Without --name there are no transcript words, so nothing else moves.
+    given = []
     for path in a.words_file or []:
         with open(path, "rb") as f:
-            w.words.append(("%s, as given" % os.path.abspath(path), f.read().decode("utf-8", "replace")))
+            given.append(("%s, as given" % os.path.abspath(path), f.read().decode("utf-8", "replace")))
+    w.words = given + w.words
     for path in a.claims_file or []:
         with open(path, "rb") as f:
             w.claims.append(("%s, as given" % os.path.abspath(path), f.read().decode("utf-8", "replace")))
@@ -631,7 +636,11 @@ def find_codex():
     return shutil.which("codex") or ""
 
 
-def find_claude():
+def find_claude(named=""):
+    """The Claude CLI: the one named (--claude, the CLI the app ships), else the test seam,
+    else the operator's. A named one that cannot run is no CLI, never a fallback to another."""
+    if named:
+        return named if os.path.isfile(named) and os.access(named, os.X_OK) else ""
     pinned = os.environ.get("SECOND_REVIEW_CLAUDE")
     if pinned is not None:
         return pinned if os.path.isfile(pinned) and os.access(pinned, os.X_OK) else ""
@@ -1058,7 +1067,7 @@ def review(a):
         row["why"] = ("the quota hold is in force (his 93%% rule; %s), so no Claude review started; it waits "
                       "for the reset, as every teammate does" % reading)
         return finish(None, raw)
-    claude = find_claude()
+    claude = find_claude(a.claude)
     if not claude:
         row["why"] = "no reviewer could run: %sthe claude CLI was not found" % (
             (row["fallback_why"] + "; ") if row["fallback_why"] else "")
@@ -1112,6 +1121,7 @@ def main(argv):
     ap.add_argument("--work", default="", help="the key that ties rechecks of one piece of work together")
     ap.add_argument("--trigger", default="manual", choices=["handover", "long-job", "quiet", "manual"])
     ap.add_argument("--reviewer", default="auto", choices=["auto", "codex", "claude"])
+    ap.add_argument("--claude", default="", help="the Claude CLI to review with (the app passes the one it ships)")
     ap.add_argument("--limit-minutes", type=float, default=LIMIT_SECONDS / 60.0)
     ap.add_argument("--admission-wait", type=float, default=ADMISSION_WAIT_SECONDS,
                     help="seconds to wait for CPU admission (default 1800)")

@@ -43,6 +43,12 @@
 #   W09  a repository not in SECOND_REVIEW_REPOS is never reviewed; with the
 #        key absent it says so once and starts nothing
 #   W10  monitors.json starts review-watch.sh --monitor always
+#   W11  --host-json (the operator install's host child, slice 4): a look's notices
+#        are one JSON line per lead session, for the host to send to that lead
+#
+# Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
+# The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
+# app fixture in mega-lander/tests/app.test.py.
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -407,6 +413,32 @@ has "$OUT" "told again, notice 2"; check "W03 unhandled after 30 minutes: told a
 reg echo-sonnet-w1b 60 - sess-w--echo-sonnet-w1
 REVIEW_WATCH_NOW="$(python3 -c 'import time; print(time.time() + 65 * 60)')" tickrw
 [ "$RC" -eq 0 ] && ! has "$OUT" "[CHANGES-REQUESTED] echo-sonnet-w1,"; check "W03 once a continuation names the work, it is not told again" $? "out=$OUT"
+
+# --- W11 ---------------------------------------------------------------------
+# The operator install's host child (slice 4, Sage's check §1.3): --host-json prints each
+# look's notices as one JSON line per lead session, so the host can send each to the lead
+# whose session registered the work, as a message of its own.
+resetstate
+reg echo-sonnet-w1 600 30
+python3 - "$SB" <<'PY'
+import json, os, sys
+p = os.path.join(sys.argv[1], "workspaces", "agents", "sess-w--echo-sonnet-w1.json")
+r = json.load(open(p)); r["session_id"] = "lead-session-1"
+json.dump(r, open(p, "w"))
+PY
+OUT="$(RICHOS_ENTITY_ROOT="$SB" FAKE_SR_MODE=changes-requested bash "$RW" --tick --host-json 2>&1)"; RC=$?
+waitcalls 1; waitrows 1
+OUT="$(RICHOS_ENTITY_ROOT="$SB" bash "$RW" --tick --host-json 2>&1)"; RC=$?
+printf '%s\n' "$OUT" | python3 -c '
+import json, sys
+lines = [l for l in sys.stdin.read().splitlines() if l.strip()]
+rows = [json.loads(l) for l in lines]
+assert len(rows) == 1, rows
+assert rows[0]["session"] == "lead-session-1", rows
+assert "[CHANGES-REQUESTED] echo-sonnet-w1, handover review" in rows[0]["text"], rows
+assert rows[0]["text"].startswith("REVIEW-WATCH "), rows
+'
+check "W11 --host-json: the verdict is one JSON line for the lead session that registered the work" $? "rc=$RC out=$OUT"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
