@@ -19,7 +19,12 @@
 //      report at a time.
 //   7. Where a window covers the conversation, the exchange happens in the Rich panel beside it.
 //   8. Both themes: every word on the card and in the panel meets WCAG AA and the 16px floor,
-//      and every indicator 3:1, computed in WebKit.
+//      and every indicator 3:1, computed in WebKit (the "changing" and "canceling" states too).
+//   9. The second review's cases (rv-20261009T102303Z-1c3dda1d-4c78, on 1c3dda1dc), each red
+//      there: Rich's private words kept through changes, Send and Cancel held during a change,
+//      Cancel confirmed (refused, or a retry already sending), Change it on a report that went
+//      out, and the screen's words given to Rich with the window's picture asked for first.
+//      `mock.js` holds a change or a cancel, fails a cancel, or files a waiting report mid-cancel.
 "use strict";
 
 const path = require("path");
@@ -242,6 +247,130 @@ async function main() {
     return warn;
   });
 
+  // ---- the second review's cases (rv-20261009T102303Z-1c3dda1d-4c78, on 1c3dda1dc) ----
+  const prose = (page) => page.locator("#bug-flows .bug-rich .tl-prose").allInnerTexts().then((t) => t.join("\n"));
+
+  await run.check("a private name Rich found stays left out through every change, and the heads-up names it", async () => {
+    // Finding 4: on the tip Rich's own private words applied to the first draft only.
+    const page = await open("dark", { bugRichPrivate: [{ text: "Jane Doe", kind: "person_name" }] });
+    await bustABug(page);
+    await answer(page, "The names on the left get cut off. Jane Doe saw it first.");
+    assert(!(await page.locator(".bugcard .bug-doc").innerText()).includes("Jane Doe"), "Rich's private name is on the first draft");
+    await page.fill("#input", "Also say Jane Doe saw it in light mode too");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".bug-sec p.is-added");
+    const asked = (await calls(page, "bug_report_change"))[0];
+    assert((asked.private || []).some((t) => t.text === "Jane Doe"), "the change was asked without the report's private words: " + JSON.stringify(asked.private));
+    const added = await page.locator(".bug-sec p.is-added").innerText();
+    assert(!added.includes("Jane Doe") && added.includes("[a person]"), "the change put the name back: " + added);
+    await page.click("#bug-change");
+    await page.waitForSelector(".bugcard.is-editing");
+    await page.keyboard.type(" Jane Doe");
+    await page.waitForSelector(".bug-warn:not([hidden])");
+    const warn = await page.locator(".bug-warn").innerText();
+    assertEqual(warn, "“Jane Doe” looks private. Anyone can read this report on GitHub.", "heads-up");
+    await page.close();
+    return added + " / " + warn;
+  });
+
+  await run.check("while Rich changes the report, Send and Cancel wait for him, and what is sent is what he changed", async () => {
+    // Finding 3: on the tip Send and Cancel stayed live, and a late change rewrote a sent card.
+    const page = await open("dark", { bugChangeHold: true });
+    await bustABug(page);
+    await answer(page, "Not now fades a suggestion but leaves it.");
+    await page.fill("#input", "Also say it happens in the light theme too");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".bug-working:has-text('Rich is changing the report…')");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Changing it…')");
+    for (const id of ["#bug-send", "#bug-cancel", "#bug-change"]) assert(await page.isHidden(id), id + " is offered while Rich is changing the report");
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.releaseChange());
+    await page.waitForSelector(".bug-sec p.is-added");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet · changed')");
+    const shown = await page.locator(".bugcard .bug-doc").innerText();
+    await page.click("#bug-send");
+    await page.waitForSelector(".bugcard.is-sent");
+    const sent = (await calls(page, "bug_report_send"))[0].sheet;
+    const words = [sent.title, ...sent.sections.flatMap((s) => [s.heading, ...s.paragraphs, ...s.steps])].join("\n");
+    assertEqual(words.replace(/\s+/g, " ").trim(), shown.replace(/\s+/g, " ").trim(), "what was sent is not the changed report");
+    assert(words.includes("It happens in the light theme too."), words);
+    await page.close();
+    return "held, then sent with the change";
+  });
+
+  await run.check("Cancel says nothing was sent only once the waiting copy is gone from this Mac", async () => {
+    // Finding 2: on the tip Cancel said "Canceled. Nothing was sent." before, and whatever, the
+    // shell answered; here the copy could not be removed and still goes out by itself.
+    const page = await open("dark", { bugNet: "offline", bugCancel: "fail" });
+    await bustABug(page);
+    await answer(page, ANSWER);
+    await page.click("#bug-send");
+    await page.waitForSelector(".bugcard.is-queued");
+    await page.click("#bug-cancel");
+    await page.waitForSelector("#bug-flows .bug-rich:has-text(\"I couldn't cancel the report\")");
+    await page.waitForSelector(".bugcard.is-queued .bug-pill:has-text('Waiting to send · saved on this Mac')");
+    assert(!(await prose(page)).includes("Nothing was sent"), "it said nothing was sent: " + (await prose(page)));
+    assertEqual((await page.evaluate(() => window.__RICHOS_MOCK_BUG__.waiting())).length, 1, "the report is no longer waiting");
+    for (const id of ["#bug-try-now", "#bug-change", "#bug-cancel"]) assert(await page.isVisible(id), id + " is not offered again");
+    const said = await lastSaid(page);
+    await page.close();
+    return said;
+  });
+
+  await run.check("Cancel while a retry is already sending: the report went out, and Rich says so", async () => {
+    // Finding 2: on the tip the card said "Canceled · nothing sent" beside a notice that it went out.
+    const page = await open("dark", { bugNet: "offline", bugCancel: "hold" });
+    await bustABug(page);
+    await answer(page, ANSWER);
+    await page.click("#bug-send");
+    await page.waitForSelector(".bugcard.is-queued");
+    await page.click("#bug-cancel");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Canceling…')");
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.retryGoesOut());
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.releaseCancel());
+    await page.waitForSelector(".bugcard.is-sent .bug-pill:has-text('Sent · #412')");
+    await page.waitForSelector("#bug-flows .bug-rich:has-text('It had already gone out')");
+    const all = await prose(page);
+    assert(!all.includes("Nothing was sent"), "it said nothing was sent: " + all);
+    assertEqual(await page.locator(".bugcard.is-canceled").count(), 0, "the card says canceled");
+    const said = await lastSaid(page);
+    await page.close();
+    return said.split("\n")[0];
+  });
+
+  await run.check("Change it on a waiting report that already went out says so instead of opening it", async () => {
+    // Finding 2: Change it took the waiting copy out with the same unchecked cancellation.
+    const page = await open("dark", { bugNet: "offline", bugCancel: "hold" });
+    await bustABug(page);
+    await answer(page, ANSWER);
+    await page.click("#bug-send");
+    await page.waitForSelector(".bugcard.is-queued");
+    await page.click("#bug-change");
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.retryGoesOut());
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.releaseCancel());
+    await page.waitForSelector(".bugcard.is-sent .bug-pill:has-text('Sent · #412')");
+    await page.waitForSelector("#bug-flows .bug-rich:has-text(\"so it can't be changed\")");
+    assertEqual(await page.locator(".bugcard.is-editing").count(), 0, "a sent report was opened for changes");
+    const said = await lastSaid(page);
+    await page.close();
+    return said.split("\n")[0];
+  });
+
+  await run.check("Rich is given what was on the screen the user was on, before the exchange covered it", async () => {
+    // Finding 6: on the tip Rich had only the user's words, the screen's name, settings and version.
+    const page = await open("dark");
+    await bustABug(page);
+    await answer(page, ANSWER);
+    const all = await page.evaluate(() => window.__RICHOS_MOCK_BUG__.calls.map((c) => c.cmd));
+    assert(all.indexOf("bug_report_look") !== -1 && all.indexOf("bug_report_look") < all.indexOf("bug_report_write"), "no picture was asked for before the write-up: " + all.join(", "));
+    const screen = (await calls(page, "bug_report_write"))[0].screen;
+    const content = String(screen.content || "");
+    assert(content.includes("what's the status on Acme?"), "the conversation on screen is not in what Rich was given: " + content.slice(0, 300));
+    assert(content.includes("Acme deal"), "the conversation list is not in what Rich was given");
+    for (const not of ["What went wrong?", "Bust a bug!", "Never mind"]) assert(!content.includes(not), `"${not}" (the exchange or the menu, not the screen) was given as the screen`);
+    await page.close();
+    return content.length + " characters of the screen, e.g. " + JSON.stringify(content.slice(0, 80));
+  });
+
   await run.check("where a window covers the conversation, the exchange happens in the Rich panel beside it", async () => {
     const page = await open("dark");
     await page.click("#nav-corrections");
@@ -286,6 +415,8 @@ async function main() {
     ["editing", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-change"); await p.keyboard.type(" Acme deal"); await p.waitForSelector(".bug-warn:not([hidden])"); }],
     ["sent", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-send"); await p.waitForSelector(".bugcard.is-sent"); }],
     ["queued", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-send"); await p.waitForSelector(".bugcard.is-queued"); }, { bugNet: "offline" }],
+    ["changing", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.fill("#input", "Also say it happens in the light theme too"); await p.keyboard.press("Enter"); await p.waitForSelector(".bugcard .bug-pill:has-text('Changing it…')"); }, { bugChangeHold: true }],
+    ["canceling", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-send"); await p.waitForSelector(".bugcard.is-queued"); await p.click("#bug-cancel"); await p.waitForSelector(".bugcard .bug-pill:has-text('Canceling…')"); }, { bugNet: "offline", bugCancel: "hold" }],
     ["canceled", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-cancel"); await p.waitForSelector(".bugcard.is-canceled"); }],
     ["panel", async (p) => { await p.click("#nav-corrections"); await bustABug(p); await p.fill("#bugdock-input", ANSWER); await p.keyboard.press("Enter"); await p.waitForSelector("#bugdock .bugcard .bug-pill:has-text('Not sent yet')"); }],
   ];
