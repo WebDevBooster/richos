@@ -37,8 +37,8 @@ It prints the index's path on stdout. Then:
 - A long recording: the 5-second floor alone is at most 12 frames a minute, but
   scene changes come ON TOP of it and `--every` does not limit them (measured
   2026-10-09: an 8.1-minute edited video gave 153 frames, 110 of them scene
-  changes, 18.8 a minute). Cap the count with `--budget N` (the frames are cut
-  into N equal runs, each keeps its biggest scene change, the first always stays),
+  changes, 18.8 a minute). Cap the count with `--budget N` (the video's time is cut
+  into N equal stretches, each keeps its biggest scene change, the first always stays),
   e.g. `--budget 60`.
 - Skim, then zoom: add `--sheet 12` to also get contact sheets (12 frames tiled in
   one JPEG under `<output-dir>/sheets/`, each listed in the index just before its
@@ -55,9 +55,8 @@ It prints the index's path on stdout. Then:
 - A link instead of a file: `watch.sh <url> <output-dir>` downloads it with the
   installed `yt-dlp` at up to 720p (`--height 1080` for small on-screen text), keeps
   it as `<output-dir>/video.mp4`, then runs the same pipeline.
-- The index has one row per spoken sentence, each with its own time, so a frame
-  sits beside the sentence it goes with. A file's transcript is one channel;
-  speakers are not separated.
+- The index has one row per transcript paragraph, in time order with the frames.
+  A file's transcript is one channel; speakers are not separated.
 - A recording with no sound still gets its frames; `watched.md` says there is no
   transcript.
 - Delete the output directory when your task is done.

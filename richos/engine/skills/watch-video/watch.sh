@@ -43,8 +43,9 @@
 #   The floor alone costs at most 12 frames a minute, but scene changes come ON TOP of
 #   it and --every does not limit them: the CEO's 8.1-minute edited video of 2026-10-09
 #   gave 153 frames (110 of them scene changes), 18.8 a minute. To cap the count pass
-#   --budget N: the frames are cut into N equal runs and each run keeps its biggest
-#   scene change (the first frame always), so the kept ones cover the whole video. --sheet N tiles N frames into one image so a long video can
+#   --budget N: the video's time is cut into N equal stretches and each keeps its
+#   biggest scene change (the first frame always), so the kept ones cover the whole video,
+#   a long static stretch included. --sheet N tiles N frames into one image so a long video can
 #   be skimmed in a few images; the full frames stay. URL input is downloaded by the
 #   installed yt-dlp at --height (default 720: on-screen text stays readable, files stay
 #   small), never installed or fetched any other way.
@@ -196,24 +197,31 @@ while IFS= read -r line; do
 done < "$KEPT"
 rm -f "$KEPT"
 
-# 3b. a budget keeps only BUDGET frames: the video's frames are cut into BUDGET equal
-# runs and each run keeps its biggest scene change (the first frame always counts as
-# the biggest), so a flood of scene changes cannot swamp the index and the kept frames
-# still cover the whole video.
+# 3b. a budget keeps only BUDGET frames: the video's TIME is cut into BUDGET equal
+# stretches and each stretch keeps its biggest scene change (the first frame always
+# counts as the biggest), so a flood of scene changes cannot swamp the index and a long
+# static stretch still gets a frame; the kept frames cover the whole video.
 KEEP_OF=()
 i=1
 while [ "$i" -le "$TOTAL" ]; do KEEP_OF[i]=1; i=$((i + 1)); done
 if [ "$BUDGET" -gt 0 ] && [ "$TOTAL" -gt "$BUDGET" ]; then
+    DURATION="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$INPUT" 2>/dev/null | head -1 || true)"
+    case "$DURATION" in ''|*[!0-9.]*) DURATION="" ;; esac
+    # no usable length: fall back to just past the last kept frame
+    if [ -z "$DURATION" ] || [ "$(echo "$DURATION <= ${T_OF[TOTAL]}" | bc -l)" = 1 ]; then
+        DURATION="$(echo "${T_OF[TOTAL]} + 0.2" | bc -l)"
+    fi
     i=1
     while [ "$i" -le "$TOTAL" ]; do KEEP_OF[i]=0; i=$((i + 1)); done
     i=1
     while [ "$i" -le "$TOTAL" ]; do
-        if [ "$i" -eq 1 ]; then printf '%d\t9.000000\n' "$i"; else printf '%d\t%s\n' "$i" "${SCORE_OF[i]}"; fi
+        if [ "$i" -eq 1 ]; then printf '%d\t%s\t9.000000\n' "$i" "${T_OF[i]}"; else printf '%d\t%s\t%s\n' "$i" "${T_OF[i]}" "${SCORE_OF[i]}"; fi
         i=$((i + 1))
-    done | awk -F '\t' -v total="$TOTAL" -v budget="$BUDGET" '
-        # BUDGET equal groups of consecutive frames; the biggest score in each group
-        # (the earliest on a tie) is kept, so the keepers spread over the whole video.
-        { g = int(($1 - 1) * budget / total); if (!(g in best) || $2 + 0 > bs[g] + 0) { best[g] = $1; bs[g] = $2 } }
+    done | awk -F '\t' -v dur="$DURATION" -v budget="$BUDGET" '
+        # BUDGET equal stretches of time; the biggest score in each stretch (the earliest
+        # on a tie) is kept, so the keepers spread over the whole video.
+        { g = int($2 * budget / dur); if (g >= budget) g = budget - 1
+          if (!(g in best) || $3 + 0 > bs[g] + 0) { best[g] = $1; bs[g] = $3 } }
         END { for (g in best) printf "x\t%d\n", best[g] }' > "$OUT/.top"
     while IFS="$(printf '\t')" read -r _ idx; do KEEP_OF[idx]=1; done < "$OUT/.top"
     rm -f "$OUT/.top"
@@ -274,11 +282,21 @@ if [ "$SHEET" -gt 0 ] && [ "$n" -gt 0 ]; then
     done
 fi
 
-# 3e. the transcript, one row per sentence when the per-word times let us place it
-# (sentences.py), otherwise one row per paragraph.
+# 3e. the transcript, one row per paragraph, keyed by its whole-second stamp.
 if [ -f "$OUT/transcript.md" ]; then
-    ME_JSON="$(ls "$OUT"/pipeline/*/me.json 2>/dev/null | head -1 || true)"
-    python3 -I "$HERE/sentences.py" "$OUT/transcript.md" "$ME_JSON" >> "$ROWS"
+    while IFS= read -r line; do
+        case "$line" in
+            '**['*) ;;
+            *) continue ;;
+        esac
+        ts="${line#\*\*[}"
+        ts="${ts%%]*}"
+        IFS=: read -r a b c <<< "$ts"
+        if [ -n "${c:-}" ]; then secs=$((10#$a * 3600 + 10#$b * 60 + 10#$c)); else secs=$((10#$a * 60 + 10#$b)); fi
+        # The transcript's stamp is a whole second; .01 puts a frame taken at
+        # exactly that second ahead of the words, so the picture comes first.
+        printf '%010.2f\t%s\n' "$secs.01" "$line" >> "$ROWS"
+    done < "$OUT/transcript.md"
 fi
 
 {
@@ -292,7 +310,7 @@ fi
         echo "- Frames: $n in $FRAMES (scene change over $SCENE, or every ${EVERY}s without one)"
     fi
     if [ "$NSHEETS" -gt 0 ]; then echo "- Contact sheets: $NSHEETS in $OUT/sheets, $SHEET frames each; each sheet's row comes just before its first frame. Read a sheet to skim, then Read only the full FRAMEs you need."; fi
-    if [ -f "$OUT/transcript.md" ]; then echo "- Transcript: $OUT/transcript.md (one channel, speakers not separated; \"Me\" is the recording's sound, not a speaker; one row per sentence, each with its own time)"; fi
+    if [ -f "$OUT/transcript.md" ]; then echo "- Transcript: $OUT/transcript.md (one channel, speakers not separated; \"Me\" is the recording's sound, not a speaker)"; fi
     if [ -n "$TNOTE" ]; then echo "- $TNOTE"; fi
     echo "- Read this file top to bottom; Read each FRAME path to see the screen at that moment."
     echo

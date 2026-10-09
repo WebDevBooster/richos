@@ -133,6 +133,14 @@ if [ "$ALL" -gt 4 ] && [ "$STATUS" -eq 0 ] && [ "$B4" = 4 ] \
 else
     bad "--budget 4 keeps 4 of the flood (all: $ALL, budget: $B4, exit $STATUS)"
 fi
+# A budget cuts the video into equal stretches of TIME: 20 s of a box blinking each
+# second, then 20 s of nothing, with --budget 4, must still keep frames from the static
+# half (cut by equal runs of frames it kept one, the review's third finding).
+ffmpeg -hide_banner -nostdin -loglevel error -y -f lavfi -i "color=c=black:s=320x240:r=30:d=40" \
+    -vf "drawbox=x=40:y=40:w=240:h=160:color=white:t=fill:enable='lt(t,20)*lt(mod(t,2),1)'" -c:v libx264 "$SANDBOX/half.mov"
+"$SCRIPT" "$SANDBOX/half.mov" "$SANDBOX/half-b4" --budget 4 >/dev/null 2>&1 || true
+LATE="$(ls "$SANDBOX/half-b4/frames" 2>/dev/null | sed -n 's/^frame-[0-9]*-t\([0-9]*\)m\([0-9]*\)\..*/\1 \2/p' | awk '$1 * 60 + $2 >= 20' | wc -l | tr -d ' ')"
+if [ "$LATE" -ge 2 ]; then ok "--budget 4 covers a long static stretch ($LATE of the kept frames are from its half)"; else bad "--budget 4 covers a long static stretch (kept in the static half: $LATE)"; fi
 if "$SCRIPT" "$SANDBOX/busy.mov" "$SANDBOX/busy-bad" --budget x >/dev/null 2>&1; then bad "--budget refuses a non-number"; else ok "--budget refuses a non-number"; fi
 
 # 5. contact sheets: --sheet 4 on 8 frames makes 2 sheets (JPEG), indexed before their
@@ -154,143 +162,15 @@ W=""
 if [ -n "$SHEET1" ]; then W="$(file "$SHEET1" | sed -n 's/.* \([0-9]*\)x[0-9]*,.*/\1/p' | head -1)"; fi
 if [ -n "$W" ] && [ "$W" -gt 480 ]; then ok "a sheet holds several frames side by side (width $W px)"; else bad "a sheet holds several frames side by side (width: ${W:-unknown})"; fi
 
-# 6. sentence-level times: a two-sentence paragraph becomes two rows, the second at
-# the time of its first word in the per-word JSON; and the call-mode header line is
-# gone from a file's transcript.
-mkdir -p "$SANDBOX/sent"
-printf '%s\n' '# Transcript' '' '- **Speaker attribution:** x' '' '---' '' \
-    '**[00:00] Me:** First one here. Second one starts late.' > "$SANDBOX/sent/transcript.md"
-cat > "$SANDBOX/sent/me.json" <<'JSON'
-{"transcription":[{"tokens":[
- {"text":"[_BEG_]","offsets":{"from":0,"to":0}},
- {"text":" First","offsets":{"from":100,"to":400}},
- {"text":" one","offsets":{"from":400,"to":800}},
- {"text":" here","offsets":{"from":800,"to":1200}},
- {"text":".","offsets":{"from":1200,"to":1300}},
- {"text":" Second","offsets":{"from":4500,"to":4900}},
- {"text":" one","offsets":{"from":4900,"to":5200}},
- {"text":" starts","offsets":{"from":5200,"to":5600}},
- {"text":" late","offsets":{"from":5600,"to":6000}},
- {"text":".","offsets":{"from":6000,"to":6100}}]}]}
-JSON
-SROWS="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/transcript.md" "$SANDBOX/sent/me.json" 2>/dev/null || true)"
-if [ "$(printf '%s\n' "$SROWS" | wc -l | tr -d ' ')" = 2 ] \
-    && printf '%s\n' "$SROWS" | grep -q '\*\*\[00:00\] Me:\*\* First one here\.$' \
-    && printf '%s\n' "$SROWS" | grep -q '\*\*\[00:04\] Me:\*\* Second one starts late\.$'; then
-    ok "a two-sentence paragraph is two rows, the second stamped 00:04 from its first word"
-else
-    bad "sentence rows (got: $SROWS)"
-fi
-# Long sentences and repeated words: the next sentence is stamped from its own first
-# word, not from an early repeat (second review rv-20261009T114612Z-128181b6-9fc1).
-printf '%s\n' '**[00:00] Me:** I think I should try this. I can see it now.' > "$SANDBOX/sent/rep.md"
-cat > "$SANDBOX/sent/rep.json" <<'JSON'
-{"transcription":[{"tokens":[
- {"text":" I","offsets":{"from":0,"to":200}},{"text":" think","offsets":{"from":500,"to":700}},
- {"text":" I","offsets":{"from":1000,"to":1200}},{"text":" should","offsets":{"from":1500,"to":1700}},
- {"text":" try","offsets":{"from":2000,"to":2200}},{"text":" this.","offsets":{"from":2500,"to":2700}},
- {"text":" I","offsets":{"from":8000,"to":8200}},{"text":" can","offsets":{"from":8500,"to":8700}},
- {"text":" see","offsets":{"from":9000,"to":9200}},{"text":" it","offsets":{"from":9500,"to":9700}},
- {"text":" now.","offsets":{"from":10000,"to":10200}}]}]}
-JSON
-printf '%s\n' '**[00:00] Me:** First we open this simple tool and carefully inspect every setting. Second sentence starts late.' > "$SANDBOX/sent/long.md"
-cat > "$SANDBOX/sent/long.json" <<'JSON'
-{"transcription":[{"tokens":[
- {"text":" First","offsets":{"from":0,"to":200}},{"text":" we","offsets":{"from":300,"to":500}},
- {"text":" open","offsets":{"from":600,"to":800}},{"text":" this","offsets":{"from":900,"to":1100}},
- {"text":" simple","offsets":{"from":1200,"to":1400}},{"text":" tool","offsets":{"from":1500,"to":1700}},
- {"text":" and","offsets":{"from":1800,"to":2000}},{"text":" carefully","offsets":{"from":2100,"to":2300}},
- {"text":" inspect","offsets":{"from":2400,"to":2600}},{"text":" every","offsets":{"from":2700,"to":2900}},
- {"text":" setting.","offsets":{"from":3000,"to":3200}},
- {"text":" Second","offsets":{"from":10000,"to":10200}},{"text":" sentence","offsets":{"from":10300,"to":10500}},
- {"text":" starts","offsets":{"from":10600,"to":10800}},{"text":" late.","offsets":{"from":10900,"to":11100}}]}]}
-JSON
-RREP="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/rep.md" "$SANDBOX/sent/rep.json" 2>/dev/null || true)"
-RLONG="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/long.md" "$SANDBOX/sent/long.json" 2>/dev/null || true)"
-if printf '%s\n' "$RREP" | grep -q '\*\*\[00:08\] Me:\*\* I can see it now\.$' \
-    && printf '%s\n' "$RLONG" | grep -q '\*\*\[00:10\] Me:\*\* Second sentence starts late\.$'; then
-    ok "long sentences and repeated words: the next sentence is stamped from its own first word (00:08, 00:10)"
-else
-    bad "long/repeated sentence times (got: $RREP / $RLONG)"
-fi
-# A corrected name and a sentence ending inside closing quotes (second review
-# rv-20261009T115423Z-bb7800b5-73c3).
-printf '%s\n' '**[00:00] Me:** I use Deepgram. Deep learning comes next.' > "$SANDBOX/sent/name.md"
-cat > "$SANDBOX/sent/name.json" <<'JSON'
-{"transcription":[{"tokens":[
- {"text":" I","offsets":{"from":0,"to":200}},{"text":" use","offsets":{"from":500,"to":700}},
- {"text":" Deep","offsets":{"from":1000,"to":1200}},{"text":" Graham.","offsets":{"from":1500,"to":1700}},
- {"text":" Deep","offsets":{"from":10000,"to":10200}},{"text":" learning","offsets":{"from":10500,"to":10700}},
- {"text":" comes","offsets":{"from":11000,"to":11200}},{"text":" next.","offsets":{"from":11500,"to":11700}}]}]}
-JSON
-printf '%s\n' '**[00:00] Me:** Click "Save." Then close the window.' > "$SANDBOX/sent/quote.md"
-cat > "$SANDBOX/sent/quote.json" <<'JSON'
-{"transcription":[{"tokens":[
- {"text":" Click","offsets":{"from":0,"to":200}},{"text":" \"Save.\"","offsets":{"from":500,"to":700}},
- {"text":" Then","offsets":{"from":10000,"to":10200}},{"text":" close","offsets":{"from":10500,"to":10700}},
- {"text":" the","offsets":{"from":11000,"to":11200}},{"text":" window.","offsets":{"from":11500,"to":11700}}]}]}
-JSON
-RNAME="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/name.md" "$SANDBOX/sent/name.json" 2>/dev/null || true)"
-RQUOTE="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/quote.md" "$SANDBOX/sent/quote.json" 2>/dev/null || true)"
-if printf '%s\n' "$RNAME" | grep -q '\*\*\[00:10\] Me:\*\* Deep learning comes next\.$' \
-    && printf '%s\n' "$RQUOTE" | grep -q '\*\*\[00:10\] Me:\*\* Then close the window\.$'; then
-    ok "a corrected name consumes the words it replaced; a sentence ending inside closing quotes splits (00:10, 00:10)"
-else
-    bad "corrected-name / closing-quote sentence times (got: $RNAME / $RQUOTE)"
-fi
-# Third review (rv-20261009T120415Z-7903332b-c415): rows come from the RAW words and
-# each sentence is corrected afterwards, so a one-to-many ("Deep Graham"), a many-to-one
-# ("Whisper C P P"), a name at a sentence start and the same name repeated later each
-# keep their own sentence's time and get corrected.
-printf '%s\n' '{"entities":[{"canonical":"Deepgram","mangled":["Deep Graham"]},{"canonical":"whisper.cpp","mangled":["Whisper C P P"]}]}' > "$SANDBOX/sent/entities.json"
-printf '%s\n' '**[00:00] Me:** Placeholder text. Not used.' > "$SANDBOX/sent/corr.md"
-cat > "$SANDBOX/sent/corr.json" <<'JSON'
-{"transcription":[{"tokens":[
- {"text":" Whisper","offsets":{"from":0,"to":200}},{"text":" C","offsets":{"from":300,"to":400}},
- {"text":" P","offsets":{"from":500,"to":600}},{"text":" P","offsets":{"from":700,"to":800}},
- {"text":" is","offsets":{"from":900,"to":1000}},{"text":" fast.","offsets":{"from":1100,"to":1300}},
- {"text":" Deep","offsets":{"from":5000,"to":5200}},{"text":" Graham","offsets":{"from":5300,"to":5500}},
- {"text":" works","offsets":{"from":5600,"to":5800}},{"text":" well.","offsets":{"from":5900,"to":6000}},
- {"text":" Deep","offsets":{"from":9000,"to":9200}},{"text":" learning","offsets":{"from":9300,"to":9500}},
- {"text":" and","offsets":{"from":9600,"to":9700}},{"text":" Deep","offsets":{"from":9800,"to":9900}},
- {"text":" Graham","offsets":{"from":10000,"to":10200}},{"text":" again.","offsets":{"from":10300,"to":10500}}]}]}
-JSON
-RCORR="$(RICHOS_ENTITIES_FILE="$SANDBOX/sent/entities.json" python3 -I "$HERE/sentences.py" "$SANDBOX/sent/corr.md" "$SANDBOX/sent/corr.json" 2>/dev/null || true)"
-if printf '%s\n' "$RCORR" | grep -q '\*\*\[00:00\] Me:\*\* whisper.cpp is fast\.$' \
-    && printf '%s\n' "$RCORR" | grep -q '\*\*\[00:05\] Me:\*\* Deepgram works well\.$' \
-    && printf '%s\n' "$RCORR" | grep -q '\*\*\[00:09\] Me:\*\* Deep learning and Deepgram again\.$' \
-    && [ "$(printf '%s\n' "$RCORR" | wc -l | tr -d ' ')" = 3 ]; then
-    ok "name corrections (one-to-many, many-to-one, sentence start, repeated) leave every sentence at its own time (00:00, 00:05, 00:09)"
-else
-    bad "corrected rows (got: $RCORR)"
-fi
-# Fourth review (rv-20261009T121434Z-c300e0e1-901b): no cutting at a paragraph's whole-second
-# stamp, and the index orders by exact time. "button." starts at 9.2 s in the paragraph
-# stamped 00:08, the next paragraph is stamped 00:10; two paragraphs in one second say
-# "Stop." and "Wait."; "Yes." at 0.6 s and "No." at 0.8 s must stay in that order.
-printf '%s\n' '**[00:08] Me:** Click the button.' '' '**[00:10] Me:** Then close it.' > "$SANDBOX/sent/adj.md"
-cat > "$SANDBOX/sent/adj.json" <<'JSON'
-{"transcription":[{"tokens":[
- {"text":" Click","offsets":{"from":8000,"to":8250}},{"text":" the","offsets":{"from":8600,"to":8850}},
- {"text":" button.","offsets":{"from":9200,"to":9450}},
- {"text":" Then","offsets":{"from":10200,"to":10450}},{"text":" close","offsets":{"from":10600,"to":10850}},
- {"text":" it.","offsets":{"from":11000,"to":11250}}]}]}
-JSON
-printf '%s\n' '**[00:00] Me:** Stop.' '' '**[00:00] Me:** Wait.' '' '**[00:00] Me:** Yes. No.' > "$SANDBOX/sent/same.md"
-cat > "$SANDBOX/sent/same.json" <<'JSON'
-{"transcription":[{"tokens":[
- {"text":" Stop.","offsets":{"from":100,"to":300}},{"text":" Wait.","offsets":{"from":400,"to":500}},
- {"text":" Yes.","offsets":{"from":600,"to":700}},{"text":" No.","offsets":{"from":800,"to":900}}]}]}
-JSON
-TAB="$(printf '\t')"
-RADJ="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/adj.md" "$SANDBOX/sent/adj.json" 2>/dev/null | cut -f2- | tr '\n' '|' || true)"
-RSAME="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/same.md" "$SANDBOX/sent/same.json" 2>/dev/null | sort -s -t "$TAB" -k1,1 | cut -f2- | sed 's/^[^ ]* [^ ]* //' | tr '\n' ' ' || true)"
-if [ "$RADJ" = '**[00:08] Me:** Click the button.|**[00:10] Me:** Then close it.|' ] \
-    && [ "$RSAME" = "Stop. Wait. Yes. No. " ]; then
-    ok "a sentence is never cut at the next paragraph's stamp, and same-second sentences keep spoken order"
-else
-    bad "paragraph cut / same-second order (got: $RADJ / $RSAME)"
-fi
+# 6. the index lists frames and paragraphs in one time order, and a file's transcript
+# header no longer claims LEFT = me, RIGHT = others.
+# Every row's time, frame or paragraph, in the order the index lists them, never goes back.
+ORDERED="$(grep -E '^\[[0-9]{2}m[0-9.]+s\] FRAME |^\*\*\[[0-9:]+\] Me:' "$OUT/watched.md" | awk '
+    /^\[/ { split(substr($1, 2), a, "m"); t = a[1] * 60 + a[2] + 0 }
+    /^\*\*\[/ { x = $1; gsub(/[*\[\]]/, "", x); n = split(x, a, ":"); t = (n == 3) ? a[1] * 3600 + a[2] * 60 + a[3] : a[1] * 60 + a[2] }
+    { if (t < prev) bad = 1; prev = t; rows++ }
+    END { print (bad || rows < 4) ? "no" : "yes" }')"
+if [ "$ORDERED" = yes ]; then ok "the index lists frames and paragraphs in time order"; else bad "the index lists frames and paragraphs in time order"; fi
 if ! grep -q 'LEFT channel' "$OUT/transcript.md" && grep -q 'speakers not separated' "$OUT/watched.md"; then
     ok "a file's transcript no longer claims LEFT = me, RIGHT = others; the index says one channel"
 else
