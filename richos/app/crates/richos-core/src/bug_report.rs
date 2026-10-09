@@ -182,11 +182,10 @@ impl Segment {
 ///     is written with a capital, so "deeply" in a sentence is left alone. One written in lower case
 ///     ("femcboost", a folder) is matched in any case, because it is not an ordinary word.
 ///   - Every match is a whole word: "Acmes" and "subAcme" are not "Acme".
-///   - **File paths** start at `/Users/`, `/Volumes/`, `/private/`, `/var/`, `/tmp/`, `~/`,
-///     `file://` or a drive (`C:\`), or at a word starting with `/` whose sentence holds a second
-///     slash; "and/or" and "24/7" are not paths. From its start, everything to the end of its
-///     sentence or line is left out (between backticks, quotes or brackets, to the closing mark),
-///     so a name with spaces, commas or semicolons in it never leaves a piece behind
+///   - **File paths**: any word with a `/` or a `\` in it, except a web address (`https://…`)
+///     and a short common form ("and/or", "24/7", a date like 10/09/2026). From the start of that
+///     word, a bracket or quote before it included, everything to the end of its sentence or line
+///     is left out, so no space, comma, bracket or quote in a file's name leaves a piece behind
 ///     ([`find_paths`]).
 ///   - Where two of these overlap, both are left out as one.
 ///     **Email addresses** are `local@host.tld`.
@@ -346,100 +345,71 @@ fn find_term(text: &str, term: &str) -> Vec<(usize, usize)> {
     out
 }
 
-/// The marks a path is commonly written between, each with the mark that closes it: Markdown's
-/// backticks, straight and curly quotes, and brackets.
-const PATH_DELIMITERS: [(char, char); 9] =
-    [('`', '`'), ('"', '"'), ('\'', '\''), ('“', '”'), ('‘', '’'), ('(', ')'), ('[', ']'), ('<', '>'), ('{', '}')];
-
-/// Where a path starts whatever is written before it (anything but a letter, a digit or a slash):
-/// the Mac's own top-level folders, the home folder and a file address, matched in any letter case.
-const NAMED_PATH_STARTS: [&str; 7] = ["/Users/", "/Volumes/", "/private/", "/var/", "/tmp/", "~/", "file://"];
-
-/// An apostrophe between two letters ("won't", "Rich's") is part of a word, not a closing quote.
-fn is_apostrophe_in_a_word(text: &str, at: usize, c: char) -> bool {
-    let after = at + c.len_utf8();
-    (c == '\'' || c == '’') && char_before(text, at).is_some_and(is_word_char) && char_after(text, after).is_some_and(is_word_char)
-}
-
 /// **The end of the sentence** a path starts at `from`: a sentence end (`.`, `!` or `?` followed
 /// by a space or the end of the text) or a line break, whichever comes first. A file's name can
 /// hold spaces, commas, semicolons, brackets and quotes ("Smith, Jones Budget.xlsx", "Budget
-/// (Client).xlsx"), so none of them says where it ends, and the words between the path and the
-/// sentence's end go with it (review rv-20261009T151254Z-84d1bdce-20df finding 1: a comma or a
-/// semicolon ended it and left the rest of the name public). The dot of the file's own extension
-/// is followed by a letter, not a space, so it is not a sentence end.
+/// (draft) Client.xlsx"), so none of them says where it ends, and the words between the path and
+/// the sentence's end go with it (review rv-20261009T151254Z-84d1bdce-20df finding 1: a comma ended
+/// it; review rv-20261009T154959Z-96dcc581-085b finding 1: a closing bracket did). The dot of the
+/// file's own extension is followed by a letter, not a space, so it is not a sentence end.
 fn sentence_end(text: &str, from: usize) -> usize {
     let mut chars = text[from..].char_indices().peekable();
     while let Some((i, c)) = chars.next() {
         let full_stop = ".!?".contains(c) && chars.peek().is_none_or(|&(_, next)| next.is_whitespace());
-        if c == '\n' || full_stop {
+        if c == '\n' || c == '\r' || full_stop {
             return from + i;
         }
     }
     text.len()
 }
 
-/// Where the path between delimiters closes, on the same line: the first closing mark that is not
-/// an apostrophe inside a word.
-fn closing_mark(text: &str, from: usize, close: char) -> Option<usize> {
-    let line_end = text[from..].find('\n').map_or(text.len(), |n| from + n);
-    text[from..line_end]
-        .char_indices()
-        .map(|(i, c)| (from + i, c))
-        .find(|&(at, c)| c == close && !is_apostrophe_in_a_word(text, at, c))
-        .map(|(at, _)| at)
+/// **A word with a slash that is not a path**: a web address (`http://`, `https://`), or a short
+/// common form with no more than one word on each side of its slash ("and/or", "24/7", "w/o") or a
+/// date ("10/09/2026"). Brackets, quotes and punctuation around the word are not part of the form
+/// ("(and/or)", "24/7,"). A backslash never makes one: there is no common form written with it.
+fn is_not_a_path(word: &str) -> bool {
+    let core = word.trim_matches(|c: char| !(c.is_alphanumeric() || c == '/' || c == '\\'));
+    let head = word.trim_start_matches(|c: char| !c.is_alphanumeric());
+    let web = ["http://", "https://"].iter().any(|s| head.get(..s.len()).is_some_and(|h| h.eq_ignore_ascii_case(s)));
+    if web {
+        return true;
+    }
+    if core.contains('\\') {
+        return false;
+    }
+    let parts: Vec<&str> = core.split('/').collect();
+    let one_word = |p: &&str| !p.is_empty() && p.chars().all(char::is_alphanumeric);
+    let number = |p: &&str| (1..=4).contains(&p.len()) && p.chars().all(|c| c.is_ascii_digit());
+    (parts.len() == 2 && parts.iter().all(one_word)) || (parts.len() == 3 && parts.iter().all(number))
 }
 
-/// The length of the start of a path at the head of `rest`, if one is there and is followed by
-/// something that is not a space: one of [`NAMED_PATH_STARTS`], or a drive (`C:\`, `D:/`).
-fn named_start(rest: &str) -> Option<usize> {
-    let named = NAMED_PATH_STARTS.iter().find(|s| rest.get(..s.len()).is_some_and(|head| head.eq_ignore_ascii_case(s))).map(|s| s.len());
-    let mut chars = rest.chars();
-    let drive = matches!((chars.next(), chars.next(), chars.next()), (Some(l), Some(':'), Some('\\' | '/')) if l.is_ascii_alphabetic());
-    let len = named.or(drive.then_some(3))?;
-    rest[len..].starts_with(|c: char| !c.is_whitespace()).then_some(len)
-}
-
-/// **File paths**, and with each everything up to the end of its sentence or line ([`sentence_end`]).
+/// **File paths**: every word (a run of text between spaces) with a `/` or a `\` in it, except
+/// the ones [`is_not_a_path`] names. Each is left out from the start of its word, so a bracket,
+/// quote or backtick written before it goes with it, to the end of its sentence or line
+/// ([`sentence_end`]); sentence punctuation at its end stays outside.
 ///
-///   - **Where one starts:** at one of [`NAMED_PATH_STARTS`] or a drive (`C:\`), after anything
-///     but a letter, digit or slash (`path=/Users/…` too); or, after a space, a delimiter or the
-///     start of the text, at any `/name` whose sentence holds a second slash (`/opt/homebrew`).
-///   - **Between delimiters** (`` `…` ``, quotes, brackets) it runs to the closing mark on the
-///     same line, commas and all: `"~/Documents/Smith, Jones/plan.pdf"`.
-///   - **Written plainly** it runs to the end of its sentence or line. A name with spaces, commas
-///     or semicolons in it (`Smith, Jones Budget.xlsx`) cannot be told from the words after it, so
-///     they are left out too: hiding a few words is safe, leaving part of a path in a public report
-///     is not. Sentence punctuation at its end stays outside.
-///
-/// "and/or", "24/7" and `https://…` are not paths (no start after a space or delimiter).
+/// The rule recognizes no shape of path (review rv-20261009T154959Z-96dcc581-085b: three rounds
+/// in a row each found one more shape that leaked, the last nested brackets and relative paths).
+/// `/Users/…`, `~/…`, `./…`, `../…`, `clients/x/y.xlsx`, `C:\…`, `file://…` and a path between
+/// brackets that hold brackets are all a word with a slash in it. No closing mark ends one: a
+/// file's name can hold every one of them. Hiding a few words after a path is safe; leaving part
+/// of one in a public report is not.
 fn find_paths(text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut skip_to = 0;
-    for (i, _) in text.char_indices() {
-        if i < skip_to {
+    for word in text.split_whitespace() {
+        // `split_whitespace` gives slices of `text` itself, so where the word sits in memory is
+        // where it starts in `text`: a character boundary, since a word starts after a space.
+        let start = word.as_ptr() as usize - text.as_ptr() as usize;
+        if start < skip_to || !word.contains(['/', '\\']) || is_not_a_path(word) {
             continue;
         }
-        let rest = &text[i..];
-        let before = char_before(text, i);
-        let delimiter = before.and_then(|b| PATH_DELIMITERS.iter().find(|(open, _)| *open == b).map(|&(_, close)| close));
-        let named = named_start(rest).is_some();
-        let starts = if named {
-            !before.is_some_and(|c| is_word_char(c) || c == '/')
-        } else {
-            rest.starts_with('/')
-                && rest[1..].starts_with(|c: char| c.is_alphanumeric() || c == '.' || c == '_')
-                && before.is_none_or(|c| c.is_whitespace() || delimiter.is_some())
-        };
-        if !starts {
-            continue;
-        }
-        let mut end = delimiter.and_then(|close| closing_mark(text, i, close)).unwrap_or_else(|| sentence_end(text, i));
-        while end > i && text[..end].ends_with(['.', ':', '!', '?']) {
+        let mut end = sentence_end(text, start);
+        while end > start && text[..end].ends_with(['.', ':', '!', '?']) {
             end -= 1;
         }
-        if end > i && (named || text[i..end].matches('/').count() >= 2) {
-            out.push((i, end));
+        if end > start {
+            out.push((start, end));
             skip_to = end;
         }
     }
@@ -1393,10 +1363,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_path_inside_brackets_and_a_trailing_colon_are_found_exactly() {
+    fn a_path_takes_its_bracket_and_the_rest_of_its_sentence_and_keeps_the_full_stop_outside() {
+        // Before review rv-20261009T154959Z-96dcc581-085b the closing bracket ended this path and
+        // the quoted one was a second path; a bracket no longer ends one.
         let text = "see (/Users/a/b.txt): and \"~/x\"";
         let found: Vec<&str> = find_paths(text).into_iter().map(|(s, e)| &text[s..e]).collect();
-        assert_eq!(found, ["/Users/a/b.txt", "~/x"]);
+        assert_eq!(found, ["(/Users/a/b.txt): and \"~/x\""]);
+        let text = "see /a. Then ~/x! And 10/09.";
+        let found: Vec<&str> = find_paths(text).into_iter().map(|(s, e)| &text[s..e]).collect();
+        assert_eq!(found, ["/a", "~/x"]);
     }
 
     #[test]
