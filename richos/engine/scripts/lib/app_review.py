@@ -121,11 +121,11 @@ def mid_job_notice(app_state, spaces, emit):
         for rid in ids:
             try:
                 os.close(os.open(os.path.join(paths["delivered"], rid), os.O_WRONLY | os.O_CREAT, 0o600))
-            except OSError as error:
-                try:    # the diagnostic is best-effort too: a closed stderr must not fail the hook
-                    print(f"RichOS desktop engine: review {rid} could not be recorded delivered: {error}", file=sys.stderr)
-                except Exception:
-                    pass
+            except OSError:
+                # Write nothing to stderr here: a closed stderr would leave the bytes buffered and
+                # Python's shutdown flush would exit the hook 120 after it delivered. The marker
+                # stays pending and is told again at the next call, which is the recovery.
+                pass
         return True
     finally:
         os.close(lock)
