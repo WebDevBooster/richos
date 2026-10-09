@@ -10042,12 +10042,14 @@ body.panel-full .op-body {
   animation: bug-sub-flash 1.6s ease;
 }
 /* a word that stands in for something private: dotted gold underline; point at it to see what it replaced */
+/* A DOTTED BORDER, NOT `text-decoration: underline dotted`: the test VM's WKWebView (macOS 15.7,
+   walk-aba5c01c19ce, captures 2-report-dark/light) painted no underline at all under the
+   stand-ins, where Playwright's WebKit painted one. A bottom border on an inline box is drawn by
+   every engine, wraps with the words, and its color is a plain property the contrast walk reads. */
 .bug-sub {
-  text-decoration: underline dotted var(--gold);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 4px;
+  border-bottom: 2px dotted var(--gold);
+  padding-bottom: 1px;
   cursor: help;
-  border-radius: 3px;
 }
 .bug-sub:focus-visible {
   outline: 2px solid var(--gold);

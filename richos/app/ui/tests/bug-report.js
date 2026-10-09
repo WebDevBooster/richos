@@ -118,6 +118,10 @@ async function main() {
     const subs = await page.locator(".bugcard .bug-sub").evaluateAll((n) => n.map((s) => [s.textContent, s.dataset.was]));
     for (const p of PRIVATE) assert(subs.some(([, was]) => was === p), `no stand-in for "${p}": ${JSON.stringify(subs)}`);
     assert(subs.every(([text]) => /^\[.+\]$/.test(text)), JSON.stringify(subs));
+    // Each stand-in is MARKED: a dotted rule under it, drawn as a border because the test VM's
+    // WKWebView painted no `text-decoration` underline there (walk-aba5c01c19ce).
+    const marks = await page.locator(".bugcard .bug-sub").evaluateAll((n) => n.map((s) => { const c = getComputedStyle(s); return c.borderBottomStyle + " " + parseFloat(c.borderBottomWidth); }));
+    assert(marks.every((m) => m === "dotted 2"), "a stand-in is not marked: " + JSON.stringify(marks));
     const from = await page.locator(".bugcard .r-from").innerText();
     assertEqual(from, "the RichOS reporting account, because RichOS isn't signed in to a GitHub account of yours", "From");
     assert((await page.locator(".bugcard .lo-text").innerText()).startsWith("Left out, because anyone can read GitHub issues: "), "no left-out line");
@@ -274,7 +278,7 @@ async function main() {
   const SKIPPABLE = ".tl-rich-meta, .bug-worked, .bug-digest, .bugdock-send";
   const INDICATORS = [
     [".bugcard.is-sent", "borderTopColor"], [".bugcard.is-queued", "borderTopColor"], [".bug-pill", "borderTopColor"],
-    [".bug-sub", "textDecorationColor"], [".bug-warn", "borderLeftColor"], [".bugcard.is-editing .bug-doc", "borderTopColor"],
+    [".bug-sub", "borderBottomColor"], [".bug-warn", "borderLeftColor"], [".bugcard.is-editing .bug-doc", "borderTopColor"],
     [".desk-btn--confirm", "backgroundColor"], [".desk-btn:not(.desk-btn--confirm)", "borderTopColor"], [".bugdock-form", "borderTopColor"],
   ];
   const STATES = [
