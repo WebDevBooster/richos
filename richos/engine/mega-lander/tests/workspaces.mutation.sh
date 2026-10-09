@@ -521,8 +521,8 @@ mutant sr-no-refusal-anywhere "test_second_review_merge_is_refused_with_no_verdi
     "work with no passing second review would land by every path: the land command and the fence would both let it in (CEO §113)."
 
 mutant sr-land-command-does-not-ask "test_second_review_merge_is_refused_with_no_verdict" "$W" \
-    '    gated = [(x, ledger) for x, ledger in gated if ledger]' \
-    '    gated = []' \
+    '        ledgers, broken = _review_ledgers(F, main, listed)' \
+    '        ledgers, broken = [], ""' \
     "workspaces.sh merge would run git's merge gate for minutes before the fence refused the move, and with the fence off it would land unreviewed work (CEO §113, Sage's catch 8)."
 
 mutant sr-fence-does-not-ask "test_second_review_a_plain_merge_is_refused_by_the_fence_the_same_way" "$F" \
@@ -574,5 +574,15 @@ mutant sr-delivered-every-call "test_second_review_a_running_teammates_next_tool
     '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))' \
     '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT, 0o600))' \
     "a mid-job verdict would be repeated at every tool call of the teammate instead of once (plan §2.5)."
+
+mutant sr-launcher-decides-what-is-reviewed "test_second_review_a_listed_repository_without_its_launcher_is_still_refused" "$W" \
+    '    declared = any(F.review_listed(v, main) for v in listed)' \
+    '    declared = False' \
+    "a repository the declaration lists would merge unreviewed work whenever its fence launcher is missing (review rv-20261009T031207Z-ba444a8a-607a, finding 1)."
+
+mutant sr-unreadable-launcher-ignored "test_second_review_a_listed_repository_whose_launcher_cannot_be_read_is_refused" "$W" \
+    '    except OSError as exc:{NL}        if declared:' \
+    '    except OSError as exc:{NL}        if False:' \
+    "a listed repository whose review setup cannot be established would merge as if it were established (review rv-20261009T031207Z-ba444a8a-607a, finding 1)."
 
 mutation_end

@@ -4930,7 +4930,7 @@ def merge_and_land(ref, me="", message=""):
     # with that one, so it is neither merged nor reviewed on its own.
     todo = [x for x in todo
             if not any(y[2] == x[2] and y[3] != x[3] and is_ancestor(x[2], x[3], y[3]) for y in todo)]
-    reviews = _review_check(todo)
+    reviews = _review_check(todo, _governing_entities(chain))
     for repo, b, main, t in todo:
         target, tip, why_not = integration_target(chain, repo)
         if why_not:
@@ -4975,30 +4975,38 @@ def _fence_program():
     return mod
 
 
-def _review_check(todo):
+def _review_check(todo, entities=()):
     """NO WORK LANDS WITHOUT A PASSING REVIEW OF EXACTLY ITS TIP (CEO §113;
     richos-hq plan 2026-10-09 §2.5 and §4 row 3). For every branch about to be
-    merged into a repository listed in SECOND_REVIEW_REPOS (its fence launcher
-    carries the review ledger; operator-fences.sh install copies it from the
-    declaration), the newest handover verdict on exactly its tip must say
-    passed. Otherwise NOTHING is merged, and the refusal names each tip and its
-    findings. Asked here before git's merge gate spends its minutes, and with
-    the fence on or off; the fence asks the same question of a plain
-    `git merge`. Returns {tip: the merge message's review paragraph}."""
-    gated = [(x, _review_ledger(x[2])) for x in todo]
-    gated = [(x, ledger) for x, ledger in gated if ledger]
-    if not gated:
+    merged into a reviewed repository (_review_ledgers: one the SECOND_REVIEW_REPOS
+    of a governing declaration lists, or whose fence launcher carries a review
+    ledger), the newest handover verdict on exactly its tip must say passed, in
+    every ledger that applies. Otherwise NOTHING is merged, and the refusal
+    names each tip and its findings; a listed repository whose review setup
+    cannot be established is refused as well. Asked here before git's merge
+    gate spends its minutes, with the fence on, off or not installed; the fence
+    asks the same question of a plain `git merge`. `entities`: the governing
+    entities (_governing_entities). Returns {tip: the merge message's review
+    paragraph}."""
+    if not todo:
         return {}
     F = _fence_program()
+    listed = _declared_review_listing(entities)
     out, refusals = {}, []
-    for (_repo, b, main, t), ledger in gated:
-        gaps = F.review_gaps(ledger, [t])
+    for _repo, b, main, t in todo:
+        ledgers, broken = _review_ledgers(F, main, listed)
+        if broken:
+            refusals.append("=== SECOND REVIEW: %s was not merged into %s ===\n  %s" % (b, main, broken))
+            continue
+        gaps = next((g for g in (F.review_gaps(ledger, [t]) for ledger in ledgers) if g), None)
         if gaps:
             refusals.append(F.review_refusal_text(main, gaps, engine_root()).replace(
                 "=== SECOND REVIEW: refused in %s ===" % main,
                 "=== SECOND REVIEW: %s was not merged into %s ===" % (b, main), 1))
             continue
-        row, _mid = F.review_of(F.read_reviews(ledger), t)
+        if not ledgers:
+            continue                            # nothing marks this repository as reviewed
+        row, _mid = F.review_of(F.read_reviews(ledgers[0]), t)
         para = "Second review: %s, %s by %s (%s), %s finding(s)." % (
             row.get("verdict"), row.get("id"), row.get("reviewer"), row.get("reviewer_model"), row.get("findings"))
         notes = ["P%s %s (%s)" % f for f in F.review_findings(row, limit=20)]
@@ -5008,22 +5016,75 @@ def _review_check(todo):
     return out
 
 
-def _review_ledger(main):
-    """The review ledger the repository's fence launcher names, or "" (not
-    listed in SECOND_REVIEW_REPOS, or no launcher installed)."""
+def _governing_entities(chain):
+    """The entities whose orchestration.config governs this work: each record's
+    own (written when it was registered), and this run's resolved entity."""
+    out = []
+    for e in [r.get("entity") or "" for r in chain] + [os.environ.get("RICHOS_ENTITY_ROOT_RESOLVED", "")]:
+        e = os.path.realpath(e) if e.strip() else ""
+        if e and e not in out:
+            out.append(e)
+    return out
+
+
+def _declared_review_listing(entities):
+    """The SECOND_REVIEW_REPOS value of every governing declaration that can be
+    read (the last assignment, as review_watch.configured_repos reads it).
+    WHETHER A REPOSITORY IS REVIEWED IS DECIDED FROM THESE (review
+    rv-20261009T031207Z-ba444a8a-607a, finding 1): the fence launcher is only
+    the copy `operator-fences.sh install` makes of the declaration, and reading
+    the launcher alone let a missing launcher switch the review off."""
+    values = []
+    for e in entities:
+        try:
+            with open(os.path.join(e, "orchestration.config"), encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        m = None
+        for m in re.finditer(r'(?m)^[ \t]*SECOND_REVIEW_REPOS[ \t]*=[ \t]*'
+                             r'(?:"([^"\n]*)"|\'([^\'\n]*)\'|([^\s#]*))', text):
+            pass
+        if m is not None:
+            values.append(next(g for g in m.groups() if g is not None))
+    return values
+
+
+def _review_ledgers(F, main, listed):
+    """([review ledger], why refused) for the main checkout `main`.
+
+    Listed in a governing declaration (`listed`, from _declared_review_listing):
+    the ledger the declaration names, which is where second-review writes its
+    verdicts (F.review_ledger_default(), the path `operator-fences.sh install`
+    bakes into the launcher), plus the launcher's own when that differs. With
+    no launcher at all it is still reviewed. A listed repository whose
+    repository or existing launcher cannot be read has no established review
+    setup and is refused with that reason. Not listed: the launcher's ledger
+    when it carries one (the fence would ask it anyway), else ([], "")."""
+    declared = any(F.review_listed(v, main) for v in listed)
+    ledgers = [F.review_ledger_default()] if declared else []
     rc, common, _e = git(main, "rev-parse", "--path-format=absolute", "--git-common-dir")
     if rc != 0 or not common.strip():
-        return ""
+        if declared:
+            return [], ("%s is listed in SECOND_REVIEW_REPOS but its repository cannot be read, so its "
+                        "review setup cannot be established." % main)
+        return [], ""
+    path = os.path.join(common.strip(), "hooks", "reference-transaction")
     try:
-        with open(os.path.join(common.strip(), "hooks", "reference-transaction"), encoding="utf-8",
-                  errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             text = f.read(65536)
-    except OSError:
-        return ""
-    if "richos-operator-fence-launcher" not in text:
-        return ""
-    m = re.search(r'(?m)^OPERATOR_FENCES_REVIEWS="([^"]*)"\s*$', text)
-    return m.group(1) if m else ""
+    except FileNotFoundError:
+        text = ""
+    except OSError as exc:
+        if declared:
+            return [], ("%s is listed in SECOND_REVIEW_REPOS but its fence launcher %s cannot be read (%s), "
+                        "so its review setup cannot be established." % (main, path, exc.strerror or exc))
+        text = ""
+    m = re.search(r'(?m)^OPERATOR_FENCES_REVIEWS="([^"]*)"\s*$', text) \
+        if "richos-operator-fence-launcher" in text else None
+    if m and m.group(1) and m.group(1) not in ledgers:
+        ledgers.append(m.group(1))
+    return ledgers, ""
 
 
 def _abort_own_merge(main, before, tip):

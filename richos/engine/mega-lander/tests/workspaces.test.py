@@ -4223,8 +4223,8 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         checked = ws._review_check
         late = []
 
-        def check_then_advance(todo):
-            out = checked(todo)
+        def check_then_advance(todo, *rest):
+            out = checked(todo, *rest)
             self.commit(cc, "unreviewed-after-check.txt", "created after the tip passed\n")
             late.append(run("git", "-C", cc, "rev-parse", "HEAD").stdout.strip())
             return out
@@ -4296,6 +4296,46 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.verdict(tip, "passed")
         run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "codex/the-fix")
         self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_listed_repository_without_its_launcher_is_still_refused(self):
+        """Review rv-20261009T031207Z-ba444a8a-607a, finding 1: with the fence
+        launcher absent, the land command read "no review ledger" as "not
+        reviewed" and merged unreviewed work into a repository the declaration
+        lists. Whether a repository is reviewed comes from the declaration (here
+        the work's own entity's orchestration.config); the ledger is the one
+        the declaration names."""
+        with open(os.path.join(self.entity, "orchestration.config"), "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv10")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv10", self.sid)
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv10 was not merged into", str(e.exception))
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv10", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_listed_repository_whose_launcher_cannot_be_read_is_refused(self):
+        """The same finding's other half: a listed repository whose review setup
+        cannot be established is refused, even with a passing verdict."""
+        with open(os.path.join(self.entity, "orchestration.config"), "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        _cc, (tip,) = self.finished("zach-opus-rv11")
+        self.verdict(tip, "passed")
+        before = self.head()
+        os.chmod(hook, 0)
+        try:
+            with self.assertRaises(ws.SpecError) as e:
+                ws.merge_and_land("zach-opus-rv11", self.sid)
+        finally:
+            os.chmod(hook, 0o755)
+        self.assertIn("cannot be read", str(e.exception))
+        self.assertEqual(self.head(), before)
 
     def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
         r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
