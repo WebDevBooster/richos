@@ -5097,6 +5097,7 @@ module.exports = [
   {"s":"at % · was %","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): a ruler line's label while usage is fast: the moved point and the normal one."},
   {"s":"at <b></b>, when window resets, the soonest.","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the end of the every-account-used-up hold sentence."},
   {"s":"button, input, [tabindex='0']","c":"NOT-RENDERED","why":"A CSS selector for the sheet's focus trap, never displayed."},
+  {"s":"button, a[href], input, select, textarea, [tabindex]:not([tabindex=\"-1\"])","c":"NOT-RENDERED","why":"A CSS selector main.js's Tab handler uses to find the focusable controls on a modal question's sheet (D22), never displayed."},
   {"s":"checks every min","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's cadence at normal speed."},
   {"s":"Asking Claude Code…","c":"INFORMATIONAL","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): Refresh's own label while it asks Claude Code; it returns to Refresh by itself when the answer comes."},
   {"s":"Last reading (stale)","c":"FRAGMENT","why":"Round 16 (richos-hq design/mockups/rounds/round-16/, the CEO's chosen design): the reading line's stale form, \"Last reading 47 min ago — stale\"; Refresh sits beside it in the same line."},
