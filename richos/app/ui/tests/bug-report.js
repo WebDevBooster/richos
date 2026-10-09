@@ -45,6 +45,10 @@
 //      pressed again over Corrections shows the report already in the conversation, on top and
 //      answerable; and the heads-up reads a line break typed in a change the way Send does, so a
 //      name on two lines is named. `mock.js` matches a name across any whitespace, as the core does.
+//  15. The review of b3b5c573d (rv-20261009T225657Z-b3b5c573-96c0), each red there: what Send reads
+//      is what the card shows when a step holds a nested list, and a rich-text paste (a nested
+//      list, a table, styled words) comes in as plain text. `mock.js` writes steps from
+//      `preset.bugSteps`.
 "use strict";
 
 const path = require("path");
@@ -908,6 +912,111 @@ async function main() {
     assertEqual(warn, "“Jane Doe” looks private. Anyone can read this report on GitHub.", "heads-up");
     await page.close();
     return `asked ${JSON.stringify(asked)}; ${warn}`;
+  });
+
+  // ---- the review of b3b5c573d (rv-20261009T225657Z-b3b5c573-96c0) ----
+  // On b3b5c573d the card's fields were rich text, so a nested list pasted into a step put a step
+  // inside a step, and Send read every <li> while each one's words already held its children's:
+  // "Choose Appearance" went out twice under a card that showed it once. A pasted table's cells
+  // were read run together. Each check compares what Send read with what the card showed.
+  const STEPS = ["Open Settings", "Press Text size"];
+  const once = (s, w) => s.split(w).length - 1;
+  /// Done, then Send: what the card showed when Send was pressed and what Send read
+  /// (`bug_report_send`'s sheet), each with its runs of white space as one space.
+  async function doneAndSend(page) {
+    await page.click("#bug-done");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet · changed')");
+    const shown = await page.locator(".bugcard .bug-doc").innerText();
+    await page.click("#bug-send");
+    await page.waitForFunction(() => window.__RICHOS_MOCK_BUG__.calls.some((c) => c.cmd === "bug_report_send"));
+    const sheet = (await calls(page, "bug_report_send"))[0].sheet;
+    const read = [sheet.title, ...sheet.sections.flatMap((s) => [s.heading, ...s.paragraphs, ...s.steps])].join("\n");
+    return { shown: shown.replace(/\s+/g, " ").trim(), read: read.replace(/\s+/g, " ").trim() };
+  }
+  /// Change it, with the cursor at the end of the card's first `selector`.
+  async function changeAtEnd(page, selector) {
+    await page.click("#bug-change");
+    await page.waitForSelector(".bugcard.is-editing");
+    await page.evaluate((sel) => {
+      const n = document.querySelector(".bugcard " + sel);
+      n.focus();
+      const r = document.createRange();
+      r.selectNodeContents(n);
+      r.collapse(false);
+      const s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    }, selector);
+  }
+  /// A paste of a rich-text clipboard (`html`, and `plain` as its plain text) where the cursor is,
+  /// the way WebKit pastes: the page's `paste` handler first, and if the page does not take it, a
+  /// rich-text field gets the clipboard's HTML (`insertHTML` is WebKit's same replace-selection
+  /// command). No pasteboard of this Mac is read or written.
+  async function pasteRich(page, html, plain) {
+    return page.evaluate(({ html, plain }) => {
+      const at = window.getSelection().anchorNode;
+      const el = at.nodeType === 1 ? at : at.parentElement;
+      const dt = new DataTransfer();
+      dt.setData("text/html", html);
+      dt.setData("text/plain", plain);
+      const taken = !el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      if (!taken) document.execCommand("insertHTML", false, html);
+      return taken;
+    }, { html, plain });
+  }
+  /// Elements in a field other than WebKit's own line breaks (a <div> per line, a <br>) and the
+  /// card's stand-ins: anything here came in with a paste.
+  const markupIn = (page, selector) => page.evaluate((sel) =>
+    [...document.querySelector(".bugcard " + sel).querySelectorAll("*")].filter((n) => !/^(DIV|BR)$/.test(n.nodeName) && !n.classList.contains("bug-sub")).map((n) => n.nodeName.toLowerCase()), selector);
+
+  await run.check("a step that holds a nested list is read once: Send reads what the card shows", async () => {
+    // The fixture `card-reader-probe.js`: the shape a rich-text paste left in a step on b3b5c573d.
+    const page = await open("dark", { bugSteps: STEPS });
+    await bustABug(page);
+    await answer(page, "The window froze while opening the plan.");
+    await changeAtEnd(page, ".bug-sec li");
+    await page.evaluate(() => { document.querySelector(".bugcard .bug-sec li").innerHTML = "Open Settings<ul><li>Choose Appearance</li></ul>"; });
+    const { shown, read } = await doneAndSend(page);
+    assertEqual(once(shown, "Choose Appearance"), 1, "the card does not show it once");
+    assertEqual(once(read, "Choose Appearance"), 1, "Send read it " + once(read, "Choose Appearance") + " times: " + read);
+    assertEqual(read, shown, "what Send read is not what the card showed");
+    await page.close();
+    return "Choose Appearance read " + once(read, "Choose Appearance") + " time(s); Send reads the card";
+  });
+
+  await run.check("a nested list pasted into a step comes in as plain text, and Send reads what the card shows", async () => {
+    const page = await open("dark", { bugSteps: STEPS });
+    await bustABug(page);
+    await answer(page, "The window froze while opening the plan.");
+    await changeAtEnd(page, ".bug-sec li");
+    await page.keyboard.press("Enter");
+    await pasteRich(page, "<ul><li>Choose Appearance<ul><li><span style=\"color:#c00;font-weight:700\">Pick Dark</span></li></ul></li></ul>", "Choose Appearance\n\tPick Dark");
+    const html = await page.locator(".bugcard .bug-sec li").first().evaluate((n) => n.innerHTML);
+    const markup = await markupIn(page, ".bug-sec li");
+    const { shown, read } = await doneAndSend(page);
+    assertEqual(read, shown, "what Send read is not what the card showed (the step was " + html + ")");
+    for (const w of ["Choose Appearance", "Pick Dark"]) assertEqual(once(read, w), 1, `Send read "${w}" ${once(read, w)} times: ${read}`);
+    assertEqual(JSON.stringify(markup), "[]", "pasted markup reached the step: " + html);
+    await page.close();
+    return "step " + html;
+  });
+
+  await run.check("a table pasted into a paragraph comes in as plain text, and Send reads what the card shows", async () => {
+    const page = await open("dark");
+    await bustABug(page);
+    await answer(page, "The window froze while opening the plan.");
+    await changeAtEnd(page, ".bug-sec p");
+    await pasteRich(page,
+      "<table><tr><th>Setting</th><th>Value</th></tr><tr><td>Theme</td><td><b style=\"color:#c00\">Dark</b></td></tr></table>",
+      "Setting\tValue\nTheme\tDark");
+    const html = await page.locator(".bugcard .bug-sec p").first().evaluate((n) => n.innerHTML);
+    const markup = await markupIn(page, ".bug-sec p");
+    const { shown, read } = await doneAndSend(page);
+    assertEqual(read, shown, "what Send read is not what the card showed (the paragraph was " + html + ")");
+    for (const w of ["Setting Value", "Theme Dark"]) assert(read.includes(w), `"${w}" is not what Send read: ${read}`);
+    assertEqual(JSON.stringify(markup), "[]", "pasted markup reached the paragraph: " + html);
+    await page.close();
+    return "paragraph " + html;
   });
 
   // ---- the review of 3007e3200 (rv-20261009T174727Z-3007e320-578a) ----

@@ -2536,6 +2536,8 @@
   // (`unchecked()`, with `edited`).
   // `preset.bugSendCheckHold` keeps that check unanswered until `releaseSendCheck()`. `filed()` is
   // every sheet that actually went out.
+  // `preset.bugSteps` is the numbered steps Rich writes under What happened (none by default), so
+  // a suite can change and paste into a step (review rv-20261009T225657Z-b3b5c573-96c0).
   const bugMock = {
     net: preset.bugNet || "online",
     account: preset.bugAccount || { kind: "reporting" },
@@ -2600,7 +2602,7 @@
     return {
       title: bugScrub(first.charAt(0).toUpperCase() + first.slice(1), rich),
       sections: [
-        { heading: "What happened", paragraphs: [bugScrub(bugSentence(answer), rich)], steps: [] },
+        { heading: "What happened", paragraphs: [bugScrub(bugSentence(answer), rich)], steps: (preset.bugSteps || []).map((t) => bugScrub(t, rich)) },
         { heading: "Where", paragraphs: [[{ text: pub.charAt(0).toUpperCase() + pub.slice(1) + ". It was on screen when the report was started." }]], steps: [] },
         { heading: "Version", paragraphs: [[{ text: BUG_VERSION }]], steps: [] },
       ],
