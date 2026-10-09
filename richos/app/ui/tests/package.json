@@ -6,7 +6,7 @@
   "description": "Browser acceptance harness for app/ui — runs the REAL renderer under WebKit, the engine Tauri actually ships on macOS.",
   "scripts": {
     "test": "node run.js",
-    "postinstall": "playwright install webkit"
+    "postinstall": "playwright install webkit && node lib/background-browser.js"
   },
   "devDependencies": {
     "playwright": "1.61.1"
