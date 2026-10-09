@@ -45,7 +45,7 @@
 
 const path = require("path");
 const fs = require("fs");
-const { loadPlaywright, createRun, assert, assertEqual, UI_DIR, leaveHome, bootSettled, openThread } = require("./lib/harness");
+const { loadPlaywright, createRun, assert, assertEqual, UI_DIR, leaveHome, bootSettled, shellSettled, openThread, HOLD_CURTAIN } = require("./lib/harness");
 const contrast = require("./lib/contrast");
 
 const PRIVATE = ["Acme deal", "Northwind Traders", "/Users/you/Projects/northwind/notes.txt"];
@@ -728,6 +728,111 @@ async function main() {
     await page.close();
     return asked;
   });
+
+  // ---- wherever Bust a bug is pressed, the report is on top (echo-opus-bug20's finding) ----
+  // On f619e9e5f the report opened UNDER the screen it was pressed on: the held opening screen
+  // covers the window at z-index 200 and the home screen at 150, and the report was drawn in the
+  // conversation or in `#bugdock` at 65 — and inside `#app`, which the home screen makes `inert`.
+  // The user pressed Bust a bug and saw nothing. The question is asked of the compositor
+  // (`elementFromPoint` at the middle of Rich's question and of the box the answer is typed in),
+  // and the answer is TYPED, key by key, because the opening screen consumes the space key and
+  // takes itself down on the first other one, and the home screen pulls focus back to its door.
+  async function openCovered(where) {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "en-US" });
+    page.setDefaultTimeout(30000);
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await page.addInitScript(() => {
+      localStorage.setItem("richos-theme", "dark");
+      localStorage.setItem("richos-mock-config", JSON.stringify({ theme: "dark", font_scale: 100 }));
+      window.__RICHOS_MOCK_PRESET__ = { bugWriteMs: 300 };
+    });
+    if (where === "held") await page.addInitScript(HOLD_CURTAIN);
+    await page.goto("file://" + path.join(UI_DIR, "index.html"));
+    if (where === "held") {
+      await page.waitForSelector("#splash");
+      await page.keyboard.press("Space");
+      await page.waitForFunction(() => document.getElementById("splash").classList.contains("splash--paused"));
+    } else {
+      await page.waitForFunction(() => typeof window.RichHome === "object" && !!window.RichSplash);
+      await page.evaluate(() => window.RichSplash.yieldNow("bug-report-suite"));
+      await page.waitForFunction(() => !document.getElementById("splash"));
+      await page.waitForFunction(() => window.RichHome.isOpen() && document.body.classList.contains("home-open"));
+    }
+    // `init()` focuses the composer at its very end: let it, so what is measured below is the
+    // report's own focus and not a race with boot.
+    await bootSettled(page);
+    await shellSettled(page);
+    return page;
+  }
+  /// Is the screen the report was opened on still the one behind it?
+  const behind = (page, where) =>
+    page.evaluate((w) => {
+      if (w === "held") {
+        const s = document.getElementById("splash");
+        return !!s && s.classList.contains("splash--paused") && !(window.RichSplash.state || {}).reason;
+      }
+      return window.RichHome.isOpen();
+    }, where);
+  for (const [where, name, label] of [
+    ["held", "the held opening screen", "· the opening screen"],
+    ["home", "the home screen", "· the home screen"],
+  ]) {
+    await run.check(`Bust a bug on ${name}: the report is on top of it and can be answered at once`, async () => {
+      const page = await openCovered(where);
+      await bustABug(page);
+      await page.waitForSelector("#bug-flows .bug-rich, #bugdock-msgs .bug-rich", { state: "attached" });
+      // The report's own entrance only: a HELD opening screen's animations are paused, and their
+      // `finished` never comes, so the suite-wide `settle` would wait on it forever.
+      await page.evaluate(() => Promise.all(document.getAnimations()
+        .filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest("#bugdock, #bug-flows"))
+        .map((a) => a.finished.catch(() => null))));
+      const top = await page.evaluate(() => {
+        const q = document.querySelector("#bugdock-msgs .bug-rich .tl-prose, #bug-flows .bug-rich .tl-prose");
+        const input = q.closest("#bugdock") ? document.getElementById("bugdock-input") : document.getElementById("input");
+        // The curtain is `pointer-events: none` (splash.css), so hit-testing looks straight through
+        // it: for the length of this read it is made hit-testable, so a curtain painted over the
+        // report is what `elementFromPoint` answers rather than whatever is under both.
+        const curtain = document.getElementById("splash");
+        if (curtain) curtain.style.pointerEvents = "auto";
+        const hitAt = (el) => {
+          const r = el.getBoundingClientRect();
+          const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return h === el || el.contains(h) ? "ON-TOP" : "COVERED by " + (h ? h.tagName.toLowerCase() + (h.id ? "#" + h.id : h.className ? "." + String(h.className).split(" ")[0] : "") : "nothing");
+        };
+        const out = { asked: q.textContent.trim(), question: hitAt(q), input: hitAt(input), inputId: input.id, focused: document.activeElement === input };
+        if (curtain) curtain.style.pointerEvents = "";
+        return out;
+      });
+      assert(top.asked.startsWith("What went wrong?"), "the report did not start: " + JSON.stringify(top.asked));
+      assertEqual(top.question, "ON-TOP", `on ${name}, Rich's question is not what is painted where it is`);
+      assertEqual(top.input, "ON-TOP", `on ${name}, the box the answer goes in is not what is painted where it is`);
+      assert(top.focused, `on ${name}, the box the answer goes in did not get the keyboard`);
+      assert(await behind(page, where), `pressing Bust a bug took ${name} away: the bug is on that screen`);
+      assertEqual(await page.locator("#bugdock-where").innerText(), label, "panel header");
+      // Answer it the way a person does: a click into the box, then the keys, spaces included.
+      const said = "The names on the left get cut off when I make the text bigger.";
+      await page.click("#" + top.inputId);
+      await page.keyboard.type(said);
+      assertEqual(await page.inputValue("#" + top.inputId), said, `on ${name}, the keys did not all reach the answer`);
+      assert(await behind(page, where), `typing the answer took ${name} away`);
+      await page.keyboard.press("Enter");
+      await page.waitForSelector("#bugdock .bug-user:has-text('" + said + "')");
+      await page.waitForSelector("#bugdock .bugcard .bug-pill:has-text('Not sent yet')");
+      const card = await page.evaluate(() => {
+        const c = document.querySelector("#bugdock .bugcard");
+        const r = c.getBoundingClientRect();
+        const curtain = document.getElementById("splash");
+        if (curtain) curtain.style.pointerEvents = "auto";
+        const h = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(40, r.height / 2));
+        if (curtain) curtain.style.pointerEvents = "";
+        return h === c || c.contains(h);
+      });
+      assert(card, `on ${name}, the report card Rich wrote is under the screen`);
+      assert(await behind(page, where), `answering took ${name} away`);
+      await page.close();
+      return `question ${top.question}, answer box ${top.input} and focused, typed and sent; card on top; ${name} still behind it`;
+    });
+  }
 
   // ---- the review of 3007e3200 (rv-20261009T174727Z-3007e320-578a) ----
   const RICH_NAMES = [{ text: "Jane Doe", kind: "person_name" }, { text: "SecretCo", kind: "company_name" }];

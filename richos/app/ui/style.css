@@ -10169,7 +10169,8 @@ body.panel-full .op-body {
   display: block;
 }
 /* what a stand-in replaced — only the user sees it, never part of the report.
-   299: above every layer its stand-in can sit in (the conversation, `#bugdock` at 65), and
+   299: above every layer its stand-in can sit in (the conversation, `#bugdock` at 65, or 250
+   over the home screen and the held opening screen), and
    below `.settings` (300), which §15 puts above every overlay. */
 #bug-subtip {
   position: fixed;
@@ -10214,6 +10215,14 @@ body.panel-full .op-body {
   border-radius: 16px;
   box-shadow: 0 60px 120px -40px var(--shadow-strong);
   animation: bug-dock-in 0.4s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+/* Bust a bug pressed on the home screen (`#home`, 150) or the held opening screen (`.splash`,
+   200): the panel opens ON TOP of the screen the bug is on, which stays up behind it, and below
+   `.settings` (300), which §15 puts above every overlay. `bug-report.js` sets this only when the
+   user presses Bust a bug there; a report shown by itself (one kept from before a quit) never
+   covers either screen. */
+#bugdock.bugdock--over {
+  z-index: 250;
 }
 @keyframes bug-dock-in {
   from {

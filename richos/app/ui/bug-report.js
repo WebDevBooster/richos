@@ -172,11 +172,25 @@ window.RichBug = (function () {
     return lines.join("\n").slice(0, SCREEN_MAX);
   }
 
+  // ---- the two screens that cover the whole window ------------------------------------------
+  /// The opening screen, up and not yet going: the same reading as `home.js`'s `splashStillUp`.
+  function curtainUp() {
+    var s = window.RichSplash && window.RichSplash.state;
+    return !!(s && s.shown && !s.reason && $("splash"));
+  }
+  function homeOpen() {
+    return !!(window.RichHome && window.RichHome.isOpen && window.RichHome.isOpen());
+  }
+
   function screenNow() {
     var scale = window.RichTheme && window.RichTheme.scale ? window.RichTheme.scale() : 100;
     var theme = document.documentElement.dataset.theme || "";
     var techy = !!document.querySelector("#techy-chip:not([hidden])");
     var base = { textSize: scale, theme: theme, technicalView: techy, conversation: null, content: screenContent() };
+    // Pressed on the held opening screen (the settings button is on it only while it is held,
+    // CEO §62): that is the screen the user was looking at, whatever is under it.
+    if (curtainUp())
+      return Object.assign(base, { key: "opening", dock: true, label: "the opening screen", here: "the opening screen", public: "the opening screen RichOS shows as it starts" });
     var w = openWindow();
     if (w) return Object.assign(base, { key: w[1], dock: true, label: w[2], here: w[2], public: w[3] });
     var view = host ? host.view() : "conversation";
@@ -290,8 +304,14 @@ window.RichBug = (function () {
   function start(seen) {
     var cur = liveFlow();
     if (cur) {
-      if (cur.dock) showDock();
-      else if (host && cur.threadId !== host.activeThread()) host.openThread(cur.threadId);
+      if (cur.dock) {
+        raiseDock(covered());
+        showDock();
+      } else {
+        // The report is in a conversation, and the home screen is in front of it: go to it.
+        if (homeOpen()) window.RichHome.hide("bug-report");
+        if (host && cur.threadId !== host.activeThread()) host.openThread(cur.threadId);
+      }
       if (cur.card) {
         cur.card.classList.remove("is-flash");
         void cur.card.offsetWidth;
@@ -309,6 +329,7 @@ window.RichBug = (function () {
     if (f.dock) {
       $("bugdock-msgs").textContent = "";
       $("bugdock-where").textContent = "· " + scr.label;
+      raiseDock(covered());
       showDock();
     } else {
       $("bug-flows").appendChild(f.el);
@@ -545,6 +566,7 @@ window.RichBug = (function () {
       flows.push(f);
       $("bugdock-msgs").textContent = "";
       $("bugdock-where").textContent = "· " + label;
+      raiseDock(false); // shown by itself, never over the home screen or the opening screen
     }
     if (f.step !== "unchecked") return;
     taken[c.id] = true;
@@ -1099,6 +1121,17 @@ window.RichBug = (function () {
     $("bugdock-x").textContent = "✕";
     $("bugdock-send").firstElementChild.textContent = "▷";
     $("bugdock-voice-label").textContent = "listening…";
+  }
+  /// ON TOP OF THE SCREEN THE BUG IS ON. The home screen (`#home`, 150) and the held opening
+  /// screen (`.splash`, 200) cover the whole window, and the panel sits at 65: pressed there, the
+  /// report opened underneath and the user saw nothing (echo-opus-bug20's finding on f619e9e5f).
+  /// `bugdock--over` lifts it to 250, above both and below `.settings` (300); the screen stays up
+  /// behind it, as it is the screen the report is about and the one in its picture.
+  function covered() {
+    return curtainUp() || homeOpen();
+  }
+  function raiseDock(on) {
+    $("bugdock").classList.toggle("bugdock--over", !!on);
   }
   function showDock() {
     fillDock();
