@@ -108,6 +108,7 @@
     "SCRATCH_UNKNOWN_GIT_IS_FIXTURE",
     "SEAL_READONLY_TOOLS",
     "SEAL_WAIT_SECONDS",
+    "SECOND_REVIEW_REPOS",
     "SECRET_SCAN_ALLOWLIST",
     "SECRET_SCAN_CODE_AWARE",
     "SECRET_SCAN_MIN_ENTROPY",
@@ -1111,7 +1112,7 @@
     },
     "scripts/verification-inputs.test.py": {
       "source": "scripts/verification-inputs.test.py",
-      "sha256": "fc5a6caf25114305ae6d7d750bce767e7229e717e661fbbf4f54e4b07686e595",
+      "sha256": "654498e43b90d74816085c1e5b576cb60f9a61a23fa253ba28cf24db9e16f406",
       "evidence": "Uses temporary files and Git repositories for parser/closure controls. Its real-file grammar case parses every assignment and checks all eight environment path forms. Helper-source hashing and hook JSON parsing are data reads; selected hooks/suites are never executed. The added real dependency/selection cases only read bound source and hook JSON as data and use synthetic config deltas; they never launch selected suites.",
       "keys": [],
       "edges": [
