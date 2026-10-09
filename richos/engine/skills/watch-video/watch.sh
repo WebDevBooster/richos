@@ -296,7 +296,8 @@ fi
     if [ -n "$TNOTE" ]; then echo "- $TNOTE"; fi
     echo "- Read this file top to bottom; Read each FRAME path to see the screen at that moment."
     echo
-    sort "$ROWS" | cut -f2- | awk '{ print; print "" }'
+    # By exact time; the row text breaks a tie (a contact sheet's C before its frame's F).
+    LC_ALL=C sort -t "$(printf '\t')" -k1,1 -k2,2 "$ROWS" | cut -f2- | awk '{ print; print "" }'
 } > "$OUT/watched.md"
 rm -f "$ROWS"
 

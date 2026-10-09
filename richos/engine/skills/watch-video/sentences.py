@@ -94,42 +94,30 @@ def main():
     with open(transcript) as f:
         paras = [m.groups() for m in map(PARA.match, f.read().splitlines()) if m]
     stamps = [parse_stamp(p[0]) for p in paras]
-    # rows: [paragraph index, first raw word's start or None, text, is raw]
-    rows = []
-    k = 0  # next unassigned raw word
-    for i, (_stamp, _speaker, text) in enumerate(paras):
-        if i + 1 < len(paras):
-            limit = stamps[i + 1][0] - 1.0
-            j = k
-            while j < len(words) and words[j][1] < limit:
-                j += 1
-        else:
-            j = len(words)
-        mine = words[k:j]
-        k = j
-        if mine:
-            for sent in split_sentences(mine):
-                rows.append([i, sent[0][1], " ".join(w for w, _ in sent), True])
-        else:
-            rows.append([i, None, text, False])
-    raw_idx = [n for n, r in enumerate(rows) if r[3]]
-    if raw_idx:
-        for n, t in zip(raw_idx, correct_all([rows[n][2] for n in raw_idx])):
-            rows[n][2] = t
-    last = 0.0
-    prev_para = -1
-    for i, start, text, _raw in rows:
-        _stamp, speaker, _text = paras[i]
-        psecs, nparts = stamps[i]
-        if i != prev_para or start is None:
-            secs = psecs  # the paragraph's own stamp, as before
-        else:
-            secs = start if start >= last else last
-        prev_para = i
-        last = max(last, secs)
-        # The stamp is a whole second; .01 puts a frame taken at exactly that
-        # second ahead of the words, so the picture comes first.
-        print("%010.2f\t**[%s] %s:** %s" % (int(secs) + 0.01, fmt_stamp(secs, nparts), speaker, text))
+    if not paras:
+        return
+    if words:
+        # One stream in spoken order, never cut at a paragraph stamp. The speaker
+        # label comes from the last paragraph stamped at or before the sentence's
+        # first word (the first paragraph if none is).
+        sents = split_sentences(words)
+        texts = correct_all([" ".join(w for w, _ in sent) for sent in sents])
+        rows = []
+        for sent, text in zip(sents, texts):
+            start = sent[0][1]
+            i = 0
+            for n, (psecs, _np) in enumerate(stamps):
+                if psecs <= start:
+                    i = n
+            rows.append((start, paras[i][1], stamps[i][1], text))
+    else:
+        rows = [(float(stamps[i][0]), paras[i][1], stamps[i][1], paras[i][2])
+                for i in range(len(paras))]
+    for start, speaker, nparts, text in rows:
+        # The key keeps the fractional second, so same-second sentences stay in
+        # spoken order; .001 puts a frame taken at exactly that time ahead of the
+        # words (frame keys have two decimals, so theirs sort first on a tie).
+        print("%010.3f\t**[%s] %s:** %s" % (start + 0.001, fmt_stamp(start, nparts), speaker, text))
 
 
 main()

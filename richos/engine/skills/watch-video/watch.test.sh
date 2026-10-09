@@ -264,6 +264,33 @@ if printf '%s\n' "$RCORR" | grep -q '\*\*\[00:00\] Me:\*\* whisper.cpp is fast\.
 else
     bad "corrected rows (got: $RCORR)"
 fi
+# Fourth review (rv-20261009T121434Z-c300e0e1-901b): no cutting at a paragraph's whole-second
+# stamp, and the index orders by exact time. "button." starts at 9.2 s in the paragraph
+# stamped 00:08, the next paragraph is stamped 00:10; two paragraphs in one second say
+# "Stop." and "Wait."; "Yes." at 0.6 s and "No." at 0.8 s must stay in that order.
+printf '%s\n' '**[00:08] Me:** Click the button.' '' '**[00:10] Me:** Then close it.' > "$SANDBOX/sent/adj.md"
+cat > "$SANDBOX/sent/adj.json" <<'JSON'
+{"transcription":[{"tokens":[
+ {"text":" Click","offsets":{"from":8000,"to":8250}},{"text":" the","offsets":{"from":8600,"to":8850}},
+ {"text":" button.","offsets":{"from":9200,"to":9450}},
+ {"text":" Then","offsets":{"from":10200,"to":10450}},{"text":" close","offsets":{"from":10600,"to":10850}},
+ {"text":" it.","offsets":{"from":11000,"to":11250}}]}]}
+JSON
+printf '%s\n' '**[00:00] Me:** Stop.' '' '**[00:00] Me:** Wait.' '' '**[00:00] Me:** Yes. No.' > "$SANDBOX/sent/same.md"
+cat > "$SANDBOX/sent/same.json" <<'JSON'
+{"transcription":[{"tokens":[
+ {"text":" Stop.","offsets":{"from":100,"to":300}},{"text":" Wait.","offsets":{"from":400,"to":500}},
+ {"text":" Yes.","offsets":{"from":600,"to":700}},{"text":" No.","offsets":{"from":800,"to":900}}]}]}
+JSON
+TAB="$(printf '\t')"
+RADJ="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/adj.md" "$SANDBOX/sent/adj.json" 2>/dev/null | cut -f2- | tr '\n' '|' || true)"
+RSAME="$(python3 -I "$HERE/sentences.py" "$SANDBOX/sent/same.md" "$SANDBOX/sent/same.json" 2>/dev/null | sort -s -t "$TAB" -k1,1 | cut -f2- | sed 's/^[^ ]* [^ ]* //' | tr '\n' ' ' || true)"
+if [ "$RADJ" = '**[00:08] Me:** Click the button.|**[00:10] Me:** Then close it.|' ] \
+    && [ "$RSAME" = "Stop. Wait. Yes. No. " ]; then
+    ok "a sentence is never cut at the next paragraph's stamp, and same-second sentences keep spoken order"
+else
+    bad "paragraph cut / same-second order (got: $RADJ / $RSAME)"
+fi
 if ! grep -q 'LEFT channel' "$OUT/transcript.md" && grep -q 'speakers not separated' "$OUT/watched.md"; then
     ok "a file's transcript no longer claims LEFT = me, RIGHT = others; the index says one channel"
 else
