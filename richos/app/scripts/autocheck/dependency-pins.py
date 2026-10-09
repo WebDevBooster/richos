@@ -91,6 +91,31 @@ def read_blob(rev, path):
     return got.stdout if got.returncode == 0 else None
 
 
+class Batch:
+    """One `git cat-file --batch` for many blob reads (a process per file costs seconds over the
+    declaration's ~900 readers)."""
+    def __init__(self):
+        self.proc = subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def read(self, rev, path):
+        spec = (":" if rev is None else rev + ":") + path
+        self.proc.stdin.write(spec.encode("utf-8", errors="surrogateescape") + b"\n")
+        self.proc.stdin.flush()
+        header = self.proc.stdout.readline().split()
+        if len(header) != 3 or header[1] != b"blob":
+            if header and header[-1] not in (b"missing", b"ambiguous"):
+                raise RuntimeError("git cat-file --batch: unexpected reply " + repr(header))
+            return None
+        data = self.proc.stdout.read(int(header[2]))
+        self.proc.stdout.read(1)
+        return data
+
+    def close(self):
+        self.proc.stdin.close()
+        self.proc.wait()
+
+
 def branch_paths():
     """The branch's change as the land will see it: merge-base(main, HEAD) against the index
     being committed. With no main to compare to, the staged change alone."""
@@ -135,44 +160,58 @@ def report(found, title):
     say("")
 
 
-def reader_floor(declaration, old, paths):
-    """The selector's own refusals for a changed reader, from the selector's own code and with its
-    message: `omitted known key reads` (a known config key the file reads that its row does not
-    declare) and `unqualified reader` (an edge to a node that does not exist). Only readers this
-    commit changed (their source, or their row) are asked, and an edge unqualified at the
-    merge-base is not this commit's. Dependencies.node stops at a reader's first problem (a stale
-    pin is reported before this runs), so only the omitted-key message is taken from it."""
-    nodes, before = declaration.get("nodes") or {}, (old or {}).get("nodes") or {}
-    todo = [name for name, row in nodes.items()
-            if isinstance(row, dict) and (ENGINE + str(row.get("source", "")) in paths or row != before.get(name))]
-    if not todo:
-        return []
+def reader_floor(declaration, old, base):
+    """The selector's own refusals over the WHOLE staged declaration, from the selector's own code
+    and with its message: `omitted known key reads` (a known config key a reader reads that its row
+    does not declare) and `unqualified reader` (a node edge or a unit root with no node). Text is
+    read as the verifier reads it (newlines normalized). Anything that is also found over the
+    merge-base's declaration and files is not this commit's and is not refused. Dependencies.node
+    stops at a reader's first problem (a stale pin is reported before this runs), so only these two
+    messages are taken from it. An exception propagates: check() refuses the commit on it."""
     code = read_blob(None, INPUTS)
     if code is None:
         return []
     module = types.ModuleType("verification_inputs")
     exec(compile(code.decode("utf-8"), INPUTS, "exec"), module.__dict__)
+    top = Path(git("rev-parse", "--show-toplevel").stdout.strip())
 
-    def read(path):
-        blob = read_blob(None, ENGINE + path)
-        if blob is None:
-            raise FileNotFoundError(path)
-        return blob.decode("utf-8", errors="surrogateescape")
+    def findings(doc, rev, only=None):
+        def read(path):
+            blob = batch.read(rev, ENGINE + path)
+            if blob is None:
+                raise FileNotFoundError(path)
+            return blob.decode("utf-8", errors="surrogateescape").replace("\r\n", "\n").replace("\r", "\n")
 
-    top = git("rev-parse", "--show-toplevel").stdout.strip()
-    graph = module.Dependencies(Path(top) / ENGINE.rstrip("/"), declaration, read)
-    found = []
-    for name in sorted(todo):
-        try:
-            graph.node(name)
-        except module.Unsupported as exc:
-            if str(exc).startswith(OMITTED):
-                found.append((nodes[name]["source"], str(exc)))
-        had = {e["to"] for e in (before.get(name) or {}).get("edges") or []}
-        for edge in nodes[name].get("edges") or []:
-            if edge["to"] not in nodes and edge["to"] not in had:
-                found.append((nodes[name]["source"], UNQUALIFIED + edge["to"]))
-    return found
+        nodes = doc.get("nodes") or {}
+        graph = module.Dependencies(top / ENGINE.rstrip("/"), doc, read)
+        found = {}
+        for name in sorted(nodes):
+            row = nodes[name]
+            if not isinstance(row, dict) or (only is not None and name not in only):
+                continue
+            try:
+                graph.node(name)
+            except module.Unsupported as exc:
+                if str(exc).startswith(OMITTED):
+                    found.setdefault(str(exc), (row.get("source", name), name))
+            for edge in row.get("edges") or []:
+                if edge["to"] not in nodes:
+                    found.setdefault(UNQUALIFIED + edge["to"], (row.get("source", name), name))
+        for root in (doc.get("units") or {}).values():
+            if root not in nodes:
+                found.setdefault(UNQUALIFIED + str(root), (DECLARATION, None))
+        return found
+
+    batch = Batch()
+    try:
+        now = findings(declaration, None)
+        if not now:
+            return []
+        # Only the rows that produced a finding are asked again at the merge-base.
+        before = findings(old, base, {name for _, name in now.values() if name}) if base and old else {}
+    finally:
+        batch.close()
+    return [(source, message) for message, (source, _) in now.items() if message not in before]
 
 
 def report_floor(found):
@@ -221,7 +260,12 @@ def check():
         old = json.loads(read_blob(base, DECLARATION) or b"{}") if base else {}
     except ValueError:
         old = {}
-    floor = reader_floor(declaration, old, set(paths))
+    try:
+        floor = reader_floor(declaration, old, base)
+    except Exception as exc:  # a check that cannot run refuses; it never passes by silence
+        say("")
+        say(f"=== COMMIT REFUSED: the reader check could not run ({type(exc).__name__}: {exc}) ===")
+        return 1
     if floor:
         report_floor(floor)
         return 1

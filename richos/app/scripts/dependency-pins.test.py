@@ -254,6 +254,69 @@ class Floor(Fixture):
         self.assertNotEqual(self.head(), before)
 
 
+    def mutate(self, edit):
+        path = self.repo / DECLARATION
+        declaration = json.loads(path.read_text())
+        edit(declaration)
+        path.write_text(json.dumps(declaration, indent=2) + "\n")
+
+    def land_on_main(self):
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--ff-only", "feature")
+        self.git("checkout", "-q", "feature")
+
+    def helper_node(self, declaration):
+        self.write("richos/engine/scripts/new-helper.py", "print(1)\n")
+        declaration["nodes"]["scripts/new-helper.py"] = {
+            "source": "scripts/new-helper.py", "sha256": "0" * 64, "evidence": "fixture helper", "keys": []}
+        declaration["nodes"]["scripts/reader.sh"]["edges"] = [{"to": "scripts/new-helper.py"}]
+
+    def test_deleting_the_node_of_a_qualified_edge_target_is_refused(self):
+        # review rv-20261009T063406Z-17691477: the edge existed at the merge-base, qualified.
+        self.start()
+        self.mutate(self.helper_node)
+        self.renew("richos/engine/scripts/new-helper.py")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "edge and node")
+        self.land_on_main()
+        before = self.head()
+        self.mutate(lambda d: (d["nodes"].pop("scripts/new-helper.py"),
+                               d["nodes"]["scripts/reader.sh"].update(evidence="edited parent")))
+        self.git("add", "-A")
+        text = self.git("commit", "-m", "drop the helper node", expect=1)
+        self.assertIn("unqualified reader scripts/new-helper.py", text.stdout + text.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_a_new_unit_root_without_a_node_is_refused(self):
+        self.start()
+        before = self.head()
+        self.mutate(lambda d: d["units"].update({"scripts/new-unit.test.sh": "scripts/new-helper.py"}))
+        self.git("add", "-A")
+        text = self.git("commit", "-m", "unit root with no node", expect=1)
+        self.assertIn("unqualified reader scripts/new-helper.py", text.stdout + text.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_a_crlf_reader_with_an_undeclared_key_is_refused(self):
+        self.start()
+        before = self.head()
+        self.write(NODE, 'echo "$TOKEN"\n', newline="\r\n")
+        self.renew(NODE)
+        self.git("add", "-A")
+        text = self.git("commit", "-m", "read TOKEN in CRLF", expect=1)
+        self.assertIn("omitted known key reads in scripts/reader.sh: TOKEN", text.stdout + text.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_an_edge_already_unqualified_at_the_merge_base_is_not_this_commits(self):
+        self.start()
+        self.mutate(lambda d: d["nodes"]["scripts/reader.sh"].update(edges=[{"to": "scripts/gone.py"}]))
+        self.git("add", "-A")
+        self.git("commit", "--no-verify", "-q", "-m", "already broken")
+        self.land_on_main()
+        self.write(FREE, "echo unrelated\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "unrelated")
+
+
 class Parity(Fixture):
     """The digests --renew writes are the ones the selector itself checks."""
 
