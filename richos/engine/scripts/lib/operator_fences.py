@@ -1009,8 +1009,17 @@ def read_reviews(ledger):
 
 def review_repo_identity(repo):
     """The canonical identity of a repository for matching verdicts: the real
-    path of its main checkout (a git directory named .git stands for its parent)."""
+    path of its main checkout. Git decides it (the common git directory), so
+    every linked worktree of a repository has the identity of that repository
+    while an independent clone stays distinct. A path Git cannot resolve (gone,
+    or not a repository) is its own real path; a git directory named .git
+    stands for its parent."""
     real = os.path.realpath(repo or "")
+    if repo and os.path.isdir(real):
+        code, out, _err = git(real, "rev-parse", "--git-common-dir")
+        common = out.strip()
+        if code == 0 and common:
+            real = os.path.realpath(os.path.join(real, common))
     return os.path.dirname(real) if os.path.basename(real) == ".git" else real
 
 

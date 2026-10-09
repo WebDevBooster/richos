@@ -4123,6 +4123,29 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.assertEqual(self.head(), before)
         self.no_merge_left()
 
+    def test_second_review_a_passing_verdict_recorded_from_a_linked_worktree_authorizes_the_land(self):
+        # A manual review with --repo <linked worktree> records that worktree's path; Git says
+        # it is the same repository as the main checkout (review rv-20261009T065022Z-ae3404f1-42cc).
+        cc, (tip,) = self.finished("zach-opus-rv9")
+        self.verdict(tip, "passed", repo=cc)
+        merged, res = ws.merge_and_land("zach-opus-rv9", self.sid, "Merge cc/zach-opus-rv9: the work")
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_newer_refusal_from_a_linked_worktree_beats_an_older_pass_on_main(self):
+        cc, (tip,) = self.finished("zach-opus-rv10")
+        self.verdict(tip, "passed", repo=self.other)
+        self.verdict(tip, "changes-requested", repo=cc, findings=[(1, "worktree defect")])
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv10", self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertEqual(self.head(), before)
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/zach-opus-rv10", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+
     def test_second_review_an_unlisted_repository_is_not_refused(self):
         self.declare("")
         run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
