@@ -4179,6 +4179,47 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         run("git", "-C", self.other, "reset", "-q", "--hard", tip)
         self.assertEqual(self.head(), tip)
 
+    def test_second_review_a_merge_with_changes_of_its_own_needs_a_review_of_the_merge_itself(self):
+        """Review rv-20261009T023055Z-b51ebb97-bc65, finding 2: a merge made
+        elsewhere, whose first parent is main, carried an extra unreviewed file;
+        a fast-forward to it was checked only against its second parent."""
+        _cc, (reviewed,) = self.finished("zach-opus-rv6")
+        self.verdict(reviewed, "passed")
+        carrier = os.path.join(self.env.root, "carrier-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "carrier", carrier, "main")
+        run("git", "-C", carrier, "merge", "-q", "--no-ff", "--no-commit", "cc/zach-opus-rv6")
+        self.commit(carrier, "unreviewed.txt", "added during the merge, absent from the reviewed tip\n")
+        evil = run("git", "-C", carrier, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(run("git", "-C", carrier, "rev-parse", "HEAD^2").stdout.strip(), reviewed)
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--ff-only", "carrier", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % evil[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+        run("git", "-C", self.other, "reset", "-q", "--hard", "HEAD")
+        # The same merge made in the main checkout itself is refused the same way.
+        run("git", "-C", self.other, "merge", "-q", "--no-ff", "--no-commit", "cc/zach-opus-rv6")
+        with open(os.path.join(self.other, "unreviewed.txt"), "w") as f:
+            f.write("added during the merge, absent from the reviewed tip\n")
+        run("git", "-C", self.other, "add", "unreviewed.txt")
+        r = run("git", "-C", self.other, "commit", "-q", "--no-edit", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW", r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+        run("git", "-C", self.other, "reset", "-q", "--hard", "HEAD")
+        # Control: a clean merge made elsewhere brings in only the reviewed work.
+        clean = os.path.join(self.env.root, "clean-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "clean", clean, "main")
+        run("git", "-C", clean, "merge", "-q", "--no-ff", "--no-edit", "cc/zach-opus-rv6")
+        run("git", "-C", self.other, "merge", "--ff-only", "clean")
+        self.assertEqual(self.head(), run("git", "-C", clean, "rev-parse", "HEAD").stdout.strip())
+        # And the merge with its own changes lands once that merge itself passed.
+        run("git", "-C", self.other, "reset", "-q", "--hard", before)
+        self.verdict(evil, "passed")
+        run("git", "-C", self.other, "merge", "--ff-only", "carrier")
+        self.assertEqual(self.head(), evil)
+
     def test_second_review_a_codex_branch_lands_only_reviewed(self):
         """Sage's catch 1: codex/ work never enters the registry; Rich lands it
         with a plain merge in the main checkout, which the fence sees."""

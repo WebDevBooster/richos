@@ -545,6 +545,11 @@ mutant sr-replacement-taken-for-a-rollback "test_second_review_a_divergent_repla
     '        return []' \
     "a reset of main to an unreviewed divergent commit would land its work, taken for a rollback (review rv-20261009T023055Z-b51ebb97-bc65, finding 1)."
 
+mutant sr-merge-own-changes-unseen "test_second_review_a_merge_with_changes_of_its_own_needs_a_review_of_the_merge_itself" "$F" \
+    '        if not clean_merge(cwd, c, parents, keep_git_env):{NL}            return [new]' \
+    '        if False:{NL}            return [new]' \
+    "a merge carrying a file of its own would land on its branch's review alone (review rv-20261009T023055Z-b51ebb97-bc65, finding 2)."
+
 mutant sr-delivered-every-call "test_second_review_a_running_teammates_next_tool_call_carries_a_new_verdict_once" "scripts/lib/review_delivery.py" \
     '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))' \
     '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT, 0o600))' \

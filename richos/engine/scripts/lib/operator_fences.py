@@ -816,8 +816,13 @@ def landed_tips(cwd, old, new, keep_git_env=False):
         hold, and is not a fast-forward): [new], the whole move (review
         rv-20261009T023055Z-b51ebb97-bc65, finding 1: a `git reset --hard` to
         an unreviewed divergent branch was taken for a rollback);
-      * merge commits on main's own line: each parent after the first that
-        main did not already hold (the branch tip the merge brings in);
+      * merge commits on main's own line whose files are exactly the clean
+        merge of their two parents: each parent after the first that main did
+        not already hold (the branch tip the merge brings in);
+      * a merge with changes of its own (a conflict resolved by hand, a file
+        added while merging, more than two parents), wherever it was made:
+        [new], the whole move, because no branch review saw those changes
+        (the same review, finding 2);
       * a fast-forward to work made elsewhere, or any commit on main's line
         that is not a merge and changes a file: [new], the whole move;
       * a commit on main's line that changes no file lands nothing."""
@@ -849,11 +854,33 @@ def landed_tips(cwd, old, new, keep_git_env=False):
             if rc == 0 and len(trees) == 2 and trees[0] == trees[1]:
                 continue
             return [new]
+        if not clean_merge(cwd, c, parents, keep_git_env):
+            return [new]
         for p in parents[1:]:
             rc, _o, _e = git(cwd, "merge-base", "--is-ancestor", p, old, keep_git_env=keep_git_env)
             if rc != 0 and p not in tips:
                 tips.append(p)
     return tips
+
+
+def clean_merge(cwd, commit, parents, keep_git_env=False):
+    """Are the files of the merge `commit` exactly what Git's own merge of its
+    two parents makes? Then it brings in its second parent's work and nothing
+    else, wherever and whenever it was made. A merge Git could not make by
+    itself (a conflict resolved by hand), one with a file changed while
+    merging, or one with more than two parents is not."""
+    if len(parents) != 2:
+        return False
+    rc, out, err = git(cwd, "merge-tree", "--write-tree", parents[0], parents[1], keep_git_env=keep_git_env)
+    if rc not in (0, 1):
+        raise RuntimeError("git merge-tree %s %s failed: %s" % (parents[0][:12], parents[1][:12], err.strip()))
+    if rc == 1:
+        return False
+    merged = (out.split() or [""])[0]
+    rc, tree, err = git(cwd, "rev-parse", commit + "^{tree}", keep_git_env=keep_git_env)
+    if rc != 0:
+        raise RuntimeError("git rev-parse %s^{tree} failed: %s" % (commit[:12], err.strip()))
+    return bool(merged) and merged == tree.strip()
 
 
 def read_reviews(ledger):
