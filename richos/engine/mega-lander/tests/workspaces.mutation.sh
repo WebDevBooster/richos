@@ -531,8 +531,8 @@ mutant sr-fence-does-not-ask "test_second_review_a_plain_merge_is_refused_by_the
     "a plain git merge, a fast-forward or a codex/ branch's land would bring unreviewed work into main (Sage's catches 1 and 8)."
 
 mutant sr-any-commit-verdict-counts "test_second_review_merge_is_refused_with_a_verdict_on_an_older_commit" "$F" \
-    '    land = [r for r in rows if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]' \
-    '    land = [r for r in rows if r.get("trigger") in REVIEW_LAND_KINDS]' \
+    '    land = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]' \
+    '    land = [r for r in mine if r.get("trigger") in REVIEW_LAND_KINDS]' \
     "a verdict on an older commit would let newer, unreviewed commits land (plan §4 row 3)."
 
 mutant sr-fast-forward-not-seen "test_second_review_a_fast_forward_and_a_direct_commit_are_refused_an_empty_commit_is_not" "$F" \

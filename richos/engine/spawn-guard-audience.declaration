@@ -158,6 +158,10 @@ id: guard-live-names.sh
 audience: operator-session
 reason: It refuses a spawn whose name is already held by a live agent of ANOTHER session on the same Mac, a hazard that exists only because several of the DEVELOPMENT project's own orchestrator sessions can run on one machine at once; it acts only while that session's own operator mode is switched on, which the app's spawn path never is.
 
+id: deliver-review-verdict.sh
+audience: operator-session
+reason: It never refuses anything; it hands a running teammate the verdict of the DEVELOPMENT session's own second-review ledger (reviews.jsonl, kept by the engine's review-watch monitor), and the app user has no such ledger, so the app has nothing for it to deliver.
+
 id: guard-operator-claim.sh
 audience: operator-session
 reason: It refuses the DEVELOPMENT session's own terminal from acting on the team while the app itself holds a live claim on that same team, keeping the two from driving one team at once; it is a boundary between the operator's terminal and the app, and it explicitly passes every non-terminal, app-side spawn untouched.
