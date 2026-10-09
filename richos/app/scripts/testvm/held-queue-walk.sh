@@ -73,8 +73,10 @@ stop_early() {
   note "done, with ${#FAILS[@]} failed step(s): $(printf '%s; ' "${FAILS[@]}")"
   exit 1
 }
-# One work record per job: its state and detail, by the job's own words in its title.
-row_of() { awk -v job="$2" '/^== / {w = ($0 ~ /\/engine-state\/assignments\//); next} w && index($0, job)' "$1"; }
+# One work record per job: its state and detail, by its title. The register stores the title
+# without the closing period (walk walk-3b8f01f185cf: "title":"Draft the Contoso welcome note"),
+# so the job's words are matched as the whole quoted title, period removed.
+row_of() { awk -v job="\"title\":\"${2%.}\"" '/^== / {w = ($0 ~ /\/engine-state\/assignments\//); next} w && index($0, job)' "$1"; }
 
 "$T/guest.sh" "$VM" "mkdir -p $G" || setup_failed "the fixture folder"
 "$T/guest.sh" "$VM" --push "$T/fake-claude-fill-first.pl" $G/claude || setup_failed "pushing the fake claude"
