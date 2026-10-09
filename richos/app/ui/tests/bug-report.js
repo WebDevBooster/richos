@@ -26,8 +26,9 @@
 //      out, and the screen's words given to Rich with the window's picture asked for first.
 //      `mock.js` holds a change or a cancel, fails a cancel, or files a waiting report mid-cancel.
 //  10. The third review's cases (rv-20261009T135204Z-9f4d77d4-1892, on 9f4d77d44), each red
-//      there: a name typed over a stand-in gets the heads-up before sending, and a file address
-//      and a drive path typed in get it too.
+//      there: a name typed over a stand-in gets the heads-up before sending, a file address and
+//      a drive path typed in get it too, and the digest of what Rich checked is 16px and no
+//      longer exempt from the size check.
 "use strict";
 
 const path = require("path");
@@ -332,6 +333,20 @@ async function main() {
     return warn;
   });
 
+  await run.check("what Rich checked, under Worked for, is at least 16px in both themes", async () => {
+    // Finding 3, fixture `readable-type.py`: on the tip it was 14px and exempt from the size check.
+    const sizes = [];
+    for (const theme of ["dark", "light"]) {
+      const page = await open(theme);
+      await bustABug(page);
+      await answer(page, ANSWER);
+      const px = await page.locator(".bug-digest").evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+      assert(px >= 16, `${theme}: the digest is ${px}px`);
+      sizes.push(`${theme} ${px}px`);
+      await page.close();
+    }
+    return sizes.join(", ");
+  });
 
   await run.check("while Rich changes the report, Send and Cancel wait for him, and what is sent is what he changed", async () => {
     // Finding 3: on the tip Send and Cancel stayed live, and a late change rewrote a sent card.
@@ -464,7 +479,7 @@ async function main() {
   // ---- both themes: contrast, the type floor, indicators ----
   const ROOTS = "#bug-flows, #bugdock:not([hidden]), #bug-subtip.is-shown";
   // Declared skippable, each the conversation's own 14px tier (style.css's Bust a bug note).
-  const SKIPPABLE = ".tl-rich-meta, .bug-worked, .bug-digest, .bugdock-send";
+  const SKIPPABLE = ".tl-rich-meta, .bug-worked, .bugdock-send";
   const INDICATORS = [
     [".bugcard.is-sent", "borderTopColor"], [".bugcard.is-queued", "borderTopColor"], [".bug-pill", "borderTopColor"],
     [".bug-sub", "borderBottomColor"], [".bug-warn", "borderLeftColor"], [".bugcard.is-editing .bug-doc", "borderTopColor"],

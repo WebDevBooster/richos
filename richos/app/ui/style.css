@@ -9761,12 +9761,12 @@ body.panel-full .op-body {
    panel) is --surface-raised, its --sw-off (the dashed edges) is --ink-faint. No new token.
 
    SIZES: everything here that is meant to be read is 16px or larger (the card, the sheet, the
-   stand-in tooltip, the badge and the buttons at 1rem; the report title at 1.1875rem; Rich's
-   lines at 1.125rem, 1.0625rem in the panel). DECLARED 14px, each a claim that it is skippable,
-   all of them the conversation's own and none new to this round: Rich's speaker label
-   (`.tl-rich-meta`), the "Worked for" line (`.tl-duration-btn`'s size, here on `.bug-worked`),
-   the digest under it (`.bug-digest`, `.tl-collapsed-summary`'s size and ink) and the send
-   glyph in the panel's composer (`.bugdock-send`, the composer's own ▷).
+   stand-in tooltip, the badge, the buttons and the digest of what Rich checked (`.bug-digest`,
+   text the user reads) at 1rem; the report title at 1.1875rem; Rich's lines at 1.125rem,
+   1.0625rem in the panel). DECLARED 14px, each a claim that it is skippable, all of them the
+   conversation's own and none new to this round: Rich's speaker label (`.tl-rich-meta`), the
+   "Worked for" line (`.tl-duration-btn`'s size, here on `.bug-worked`) and the send glyph in the
+   panel's composer (`.bugdock-send`, the composer's own ▷).
 
    CONTRAST is measured by `ui/tests/bug-report.js` in both themes with the shipping walker's
    arithmetic (tests/lib/contrast.js), never eyeballed; its output is in that suite's run.
@@ -9819,7 +9819,7 @@ body.panel-full .op-body {
 }
 .bug-digest {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: 1rem;
   color: var(--ink-faint);
 }
 .bug-prose {
