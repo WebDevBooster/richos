@@ -221,12 +221,28 @@ impl Replay {
         }
     }
 
-    fn end(self) {
+    /// The end of a test that passed. One that failed ends in [`Drop`], the same way.
+    fn end(self) {}
+}
+
+/// The host is shut down (its leases, and with them their replay children, are dropped) and the
+/// folder removed however the test ends: a failing assertion unwinds through here too (§54).
+impl Drop for Replay {
+    fn drop(&mut self) {
         self.host.shutdown();
         if let Err(e) = std::fs::remove_dir_all(&self.root) {
-            assert_eq!(e.kind(), std::io::ErrorKind::NotFound, "{}: {e}", self.root.display());
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("[replay] could not remove {}: {e}", self.root.display());
+            }
         }
     }
+}
+
+/// The job is answered AND he has been told `notices` things about it. Both, because the host
+/// writes the row before it raises the notice (bgdone2 run 5: the record first, then his words),
+/// so a test that read the notices the instant the row changed would read one too few.
+fn answered(r: &Replay, id: &str, notices: usize) -> bool {
+    r.row(id).was_answered() && r.told_about(id).len() >= notices
 }
 
 /// How many frames a capture holds: the replay has played it all once that many were emitted.
@@ -266,7 +282,7 @@ fn the_finish_he_never_heard_reaches_him_as_the_report_when_the_provider_says_it
     assert_eq!(told.first().map(String::as_str), Some("Background command started."), "{told:?}");
     let sent = r.sent();
     assert_eq!(sent.len(), 2, "{sent:?}");
-    assert!(sent[1].contains("has ended"), "the second message was not the report request: {}", sent[1]);
+    assert!(sent[1].contains("that is this app telling you"), "the second message was not the report request: {}", sent[1]);
     assert!(r.events("divergence").is_empty(), "the host left the recording: {:#?}", r.events("divergence"));
     r.end();
 }
@@ -302,7 +318,69 @@ fn after_the_providers_own_finish_turn_the_host_asks_for_the_report() {
          (he was told only {:?})", r.told_about(&job)
     );
     assert_eq!(asked[0]["why"], "the recording has no more sends");
-    assert!(asked[0]["text"].as_str().unwrap_or_default().contains("has ended"), "{:#?}", asked[0]);
+    assert!(asked[0]["text"].as_str().unwrap_or_default().contains("that is this app telling you"), "{:#?}", asked[0]);
+    r.end();
+}
+
+/// **A LONG SESSION: TWO FINISHES AFTER THEIR TURNS ENDED, A JOB BETWEEN, A FOLD BESIDE THEM** —
+/// `2026-10-09-long-session.jsonl`, recorded in the test VM on `claude` 2.1.295 (haiku) by
+/// `scripts/replay/record-long-session.py` through `scripts/testvm/replay-capture-walk.sh`, 104.8 s,
+/// the shape every one of the six 2026-09/10 incidents had (Sage, research 2026-10-08):
+///
+/// - A starts `sleep 45; echo long-marker-a` in the background and ends its turn;
+/// - B, his next job, runs on the same back end while A's command still runs;
+/// - A's command ends at 47.2 s, outside any turn; the provider runs a turn of its own for it
+///   ("The background task has finished. I'm leaving it out of this report ..."), and the host's
+///   request for A's report waits behind it;
+/// - C's background `sleep 4` ends inside C's own turn (a foreground `sleep 12` keeps it open);
+/// - D starts `sleep 30; echo long-marker-d`, ends its turn, and its finish comes 29.4 s later,
+///   outside any turn, with the host waiting on it alone.
+///
+/// Each report reaches him on its own job, B's answer carries nothing of A's, the fold is not
+/// asked about again, and the host sends exactly the six messages the provider was recorded
+/// answering, the two report requests exactly where they were recorded.
+#[test]
+fn a_long_session_reports_each_late_finish_on_its_own_job() {
+    const A: &str = "Start the long marker in the background and tell me what it printed.";
+    const B: &str = "Print the second marker.";
+    const C: &str = "Start the short marker in the background, wait twelve seconds, and tell me what it printed.";
+    const D: &str = "Start the last marker in the background and tell me what it printed.";
+    let r = replay("2026-10-09-long-session.jsonl", 4.0, &[A, B, C, D]);
+    r.host.start();
+    let a = r.register(0, A);
+    r.until("A's first words", |r| !r.told_about(&a).is_empty());
+    let b = r.register(1, B);
+    r.until("A's report and B's answer", |r| answered(r, &a, 2) && answered(r, &b, 1));
+    let c = r.register(2, C);
+    r.until("C's answer", |r| answered(r, &c, 1));
+    let d = r.register(3, D);
+    r.until("D's report", |r| answered(r, &d, 2));
+
+    let told_a = r.told_about(&a);
+    assert_eq!(told_a.len(), 2, "{told_a:?}");
+    assert!(told_a[0].contains("has started"), "{told_a:?}");
+    assert!(told_a[1].starts_with("**Report: \"start the long marker\"**") && told_a[1].contains("long-marker-a"),
+            "A's finish did not reach him as A's report: {told_a:?}");
+    assert_eq!(r.told_about(&b), ["It printed `long-marker-b`."], "B's answer is B's alone");
+    assert_eq!(r.told_about(&c), ["The background command printed `long-marker-c` and exited with code 0."]);
+    let told_d = r.told_about(&d);
+    assert_eq!(told_d.len(), 2, "{told_d:?}");
+    assert_eq!(told_d[0], "The background command `sleep 30; echo long-marker-d` has started.");
+    assert!(told_d[1].starts_with("**Report: \"start the last marker\"**") && told_d[1].contains("long-marker-d"),
+            "D's finish did not reach him as D's report: {told_d:?}");
+    // The provider's own finish turns ("I'm leaving it out of this report", "I haven't read its
+    // output file") reached nobody, as they must: they are not anybody's answer.
+    for told in [&told_a, &told_d] {
+        assert!(!told.iter().any(|t| t.contains("leaving it out") || t.contains("haven't read")), "{told:?}");
+    }
+
+    let sent = r.sent();
+    assert_eq!(sent.len(), 6, "{sent:#?}");
+    let reports: Vec<usize> = (0..sent.len()).filter(|&i| sent[i].contains("that is this app telling you")).collect();
+    assert_eq!(reports, [2, 5], "the report requests are not where the provider was recorded taking them");
+    assert!(sent[1].contains("still running") && sent[1].contains("leave it out"),
+            "B was not told A's command was still running: {}", sent[1]);
+    assert!(r.events("divergence").is_empty(), "the host left the recording: {:#?}", r.events("divergence"));
     r.end();
 }
 
