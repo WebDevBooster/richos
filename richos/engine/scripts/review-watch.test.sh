@@ -55,6 +55,8 @@
 #        mid-job review, never a quiet handover reviewer's cc/ workspace
 #   W15  the host's quit records a review stopped only once its reviewer, which
 #        leads its own session, is gone too (a responsive and a deaf launcher)
+#   W16  a SIGTERM during spawn, before the review's pid reaches its lock, still
+#        stops that review and settles it as stopped
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -751,6 +753,121 @@ for mode in responsive deaf; do
     printf '    %s\n' "$W15OUT"
     check "W15 the host's quit ($mode launcher): stopped is recorded only once the reviewer's own group is gone" \
         $W15RC "$W15OUT"
+done
+
+# --- W16 ---------------------------------------------------------------------
+# Finding 2 (fixtures/shutdown_during_spawn.py): stop_own stopped only reviews whose pid was in
+# their lock, and the pid reaches the lock after spawn returns; a SIGTERM in between (here inside
+# the process-start lookup, and inside Popen itself after the fork) left a review that leads its
+# own session running. The real spawn, start, run_host_loop and stop_own.
+cat >"$SB/w16.py" <<'PY'
+import json, os, shlex, signal, subprocess, sys, time
+lib, root, window = sys.argv[1], sys.argv[2], sys.argv[3]
+role = sys.argv[4] if len(sys.argv) > 4 else ""
+sys.path.insert(0, lib)
+if role == "review":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    open(os.path.join(root, "review.pid"), "w").write(str(os.getpid()))
+    while True:
+        open(os.path.join(root, "heartbeat"), "w").write(str(time.monotonic()))
+        time.sleep(0.05)
+
+def started():
+    deadline = time.monotonic() + 5
+    while not os.path.exists(os.path.join(root, "heartbeat")):
+        if time.monotonic() > deadline:
+            raise RuntimeError("the fixture review did not start")
+        time.sleep(0.01)
+
+if role == "watcher":
+    os.environ["REVIEW_WATCH_STATE_DIR"] = root
+    os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "reviews")
+    os.environ["REVIEW_WATCH_SECOND_REVIEW"] = os.path.join(root, "fake-review.sh")
+    import review_watch as rw
+    if window == "in-popen":
+        real = subprocess.Popen
+
+        class Interrupted(real):
+            fired = False
+            def __init__(self, *a, **k):
+                real.__init__(self, *a, **k)
+                if k.get("start_new_session") and not Interrupted.fired:
+                    Interrupted.fired = True        # the fork is done; Popen has not returned yet
+                    started()
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    time.sleep(0.5)
+        rw.subprocess.Popen = Interrupted
+
+    class Interrupting(rw.Watcher):
+        def process_start(self, pid):
+            if window == "process-start":         # the real spawn's first call after the Popen
+                started()
+                os.kill(os.getpid(), signal.SIGTERM)
+                time.sleep(0.5)
+            return rw.Watcher.process_start(pid)
+        def look(self, now, state):
+            item = rw.Item("teammate:fixture", "fixture", root, "a" * 40, "b" * 40, "running")
+            self.start(item, "long-job", now, 1)
+            return []
+    sys.exit(rw.run_host_loop(Interrupting("/fixture/engine", "", world=object()), "app"))
+
+def exists(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+os.makedirs(root)
+runner = "exec " + " ".join(shlex.quote(s) for s in [sys.executable, "-B", os.path.abspath(__file__), lib, root,
+                                                      window, "review"])
+open(os.path.join(root, "fake-review.sh"), "w").write("#!/bin/bash\n" + runner + "\n")
+watcher = subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__), lib, root, window, "watcher"],
+                           start_new_session=True)
+review, ok = None, False
+try:
+    try:
+        watcher.wait(timeout=5)
+        killed = False
+    except subprocess.TimeoutExpired:
+        os.killpg(watcher.pid, signal.SIGKILL)
+        watcher.wait(timeout=3)
+        killed = True
+    review = int(open(os.path.join(root, "review.pid")).read())
+    for _ in range(20):
+        if not exists(review):
+            break
+        time.sleep(0.05)
+    beat = open(os.path.join(root, "heartbeat")).read()
+    time.sleep(0.3)
+    advanced = beat != open(os.path.join(root, "heartbeat")).read()
+    locks = [json.load(open(os.path.join(root, "locks", f))) for f in os.listdir(os.path.join(root, "locks"))
+             if f.endswith(".lock")]
+    try:
+        outcomes = [json.loads(l)["outcome"] for l in open(os.path.join(root, "attempts.jsonl"))]
+    except OSError:
+        outcomes = []
+    print("SIGTERM %s: watcher exit=%s (killed: %s), locks left=%s, review alive=%s, heartbeat advanced=%s, "
+          "attempts=%s" % (window, watcher.returncode, killed, [l.get("pid") for l in locks], exists(review),
+                           advanced, outcomes))
+    ok = not killed and not locks and not exists(review) and not advanced and outcomes == ["stopped"]
+finally:
+    if review:
+        try:
+            os.killpg(review, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    if watcher.poll() is None:
+        os.killpg(watcher.pid, signal.SIGKILL)
+        watcher.wait()
+sys.exit(0 if ok else 1)
+PY
+for window in process-start in-popen; do
+    W16OUT="$(python3 "$SB/w16.py" "$LIB" "$SB/w16-$window" "$window" 2>&1)"; W16RC=$?
+    printf '    %s\n' "$W16OUT"
+    check "W16 a SIGTERM during spawn ($window): the partly registered review is stopped and settled as stopped" \
+        $W16RC "$W16OUT"
 done
 
 # --- W04 ---------------------------------------------------------------------

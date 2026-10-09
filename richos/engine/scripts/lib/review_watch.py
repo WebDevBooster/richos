@@ -789,6 +789,13 @@ def due(items, book, now, seen, long_seconds, handover=True):
 # ---------------------------------------------------------------------------
 
 class Watcher(object):
+    # A quit that arrives while spawn has a child forked and not yet in self.children is held
+    # (hold_quit > 0, the signal in held_quit) and taken once it is registered; _starting is the
+    # (lock path, info) start() is filling in, until the child's pid is in that lock.
+    hold_quit = 0
+    held_quit = 0
+    _starting = None
+
     def __init__(self, engine_root, config, world=None):
         self.engine_root = engine_root
         self.config = config
@@ -804,10 +811,21 @@ class Watcher(object):
         """(pid, start identity) of a started review."""
         argv = ["bash", self.second_review()] + item.args(trigger)
         env = dict(os.environ, **item.env) if item.env else None
-        with open(log_path, "ab") as log:
-            p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True,
-                                 cwd=state_root(), env=env)
-        self.children[p.pid] = p
+        # PARTLY REGISTERED (second review of f14155545, finding 2): a review leads its own
+        # session, so a quit that lands inside Popen (its fork done, Popen not yet returned) would
+        # lose the only handle on it. The quit is held until the child is in self.children, then
+        # taken, and stop_own stops every child there, whether or not its pid reached its lock.
+        self.hold_quit += 1
+        try:
+            with open(log_path, "ab") as log:
+                p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                     start_new_session=True, cwd=state_root(), env=env)
+            self.children[p.pid] = p
+        finally:
+            self.hold_quit -= 1
+            if self.held_quit and not self.hold_quit:
+                signum, self.held_quit = self.held_quit, 0
+                raise SystemExit(128 + signum)
         return p.pid, self.process_start(p.pid)
 
     @staticmethod
@@ -1029,14 +1047,17 @@ class Watcher(object):
         path, info = got
         os.makedirs(_p("logs"), exist_ok=True)
         info["log"] = _p("logs", "%s-%s-%d.log" % (repo_tag(item.repo), item.tip[:12], attempt))
+        self._starting = (path, info)               # stop_own's handle until the pid is in the lock
         try:
             pid, pstart = self.spawn(item, trigger, info["log"])
         except OSError as exc:
             self.rewrite_lock(path, info)
             self.settle(path, info, now, rows, "lost", "second-review could not be started: %s" % exc)
+            self._starting = None
             return None
         info["pid"], info["pid_start"] = pid, pstart
         self.rewrite_lock(path, info)
+        self._starting = None
         return info
 
     def stop_own(self, now):
@@ -1059,6 +1080,25 @@ class Watcher(object):
                 continue
             info["path"] = path
             own.append(info)
+        # EVERY OWNED CHILD (second review of f14155545, finding 2): a quit between spawn's Popen
+        # and the lock write leaves a child whose pid its lock does not hold yet. It is stopped
+        # too, and the lock start() was filling in for it is settled with it; a lock taken with
+        # no child started under it is settled as stopped, never left to count as a loss.
+        starting = self._starting
+        if starting and any(i["path"] == starting[0] for i in own):
+            starting = None
+        recorded = set(i.get("pid") for i in own)
+        for pid in sorted(self.children):
+            if pid in recorded:
+                continue
+            if starting:
+                own.append(dict(starting[1], pid=pid, path=starting[0]))
+                starting = None
+            else:
+                own.append({"pid": pid})
+        if starting:
+            own.append(dict(starting[1], path=starting[0]))
+        self._starting = None
         left = set(id(i) for i in self.stop_all(own, QUIT_TERM_SECONDS, QUIT_KILL_SECONDS))
         for info in own:
             if id(info) in left:
@@ -1439,6 +1479,9 @@ def run_host_loop(watcher, name):
         return os.getppid() == parent
 
     def ended(signum, _frame):
+        if getattr(watcher, "hold_quit", 0):
+            watcher.held_quit = signum              # spawn takes it once its child is registered
+            return
         raise SystemExit(128 + signum)
 
     for sig in (signal.SIGTERM, signal.SIGHUP):
