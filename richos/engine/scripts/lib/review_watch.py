@@ -1211,6 +1211,12 @@ def owner_session(row, items, book, attempts):
     return ""
 
 
+def _cr_key(repo, tip, work):
+    """The told-state key of a changes-requested handover: one per work at a commit, so a notice
+    to one work's lead never advances or suppresses another work's at the same commit."""
+    return "cr:%s:%s:%s" % (os.path.realpath(repo or ""), tip, work or "")
+
+
 def render_verdict(row, items_by_key, again=None):
     who, it = _who(row, items_by_key)
     trig = row.get("trigger") or "?"
@@ -1265,6 +1271,27 @@ def not_converging(row, rows):
 # --host-json (the operator host's child, richos-core review_watch.rs): every look's notices as
 # JSON lines, one per lead session, which the host sends to that lead as a message of its own.
 HOST_JSON = {"on": False}
+# --monitor inside a lead session (run_loop): that session's id. Its notices are that lead's
+# delivery, so a block owned by another lead is left to that lead's own monitor (below).
+MONITOR = {"session": ""}
+
+
+def for_this_monitor(owner):
+    """THE PLAIN MONITOR DELIVERS THROUGH THE OWNER TOO (second review of 783a8dba1, finding 2):
+    a block goes to this lead session's monitor when this session owns it, when no session does,
+    or when its owner has no live monitor of its own to print it (that session ended), so a
+    verdict reaches its lead and is never dropped. Without a known session, every block.
+    The owner's monitor counts once it has finished a look: looks take turns under look.lock, so
+    its next look starts at or before this row; a monitor that has not looked yet starts at the
+    shared cursor, past what this look reads, and would never tell it."""
+    me = MONITOR["session"]
+    if not me or not owner or owner == me:
+        return True
+    if os.sep in owner or owner.startswith("."):
+        return True                                 # not a session id this watcher could have written
+    d = _p("sessions", owner)
+    looked = stall_watch._read_json(os.path.join(d, "told.json")).get("last_look")
+    return not (looked and stall_watch.lock_held(os.path.join(d, "monitor.lock")))
 
 
 def host_json_lines(now, body, owners):
@@ -1308,7 +1335,7 @@ def tell(now, sstate, rows, book, items, problems, attempts):
         session = owner_session(row, items, book, attempts)
         add(render_verdict(row, items_by_key), session=session)
         if row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB:
-            told["cr:%s:%s" % (row.get("repo"), row.get("tip"))] = {"first": now, "last": now, "count": 1}
+            told[_cr_key(row.get("repo"), row.get("tip"), row.get("work"))] = {"first": now, "last": now, "count": 1}
         for fid, title in not_converging(row, rows):
             k = "nc:%s:%s" % (row.get("work"), fid)
             if k in told:
@@ -1324,20 +1351,25 @@ def tell(now, sstate, rows, book, items, problems, attempts):
     shared["rows"] = max(len(rows), int(shared.get("rows") or 0)) if isinstance(shared.get("rows"), int) else len(rows)
     stall_watch._write_json(_p("last-told.json"), shared)
     # -- an unhandled changes-requested handover, again every 30 minutes ------------
+    # THE SAME OWNER AS THE FIRST NOTICE (second review of 783a8dba1, finding 2): another work can
+    # hold the reviewed commit (a handover reviewer's cc/ workspace is made at the worker's
+    # commit), so the verdict is looked up for THIS item's work only, its clock is that work's, and
+    # it goes through owner_session like the first notice, never through whichever item is here.
     for it in items:
         if it.source != "registry" or it.state != "ended" or it.continued:
             continue
-        hv = book.handover_verdict(it.key)
+        hv = [r for r in book.handover_verdict(it.key) if r.get("work") == it.work]
         if not hv or hv[-1].get("verdict") != "changes-requested":
             continue
-        k = "cr:%s:%s" % (it.repo, it.tip)
+        k = _cr_key(it.repo, it.tip, it.work)
         t = told.get(k)
         if t is None:
             told[k] = {"first": now, "last": now, "count": 1}
-            add(render_verdict(hv[-1], items_by_key), it)
+            add(render_verdict(hv[-1], items_by_key), session=owner_session(hv[-1], items, book, attempts))
         elif now - float(t.get("last") or now) >= REPEAT_MINUTES * 60:
             t["last"], t["count"] = now, int(t.get("count") or 1) + 1
-            add(render_verdict(hv[-1], items_by_key, (t["count"], hhmm(float(t["first"])))), it)
+            add(render_verdict(hv[-1], items_by_key, (t["count"], hhmm(float(t["first"])))),
+                session=owner_session(hv[-1], items, book, attempts))
     # -- a commit whose review was lost twice --------------------------------------
     for key, lost in book.losses.items():
         if len(lost) < MAX_LOSSES:
@@ -1362,10 +1394,11 @@ def tell(now, sstate, rows, book, items, problems, attempts):
     for k in list(told):
         if now - float(told[k].get("first") or now) > KEEP_SECONDS:
             del told[k]
+    if HOST_JSON["on"]:
+        return host_json_lines(now, body, owners) if body else []
+    body = [b for b, s in zip(body, owners) if for_this_monitor(s)]
     if not body:
         return []
-    if HOST_JSON["on"]:
-        return host_json_lines(now, body, owners)
     lines = ["REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was paused, "
              "stopped or killed)" % (hhmm(now), len(body), "" if len(body) == 1 else "s")]
     used = len(lines[0])
@@ -1471,6 +1504,7 @@ def run_loop(watcher, engine_root):
     if fd is None:
         return 0                                    # this session is already watched
     prune(sd)
+    MONITOR["session"] = sid
     alive = stall_watch.session_alive_check(spid) if spid else None
     poll = stall_watch._env_float("REVIEW_WATCH_POLL_SECONDS", POLL_SECONDS)
     try:

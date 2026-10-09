@@ -62,6 +62,10 @@
 #   W18  a SIGTERM while second-review starts its reviewer (fork done, Popen not
 #        returned): the reviewer's group is registered first, then stopped; a
 #        launcher wedged there past the grace is reached by a second read
+#   W19  the repeated handover notice goes to the recorded owner of the same
+#        work, on that work's own clock, never to another work at the tip
+#   W20  the plain monitor prints a verdict only in its owner's session, unless
+#        no live monitor of the owner will print it
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1016,6 +1020,119 @@ for window in brief wedged; do
     check "W18 a SIGTERM while second-review starts its reviewer ($window): no reviewer is left running" \
         $W18RC "$W18OUT"
 done
+
+# --- W19 ---------------------------------------------------------------------
+# Second review of 783a8dba1, finding 2 (fixtures/repeated_verdict_owner_collision.py): the first
+# notice went through owner_session, but the 30-minute reminder looked the verdict up by repository
+# and tip and sent it through whichever ended item held that tip, on a clock shared by every work
+# there: another work at the tip got the owner's reminder and suppressed the owner's own. The full
+# tell(), with its state in memory.
+python3 - "$LIB" "$SB/w19" <<'PY'
+import json, os, sys
+from unittest.mock import patch
+lib, root = sys.argv[1:3]
+os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, "rw")
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+sys.path.insert(0, lib)
+import review_watch as rw
+repo = os.path.realpath(os.path.join(root, "fictional-repository"))
+tip = "a" * 40
+
+def row(work, author):
+    return {"repo": repo, "tip": tip, "work": work, "author": author, "verdict": "changes-requested",
+            "trigger": "handover", "record": "", "findings": 1, "at": "2026-10-09T00:00:00Z"}
+
+def item(work, name, session):
+    it = rw.Item(work, name, repo, tip, "b" * 40, "ended", ref=name)
+    it.session = session
+    return it
+A, B = "teammate:work-A", "teammate:work-B"
+rw.HOST_JSON["on"] = True
+
+def run(rows, items, attempts, fresh=True):
+    """[[sessions told at the first look], [sessions told 30 minutes later]]."""
+    state = {"rows": 0 if fresh else len(rows), "told": {}}
+    book = rw.Book(rows, {}, attempts)
+    out = []
+    with patch.object(rw.stall_watch, "_read_json", return_value={}), patch.object(rw.stall_watch, "_write_json"):
+        for t in (100, 100 + rw.REPEAT_MINUTES * 60):
+            out.append([json.loads(s)["session"] for s in rw.tell(t, state, rows, book, items, [], attempts)])
+    return out
+got, want = {}, {}
+owner_attempt = [{"repo": repo, "tip": tip, "work": A, "session": "lead-A", "outcome": "verdict"}]
+# The reviewer's fixture: another ended work at the same tip comes first in the registry.
+got["another work first at the tip"] = run([row(A, "worker-A")],
+                                           [item(B, "reviewer-B", "lead-B"), item(A, "worker-A", "lead-A")],
+                                           owner_attempt)
+want["another work first at the tip"] = [["lead-A"], ["lead-A"]]
+# A session whose first look comes after the verdict was told: the reminder loop tells it first.
+got["first told by the reminder loop"] = run([row(A, "worker-A")],
+                                             [item(B, "reviewer-B", "lead-B"), item(A, "worker-A", "lead-A")],
+                                             owner_attempt, fresh=False)
+want["first told by the reminder loop"] = [["lead-A"], ["lead-A"]]
+# Only another work holds the tip now: nothing goes to its lead.
+got["only another work at the tip"] = run([row(A, "worker-A")], [item(B, "reviewer-B", "lead-B")], owner_attempt,
+                                          fresh=False)
+want["only another work at the tip"] = [[], []]
+# Two works at one tip, each with its own changes-requested verdict: each reminder reaches its own
+# lead, and neither clock suppresses the other.
+both = [row(A, "worker-A"), row(B, "reviewer-B")]
+got["two works, two verdicts"] = run(both, [item(B, "reviewer-B", "lead-B"), item(A, "worker-A", "lead-A")],
+                                     owner_attempt + [dict(owner_attempt[0], work=B, session="lead-B")])
+want["two works, two verdicts"] = [["lead-A", "lead-B"], ["lead-B", "lead-A"]]
+for k in want:
+    print("%s: %s" % (k, got[k]))
+sys.exit(0 if got == want else 1)
+PY
+check "W19 the repeated handover notice goes to the recorded owner of the same work, on that work's own clock" \
+    $? "see above"
+
+# --- W20 ---------------------------------------------------------------------
+# The same class in the plain monitor (review-watch.sh --monitor inside each lead session): there a
+# notice is delivered by printing it in the session whose monitor runs, so another lead's monitor
+# printed every lead's verdicts. Now a monitor prints a block it owns, one with no owner, and one
+# whose owner has no monitor that has looked (that session ended), never one another live lead's
+# monitor will print.
+python3 - "$LIB" "$SB/w20" <<'PY'
+import fcntl, json, os, sys
+lib, root = sys.argv[1:3]
+os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, "rw")
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+sys.path.insert(0, lib)
+import review_watch as rw
+repo = os.path.realpath(os.path.join(root, "fictional-repository"))
+
+def row(tip, work):
+    return {"repo": repo, "tip": tip, "work": work, "author": work, "verdict": "passed", "trigger": "handover",
+            "record": "", "findings": 0, "at": "2026-10-09T00:00:00Z"}
+rows = [row("a" * 40, "teammate:of-A"), row("b" * 40, "teammate:of-B"), row("c" * 40, "teammate:of-gone"),
+        row("d" * 40, "branch:by-hand")]
+attempts = [{"repo": repo, "tip": r["tip"], "work": r["work"], "session": s, "outcome": "verdict"}
+            for r, s in zip(rows, ("lead-A", "lead-B", "lead-gone", ""))]
+
+def monitor(sid, looked):
+    d = rw.session_dir(sid)
+    fd = os.open(os.path.join(d, "monitor.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if looked:
+        json.dump({"last_look": 1}, open(os.path.join(d, "told.json"), "w"))
+    return fd
+held = [monitor("lead-A", True), monitor("lead-B", True), monitor("lead-new", False)]
+attempts.append({"repo": repo, "tip": "e" * 40, "work": "teammate:of-new", "session": "lead-new", "outcome": "verdict"})
+rows.append(row("e" * 40, "teammate:of-new"))
+
+def told(me):
+    vars(rw).setdefault("MONITOR", {})["session"] = me    # what run_loop sets; a watcher without it prints all
+    lines = rw.tell(100, {"rows": 0, "told": {}}, rows, rw.Book(rows, {}, attempts), [], [], attempts)
+    return sorted(t for t in ("a", "b", "c", "d", "e") if any("@" + t * 12 in ln for ln in lines))
+got = {"lead-A's monitor": told("lead-A"), "lead-B's monitor": told("lead-B"), "no session known": told("")}
+want = {"lead-A's monitor": ["a", "c", "d", "e"], "lead-B's monitor": ["b", "c", "d", "e"],
+        "no session known": ["a", "b", "c", "d", "e"]}
+print(got)
+sys.exit(0 if got == want else 1)
+PY
+check "W20 the plain monitor prints a verdict only in its owner's session, unless no live monitor of the owner will" \
+    $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
