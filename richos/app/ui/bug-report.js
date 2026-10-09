@@ -6,7 +6,14 @@
 // behalf." Built exactly as richos-hq design/mockups/rounds/round-21/ shows it (approved "go!"):
 //
 //   ask -> checking -> draft <-> editing -> sending -> sent
-//                        \-> canceled          \-> waiting (offline / GitHub down) -> sent
+//            |           \-> canceled          \-> waiting (offline / GitHub down) -> sent
+//            \-> unchecked (Claude didn't answer: kept on this Mac, nothing to send) -> draft
+//
+// No report is offered for sending without Rich's check (review rv-20261009T162841Z-69294215-70e6
+// finding 2): when Claude fails, times out or answers with no report, the shell keeps the user's
+// words on this Mac and answers `{state: "unchecked"}`; Rich says he couldn't check it yet, and the
+// shell asks him again by itself. When he has, `rich://bug-report` brings `{ checked }` and the
+// card comes then, unsent. A report kept before a quit comes in the Rich panel.
 //
 // Pressing Bust a bug opens nothing new: Rich asks in the conversation on screen, under a quiet
 // "Bust a bug" divider. Where a window covers the conversation (Corrections, Feedback, Search, the
@@ -178,7 +185,8 @@ window.RichBug = (function () {
   // "changing": Rich is folding a change in; Send, Change it and Cancel wait for him.
   // "withdrawing": a waiting report is being taken off this Mac (to cancel it or to change it),
   // and nothing is said about it until the shell confirms what became of it.
-  var LIVE = ["ask", "checking", "draft", "editing", "changing", "sending", "queued", "withdrawing"];
+  // "unchecked": Rich could not check the report yet; it waits on this Mac with nothing to send.
+  var LIVE = ["ask", "checking", "unchecked", "draft", "editing", "changing", "sending", "queued", "withdrawing"];
   var TAKES_WORDS = ["ask", "draft", "queued", "editing", "changing"];
   function live(f) { return LIVE.indexOf(f.step) !== -1; }
   function liveFlow() { return flows.filter(live)[0] || null; }
@@ -370,16 +378,8 @@ window.RichBug = (function () {
       var w = working(f, "Rich is checking…");
       bridge.invoke("bug_report_write", { answer: text, screen: publicScreen(f.screen) }).then(function (answer) {
         w.remove();
-        f.draft = answer.draft;
-        f.private = (answer.draft && answer.draft.private) || [];
-        richSays(f, ["Here's the report as I'd file it. Nothing goes out until you press Send. Anyone can read GitHub issues, so I left out names, company details and file paths."], { worked: worked(answer.workedMs), digest: answer.digest });
-        f.card = buildCard(f);
-        box(f).appendChild(f.card);
-        f.step = "draft";
-        paintCard(f);
-        paintComposers();
-        scrollDown(f);
-        window.setTimeout(function () { if (f.card) f.card.classList.remove("is-new"); }, 2600);
+        if (answer && answer.state === "unchecked") return keptUnchecked(f, answer.id);
+        showDraft(f, answer, HERE_IT_IS, worked(answer.workedMs));
       }).catch(function (e) {
         w.remove();
         f.step = "ask";
@@ -403,6 +403,94 @@ window.RichBug = (function () {
       return withdraw(f, "change", function () { askChange(f, text, true); });
     }
     askChange(f, text, false);
+  }
+
+  var HERE_IT_IS = "Here's the report as I'd file it. Nothing goes out until you press Send. Anyone can read GitHub issues, so I left out names, company details and file paths.";
+  var NOT_CHECKED = "I couldn't check this report for private details yet, because Claude didn't answer, so it isn't ready to send. It's saved on this Mac, and I'll check it by myself as soon as Claude answers, then show it to you here.";
+
+  /// Rich's checked report on its card, waiting for the user: `answer` is `{draft, digest}`.
+  function showDraft(f, answer, lead, workedFor) {
+    f.draft = answer.draft;
+    f.private = (answer.draft && answer.draft.private) || [];
+    richSays(f, [lead], { worked: workedFor, digest: answer.digest });
+    f.card = buildCard(f);
+    box(f).appendChild(f.card);
+    f.step = "draft";
+    paintCard(f);
+    paintComposers();
+    scrollDown(f);
+    window.setTimeout(function () { if (f.card) f.card.classList.remove("is-new"); }, 2600);
+  }
+
+  /// **RICH COULD NOT CHECK IT YET** (review rv-20261009T162841Z-69294215-70e6 finding 2): there
+  /// is no card and nothing to send. The shell keeps it on this Mac and asks him again; the way
+  /// out is Cancel report, which takes it off this Mac.
+  function keptUnchecked(f, id) {
+    f.uncheckedId = id;
+    f.step = "unchecked";
+    var art = richSays(f, [NOT_CHECKED]);
+    var acts = node("div", "bug-actions-inline");
+    acts.appendChild(button("Cancel report", false, function () { dropUnchecked(f); }, "bug-unchecked-cancel"));
+    art.appendChild(acts);
+    f.uncheckedActs = acts;
+    paintComposers();
+  }
+
+  /// The ids of reports Rich could not check that this window has done with (shown on a card,
+  /// or canceled). The shell says a checked one on every pass until it is taken off this Mac, so
+  /// a repeat only takes it off again.
+  var taken = {};
+  function takeOff(id) {
+    // Not taken off: it stays kept, the shell says it again, and this takes it then.
+    bridge.invoke("bug_report_take_unchecked", { id: id }).catch(function () {});
+  }
+
+  function dropUnchecked(f) {
+    if (f.step !== "unchecked" || !f.uncheckedActs || f.uncheckedActs.hidden) return;
+    var id = f.uncheckedId;
+    taken[id] = true;
+    f.uncheckedActs.hidden = true;
+    bridge.invoke("bug_report_take_unchecked", { id: id }).then(function () {
+      if (f.step !== "unchecked") return;
+      f.uncheckedActs.remove();
+      f.uncheckedActs = null;
+      f.uncheckedId = null;
+      f.step = "closed";
+      richSays(f, ["Canceled. Nothing was sent, and it's no longer saved on this Mac."]);
+      paintComposers();
+    }).catch(function (e) {
+      delete taken[id];
+      if (f.step !== "unchecked") return;
+      f.uncheckedActs.hidden = false;
+      richSays(f, [typeof e === "string" && e ? e : "I couldn't take the report off this Mac, so it's still saved here. Press Cancel report to try again."]);
+    });
+  }
+
+  /// **RICH HAS CHECKED IT**: `{id, draft, digest, here}` from the shell's check loop. The card
+  /// comes where the report waits; one kept from before a quit or a reload, with no exchange in
+  /// this window, comes in the Rich panel, unless another report is in progress (then the shell
+  /// says it again later: one report at a time).
+  function onChecked(c) {
+    if (!c || !c.id) return;
+    if (taken[c.id]) return takeOff(c.id);
+    var f = flows.filter(function (x) { return x.uncheckedId === c.id; })[0];
+    var earlier = !f;
+    if (earlier) {
+      if (liveFlow()) return;
+      var label = c.here || "this screen";
+      f = { id: ++seq, dock: true, threadId: null, screen: { key: "other", dock: true, label: label, here: label, public: "a RichOS screen" }, step: "unchecked", uncheckedId: c.id, el: node("section", "bugflow") };
+      flows.push(f);
+      $("bugdock-msgs").textContent = "";
+      $("bugdock-where").textContent = "· " + label;
+    }
+    if (f.step !== "unchecked") return;
+    taken[c.id] = true;
+    takeOff(c.id);
+    f.uncheckedId = null;
+    if (f.uncheckedActs) { f.uncheckedActs.remove(); f.uncheckedActs = null; }
+    if (f.dock) showDock();
+    showDraft(f, c, (earlier ? "I've checked the bug report you told me about earlier. " : "I've checked it now. ") + HERE_IT_IS, null);
+    if (!f.dock && f.el.hidden && host) host.toast("Rich checked your bug report. It's waiting for you to send it.");
   }
 
   /// Rich folds one change in. While he does, the report is "changing": Send, Change it and
@@ -900,6 +988,7 @@ window.RichBug = (function () {
   /// notice says the same wherever the user is. After a relaunch there is no card to update, so
   /// the notice is the whole of it.
   function onDelivered(payload) {
+    if (payload && payload.checked) return onChecked(payload.checked);
     if (!payload || !payload.delivery || payload.delivery.state !== "sent") return;
     var d = payload.delivery;
     var f = flows.filter(function (x) { return x.pendingId === d.id; })[0];
@@ -1050,6 +1139,7 @@ window.RichBug = (function () {
       var f = dockFlow();
       if (f && f.step === "ask") neverMind(f, true);
       if (f && f.step === "queued" && host) host.toast("Your bug report is saved on this Mac and goes out by itself when it can.");
+      if (f && f.step === "unchecked" && host) host.toast("Your bug report is saved on this Mac. Rich will check it as soon as Claude answers, and show it to you here.");
       hideDock();
     });
     function dockSubmit() {

@@ -169,29 +169,6 @@ fn an_answer_that_is_not_a_report_is_refused_not_guessed_at() {
 }
 
 #[test]
-fn the_plain_write_up_is_what_the_user_said_with_the_screen_and_the_version() {
-    let written = plain_write_up(
-        "the names on the left get cut off when I make the text bigger in the Acme deal chat. Can't read them.",
-        &screen(),
-    );
-    // 76 characters end inside "deal" ("…the Acme de|al chat"), so "deal" goes whole.
-    assert_eq!(written.title, "The names on the left get cut off when I make the text bigger in the Acme");
-    // A cut that lands between two words keeps the last one.
-    let words = format!("{}w", "word ".repeat(15)); // 76 characters, ending on a whole word
-    let boundary = plain_write_up(&format!("{words} and more words follow here."), &screen());
-    assert_eq!(boundary.title, format!("W{}", &words[1..]));
-    let draft = draft_from(&written, VERSION, &Scrubber::new(terms()));
-    let title = joined(&draft.title);
-    assert!(!title.contains("Acme"), "{title}");
-    assert_eq!(draft.sections[1].heading, "Where");
-    assert_eq!(
-        joined(&draft.sections[1].paragraphs[0]),
-        "A conversation, the main RichOS screen. It was on screen when the report was started."
-    );
-    assert_eq!(draft.sections.last().unwrap().heading, "Version");
-}
-
-#[test]
 fn the_prompt_carries_the_users_words_the_screen_and_the_version_and_asks_for_json() {
     let prompt = writer_prompt("names get cut off", &screen(), VERSION, &terms(), false);
     assert!(prompt.contains("names get cut off"));
@@ -231,10 +208,9 @@ fn a_change_said_to_rich_is_one_sentence_added_where_he_says() {
     let change = parse_change(raw).unwrap();
     assert_eq!(change.section, "What happened");
     assert_eq!(change.add, "It happens in the light theme too.");
-    // Without Rich: the user's own words, tidied the way round 21 tidies them.
-    let plain = plain_change("Also say it happens in the light theme too");
-    assert_eq!(plain.section, "What happened");
-    assert_eq!(plain.add, "It happens in the light theme too.");
+    // An answer that is not a change is refused, and nothing is added in its place (since review
+    // rv-20261009T162841Z-69294215-70e6 there is no change Rich did not write).
+    assert!(parse_change("I can't help with that.").is_err());
 }
 
 #[test]
@@ -506,14 +482,6 @@ fn an_address_after_an_emoji_is_found_on_character_boundaries() {
 }
 
 #[test]
-fn a_change_in_accented_words_is_read_on_character_boundaries() {
-    // Finding 5: on the tip this panicked slicing "ééé " at byte 4, inside the second "é".
-    assert_eq!(plain_change("ééé also happens in light mode").add, "Ééé also happens in light mode.");
-    assert_eq!(plain_change("Ändern: it happens in light mode").add, "Ändern: it happens in light mode.");
-    assert_eq!(plain_change("Also say it happens in light mode").add, "It happens in light mode.");
-}
-
-#[test]
 fn rich_is_given_what_was_on_the_screen_and_a_picture_of_the_window_to_check_against() {
     // Finding 6: on the tip Rich had the user's words, the screen's name, settings and version,
     // and nothing that was ON the screen, so "Looked at the screen you were on" was not true.
@@ -553,16 +521,16 @@ fn rich_is_given_what_was_on_the_screen_and_a_picture_of_the_window_to_check_aga
     let kept = screen_words(&long);
     assert!(kept.starts_with(&"é".repeat(SCREEN_CONTENT_MAX)) && kept.ends_with("[the rest of the screen is left off]"));
 
-    // What the digest over his answer says: he looked only when he wrote it and had the screen.
+    // What the digest over his answer says: he looked only when he had the screen. (There is no
+    // digest without him since review rv-20261009T162841Z-69294215-70e6.)
     let checked = parse_written("{\"title\": \"T\", \"what_happened\": \"W\", \"checked\": \"saw the names cut off at 135%.\"}").unwrap().checked;
-    assert_eq!(digest(&on_screen, true, true, &checked), "Looked at the screen you were on, at 135% text size · Saw the names cut off at 135% · Checked the version");
-    assert_eq!(digest(&on_screen, false, true, &checked), "Noted the screen you were on, at 135% text size · Checked the version · Wrote it from your words");
-    assert_eq!(digest(&screen(), true, false, ""), "Noted the screen you were on, at 135% text size · Checked the version");
+    assert_eq!(digest(&on_screen, true, &checked), "Looked at the screen you were on, at 135% text size · Saw the names cut off at 135% · Checked the version");
+    assert_eq!(digest(&screen(), false, ""), "Noted the screen you were on, at 135% text size · Checked the version");
     let mut corrections = screen();
     corrections.key = "corrections".into();
     corrections.here = "Corrections".into();
     corrections.text_size = 100;
-    assert_eq!(digest(&corrections, true, true, ""), "Looked at Corrections · Checked the version");
+    assert_eq!(digest(&corrections, true, ""), "Looked at Corrections · Checked the version");
 }
 
 #[test]
@@ -621,7 +589,7 @@ fn a_private_name_rich_found_stays_left_out_on_every_later_change() {
     assert_eq!(draft.private, vec![PrivateTerm::new("Jane Doe", Kind::PersonName)], "the card is not given the report's private words");
 
     // A change with none of its own private words: the report's still apply.
-    let change = plain_change("Also say Jane Doe saw it in light mode too");
+    let change = parse_change(r#"{"section": "What happened", "add": "Jane Doe saw it in light mode too."}"#).unwrap();
     let (add, kept) = scrub_change(&change, &[], &draft.private);
     assert_eq!(joined(&add), "[a person] saw it in light mode too.");
     assert_eq!(kept, draft.private);
@@ -630,7 +598,8 @@ fn a_private_name_rich_found_stays_left_out_on_every_later_change() {
     let change = parse_change(r#"{"section": "What happened", "add": "Marta and Jane Doe saw it.", "private": [{"text": "Marta", "kind": "person"}]}"#).unwrap();
     let (add, kept) = scrub_change(&change, &[], &draft.private);
     assert_eq!(joined(&add), "[a person] and [a person] saw it.");
-    let (add, _) = scrub_change(&plain_change("Marta saw it again"), &[], &kept);
+    let again = parse_change(r#"{"section": "What happened", "add": "Marta saw it again."}"#).unwrap();
+    let (add, _) = scrub_change(&again, &[], &kept);
     assert_eq!(joined(&add), "[a person] saw it again.");
 }
 
@@ -929,6 +898,89 @@ fn a_backslash_after_a_web_address_is_a_path() {
     assert!(!Scrubber::default().private_in(said).is_empty(), "no heads-up for {said}");
     // A web address with only forward slashes is still not a path.
     assert_eq!(paths_left_out("See https://example.org/a/b please.").0, "See https://example.org/a/b please.");
+}
+
+/// Every word of a draft the card would show: its title and each section's paragraphs and steps.
+fn draft_words(draft: &Draft) -> String {
+    let mut words = vec![joined(&draft.title)];
+    for section in &draft.sections {
+        words.extend(section.paragraphs.iter().chain(&section.steps).map(|p| joined(p)));
+    }
+    words.join("\n")
+}
+
+#[test]
+fn when_claude_cannot_check_it_the_report_is_not_offered_and_waits_on_this_mac_until_he_can() {
+    // Finding 2, fixture `privacy-probe.py`: on 692942153 a Claude error, timeout or malformed
+    // answer put the plain write-up on the card, ready to send, and its public body read "Jane Doe
+    // at SecretCo saw the window freeze while opening the plan." with nothing found private. (On
+    // 692942153 this test does not compile: there is no way to keep a report Rich did not check.)
+    let dir = scratch("unchecked");
+    let outbox = Outbox::open(&dir);
+    let said = "Jane Doe at SecretCo saw the window freeze while opening the plan.";
+    let place = Screen { key: "conversation".into(), here: "a conversation".into(), public: "a conversation, the main RichOS screen".into(), conversation: None, text_size: 100, theme: "dark".into(), technical_view: false, content: String::new() };
+    // The fixture's app knows only a client it was told about; Jane Doe and SecretCo are not it.
+    let known = Scrubber::new(vec![PrivateTerm::new("Northwind Traders", Kind::CompanyName)]);
+    let failures = [Err("claude took too long".to_string()), Err("Claude answered with an error: Overloaded".to_string()), Ok("I can't help with that.".to_string())];
+    for (n, rich) in failures.into_iter().enumerate() {
+        let check = checked(rich, &place, false, VERSION, &known);
+        assert!(check.is_err(), "a draft came out of an answer that is not a report: {check:?}");
+        match outbox.keep_unless_checked(said, &place, check, 1_000).unwrap() {
+            WriteUp::Unchecked { .. } => {}
+            offered => panic!("a report Rich did not check was offered: {offered:?}"),
+        }
+        assert_eq!(outbox.unchecked().unwrap().len(), n + 1, "it is not kept on this Mac");
+    }
+    // Nothing of it waits to go to GitHub, and nothing went.
+    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty());
+    let waiting = outbox.unchecked().unwrap();
+    assert!(waiting.iter().all(|u| u.answer == said && u.checked.is_none()), "{waiting:?}");
+    // The window is told so: no draft, only the report's id.
+    let told = serde_json::to_value(WriteUp::Unchecked { id: waiting[0].id.clone() }).unwrap();
+    assert_eq!(told, serde_json::json!({ "state": "unchecked", "id": waiting[0].id }));
+
+    // Not due yet: Rich is not asked.
+    let mut asked = 0;
+    assert!(outbox.check_due(1_000 + CHECK_RETRY_MS - 1, |_| { asked += 1; Err("not now".into()) }).unwrap().is_empty());
+    assert_eq!(asked, 0);
+    // Due, and Claude still cannot answer: it waits again, and is still nothing to send.
+    let due = waiting[0].next_try_at_ms;
+    assert!(outbox.check_due(due, |_| Err("claude took too long".into())).unwrap().is_empty());
+    let waiting = outbox.unchecked().unwrap();
+    assert!(waiting.iter().all(|u| u.attempts == 2 && u.next_try_at_ms == due + CHECK_RETRY_MS && u.checked.is_none()), "{waiting:?}");
+
+    // Claude answers: Rich checks it, names Jane Doe and SecretCo, and the draft leaves them out.
+    let rich = r#"{"title": "The window froze while a plan opened", "what_happened": "Jane Doe at SecretCo saw the window freeze while opening the plan.", "private": [{"text": "Jane Doe", "kind": "person"}, {"text": "SecretCo", "kind": "company"}]}"#;
+    let ready = outbox.check_due(due + CHECK_RETRY_MS, |u| checked(Ok(rich.to_string()), &u.screen, false, VERSION, &known)).unwrap();
+    assert_eq!(ready.len(), 3);
+    for (_, done) in &ready {
+        let words = draft_words(&done.draft);
+        assert!(!words.contains("Jane Doe") && !words.contains("SecretCo"), "{words}");
+        assert!(words.contains("[a person] at [a company] saw the window freeze"), "{words}");
+    }
+    // Still nothing sent: the user approves the card first. Until the window takes it, it is
+    // answered again, without asking Rich again.
+    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty());
+    let again = outbox.check_due(u64::MAX, |_| panic!("Rich was asked again about a report he checked")).unwrap();
+    assert_eq!(again, ready);
+    for (id, _) in &ready {
+        assert!(outbox.take_unchecked(id).unwrap());
+        assert!(!outbox.take_unchecked(id).unwrap(), "taken twice");
+    }
+    assert!(outbox.unchecked().unwrap().is_empty());
+
+    // Canceled while Rich was being asked: it stays gone, and his late answer is not kept.
+    let id = match outbox.keep_unless_checked(said, &place, Err("claude took too long".into()), 0).unwrap() {
+        WriteUp::Unchecked { id } => id,
+        other => panic!("{other:?}"),
+    };
+    let late = outbox.check_due(CHECK_RETRY_MS, |u| {
+        assert!(outbox.take_unchecked(&u.id).unwrap());
+        checked(Ok(rich.to_string()), &u.screen, false, VERSION, &known)
+    });
+    assert!(late.unwrap().is_empty(), "a canceled report came back");
+    assert!(outbox.unchecked().unwrap().is_empty(), "{id} came back");
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

@@ -451,6 +451,82 @@ async function main() {
     return "held until answered; " + warn;
   });
 
+  // ---- the review of 692942153 (rv-20261009T162841Z-69294215-70e6) ----
+  const kept = (page) => page.evaluate(() => window.__RICHOS_MOCK_BUG__.unchecked().length);
+  const NOT_CHECKED = "I couldn't check this report for private details yet";
+  await run.check("when Claude can't check the report, nothing is offered for sending: it waits on this Mac until Rich checks it", async () => {
+    // Finding 2, fixture `privacy-probe.py`: on 692942153 a Claude error, timeout or malformed
+    // answer put the user's own words on the card, "Jane Doe at SecretCo" included, with Send,
+    // under "I left out names, company details and file paths". `mock.js` answers as the shell
+    // does now: `{state: "unchecked"}` and the report kept.
+    const SAID = "Jane Doe at SecretCo saw the window freeze while opening the plan.";
+    const page = await open("dark", { bugClaude: "down", bugRichPrivate: [{ text: "Jane Doe", kind: "person_name" }, { text: "SecretCo", kind: "company_name" }] });
+    await bustABug(page);
+    await page.fill("#input", SAID);
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(`#bug-flows .bug-rich:has-text("${NOT_CHECKED}")`);
+    const said = await lastSaid(page);
+    assertEqual(await page.locator(".bugcard").count(), 0, "a report Rich did not check was offered");
+    for (const id of ["#bug-send", "#bug-change"]) assertEqual(await page.locator(id).count(), 0, id + " is offered");
+    assert(!(await prose(page)).includes("I left out names"), "Rich says he left names out of a report he never checked");
+    assertEqual(await kept(page), 1, "the report is not kept on this Mac");
+    assertEqual((await calls(page, "bug_report_send")).length, 0, "something was sent");
+    assert(await page.isVisible("#bug-unchecked-cancel"), "no way to cancel the report that waits");
+    assertEqual(await page.getAttribute("#input", "placeholder"), "Talk to Rich…", "the composer still waits for the report");
+    await shot(page, "unchecked-dark");
+    // Claude answers (twice over, as the shell's loop says it until the window takes it): Rich
+    // checks it, and ONE card comes, unsent and without the names.
+    await page.evaluate(() => { window.__RICHOS_MOCK_BUG__.claudeAnswers(); window.__RICHOS_MOCK_BUG__.claudeAnswers(); });
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet')");
+    assertEqual(await page.locator(".bugcard").count(), 1, "the check made more than one card");
+    const card = await page.locator(".bugcard .bug-doc").innerText();
+    assert(!card.includes("Jane Doe") && !card.includes("SecretCo"), "a name is on the checked card: " + card);
+    const checkedLine = await lastSaid(page);
+    assert(checkedLine.startsWith("I've checked it now. Here's the report as I'd file it. Nothing goes out until you press Send."), checkedLine);
+    assert(await page.isHidden("#bug-unchecked-cancel"), "Cancel for the kept report is still offered beside the card");
+    await page.waitForFunction(() => window.__RICHOS_MOCK_BUG__.unchecked().length === 0);
+    assertEqual((await calls(page, "bug_report_send")).length, 0, "it was sent before the user pressed Send");
+    // A change while Claude can't check it adds nothing.
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.setClaude("down"));
+    await page.fill("#input", "Also say Marta saw it too");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector("#bug-flows .bug-rich:has-text(\"I couldn't change the report just now\")");
+    assertEqual(await page.locator(".bug-sec p.is-added").count(), 0, "a change Rich did not check was added");
+    await page.close();
+    return said + " / then: " + checkedLine.split(".")[0];
+  });
+
+  await run.check("a report Rich could not check can be canceled, and one kept from before is shown once he checks it", async () => {
+    const page = await open("dark", { bugClaude: "down" });
+    await bustABug(page);
+    await page.fill("#input", "The names on the left get cut off.");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector("#bug-unchecked-cancel");
+    await page.click("#bug-unchecked-cancel");
+    await page.waitForSelector("#bug-flows .bug-rich:has-text(\"Canceled. Nothing was sent, and it's no longer saved on this Mac.\")");
+    assertEqual(await kept(page), 0, "the canceled report is still kept");
+    // Claude answering afterwards brings nothing back.
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.claudeAnswers());
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
+    assertEqual(await page.locator(".bugcard").count(), 0, "a canceled report came back");
+    await page.close();
+
+    // Kept before the app was quit, with no card in this window: when Rich checks it, the Rich
+    // panel opens with its card, unsent.
+    const later = await open("dark");
+    await later.evaluate(() => window.__RICHOS_MOCK_BUG__.keptBefore("The names on the left get cut off.", { here: "the Acme deal conversation" }));
+    await later.evaluate(() => window.__RICHOS_MOCK_BUG__.claudeAnswers());
+    await later.waitForSelector("#bugdock .bugcard .bug-pill:has-text('Not sent yet')");
+    assertEqual(await later.locator("#bugdock-where").innerText(), "· the Acme deal conversation", "panel header");
+    const line = await lastSaid(later, "#bugdock");
+    assert(line.startsWith("I've checked the bug report you told me about earlier."), line);
+    await later.waitForFunction(() => window.__RICHOS_MOCK_BUG__.unchecked().length === 0);
+    await later.click("#bugdock #bug-send");
+    await later.waitForSelector("#bugdock .bugcard.is-sent");
+    await later.close();
+    return line.split(".")[0];
+  });
+
   await run.check("what Rich checked, under Worked for, is at least 16px in both themes", async () => {
     // Finding 3, fixture `readable-type.py`: on the tip it was 14px and exempt from the size check.
     const sizes = [];
@@ -611,6 +687,7 @@ async function main() {
     ["changing", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.fill("#input", "Also say it happens in the light theme too"); await p.keyboard.press("Enter"); await p.waitForSelector(".bugcard .bug-pill:has-text('Changing it…')"); }, { bugChangeHold: true }],
     ["canceling", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-send"); await p.waitForSelector(".bugcard.is-queued"); await p.click("#bug-cancel"); await p.waitForSelector(".bugcard .bug-pill:has-text('Canceling…')"); }, { bugNet: "offline", bugCancel: "hold" }],
     ["canceled", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-cancel"); await p.waitForSelector(".bugcard.is-canceled"); }],
+    ["unchecked", async (p) => { await bustABug(p); await p.fill("#input", ANSWER); await p.keyboard.press("Enter"); await p.waitForSelector("#bug-unchecked-cancel"); }, { bugClaude: "down" }],
     ["panel", async (p) => { await p.click("#nav-corrections"); await bustABug(p); await p.fill("#bugdock-input", ANSWER); await p.keyboard.press("Enter"); await p.waitForSelector("#bugdock .bugcard .bug-pill:has-text('Not sent yet')"); }],
   ];
   for (const theme of ["dark", "light"]) {
@@ -661,7 +738,10 @@ async function main() {
           return { failures, worst, worstIndicator, nodes };
         }, { ROOTS, SKIPPABLE, INDICATORS });
         assertEqual(result.failures, [], `${theme} ${name}: contrast and type`);
-        assert(result.nodes > 10, `${theme} ${name}: EMPTY INVENTORY (${result.nodes} nodes)`);
+        // The unchecked state has no card: the divider, Rich's question, the user's words, his
+        // line and Cancel report (7 text nodes measured), so its floor is that, not a card's.
+        const floor = name === "unchecked" ? 6 : 10;
+        assert(result.nodes > floor, `${theme} ${name}: EMPTY INVENTORY (${result.nodes} nodes)`);
         measured.push(`${name} ${result.worst}:1 text / ${result.worstIndicator}:1 indicator over ${result.nodes} nodes`);
         await page.close();
       }

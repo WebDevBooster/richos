@@ -2506,9 +2506,12 @@
   // and says so on `rich://bug-report`. Every call is recorded with its arguments, so a suite can
   // read exactly what would have gone to GitHub.
   //
-  // The write-up here is round 21's PLAIN write-up with this preview's names as the private
+  // The write-up here stands in for Rich's checked one, with this preview's names as the private
   // words. What is private, and Rich's own write-up, are decided in Rust and tested there
   // (`crates/richos-core/tests/bug_report_tests.rs`); this only has to answer in the same shape.
+  // `preset.bugClaude` "down" is Claude failing: the write-up answers `{state: "unchecked"}` and
+  // keeps the report, a change is refused, and `claudeAnswers()` is the shell's check loop once
+  // Claude answers again (review rv-20261009T162841Z-69294215-70e6 finding 2).
   //
   // THE RACES the second review found (rv-20261009T102303Z-1c3dda1d-4c78), as switches:
   // `preset.bugChangeHold` keeps a change Rich is making unanswered until `releaseChange()`;
@@ -2531,6 +2534,8 @@
     calls: [],
     seq: 0,
     held: { change: [], cancel: [], private: [] },
+    claude: preset.bugClaude || "up",
+    unchecked: [],
   };
   // A release lets through what is held now and anything that arrives after it.
   const bugHold = (kind) => (bugMock.held[kind] === "released" ? Promise.resolve() : new Promise((r) => bugMock.held[kind].push(r)));
@@ -2571,6 +2576,28 @@
     t = t.charAt(0).toUpperCase() + t.slice(1);
     return /[.!?…]$/.test(t) ? t : t + ".";
   }
+  /// Rich's checked draft, in the shape the shell answers it, with this preview's names and
+  /// `preset.bugRichPrivate` as the private words.
+  function bugDraft(answerText, screen) {
+    const answer = String(answerText || "").trim();
+    let first = answer.split(/[.!?]\s/)[0].replace(/[.!?]+$/, "");
+    if (first.length > 76) first = first.slice(0, 76).replace(/\s+\S*$/, "");
+    const pub = String((screen || {}).public || "a RichOS screen");
+    const rich = preset.bugRichPrivate || [];
+    return {
+      title: bugScrub(first.charAt(0).toUpperCase() + first.slice(1), rich),
+      sections: [
+        { heading: "What happened", paragraphs: [bugScrub(bugSentence(answer), rich)], steps: [] },
+        { heading: "Where", paragraphs: [[{ text: pub.charAt(0).toUpperCase() + pub.slice(1) + ". It was on screen when the report was started." }]], steps: [] },
+        { heading: "Version", paragraphs: [[{ text: BUG_VERSION }]], steps: [] },
+      ],
+      private: rich,
+    };
+  }
+  function bugDigest(screen) {
+    screen = screen || {};
+    return "Noted the screen you were on" + (screen.textSize && screen.textSize !== 100 ? ", at " + screen.textSize + "% text size" : "") + " · Checked the version";
+  }
   function bugDeliver(sheet, id) {
     const reason = BUG_REASON[bugMock.net];
     if (!reason) {
@@ -2607,6 +2634,21 @@
         if (d.state === "sent") bugMock.sent.push(d);
         emit("rich://bug-report", { delivery: d });
       }, 300));
+    },
+    /// The reports Rich could not check, kept on this Mac (`Outbox::unchecked`).
+    unchecked: () => bugMock.unchecked.slice(),
+    /// Claude can't be asked (`preset.bugClaude` "down") or can again.
+    setClaude(state) { bugMock.claude = state; },
+    /// A report kept before the app was last quit: on this Mac, with no card in this window.
+    keptBefore(answer, screen) {
+      bugMock.unchecked.push({ id: "00000000-0000-4000-9000-" + String(++bugMock.seq).padStart(12, "0"), answer, screen: screen || {} });
+    },
+    /// Claude answers again: the shell's check loop asks Rich about each report he could not
+    /// check and says each one on `rich://bug-report` as `{ checked }`, as it does on every pass
+    /// until the window takes it.
+    claudeAnswers() {
+      bugMock.claude = "up";
+      bugMock.unchecked.forEach((u) => emit("rich://bug-report", { checked: { id: u.id, draft: bugDraft(u.answer, u.screen), digest: bugDigest(u.screen), here: u.screen.here || "" } }));
     },
   };
 
@@ -3943,35 +3985,30 @@
         case "bug_report_write": {
           bugMock.calls.push({ cmd, answer: args.answer, screen: args.screen });
           await new Promise((r) => setTimeout(r, preset.bugWriteMs ?? 600));
-          const answer = String(args.answer || "").trim();
-          let first = answer.split(/[.!?]\s/)[0].replace(/[.!?]+$/, "");
-          if (first.length > 76) first = first.slice(0, 76).replace(/\s+\S*$/, "");
-          const screen = args.screen || {};
-          const pub = String(screen.public || "a RichOS screen");
-          const rich = preset.bugRichPrivate || [];
-          return {
-            draft: {
-              title: bugScrub(first.charAt(0).toUpperCase() + first.slice(1), rich),
-              sections: [
-                { heading: "What happened", paragraphs: [bugScrub(bugSentence(answer), rich)], steps: [] },
-                { heading: "Where", paragraphs: [[{ text: pub.charAt(0).toUpperCase() + pub.slice(1) + ". It was on screen when the report was started." }]], steps: [] },
-                { heading: "Version", paragraphs: [[{ text: BUG_VERSION }]], steps: [] },
-              ],
-              private: rich,
-            },
-            digest: "Noted the screen you were on" + (screen.textSize && screen.textSize !== 100 ? ", at " + screen.textSize + "% text size" : "") + " · Checked the version",
-            workedMs: 9000,
-            byRich: false,
-          };
+          // Claude could not be asked: no draft, the report is kept until Rich can check it.
+          if (bugMock.claude === "down") {
+            const id = "00000000-0000-4000-9000-" + String(++bugMock.seq).padStart(12, "0");
+            bugMock.unchecked.push({ id, answer: String(args.answer || ""), screen: args.screen || {} });
+            return { state: "unchecked", id, workedMs: 90000 };
+          }
+          return Object.assign({ state: "checked", workedMs: 9000 }, { draft: bugDraft(args.answer, args.screen), digest: bugDigest(args.screen) });
+        }
+        case "bug_report_take_unchecked": {
+          bugMock.calls.push({ cmd, id: args.id });
+          const at = bugMock.unchecked.findIndex((u) => u.id === args.id);
+          if (at !== -1) bugMock.unchecked.splice(at, 1);
+          return at !== -1;
         }
         case "bug_report_change": {
           bugMock.calls.push({ cmd, said: args.said, sheet: args.sheet, private: args.private });
           await new Promise((r) => setTimeout(r, preset.bugWriteMs ?? 400));
           if (preset.bugChangeHold) await bugHold("change");
+          // Claude could not be asked: nothing is added (the shell's answer, word for word).
+          if (bugMock.claude === "down") throw "I couldn't check that change just now, so nothing was added.";
           const said = String(args.said || "").replace(/^(also|and|please)\s+/i, "").replace(/^(say|mention|add)\s+(that\s+)?/i, "");
           // The report's own private words go on applying to every change (the shell's `scrub_change`).
           const kept = args.private || [];
-          return { section: "What happened", add: bugScrub(bugSentence(said), kept), private: kept, workedMs: 4000, byRich: false };
+          return { section: "What happened", add: bugScrub(bugSentence(said), kept), private: kept, workedMs: 4000 };
         }
         case "bug_report_send": {
           bugMock.calls.push({ cmd, sheet: args.sheet });

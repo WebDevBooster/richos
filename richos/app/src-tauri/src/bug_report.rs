@@ -2,8 +2,9 @@
 //! GitHub is `richos_core::bug_report` and is tested there; this file is the three things that
 //! need the Mac: running Rich (`claude`) to write the report, with a picture of the window
 //! (`window_picture.rs`) and the screen's words to check against, reading the reporting
-//! account's token from the login keychain, and the HTTPS request. Plus the nine commands the
-//! window calls and the loop that sends a waiting report by itself.
+//! account's token from the login keychain, and the HTTPS request. Plus the ten commands the
+//! window calls, the loop that sends a waiting report by itself and the one that asks Rich again
+//! about a report he could not check yet.
 //!
 //! # Which account, today
 //!
@@ -30,7 +31,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 /// The event a report sent by itself arrives on: `{ delivery }`.
 pub const EVENT: &str = "rich://bug-report";
 
-/// How long Rich gets to write a report before the plain write-up is used instead.
+/// How long Rich gets to write a report before it is kept on this Mac to be checked later.
 const WRITE_DEADLINE: Duration = Duration::from_secs(90);
 /// How often the loop looks for a waiting report whose rest is over.
 const RETRY_EVERY: Duration = Duration::from_secs(15);
@@ -361,6 +362,12 @@ pub async fn bug_report_look(app: AppHandle, window: tauri::WebviewWindow) -> Re
 /// on that screen (its words, `screen.content`) and the picture of the window taken when they
 /// pressed the button, so he can check what they say against what they saw. All of it goes to
 /// the user's own `claude` only; the issue is what he writes, scrubbed. Sends nothing.
+///
+/// Answers `bug::WriteUp` and `workedMs`: `{state: "checked", draft, digest}`, or, when Claude
+/// fails, times out or answers with no report, `{state: "unchecked", id}`. **Then there is no
+/// draft to offer**: the report is kept on this Mac and the check loop ([`spawn_retry`]) asks Rich
+/// again until he answers (review rv-20261009T162841Z-69294215-70e6 finding 2: the plain write-up
+/// that stood in for him put names no rule can know in a public issue).
 #[tauri::command(async)]
 pub async fn bug_report_write(app: AppHandle, answer: String, screen: bug::Screen) -> Result<serde_json::Value, String> {
     let started = Instant::now();
@@ -372,27 +379,39 @@ pub async fn bug_report_write(app: AppHandle, answer: String, screen: bug::Scree
         let looked = picture.is_some() || !bug::screen_words(&screen.content).is_empty();
         let prompt = bug::writer_prompt(&answer, &screen, &bugs.version, scrubber.terms(), picture.is_some());
         let input = bug::writer_input(&prompt, picture.as_ref());
-        let (written, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input).and_then(|raw| bug::parse_written(&raw)) {
-            Ok(w) => (w, true),
-            Err(why) => {
-                eprintln!("[richos] bug report: Rich's write-up was not used ({why}); the plain write-up is");
-                (bug::plain_write_up(&answer, &screen), false)
-            }
-        };
-        let draft = bug::draft_from(&written, &bugs.version, &scrubber);
-        Ok(serde_json::json!({
-            "draft": draft,
-            "digest": bug::digest(&screen, by_rich, looked, &written.checked),
-            "workedMs": started.elapsed().as_millis() as u64,
-            "byRich": by_rich,
-        }))
+        let check = bug::checked(ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input), &screen, looked, &bugs.version, &scrubber);
+        let write_up = bugs.outbox.keep_unless_checked(&answer, &screen, check, now_ms()).map_err(|e| {
+            eprintln!("[richos] bug report: the report could not be kept on this Mac ({e})");
+            "I couldn't check the report or save it on this Mac, so nothing was written up or sent. Tell me again and I'll try once more.".to_string()
+        })?;
+        let mut answer = serde_json::to_value(&write_up).map_err(|e| e.to_string())?;
+        answer["workedMs"] = serde_json::json!(started.elapsed().as_millis() as u64);
+        Ok(answer)
+    })
+    .await
+}
+
+/// **A report Rich could not check is taken off this Mac**: the window has shown his check on a
+/// card (the card is then the report, as any draft is), or the user canceled it. `false` when it
+/// was already gone.
+#[tauri::command(async)]
+pub async fn bug_report_take_unchecked(app: AppHandle, id: String) -> Result<bool, String> {
+    let bugs = app.state::<Arc<BugReports>>().inner().clone();
+    off_the_ipc_threads(move || {
+        bugs.outbox.take_unchecked(&id).map_err(|e| {
+            eprintln!("[richos] bug report {id}: could not be taken off this Mac ({e})");
+            "I couldn't take the report off this Mac, so it's still saved here. Press Cancel report to try again.".to_string()
+        })
     })
     .await
 }
 
 /// **A change said to Rich**: the sentence to add and where it goes. Sends nothing. `private` is
 /// the report's own private words so far (the draft's, and every change's since); they go on
-/// applying, with any Rich names in this change, and come back for the card to keep.
+/// applying, with any Rich names in this change, and come back for the card to keep. When Rich
+/// cannot be had, nothing is added: the user's words are not put in the report unchecked (review
+/// rv-20261009T162841Z-69294215-70e6 finding 2, the same rule as `bug_report_write`), and the card
+/// says to tell him again or change the words in place, where the heads-up reads them.
 #[tauri::command(async)]
 pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet, private: Option<Vec<bug::PrivateTerm>>) -> Result<serde_json::Value, String> {
     let started = Instant::now();
@@ -401,23 +420,19 @@ pub async fn bug_report_change(app: AppHandle, said: String, sheet: bug::Sheet, 
     off_the_ipc_threads(move || {
         let headings: Vec<String> = sheet.sections.iter().map(|s| s.heading.clone()).collect();
         let input = bug::writer_input(&bug::change_prompt(&sheet, &said), None);
-        let (change, by_rich) = match ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input)
+        let change = ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input)
             .and_then(|raw| bug::parse_change(&raw))
             .and_then(|c| if headings.contains(&c.section) { Ok(c) } else { Err(format!("no section {:?}", c.section)) })
-        {
-            Ok(c) => (c, true),
-            Err(why) => {
-                eprintln!("[richos] bug report: Rich's change was not used ({why}); the user's own words are");
-                (bug::plain_change(&said), false)
-            }
-        };
+            .map_err(|why| {
+                eprintln!("[richos] bug report: Rich could not check the change ({why}); nothing was added");
+                "I couldn't check that change just now, so nothing was added.".to_string()
+            })?;
         let (add, private) = bug::scrub_change(&change, scrubber.terms(), &report_private);
         Ok(serde_json::json!({
             "section": change.section,
             "add": add,
             "private": private,
             "workedMs": started.elapsed().as_millis() as u64,
-            "byRich": by_rich,
         }))
     })
     .await
@@ -519,6 +534,7 @@ pub fn bug_report_open_issue(number: u64) -> Result<(), String> {
 /// once, and one that goes out is said on [`EVENT`] so the card, Rich and a notice say so.
 /// Runs from launch, so a report kept before a quit goes out after the next launch.
 pub fn spawn_retry(app: AppHandle) {
+    let app_for_check = app.clone();
     std::thread::Builder::new()
         .name("bug-report-retry".into())
         .spawn(move || loop {
@@ -542,6 +558,56 @@ pub fn spawn_retry(app: AppHandle) {
         })
         .map(|_| ())
         .unwrap_or_else(|e| eprintln!("[richos] bug report: the retry loop did not start ({e}); a waiting report goes out on Try now"));
+    spawn_check(app_for_check);
+}
+
+/// **RICH IS ASKED AGAIN, BY HIMSELF.** Every [`RETRY_EVERY`], each report he could not check
+/// (`bug_report_write`'s `unchecked`) whose rest is over is given to him once more, with the
+/// private words RichOS holds now; one he checks is said on [`EVENT`] as `{ checked: { id, draft,
+/// digest, here } }`, and again on every pass until the window takes it (`bug_report_take_unchecked`),
+/// so a window closed or reloaded meanwhile still gets it. Nothing here sends: the card does,
+/// once the user approves it. Its own thread, because one `claude` turn can take
+/// [`WRITE_DEADLINE`] and a waiting report must not wait behind it. Runs from launch, so a report
+/// kept before a quit is checked after the next launch. The picture of the window is not given
+/// again: it is never written to disk, so Rich has the screen's words.
+fn spawn_check(app: AppHandle) {
+    std::thread::Builder::new()
+        .name("bug-report-check".into())
+        .spawn(move || loop {
+            std::thread::sleep(RETRY_EVERY);
+            let Some(bugs) = app.try_state::<Arc<BugReports>>() else { continue };
+            let bugs = bugs.inner().clone();
+            // Nothing to read or ask while none waits.
+            let waiting = match bugs.outbox.unchecked() {
+                Ok(waiting) if waiting.is_empty() => continue,
+                Ok(waiting) => waiting,
+                Err(e) => {
+                    eprintln!("[richos] bug report: the reports Rich has not checked could not be read ({e})");
+                    continue;
+                }
+            };
+            let (scrubber, (bin, folder), _) = read_state(&app);
+            let checked = bugs.outbox.check_due(now_ms(), |u| {
+                let prompt = bug::writer_prompt(&u.answer, &u.screen, &bugs.version, scrubber.terms(), false);
+                let rich = ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &bug::writer_input(&prompt, None));
+                bug::checked(rich, &u.screen, !bug::screen_words(&u.screen.content).is_empty(), &bugs.version, &scrubber)
+            });
+            // Where the user was, in their own words, for the panel's header when no card waits for it.
+            let here = |id: &str| waiting.iter().find(|u| u.id == id).map(|u| u.screen.here.clone()).unwrap_or_default();
+            match checked {
+                Ok(ready) => {
+                    for (id, done) in ready {
+                        let payload = serde_json::json!({ "checked": { "id": id, "draft": done.draft, "digest": done.digest, "here": here(&id) } });
+                        if let Err(e) = app.emit(EVENT, payload) {
+                            eprintln!("[richos] bug report: the window could not be told Rich checked it: {e}");
+                        }
+                    }
+                }
+                Err(e) => eprintln!("[richos] bug report: the reports Rich has not checked could not be kept ({e})"),
+            }
+        })
+        .map(|_| ())
+        .unwrap_or_else(|e| eprintln!("[richos] bug report: the check loop did not start ({e}); a report Rich could not check waits for the next launch"));
 }
 
 #[cfg(test)]

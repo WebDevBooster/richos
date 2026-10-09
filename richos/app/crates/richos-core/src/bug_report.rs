@@ -15,9 +15,13 @@
 //!     in [`Segment::was`] for the tooltip only the user sees; `was` is never part of the issue.
 //!     This is enforced HERE, after Rich writes, so a model that slips cannot put a name on GitHub.
 //!   - **Rich's write-up** ([`writer_prompt`], [`writer_args`], [`parse_written`], [`draft_from`]).
-//!     One `claude --print` turn with no tools, under the account the conversation runs on. When
-//!     that cannot be had (no Claude, an error, an answer that is not a report), the plain
-//!     write-up round 21 specifies ([`plain_write_up`]) is used instead and the digest says so.
+//!     One `claude --print` turn with no tools, under the account the conversation runs on. **No
+//!     report is offered for sending without Rich's check** ([`checked`]): when it cannot be had
+//!     (an error, a timeout, an answer that is not a report), the user's words are kept on this Mac
+//!     and Rich is asked again by himself until he answers ([`Outbox::keep_unless_checked`],
+//!     [`Outbox::check_due`]). No rule can know an ordinary client's name, so nothing stands in for
+//!     him (review rv-20261009T162841Z-69294215-70e6 finding 2: the plain write-up that did put
+//!     "Jane Doe at SecretCo" in a public issue).
 //!   - **The issue, word for word** ([`Sheet`], [`issue_body`], [`issue_request`]). What goes to
 //!     GitHub is rendered from the sheet the user approved and nothing else: no label, no footer,
 //!     no attachment (round 21 "Left out, on purpose": no screenshot).
@@ -723,28 +727,24 @@ pub fn writer_input(prompt: &str, picture: Option<&Picture>) -> String {
 }
 
 /// **The line over Rich's answer** (round 21's digest): what he did. "Looked at the screen you
-/// were on" (or at the window's name) only when he wrote the report AND was given what was on
-/// the screen (`looked`); then what he saw that bears the user out, when he says; then the
-/// version. Without Rich, it says the report was written from the user's words.
-pub fn digest(screen: &Screen, by_rich: bool, looked: bool, checked: &str) -> String {
+/// were on" (or at the window's name) only when he was given what was on the screen (`looked`);
+/// then what he saw that bears the user out, when he says; then the version. There is no digest
+/// without Rich: a report he did not write is not shown ([`checked`]).
+pub fn digest(screen: &Screen, looked: bool, checked: &str) -> String {
     let place = match screen.key.as_str() {
         "corrections" | "feedback" | "search" => screen.here.clone(),
         _ => "the screen you were on".to_string(),
     };
-    let saw = by_rich && looked;
-    let mut first = format!("{} {place}", if saw { "Looked at" } else { "Noted" });
+    let mut first = format!("{} {place}", if looked { "Looked at" } else { "Noted" });
     if screen.text_size != 100 {
         first.push_str(&format!(", at {}% text size", screen.text_size));
     }
     let mut parts = vec![first];
     let checked = checked.trim().trim_end_matches('.');
-    if saw && !checked.is_empty() && checked.chars().count() <= 80 {
+    if looked && !checked.is_empty() && checked.chars().count() <= 80 {
         parts.push(capitalized(checked));
     }
     parts.push("Checked the version".into());
-    if !by_rich {
-        parts.push("Wrote it from your words".into());
-    }
     parts.join(" · ")
 }
 
@@ -829,7 +829,7 @@ fn distinct(terms: impl IntoIterator<Item = PrivateTerm>) -> Vec<PrivateTerm> {
 }
 
 /// Rich's answer, read. A report needs a title and something that happened; anything less is
-/// refused so the plain write-up is used instead of a hollow one.
+/// refused rather than shown hollow, and the report waits for him to answer again ([`checked`]).
 pub fn parse_written(raw: &str) -> Result<Written, String> {
     let value = json_object(raw)?;
     let written = Written {
@@ -859,48 +859,55 @@ fn capitalized(text: &str) -> String {
     }
 }
 
-fn as_sentence(text: &str) -> String {
-    let text = capitalized(text);
-    if text.ends_with(['.', '!', '?', '…']) {
-        text
-    } else {
-        text + "."
-    }
+/// **A REPORT RICH HAS CHECKED**: the card's draft, and the line over his answer ([`digest`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Checked {
+    pub draft: Draft,
+    pub digest: String,
 }
 
-/// THE PLAIN WRITE-UP (round 21 `reportFor`'s last branch), for when Rich cannot be asked: the
-/// first sentence as the title, the answer as What happened, the screen as Where.
-pub fn plain_write_up(answer: &str, screen: &Screen) -> Written {
-    let answer = answer.trim();
-    let mut first = answer;
-    for (i, c) in answer.char_indices() {
-        if ".!?".contains(c) && answer[i + 1..].starts_with(char::is_whitespace) {
-            first = &answer[..i];
-            break;
-        }
-    }
-    let first = first.trim_end_matches(['.', '!', '?']);
-    let title = if first.chars().count() > 76 {
-        let cut: String = first.chars().take(76).collect();
-        // A cut that lands between two words keeps the last whole word; one that lands inside a
-        // word drops that word rather than half of it.
-        let on_boundary = first.chars().nth(76).is_some_and(char::is_whitespace);
-        match cut.rfind(char::is_whitespace) {
-            Some(space) if !on_boundary => cut[..space].to_string(),
-            _ => cut,
-        }
-    } else {
-        first.to_string()
-    };
-    Written {
-        title: capitalized(&title),
-        what_happened: as_sentence(answer),
-        where_: format!("{}. It was on screen when the report was started.", capitalized(&screen.public)),
-        steps: vec![],
-        expected: String::new(),
-        private: vec![],
-        checked: String::new(),
-    }
+/// **RICH'S CHECK, OR NO REPORT TO SEND** (CEO §115: *"let their Rich check and articulate
+/// everything properly and then submit"*). `rich` is his answer, or why there is none; read as a
+/// write-up ([`parse_written`]) and scrubbed into the card's draft ([`draft_from`]), or the reason
+/// it could not be. There is no other way to a draft: the plain write-up that stood in for him
+/// when Claude failed copied the user's words, private list empty, into a public issue ("Jane Doe
+/// at SecretCo saw the window freeze", review rv-20261009T162841Z-69294215-70e6 finding 2), and no
+/// rule can know a name RichOS does not hold. `looked`: he was given what was on the screen.
+pub fn checked(rich: Result<String, String>, screen: &Screen, looked: bool, version: &str, scrubber: &Scrubber) -> Result<Checked, String> {
+    let written = parse_written(&rich?)?;
+    Ok(Checked { digest: digest(screen, looked, &written.checked), draft: draft_from(&written, version, scrubber) })
+}
+
+/// **A REPORT RICH COULD NOT CHECK YET**, kept on this Mac until he can: the user's words and
+/// where they were, never a draft, so nothing of it can be sent. [`Outbox::check_due`] asks him
+/// again; his check waits here (`checked`) until the window has shown it and taken it
+/// ([`Outbox::take_unchecked`]), so a window that was closed or reloaded meanwhile loses nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Unchecked {
+    pub id: String,
+    pub created_at_ms: u64,
+    /// What the user said, in their own words. Private; never part of an issue.
+    pub answer: String,
+    /// Where they were, the screen's words included. Private; never part of an issue.
+    pub screen: Screen,
+    /// How many times Rich has been asked.
+    pub attempts: u32,
+    pub next_try_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked: Option<Checked>,
+}
+
+/// How long a report Rich could not check rests before he is asked again: one `claude --print`
+/// turn every two minutes at most, while one waits.
+pub const CHECK_RETRY_MS: u64 = 120_000;
+
+/// What writing a report came to: Rich's checked draft, or the report kept on this Mac until he
+/// can check it (`id`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum WriteUp {
+    Checked(Checked),
+    Unchecked { id: String },
 }
 
 /// A change said to Rich: the heading it goes under, the words to add, and any private words
@@ -919,27 +926,6 @@ pub fn parse_change(raw: &str) -> Result<Change, String> {
         return Err("the answer had no section or nothing to add".into());
     }
     Ok(change)
-}
-
-/// Without Rich: the user's own words, tidied the way round 21 tidies them ("Also say it
-/// happens…" becomes "It happens…"), added to What happened.
-pub fn plain_change(said: &str) -> Change {
-    // `get` rather than an index: the first bytes of "ééé" are not a whole character, and a
-    // prefix that is not one is simply not the lead.
-    let leads = |text: &str, lead: &str| text.len() > lead.len() && text.get(..lead.len()).is_some_and(|p| p.eq_ignore_ascii_case(lead));
-    let mut text = said.trim();
-    for lead in ["also ", "and ", "please "] {
-        if leads(text, lead) {
-            text = text[lead.len()..].trim_start();
-        }
-    }
-    for lead in ["say that ", "mention that ", "add that ", "say ", "mention ", "add "] {
-        if leads(text, lead) {
-            text = text[lead.len()..].trim_start();
-            break;
-        }
-    }
-    Change { section: "What happened".into(), add: as_sentence(text), private: vec![] }
 }
 
 /// **A CHANGE, SCRUBBED WITH EVERYTHING THE REPORT KNOWS IS PRIVATE**: the names RichOS holds
@@ -1206,8 +1192,31 @@ pub enum Withdrawn {
     AlreadySent(Sent),
 }
 
-/// The reports on this Mac: one file per waiting report in `<dir>/waiting/`, and one line per
-/// sent report in `<dir>/sent.jsonl`.
+/// Every `.json` file in `dir` that reads as a `T`; none when there is no such folder. A file this
+/// build cannot read is skipped and left in place, never deleted.
+fn read_all<T: serde::de::DeserializeOwned>(dir: &Path) -> io::Result<Vec<T>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
+    let mut out = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| serde_json::from_slice::<T>(&b).map_err(|e| e.to_string())) {
+            Ok(item) => out.push(item),
+            Err(e) => eprintln!("[richos] bug report: {} could not be read ({e}); left in place", path.display()),
+        }
+    }
+    Ok(out)
+}
+
+/// The reports on this Mac: one file per waiting report in `<dir>/waiting/`, one line per sent
+/// report in `<dir>/sent.jsonl`, and one file per report Rich has not checked yet in
+/// `<dir>/unchecked/` (never sent from there: a report is sent only from a card the user approved).
 ///
 /// **Callers serialize.** Two attempts at the same waiting report at once would file it twice,
 /// so the shell holds one lock across every call into this store.
@@ -1237,24 +1246,95 @@ impl Outbox {
 
     /// Every waiting report, oldest first. A file this build cannot read is skipped, never deleted.
     pub fn pending(&self) -> io::Result<Vec<Pending>> {
-        let entries = match std::fs::read_dir(self.waiting_dir()) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(vec![]),
-            Err(e) => return Err(e),
-        };
-        let mut out: Vec<Pending> = Vec::new();
-        for entry in entries {
-            let path = entry?.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| serde_json::from_slice::<Pending>(&b).map_err(|e| e.to_string())) {
-                Ok(p) => out.push(p),
-                Err(e) => eprintln!("[richos] bug report: {} could not be read ({e}); left in place", path.display()),
-            }
-        }
+        let mut out: Vec<Pending> = read_all(&self.waiting_dir())?;
         out.sort_by_key(|p| (p.created_at_ms, p.id.clone()));
         Ok(out)
+    }
+
+    fn unchecked_path(&self, id: &str) -> Option<PathBuf> {
+        uuid::Uuid::parse_str(id).ok().map(|u| self.dir.join("unchecked").join(format!("{u}.json")))
+    }
+
+    fn write_unchecked(&self, unchecked: &Unchecked) -> io::Result<()> {
+        let path = self.unchecked_path(&unchecked.id).ok_or_else(|| io::Error::other("not a report id"))?;
+        crate::quota::atomic_write(&path, unchecked)
+    }
+
+    /// **KEPT UNTIL RICH HAS CHECKED IT.** His checked draft when there is one; otherwise the
+    /// report is not offered for sending: the user's words and where they were are written to
+    /// `<dir>/unchecked/` and wait for [`Outbox::check_due`]. Nothing of it can reach GitHub, which
+    /// is sent only what the user approves on a card ([`Outbox::send`]).
+    pub fn keep_unless_checked(&self, answer: &str, screen: &Screen, check: Result<Checked, String>, now_ms: u64) -> io::Result<WriteUp> {
+        let why = match check {
+            Ok(checked) => return Ok(WriteUp::Checked(checked)),
+            Err(why) => why,
+        };
+        let unchecked = Unchecked {
+            id: uuid::Uuid::new_v4().to_string(),
+            created_at_ms: now_ms,
+            answer: answer.trim().to_string(),
+            screen: screen.clone(),
+            attempts: 1,
+            next_try_at_ms: now_ms.saturating_add(CHECK_RETRY_MS),
+            checked: None,
+        };
+        self.write_unchecked(&unchecked)?;
+        eprintln!("[richos] bug report {}: Rich could not check it ({why}); it waits on this Mac", unchecked.id);
+        Ok(WriteUp::Unchecked { id: unchecked.id })
+    }
+
+    /// Every report Rich has not checked yet, or whose check the window has not taken, oldest
+    /// first. A file this build cannot read is skipped, never deleted.
+    pub fn unchecked(&self) -> io::Result<Vec<Unchecked>> {
+        let mut out: Vec<Unchecked> = read_all(&self.dir.join("unchecked"))?;
+        out.sort_by_key(|u| (u.created_at_ms, u.id.clone()));
+        Ok(out)
+    }
+
+    /// **RICH IS ASKED AGAIN.** Each report whose rest is over is checked once (`check`, the shell's
+    /// `claude` turn); one he still cannot check rests again ([`CHECK_RETRY_MS`]). Answers every
+    /// report that is checked and not yet taken by the window, newly or earlier, so a window that
+    /// missed the news is told again. A report taken back while he was being asked stays gone.
+    pub fn check_due(&self, now_ms: u64, mut check: impl FnMut(&Unchecked) -> Result<Checked, String>) -> io::Result<Vec<(String, Checked)>> {
+        let mut out = Vec::new();
+        for mut unchecked in self.unchecked()? {
+            if let Some(done) = unchecked.checked.clone() {
+                out.push((unchecked.id, done));
+                continue;
+            }
+            if unchecked.next_try_at_ms > now_ms {
+                continue;
+            }
+            let answer = check(&unchecked);
+            if !self.unchecked_path(&unchecked.id).is_some_and(|p| p.exists()) {
+                continue;
+            }
+            match answer {
+                Ok(done) => {
+                    unchecked.checked = Some(done.clone());
+                    self.write_unchecked(&unchecked)?;
+                    out.push((unchecked.id, done));
+                }
+                Err(why) => {
+                    eprintln!("[richos] bug report {}: Rich still could not check it ({why}); it waits on this Mac", unchecked.id);
+                    unchecked.attempts += 1;
+                    unchecked.next_try_at_ms = now_ms.saturating_add(CHECK_RETRY_MS);
+                    self.write_unchecked(&unchecked)?;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Take a report off the unchecked list: the window has shown Rich's check on a card, or the
+    /// user canceled it. `false` when there was none by that id.
+    pub fn take_unchecked(&self, id: &str) -> io::Result<bool> {
+        let Some(path) = self.unchecked_path(id) else { return Ok(false) };
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     /// Every report that went out, oldest first.
