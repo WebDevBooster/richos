@@ -72,6 +72,49 @@ ZERO = "0" * 40
 TERM_GRACE_SECONDS = 5    # a check that ran out of time gets SIGTERM, then this long, before SIGKILL
 
 
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _descendants(root):
+    """Every live descendant pid of `root`, whatever its process group."""
+    try:
+        table = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    children = {}
+    for line in table.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and all(part.isdigit() for part in parts):
+            children.setdefault(int(parts[1]), []).append(int(parts[0]))
+    found, todo = set(), [root]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            if child not in found:
+                found.add(child)
+                todo.append(child)
+    return found
+
+
+def _signal_all(pids, sig, group):
+    try:
+        os.killpg(group, sig)
+    except ProcessLookupError:
+        pass
+    for pid in pids:
+        if pid != group:
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+
+
 def run_bounded(argv, timeout, grace=None, **kwargs):
     """subprocess.run(capture_output, timeout) that ends a late check gracefully.
 
@@ -89,22 +132,20 @@ def run_bounded(argv, timeout, grace=None, **kwargs):
     try:
         out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as expired:
-        for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, None)):
+        # Every descendant, in any process group (Playwright's browser has its own), is recorded
+        # before the first signal; the wait is for ALL of them, not just the direct child, since a
+        # shell wrapper dies on SIGTERM at once and would cut the grace short.
+        victims = {proc.pid, *_descendants(proc.pid)}
+        _signal_all(victims, signal.SIGTERM, group=proc.pid)
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
             try:
-                os.killpg(proc.pid, sig)
-            except ProcessLookupError:
+                proc.wait(timeout=0.05)
+            except subprocess.TimeoutExpired:
+                pass
+            if proc.poll() is not None and not any(_alive(pid) for pid in victims - {proc.pid}):
                 break
-            if wait is not None:
-                try:
-                    proc.wait(timeout=wait)
-                except subprocess.TimeoutExpired:
-                    continue
-                # the leader is gone; anything it left in the group still goes
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                break
+        _signal_all(victims, signal.SIGKILL, group=proc.pid)
         proc.communicate()
         raise expired
     except BaseException:

@@ -1881,6 +1881,33 @@ class TimeLimit(unittest.TestCase):
         alive, _termed = self.run_late("stubborn", 1)
         self.assertFalse(alive, "the browser outlived its suite")
 
+    WRAPPED_SUITE = (
+        "import os, signal, subprocess, sys, time\n"
+        "browser = subprocess.Popen(['sleep', '300'], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"  # own process group, as Playwright's
+        "open(sys.argv[1], 'w').write(str(browser.pid))\n"
+        "def bye(*_):\n"  # a suite that needs a moment to close its browser
+        "    time.sleep(1); browser.terminate(); os._exit(0)\n"
+        "signal.signal(signal.SIGTERM, bye)\n"
+        "time.sleep(300)\n"
+    )
+
+    def test_a_shell_wrapper_that_dies_on_sigterm_does_not_cut_the_grace_short(self):
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as top:
+            marker = os.path.join(top, "browser.pid")
+            argv = ["bash", "-c", '"$@"; :', "wrapper", sys.executable, "-c", self.WRAPPED_SUITE, marker]
+            with self.assertRaises(subprocess.TimeoutExpired):
+                # load-bound: the 2 s limit is the stimulus (the suite sleeps 300 s); no verdict depends on host speed
+                module.run_bounded(argv, timeout=2, grace=10, text=True)
+            pid = int(Path(marker).read_text())
+            __import__("time").sleep(0.2)
+            alive = self.alive(pid)
+            if alive:
+                os.kill(pid, 9)
+            self.assertFalse(alive, "the browser outlived its suite: the wrapper's exit cut the grace short")
+
 
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result
