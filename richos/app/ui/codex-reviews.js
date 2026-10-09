@@ -130,6 +130,14 @@
     const sw = $("cx-switch");
     if (!sw) return;
     if (sw.getAttribute("aria-disabled") === "true") {
+      // Codex may have been installed or signed in since the row was read: Settings can stay open
+      // while the user follows the tooltip's words. So the app is asked again before the press is
+      // refused, and a Codex ready now turns it on (the second review of ecb68ec68, finding 2).
+      const now = await call("codex_reviews_status");
+      if (now) { st = now; paint(); }
+      if (st && st.on) return; // already on (chosen elsewhere): the press meant on, so nothing flips
+    }
+    if (sw.getAttribute("aria-disabled") === "true") {
       // It cannot be turned on: shake it, tint the row, and open the tooltip with the reason.
       sw.classList.remove("shake"); void sw.offsetWidth; sw.classList.add("shake");
       const box = $("cx-row");

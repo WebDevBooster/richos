@@ -224,6 +224,26 @@ async function main() {
     }
   });
 
+  // The second review of ecb68ec68 (rv-20261009T143828Z-ecb68ec6-82af, finding 2, fixture
+  // unavailable-recovery.js): Settings stays open while the user follows the tooltip's words
+  // (installs Codex, or signs in), then presses the switch. The press asks the app again before
+  // refusing, and turns it on, with no closing and reopening of Settings in between.
+  await run.check("Codex ready while Settings stays open: the next press on the unavailable switch reads Codex again and turns it on", async () => {
+    for (const codex of ["missing", "signedout"]) {
+      const page = await open("dark", { on: false, codex });
+      await menu(page);
+      assertEqual(await page.getAttribute("#cx-switch", "aria-disabled"), "true", codex + ": unavailable as Settings opens");
+      await page.evaluate(() => window.__RICHOS_MOCK__.codexSet("ready"));
+      await page.click("#cx-switch", { force: true });
+      await page.waitForFunction(() => document.getElementById("cx-switch").getAttribute("aria-checked") === "true");
+      assertEqual(await text(page, "#cx-who"), "Reviewing now: Codex", codex + ": Codex reviews now");
+      assertEqual(await page.getAttribute("#cx-switch", "aria-disabled"), "false", codex + ": the switch is usable");
+      assert(!(await page.evaluate(() => document.getElementById("cx-row").classList.contains("is-nudged"))), codex + ": no nudge");
+      assertEqual((await calls(page)).filter(c => c.cmd === "codex_reviews_set"), [{ cmd: "codex_reviews_set", on: true }], codex + ": turned on once");
+      await page.close();
+    }
+  });
+
   // ---- 5. the tooltip ---------------------------------------------------------------------
   await run.check("the tooltip: hover, keyboard focus, the pointer can move into it, a click pins it, Esc puts away only the tooltip, and neither the ⓘ nor its words flip the switch", async () => {
     const page = await open("dark", { on: false, codex: "ready" });
