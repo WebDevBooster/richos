@@ -75,6 +75,8 @@
 #        verdicts past a block's cap are told at the next look, never dropped
 #   W23  the host's quit ends the reviewer's own tool commands too, each in a
 #        process group of its own, as Codex runs them
+#   W24  nothing undelivered is marked told at the upgrade or expires, and a
+#        told verdict stays told while it is in the ledger
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1451,6 +1453,76 @@ for mode in codex late-tool; do
     check "W23 the host's quit ends the reviewer's own tool commands, each in a process group of its own ($mode)" \
         $W23RC "$W23OUT"
 done
+
+# --- W24 ---------------------------------------------------------------------
+# The real second review of 6e8cc3f6d (rv-20261009T054743Z-6e8cc3f6-510d): (1) the first look under
+# the owner-delivery rule marked every verdict the old shared cursor had passed as delivered, but
+# that cursor also moved when another lead saw a notice, so an owner lost such a verdict at the
+# upgrade; (2) a verdict never delivered expired after seven days, so an owner back after eight
+# never got it. Now nothing is inferred from the old cursor, nothing undelivered expires, and a
+# told verdict stays told for as long as it is in the ledger. Through the real tell().
+python3 - "$LIB" "$SB/w24" <<'PY'
+import fcntl, os, sys
+lib, root = sys.argv[1:3]
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+sys.path.insert(0, lib)
+import review_watch as rw
+now = rw.parse_iso("2026-10-20T01:00:00Z")
+repo = os.path.realpath(os.path.join(root, "fictional-repository"))
+
+
+def ledger(at):
+    rows = [{"id": "rv-of-A", "repo": repo, "tip": "a" * 40, "work": "teammate:lead-A--worker", "author": "worker-A",
+             "verdict": "passed", "trigger": "quiet", "record": "", "findings": 0, "at": at}]
+    att = [{"repo": repo, "tip": "a" * 40, "work": rows[0]["work"], "session": "lead-A", "outcome": "verdict"}]
+    return rows, att
+
+
+def look(me, state, t, rows, att, host=False):
+    rw.MONITOR["session"] = "" if host else me
+    rw.HOST_JSON["on"] = host
+    out = rw.tell(t, state, rows, rw.Book(rows, {}, att), [], [], att)
+    rw.HOST_JSON["on"] = False
+    return any("[PASSED]" in ln for ln in out)
+
+
+def fresh(name):
+    os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, name)
+    fd = os.open(os.path.join(rw.session_dir("lead-A"), "monitor.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return fd
+
+
+got, want = {}, {}
+# (1) State written before the rule: the old shared cursor is past lead-A's verdict, no `delivered`.
+fd = fresh("upgrade")
+rows, att = ledger("2026-10-19T23:00:00Z")
+rw.stall_watch._write_json(rw._p("last-told.json"), {"rows": 1})
+got["upgrade, cursor already past"] = [look("lead-A", st, now + n, rows, att) for st in [{}] for n in (0, 60)]
+want["upgrade, cursor already past"] = [True, False]
+os.close(fd)
+# (2) Another lead's monitor moved the cursor; lead-A comes back eight days after the verdict.
+for host in (False, True):
+    fd = fresh("eight-days-%s" % ("host" if host else "monitor"))
+    rows, att = ledger("2026-10-12T00:00:00Z")
+    look("lead-B", {"rows": 0, "told": {}}, now, rows, att)
+    st = {}
+    k = "back after eight days (%s)" % ("operator host" if host else "its monitor")
+    got[k] = [look("lead-A", st, now + 60, rows, att, host), look("lead-A", st, now + 120, rows, att, host)]
+    want[k] = [True, False]
+    os.close(fd)
+# (3) Told once, it stays told: weeks later a fresh session state of the owner gets nothing.
+fd = fresh("stays-told")
+rows, att = ledger("2026-10-19T23:00:00Z")
+first = look("lead-A", {}, now, rows, att)
+got["told, then a fresh state three weeks later"] = [first, look("lead-A", {}, now + 21 * 86400, rows, att)]
+want["told, then a fresh state three weeks later"] = [True, False]
+os.close(fd)
+for k in want:
+    print("%s: %s" % (k, got[k]))
+sys.exit(0 if got == want else 1)
+PY
+check "W24 nothing undelivered is marked told at the upgrade or expires; a told verdict stays told" $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
