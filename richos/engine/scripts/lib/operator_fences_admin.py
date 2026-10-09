@@ -235,8 +235,12 @@ def cmd_install(opts, repos):
     reg["entity"] = entity
     for repo in repos:
         r = install_one(repo, entity, decl)
+        # The land command reads "entity" and "reviewed" (workspaces.py). "reviewed" is
+        # THE DURABLE RECORD that this repository requires a second review, taken from
+        # the declaration now: removing or breaking that declaration later never
+        # switches the review off at the land; only the next install does (CEO §113).
         reg["repositories"][r["main"]] = {"common": r["common"], "chain": r["chain"], "installed": F.iso(),
-                                          "entity": entity}  # the land command reads it (workspaces.py)
+                                          "entity": entity, "reviewed": bool(declared_reviews(decl, r["main"]))}
         say("installed  %s  state=%s  chain=%s%s" % (r["main"], r["state"], ",".join(r["chain"]) or "(empty)",
                                                     "  (moved the existing hook to %s)" % r["moved"] if r["moved"]
                                                     else ""))

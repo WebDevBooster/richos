@@ -521,7 +521,7 @@ mutant sr-no-refusal-anywhere "test_second_review_merge_is_refused_with_no_verdi
     "work with no passing second review would land by every path: the land command and the fence would both let it in (CEO §113)."
 
 mutant sr-land-command-does-not-ask "test_second_review_merge_is_refused_with_no_verdict" "$W" \
-    '        ledgers, broken = _review_ledgers(F, main, listed)' \
+    '        ledgers, broken = _review_ledgers(F, main, listed, recorded)' \
     '        ledgers, broken = [], ""' \
     "workspaces.sh merge would run git's merge gate for minutes before the fence refused the move, and with the fence off it would land unreviewed work (CEO §113, Sage's catch 8)."
 
@@ -576,7 +576,7 @@ mutant sr-delivered-every-call "test_second_review_a_running_teammates_next_tool
     "a mid-job verdict would be repeated at every tool call of the teammate instead of once (plan §2.5)."
 
 mutant sr-launcher-decides-what-is-reviewed "test_second_review_a_listed_repository_without_its_launcher_is_still_refused" "$W" \
-    '    declared = any(F.review_listed(v, main) for v in listed)' \
+    '    declared = recorded or any(F.review_listed(v, main) for v in listed)' \
     '    declared = False' \
     "a repository the declaration lists would merge unreviewed work whenever its fence launcher is missing (review rv-20261009T031207Z-ba444a8a-607a, finding 1)."
 
@@ -638,6 +638,36 @@ mutant sr-ungoverned-work-unreviewed "test_second_review_work_that_no_declaratio
     '    if not governing and not unknown:{NL}        unknown.append(' \
     '    if False:{NL}        unknown.append(' \
     "work that no declaration is known to govern would land as unreviewed with nothing read at all (review rv-20261009T042243Z-42ecc969-5f85)."
+
+# THE INSTALL IS THE ONE DURABLE RECORD (review rv-20261009T044823Z-fc8c7569-5919,
+# the eighth to find a declaration read at land time disappearing): install
+# records whether a repository requires review, and removing or breaking a
+# declaration afterwards never switches it off. Each mutant brings back one of
+# that review's three fallbacks.
+mutant sr-install-record-not-written "test_second_review_an_installed_repository_stays_reviewed_until_the_next_install" "scripts/lib/operator_fences_admin.py" \
+    '"entity": entity, "reviewed": bool(declared_reviews(decl, r["main"]))}' \
+    '"entity": entity}' \
+    "install would keep no record that a repository requires review, so deleting or editing its declarations afterwards would land unreviewed work with the launcher gone (review rv-20261009T044823Z-fc8c7569-5919, finding 1)."
+
+mutant sr-install-record-not-read "test_second_review_an_installed_repository_stays_reviewed_until_the_next_install" "$W" \
+    '    return values, unknown, key in reviewed' \
+    '    return values, unknown, False' \
+    "the land would ignore the install's record, and a declaration removed or edited after the install would switch the review off (review rv-20261009T044823Z-fc8c7569-5919, finding 1)."
+
+mutant sr-dangling-registry-absent "test_second_review_a_registry_or_launcher_that_is_a_link_to_nothing_is_refused" "$W" \
+    '        if os.path.lexists(path):{NL}            return {}, ["the fence registry %s is a link to nothing"' \
+    '        if False:{NL}            return {}, ["the fence registry %s is a link to nothing"' \
+    "a fence registry whose target is gone would read as nothing installed, hiding the entity whose declaration lists the repository (review rv-20261009T044823Z-fc8c7569-5919, finding 2)."
+
+mutant sr-dangling-launcher-absent "test_second_review_a_registry_or_launcher_that_is_a_link_to_nothing_is_refused" "$W" \
+    '        if os.path.lexists(path):{NL}            return [], ("%s'"'"'s fence launcher %s is a link to nothing' \
+    '        if False:{NL}            return [], ("%s'"'"'s fence launcher %s is a link to nothing' \
+    "a fence launcher whose target is gone would read as no launcher, hiding the review ledger it carries (review rv-20261009T044823Z-fc8c7569-5919, finding 2)."
+
+mutant sr-unsupported-assignment-skipped "test_second_review_an_assignment_in_an_unsupported_form_is_refused" "$W" \
+    "_REVIEW_ASSIGNMENT = re.compile(r'(?m)^(?![ \\t]*#).*(?<![A-Za-z0-9_])SECOND_REVIEW_REPOS(?![A-Za-z0-9_]).*\$')" \
+    "_REVIEW_ASSIGNMENT = re.compile(r'(?m)^[ \\t]*(?:export[ \\t]+)?SECOND_REVIEW_REPOS[ \\t]*=.*\$')" \
+    "a readonly, declare or after-a-semicolon assignment of SECOND_REVIEW_REPOS would be skipped and the declaration read as listing nothing (review rv-20261009T044823Z-fc8c7569-5919, finding 3)."
 
 mutant sr-unplain-assignment-skipped "test_second_review_a_declaration_whose_assignment_cannot_be_read_is_refused" "$W" \
     '            continue{NL}        return None, ("the governing declaration %s assigns' \

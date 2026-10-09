@@ -4432,6 +4432,7 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
                     del reg["repositories"][main]
                     continue
                 reg["repositories"][main].pop("entity", None)
+                reg["repositories"][main].pop("reviewed", None)
                 reg["repositories"][main]["installed"] = stamps[main]
         self.registry(change)
 
@@ -4752,6 +4753,106 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
             self.assertIn("the repository %s cannot be read, so whether its fence launcher carries a review "
                           "ledger cannot be established" % self.other, str(e.exception))
         self.assertEqual(ws._review_check(todo, [self.entity]), {})    # readable, and listed nowhere
+
+    # -- the install is the one durable record ----------------------------------------
+    # Review rv-20261009T044823Z-fc8c7569-5919 was the eighth to find a way a
+    # declaration read at land time could disappear. `operator-fences.sh install`
+    # now records, per repository, whether its declaration listed it then; the
+    # land requires a review where that record says so OR a current declaration
+    # lists it, so removing or breaking a declaration afterwards never switches
+    # the review off until the next install.
+
+    def test_second_review_an_installed_repository_stays_reviewed_until_the_next_install(self):
+        """The review's finding 1 (its fixture review_fallbacks.py,
+        SPAWNING_CONFIG_AFTER_REMOVAL), for an installed repository: the
+        spawning entity's declaration listed the repository and was deleted,
+        and the declaration the fence was installed from no longer lists it, so
+        with the launcher gone every declaration read said "not reviewed" and an
+        unreviewed tip landed. The install recorded that the repository is
+        reviewed, so it still is; the next install, from a declaration that does
+        not list it, is what switches it off."""
+        self.assertIs(self.registry()["repositories"][self.other].get("reviewed"), True)
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv26")
+        self.declare("")                                            # the install's declaration edited
+        self.refused_unread("zach-opus-rv26", "no second review of %s" % tip[:12])
+        spawning = os.path.join(self.entity, "orchestration.config")
+        with open(spawning, "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        self.refused_unread("zach-opus-rv26", "no second review of %s" % tip[:12])
+        os.remove(spawning)                                         # the spawning declaration deleted
+        self.refused_unread("zach-opus-rv26", "no second review of %s" % tip[:12])
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        self.assertIs(self.registry()["repositories"][self.other].get("reviewed"), False)
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _merged, res = ws.merge_and_land("zach-opus-rv26", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_never_installed_repositorys_deleted_spawning_declaration_is_not_kept(self):
+        """The same finding with no install: nothing records that the spawning
+        entity ever had a declaration, and the repository has no fence for a
+        plain `git merge` either, so the land asks no more of it (by decision,
+        not oversight): listed, refused; the declaration deleted, it lands."""
+        self.unfenced()
+        spawning = os.path.join(self.entity, "orchestration.config")
+        with open(spawning, "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        _cc, (tip,) = self.finished("zach-opus-rv27")
+        self.refused_unread("zach-opus-rv27", "no second review of %s" % tip[:12])
+        os.remove(spawning)
+        _merged, res = ws.merge_and_land("zach-opus-rv27", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_registry_or_launcher_that_is_a_link_to_nothing_is_refused(self):
+        """The review's finding 2 (REGISTRY_LINK_TARGET_MISSING,
+        LAUNCHER_LINK_TARGET_MISSING): both were read as absent, so a registry
+        whose target was gone hid the entity whose declaration lists the
+        repository, and a launcher whose target was gone hid the ledger it
+        carries. Something was installed there: refused, as a declaration that
+        is a link to nothing already was."""
+        registry = os.path.join(ws.land_locks_dir(), "operator-fences.json")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv28")
+        os.rename(registry, registry + ".away")
+        os.symlink(registry + ".gone", registry)
+        self.refused_unread("zach-opus-rv28", "the fence registry %s is a link to nothing" % registry)
+        os.remove(registry)
+        os.rename(registry + ".away", registry)
+        self.refused_unread("zach-opus-rv28", "no second review of %s" % tip[:12])
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        hook = os.path.join(self.other, ".git", "hooks", "reference-transaction")
+        os.remove(hook)
+        os.symlink(hook + ".gone", hook)
+        self.refused_unread("zach-opus-rv28", "fence launcher %s is a link to nothing" % hook)
+        os.remove(hook)
+        _merged, res = ws.merge_and_land("zach-opus-rv28", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_an_assignment_in_an_unsupported_form_is_refused(self):
+        """The review's finding 3 (READONLY_ASSIGNMENT, DECLARE_ASSIGNMENT,
+        ASSIGNMENT_AFTER_SEMICOLON): only lines starting with the key or
+        `export` were examined, so these were skipped and the declaration read
+        as listing nothing. Every line naming SECOND_REVIEW_REPOS that is not
+        the one plain form leaves what it lists unknown; a comment line naming
+        it, and another key that only begins with it, are not assignments."""
+        config = os.path.join(self.decl, "orchestration.config")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv29")
+        for line in ('readonly SECOND_REVIEW_REPOS="other"\n', 'declare -x SECOND_REVIEW_REPOS="other"\n',
+                     'OPERATOR_FENCES="on"; SECOND_REVIEW_REPOS="other"\n',
+                     'SECOND_REVIEW_REPOS="other"\nNOTE="see SECOND_REVIEW_REPOS"\n'):
+            with open(config, "w") as f:
+                f.write('OPERATOR_FENCES="on"\n' + line)
+            self.refused_unread("zach-opus-rv29", "%s assigns SECOND_REVIEW_REPOS" % config)
+        with open(config, "w") as f:
+            f.write('# SECOND_REVIEW_REPOS  (used by: review-watch)\nSECOND_REVIEW_REPOS_NOTE="x"\n'
+                    'SECOND_REVIEW_REPOS="other"\n')
+        self.refused_unread("zach-opus-rv29", "no second review of %s" % tip[:12])
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv29", self.sid)
+        self.assertTrue(res["landed"])
 
     def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
         r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)

@@ -271,6 +271,19 @@ def registry_entities(reg):
     return out
 
 
+def registry_reviewed(reg):
+    """{main checkout} of every repository whose fence registry entry records,
+    from its declaration at `operator-fences.sh install`, that it requires a
+    second review ("reviewed": true). The land command requires a review for
+    such a repository whatever its declarations say now, until the next
+    install records otherwise (CEO §113). An entry without the field (written
+    before install recorded it) records nothing; the declarations decide."""
+    repos = reg.get("repositories") if isinstance(reg, dict) else None
+    if not isinstance(repos, dict):
+        return set()
+    return {main for main, entry in repos.items() if isinstance(entry, dict) and entry.get("reviewed") is True}
+
+
 def append_jsonl(path, value):
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)

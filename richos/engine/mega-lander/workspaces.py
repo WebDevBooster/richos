@@ -4994,12 +4994,12 @@ def _review_check(todo, entities=()):
     registry = _registry_entity_map(F)
     out, refusals = {}, []
     for _repo, b, main, t in todo:
-        listed, unknown = _declared_review_listing(F, entities, main, registry)
+        listed, unknown, recorded = _declared_review_listing(F, entities, main, registry)
         if unknown:
             refusals.append("=== SECOND REVIEW: %s was not merged into %s ===\n  Whether %s is reviewed cannot "
                             "be established: %s." % (b, main, main, "; ".join(unknown)))
             continue
-        ledgers, broken = _review_ledgers(F, main, listed)
+        ledgers, broken = _review_ledgers(F, main, listed, recorded)
         if broken:
             refusals.append("=== SECOND REVIEW: %s was not merged into %s ===\n  %s" % (b, main, broken))
             continue
@@ -5010,8 +5010,9 @@ def _review_check(todo, entities=()):
                 "=== SECOND REVIEW: %s was not merged into %s ===" % (b, main), 1))
             continue
         if not ledgers:
-            # Every governing declaration was read and lists nothing, and no
-            # launcher carries a ledger: positive evidence, never a fallback.
+            # No install recorded a review, every governing declaration was read
+            # and lists nothing, and no launcher carries a ledger: positive
+            # evidence, never a fallback.
             continue
         row, _mid = F.review_of(F.read_reviews(ledgers[0]), t)
         para = "Second review: %s, %s by %s (%s), %s finding(s)." % (
@@ -5048,7 +5049,8 @@ def _registry_key(F, main):
 
 
 def _registry_entity_map(F):
-    """({main checkout: entity, or "" when unknown}, [why unknown]) from the
+    """({main checkout: entity, or "" when unknown}, [why unknown], {main
+    checkout whose install recorded that it requires review}) from the
     fence registry `operator-fences.sh install` writes
     (operator_fences_admin.registry_path(): REGISTRY_NAME in land_locks_dir()),
     read through F.registry_entities (an entry with no recorded entity is
@@ -5063,24 +5065,37 @@ def _registry_entity_map(F):
     installed) names nothing; one that exists but cannot be read or parsed,
     or holds no `repositories` table (the shape install always writes; such a
     file was read as naming nothing, review rv-20261009T042243Z-42ecc969-5f85),
-    leaves every repository's governing entity unknown."""
+    leaves every repository's governing entity unknown. So does a registry
+    that is a link to nothing: something was installed there (review
+    rv-20261009T044823Z-fc8c7569-5919, finding 2).
+
+    THE INSTALL IS THE ONE DURABLE RECORD OF WHETHER A REPOSITORY IS REVIEWED
+    (F.registry_reviewed): what its declaration said at `operator-fences.sh
+    install`, so removing or breaking a declaration afterwards never switches
+    the review off; only the next install does."""
     path = os.path.join(land_locks_dir(), "operator-fences.json")
     try:
         with open(path, encoding="utf-8") as f:
             reg = json.loads(f.read())
     except FileNotFoundError:
-        return {}, []
+        if os.path.lexists(path):
+            return {}, ["the fence registry %s is a link to nothing" % path], set()
+        return {}, [], set()
     except (OSError, ValueError) as exc:
-        return {}, ["the fence registry %s cannot be read (%s)" % (path, getattr(exc, "strerror", None) or exc)]
+        return {}, ["the fence registry %s cannot be read (%s)" % (path, getattr(exc, "strerror", None) or exc)], set()
     if not isinstance(reg, dict) or not isinstance(reg.get("repositories"), dict):
-        return {}, ["the fence registry %s cannot be read (not the registry's shape)" % path]
-    return F.registry_entities(reg), []
+        return {}, ["the fence registry %s cannot be read (not the registry's shape)" % path], set()
+    return F.registry_entities(reg), [], F.registry_reviewed(reg)
 
 
-# A SECOND_REVIEW_REPOS assignment, and the only shape of one that is read: a
-# plain KEY=value whose value review_watch.configured_repos reads the same way
-# (quoted, or one word with nothing after it but a comment).
-_REVIEW_ASSIGNMENT = re.compile(r'(?m)^[ \t]*(?:export[ \t]+)?SECOND_REVIEW_REPOS[ \t]*=.*$')
+# Every line that mentions SECOND_REVIEW_REPOS, other than a comment line (a
+# shell never runs one), and the only shape of one that is read: a plain
+# KEY=value at the start of its line whose value review_watch.configured_repos
+# reads the same way (quoted, or one word with nothing after it but a comment).
+# Any other line naming the key (`readonly`, `declare -x`, `export`, after a
+# semicolon, ...) leaves what it lists unknown (review
+# rv-20261009T044823Z-fc8c7569-5919, finding 3).
+_REVIEW_ASSIGNMENT = re.compile(r'(?m)^(?![ \t]*#).*(?<![A-Za-z0-9_])SECOND_REVIEW_REPOS(?![A-Za-z0-9_]).*$')
 _REVIEW_PLAIN = re.compile(r'[ \t]*SECOND_REVIEW_REPOS[ \t]*=[ \t]*'
                            r'(?:"([^"\n]*)"|\'([^\'\n]*)\'|([^\s#"\'`$\\]*))[ \t\r]*(?:#.*)?$')
 
@@ -5104,9 +5119,10 @@ def _review_declaration(entity, recorded, key):
       * a spawning entity whose directory is gone or is not a directory;
       * a declaration that is a link to nothing (something was there);
       * a declaration that exists and cannot be read;
-      * a SECOND_REVIEW_REPOS line that is not a plain assignment (an
-        unterminated quote, `export`, a shell expansion, words after the
-        value): neither review-watch nor this can say what it lists."""
+      * a line naming SECOND_REVIEW_REPOS that is not a plain assignment (an
+        unterminated quote, `export`, `readonly`, `declare`, an assignment
+        after a semicolon, a shell expansion, words after the value): neither
+        review-watch nor this can say what it lists."""
     config = os.path.join(entity, "orchestration.config")
     try:
         with open(config, encoding="utf-8", errors="replace") as f:
@@ -5127,7 +5143,13 @@ def _review_declaration(entity, recorded, key):
                                                      else "nothing is there", key))
         if os.path.lexists(config):
             return None, "the governing declaration %s is a link to nothing" % config
-        return None, ""                     # a spawning entity that never had a declaration
+        # A spawning entity that never had a declaration. One whose declaration
+        # was deleted reads the same, and nothing records which it was: for an
+        # installed repository the install's record (F.registry_reviewed) keeps
+        # the review on; a repository never installed has no fence for a plain
+        # `git merge` either, so the land asks no more of it than that (review
+        # rv-20261009T044823Z-fc8c7569-5919, finding 1).
+        return None, ""
     value = None
     for line in _REVIEW_ASSIGNMENT.findall(text):
         m = _REVIEW_PLAIN.match(line)
@@ -5141,7 +5163,8 @@ def _review_declaration(entity, recorded, key):
 
 
 def _declared_review_listing(F, entities, main, registry):
-    """([SECOND_REVIEW_REPOS value], [why unknown]) of every declaration
+    """([SECOND_REVIEW_REPOS value], [why unknown], the install recorded that
+    `main` requires review) for every declaration
     governing the main checkout `main`: those of `entities`
     (_governing_entities: the work's own and this run's) and the entity the
     fence registry records for `main` (`registry`, _registry_entity_map), the
@@ -5165,8 +5188,12 @@ def _declared_review_listing(F, entities, main, registry):
     declaration read that does not list it, or a spawning entity that never
     had one; an entity the registry records whose declaration is gone, and
     every other way the answer could not be read, is unknown. So is work that
-    no declaration is known to govern at all: nothing was read."""
-    mapping, unknown = registry
+    no declaration is known to govern at all: nothing was read.
+    THE INSTALL'S RECORD COMES FIRST (review rv-20261009T044823Z-fc8c7569-5919):
+    a repository whose install recorded that it requires review requires it
+    whatever these declarations say now, so a declaration removed or broken
+    after the install never switches the review off."""
+    mapping, unknown, reviewed = registry
     unknown = list(unknown)
     key, unread = _registry_key(F, main)
     if unread:
@@ -5193,13 +5220,14 @@ def _declared_review_listing(F, entities, main, registry):
             unknown.append(why)
         elif value is not None:
             values.append(value)
-    return values, unknown
+    return values, unknown, key in reviewed
 
 
-def _review_ledgers(F, main, listed):
+def _review_ledgers(F, main, listed, recorded=False):
     """([review ledger], why refused) for the main checkout `main`.
 
-    Listed in a governing declaration (`listed`, from _declared_review_listing):
+    Recorded by its install as requiring review (`recorded`), or listed in a
+    governing declaration (`listed`; both from _declared_review_listing):
     the ledger the declaration names, which is where second-review writes its
     verdicts (F.review_ledger_default(), the path `operator-fences.sh install`
     bakes into the launcher), plus the launcher's own when that differs. With
@@ -5209,8 +5237,10 @@ def _review_ledgers(F, main, listed):
     when it carries one (the fence would ask it anyway), else ([], ""); a
     repository or existing launcher that cannot be read is refused here too,
     because whether that ledger applies is unknown, never "none" (review
-    rv-20261009T042243Z-42ecc969-5f85)."""
-    declared = any(F.review_listed(v, main) for v in listed)
+    rv-20261009T042243Z-42ecc969-5f85). An existing launcher that is a link
+    to nothing cannot be read either (review rv-20261009T044823Z-fc8c7569-5919,
+    finding 2)."""
+    declared = recorded or any(F.review_listed(v, main) for v in listed)
     ledgers = [F.review_ledger_default()] if declared else []
     rc, common, _e = git(main, "rev-parse", "--path-format=absolute", "--git-common-dir")
     if rc != 0 or not common.strip():
@@ -5225,6 +5255,9 @@ def _review_ledgers(F, main, listed):
             text = f.read(65536)
     except FileNotFoundError:
         text = ""                               # no launcher: the declarations alone decide
+        if os.path.lexists(path):
+            return [], ("%s's fence launcher %s is a link to nothing, so its review setup cannot be "
+                        "established." % (main, path))
     except OSError as exc:
         if declared:
             return [], ("%s is listed in SECOND_REVIEW_REPOS but its fence launcher %s cannot be read (%s), "
