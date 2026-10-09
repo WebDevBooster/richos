@@ -1007,10 +1007,21 @@ def read_reviews(ledger):
     return rows
 
 
-def review_of(rows, tip):
-    """(the verdict row that decides `tip`, the newest mid-job row on it)."""
-    land = [r for r in rows if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]
-    mid = [r for r in rows if r.get("tip") == tip and r.get("trigger") in REVIEW_MID_JOB]
+def review_repo_identity(repo):
+    """The canonical identity of a repository for matching verdicts: the real
+    path of its main checkout (a git directory named .git stands for its parent)."""
+    real = os.path.realpath(repo or "")
+    return os.path.dirname(real) if os.path.basename(real) == ".git" else real
+
+
+def review_of(rows, tip, repo):
+    """(the verdict row that decides `tip` in `repo`, the newest mid-job row on
+    it). A row of another repository, or with no repository, never counts: the
+    ledger is shared, and independent clones or forks can hold the same commit."""
+    ident = review_repo_identity(repo) if repo else ""
+    mine = [r for r in rows if ident and r.get("repo") and review_repo_identity(r["repo"]) == ident]
+    land = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]
+    mid = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_MID_JOB]
     return (land[-1] if land else None), (mid[-1] if mid else None)
 
 
@@ -1029,12 +1040,12 @@ def review_findings(row, limit=6):
     return out
 
 
-def review_gaps(ledger, tips):
+def review_gaps(ledger, tips, repo):
     """{tip: why} for every tip with no passing verdict; {} when all pass."""
     rows = read_reviews(ledger)
     gaps = {}
     for tip in tips:
-        row, mid = review_of(rows, tip)
+        row, mid = review_of(rows, tip, repo)
         if row and row.get("verdict") == "passed":
             continue
         if row is None:
@@ -1295,7 +1306,8 @@ def fence_decide(lines, common, gitdir, files, chain, argv_of_writer=None):
             # (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1).
             moved_from = current if is_zero(old) and current is not None else old
             try:
-                gaps = review_gaps(files.reviews, landed_tips(os.getcwd(), moved_from, new, keep_git_env=True))
+                gaps = review_gaps(files.reviews, landed_tips(os.getcwd(), moved_from, new, keep_git_env=True),
+                                   files.repo)
             except Exception as error:  # noqa: BLE001: a check that cannot decide refuses, and says so
                 gaps = {new: ["the second review of this move could not be checked (%s: %s), so it is refused"
                               % (error.__class__.__name__, error)]}

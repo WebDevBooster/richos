@@ -5003,7 +5003,7 @@ def _review_check(todo, entities=()):
         if broken:
             refusals.append("=== SECOND REVIEW: %s was not merged into %s ===\n  %s" % (b, main, broken))
             continue
-        gaps = next((g for g in (F.review_gaps(ledger, [t]) for ledger in ledgers) if g), None)
+        gaps = next((g for g in (F.review_gaps(ledger, [t], main) for ledger in ledgers) if g), None)
         if gaps:
             refusals.append(F.review_refusal_text(main, gaps, engine_root()).replace(
                 "=== SECOND REVIEW: refused in %s ===" % main,
@@ -5014,7 +5014,7 @@ def _review_check(todo, entities=()):
             # and lists nothing, and no launcher carries a ledger: positive
             # evidence, never a fallback.
             continue
-        row, _mid = F.review_of(F.read_reviews(ledgers[0]), t)
+        row, _mid = F.review_of(F.read_reviews(ledgers[0]), t, main)
         para = "Second review: %s, %s by %s (%s), %s finding(s)." % (
             row.get("verdict"), row.get("id"), row.get("reviewer"), row.get("reviewer_model"), row.get("findings"))
         notes = ["P%s %s (%s)" % f for f in F.review_findings(row, limit=20)]

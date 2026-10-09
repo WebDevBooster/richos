@@ -4010,7 +4010,7 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
             f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n'
                     'SECOND_REVIEW_REPOS="%s"\n' % listed)
 
-    def verdict(self, tip, verdict="passed", trigger="handover", findings=()):
+    def verdict(self, tip, verdict="passed", trigger="handover", findings=(), repo=None):
         rid = "rv-test-%s-%d" % (tip[:8], len(open(self.ledger).readlines()) if os.path.exists(self.ledger) else 0)
         record = os.path.join(os.path.dirname(self.ledger), "reviews", rid)
         os.makedirs(record)
@@ -4018,7 +4018,7 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
                  for p, t in findings]
         with open(os.path.join(record, "verdict.json"), "w") as f:
             json.dump({"answer": {"reviewed_commit": tip, "verdict": verdict, "findings": found}}, f)
-        row = {"id": rid, "repo": self.other, "tip": tip, "verdict": verdict, "trigger": trigger,
+        row = {"id": rid, "repo": repo or self.other, "tip": tip, "verdict": verdict, "trigger": trigger,
                "reviewer": "codex", "reviewer_model": "gpt-6.1-sol", "findings": len(found),
                "p1": sum(1 for p, _t in findings if p == 1), "record": record,
                "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
@@ -4089,6 +4089,39 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.assertIn("Second review: passed, %s" % rid, body)
         self.assertIn("P3 a comment could name the ruling", body)
         self.assertFalse(os.path.exists(cc))
+
+    FOREIGN = "/independent-clones/foreign"
+
+    def test_second_review_a_passing_verdict_of_another_repository_authorizes_nothing(self):
+        # Two independent clones can hold the same commit; the shared ledger's
+        # verdict for the other one is no review of this one (review rv-20261009T063822Z-5db5607c-7e86).
+        _cc, (tip,) = self.finished("zach-opus-rv6")
+        self.verdict(tip, "passed", repo=self.FOREIGN)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv6", self.sid)
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_a_foreign_passing_verdict_does_not_override_a_local_refusal(self):
+        _cc, (tip,) = self.finished("zach-opus-rv7")
+        self.verdict(tip, "changes-requested", findings=[(1, "local defect")])
+        self.verdict(tip, "passed", repo=self.FOREIGN)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv7", self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_the_fence_ignores_a_foreign_repositorys_verdict_too(self):
+        _cc, (tip,) = self.finished("zach-opus-rv8")
+        self.verdict(tip, "passed", repo=self.FOREIGN)
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/zach-opus-rv8", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
 
     def test_second_review_an_unlisted_repository_is_not_refused(self):
         self.declare("")
