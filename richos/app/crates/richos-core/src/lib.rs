@@ -96,6 +96,9 @@ pub mod native;
 /// PRD §3-§4, richos-hq `docs/prds/2026-10-05-output-side-panel.md`).
 pub mod output;
 pub mod quota;
+/// A recorded real Claude session played back as the provider child, for tests of the real
+/// client and work host (T3 idea 2; richos-hq plan 2026-10-09 §4 row 6).
+pub mod replay;
 pub mod onboarding;
 pub mod onboarding_tools;
 pub mod provision;
