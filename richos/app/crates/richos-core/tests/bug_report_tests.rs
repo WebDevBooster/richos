@@ -1277,8 +1277,10 @@ fn every_prompt_asks_rich_for_the_report_with_this_users_private_details_already
     let change = change_prompt(&card, "say Jane saw it too");
     assert!(change.contains("already left out") && change.contains("person [a person]"), "{change}");
     // His last pass: the scanner's output, and he is told he is the last check.
-    let last = finish_prompt(&card, &terms());
-    for said in ["You are the last check", "Nothing changes your words after you", "it cannot be relied on", "Keep every stand-in already there", "Change nothing else", "Acme deal", "\"private\""] {
+    // Since review rv-20261009T204435Z-593f4791-c2ff finding 1 he is given the report as it was
+    // before the scanner too, and has the final say: he puts back what is not private.
+    let last = finish_prompt(&card, &card, &terms());
+    for said in ["You are the last check", "you have the final say", "Nothing changes your words after you", "it cannot be relied on", "as it was before the automatic check", "put those words back exactly as they were before the check", "Keep every stand-in that hides something private", "Change nothing else", "Acme deal", "\"private\""] {
         assert!(last.contains(said), "{said:?} is not in the last pass's prompt: {last}");
     }
     assert_eq!(report_in(&last)["sections"][0]["paragraphs"][0], "It broke.");
@@ -1535,7 +1537,7 @@ fn an_at_name_in_the_body_notifies_nobody_on_github() {
     assert!(!body.contains("example.com") && body.contains("\\[an email address\\]"), "{body:?}");
     assert_eq!(body.replace('\u{200B}', ""), format!("### What happened @team\n\n@octocat said it froze; (@hubot) too. Mail \\[an email address\\].\n\n1. Ask @octo-cat\n\n### Version\n\n{VERSION}\n"));
     // Rich is given the words as they are, the scanner's stand-ins in them.
-    assert!(finish_prompt(&card, &[]).contains("@octocat said it froze"));
+    assert!(finish_prompt(&card, &card, &[]).contains("@octocat said it froze"));
     // A zero-width space the user wrote is kept as written.
     let typed = Sheet { title: "t".into(), sections: vec![SheetSection { heading: "What happened".into(), paragraphs: vec!["@\u{200B}x".into()], steps: vec![] }] };
     assert_eq!(sent_body(&typed, &Check::of(&draft_of(&typed, vec![]))), "### What happened\n\n@\u{200B}\u{200B}x\n");
@@ -1696,6 +1698,56 @@ fn every_card_is_word_for_word_the_issue_that_is_posted() {
 }
 
 // ---- the review of 593f4791b (rv-20261009T204435Z-593f4791-c2ff), fixture `core_probe.rs` ----
+
+/// Every `<<< … >>>` block of a prompt that reads as JSON, in the order they are written.
+fn json_blocks(prompt: &str) -> Vec<serde_json::Value> {
+    prompt.split("<<<\n").skip(1).filter_map(|block| block.split("\n>>>").next()).filter_map(|block| serde_json::from_str(block).ok()).collect()
+}
+
+/// A Rich who, last, finds that nothing the scanner hid is private in this user's case: he answers
+/// with the report as it was before the scanner (the second report his last pass is given), and,
+/// given only the scanner's, with the scanner's.
+fn rich_puts_back(prompt: &str) -> Result<String, String> {
+    let blocks = json_blocks(prompt);
+    let mut report = blocks.get(1).or(blocks.first()).cloned().expect("a report in the prompt");
+    report["private"] = serde_json::json!([]);
+    Ok(report.to_string())
+}
+
+#[test]
+fn rich_puts_back_ordinary_words_the_scanner_hid_and_they_go_as_he_gave_them() {
+    // Finding 1: on 593f4791b the scanner made "The Send/Cancel buttons overlap." into "[a file on
+    // this Mac]." and Rich's last pass was given only that, told to keep every stand-in, so the card
+    // read `["[a file on this Mac]."]`. The scanner still runs first; Rich, last, has the final say.
+    let said = "The Send/Cancel buttons overlap.";
+    let answer = serde_json::json!({"title": "Buttons overlap", "what_happened": said, "private": []}).to_string();
+    let given = RefCell::new(String::new());
+    let rich = |prompt: &str| {
+        *given.borrow_mut() = prompt.to_string();
+        rich_puts_back(prompt)
+    };
+    let done = checked(Ok(answer), &screen(), false, VERSION, &Scrubber::default(), rich).unwrap();
+    assert_eq!(report_in(&given.borrow())["sections"][0]["paragraphs"][0], "[a file on this Mac].", "the scanner did not run first");
+    let card = sheet_of(&done.draft);
+    assert_eq!(card.sections[0].paragraphs, [said], "Rich could not put back what the scanner hid");
+    assert!(done.draft.sections[0].paragraphs[0].iter().all(|s| s.was.is_none()), "{:?}", done.draft.sections[0].paragraphs[0]);
+    match at_send(&card, Some(&Check::of(&done.draft)), &[], |_| panic!("Rich was asked again about his own words")) {
+        AtSend::Send(public) => {
+            assert_sent_as_shown(&card, &public);
+            assert!(public.body().contains(said), "{:?}", public.body());
+        }
+        other => panic!("{other:?}"),
+    }
+
+    // Words changed by hand go through the scanner and then Rich, who puts them back as typed:
+    // they go as the card shows them.
+    let mut edited = card.clone();
+    edited.sections[0].paragraphs[0] = "The Send/Cancel buttons overlap at 135% text size.".into();
+    match at_send(&edited, Some(&Check::of(&done.draft)), &[], rich_puts_back) {
+        AtSend::Send(public) => assert_sent_as_shown(&edited, &public),
+        other => panic!("the user's own ordinary words were not sendable as typed: {other:?}"),
+    }
+}
 
 #[test]
 fn a_last_pass_with_a_malformed_section_is_not_a_report_and_waits_on_this_mac() {

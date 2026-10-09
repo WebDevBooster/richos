@@ -333,7 +333,7 @@ richos/app/
                               the technical view, re-prime machinery that is recorded and
                               structurally cannot render, no session id on the lane's wire,
                               the honest empty lane, and the retention window covering it
-    tests/bug_report_tests.rs 64 tests for Bust a bug (CEO §115, round 21): names (in
+    tests/bug_report_tests.rs 65 tests for Bust a bug (CEO §115, round 21): names (in
                               any capitals, in every alphabet, with an accent
                               encoded either Unicode way), file
                               paths (any word with a slash or a backslash, relative
@@ -356,8 +356,9 @@ richos/app/
                               asked again until he answers; the order is the CEO's (§115):
                               the scanner first, Rich last (every prompt asks him for the
                               report with this user's private details already left out,
-                              and his last pass, `finished`, cleans up what the scanner
-                              left), the card is his words and the issue is the card word
+                              and his last pass, `finished`, given the report before and
+                              after the scanner, puts back what it hid that is not private
+                              and cleans up what it left), the card is his words and the issue is the card word
                               for word, nothing after him changing a word; what is sent is
                               decided in one place (`at_send`): the words Rich gave last,
                               and words changed by hand or by telling Rich go through the
@@ -1176,7 +1177,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1973 tests + 5 doc-tests (1969 direct, 4 ignored)
+cargo test -p richos-core                       # 1974 tests + 5 doc-tests (1970 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
