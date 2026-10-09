@@ -1372,7 +1372,7 @@
     },
     "scripts/app-engine-hook.py#pause-rejection": {
       "source": "scripts/app-engine-hook.py",
-      "sha256": "71132a382e19ad64c4bd66e745fe05fb56efe073dd973ed0fc876673ab8fded5",
+      "sha256": "4b646be34d9bb85e0546b04229d95729d232c1c1902a55a9fdf591478a8d0cb4",
       "evidence": "The fixture loads the standard-library-only module, supplies explicit roots and calls handle with PreToolUse SendMessage. Invalid pause fails before scope; valid pause reaches the mocked scope exception. No evidence/workspace helper is loaded. Renewed 2026-10-09 (second review slice 4): the scope bound is 256 KiB, and a new mid_job_notice (loads scripts/lib/app_review.py) runs only after worker_context on PreToolUse, outside this fixture's path, which fails before scope.",
       "keys": [],
       "edges": [

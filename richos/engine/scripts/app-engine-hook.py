@@ -89,10 +89,13 @@ def mid_job_notice(work, active, payload, root):
     if not payload.get("agent_id"):
         return ""
     try:
+        review = load("richos_app_review", ENGINE / "scripts/lib/app_review.py")
+        # No review has ever been written: nothing to tell, and no receipt is read for it.
+        if not os.path.isfile(review.app_paths(root)["ledger"]):
+            return ""
         spaces = work.worker_spaces(active, payload)
         if not spaces:
             return ""
-        review = load("richos_app_review", ENGINE / "scripts/lib/app_review.py")
         return review.mid_job_notice(root, spaces)
     except Exception as error:  # noqa: BLE001 -- a verdict that cannot be read never blocks the work
         print(f"RichOS desktop engine: a mid-job review could not be read: {error}", file=sys.stderr)
