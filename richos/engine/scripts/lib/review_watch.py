@@ -819,8 +819,12 @@ class Watcher(object):
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:
             return None
+        # The lead session that owns the work is kept in the review's own record (this lock, then
+        # its attempt row), so its verdict reaches that lead even when the worker commits again
+        # while the review runs and no item carries the reviewed tip any more.
         info = {"repo": item.repo, "tip": item.tip, "work": item.work, "name": item.name, "trigger": trigger,
-                "started_at": now, "attempt": attempt, "watcher": os.getpid(), "pid": None, "pid_start": ""}
+                "started_at": now, "attempt": attempt, "watcher": os.getpid(), "pid": None, "pid_start": "",
+                "session": getattr(item, "session", "") or ""}
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(info, f)
         return path, info
@@ -852,7 +856,7 @@ class Watcher(object):
                     "the review ended without writing a row to the ledger"
         a = {"repo": info.get("repo"), "tip": info.get("tip"), "work": info.get("work"), "name": info.get("name"),
              "trigger": info.get("trigger"), "started_at": info.get("started_at"), "ended_at": now,
-             "outcome": outcome, "why": why, "attempt": info.get("attempt")}
+             "outcome": outcome, "why": why, "attempt": info.get("attempt"), "session": info.get("session") or ""}
         append_jsonl(_p("attempts.jsonl"), a)
         try:
             os.unlink(claimed)
@@ -994,6 +998,32 @@ def _who(row, items_by_key):
     return (it.name if it else row.get("author") or "?"), it
 
 
+def owner_session(row, items, book, attempts):
+    """The lead session a verdict goes to (--host-json), by the work's STABLE identity, never by
+    the reviewed tip alone: a worker that commits while its review runs no longer has an item at
+    that tip, and a verdict sent to an empty session is refused by the host and lost.
+    In order: the item at the exact tip; the review's own record (its lock while it runs, its
+    attempt row once settled), which kept the session it was started for; any item of the same
+    work (`teammate:<root key>`, which a continuation shares). "" when none names one (Codex's
+    work, a teammate started from his terminal, a review run by hand)."""
+    key = (os.path.realpath(row.get("repo") or ""), row.get("tip"))
+    for it in items:
+        if it.key == key and it.session:
+            return it.session
+    info = book.running.get(key) or {}
+    if info.get("session"):
+        return info["session"]
+    for a in reversed(attempts or []):
+        if (os.path.realpath(a.get("repo") or ""), a.get("tip")) == key and a.get("session"):
+            return a["session"]
+    work = row.get("work")
+    if work:
+        for it in items:
+            if it.work == work and it.session:
+                return it.session
+    return ""
+
+
 def render_verdict(row, items_by_key, again=None):
     who, it = _who(row, items_by_key)
     trig = row.get("trigger") or "?"
@@ -1073,11 +1103,11 @@ def tell(now, sstate, rows, book, items, problems, attempts):
     told = sstate.setdefault("told", {})
     body, owners = [], []
 
-    def add(block, it=None):
+    def add(block, it=None, session=None):
         # Each block keeps the session of the lead whose teammate it is about, so the operator
         # host can deliver it to that lead (--host-json); "" when no lead started the work.
         body.append(block)
-        owners.append(getattr(it, "session", "") or "")
+        owners.append(session if session is not None else (getattr(it, "session", "") or ""))
     # -- new verdicts, from where this session last read the ledger ---------------
     start = sstate.get("rows")
     if not isinstance(start, int) or start > len(rows):
@@ -1086,7 +1116,8 @@ def tell(now, sstate, rows, book, items, problems, attempts):
     for row in rows[start:]:
         if not row.get("verdict"):
             continue
-        add(render_verdict(row, items_by_key), _who(row, items_by_key)[1])
+        session = owner_session(row, items, book, attempts)
+        add(render_verdict(row, items_by_key), session=session)
         if row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB:
             told["cr:%s:%s" % (row.get("repo"), row.get("tip"))] = {"first": now, "last": now, "count": 1}
         for fid, title in not_converging(row, rows):
@@ -1097,7 +1128,8 @@ def tell(now, sstate, rows, book, items, problems, attempts):
             who, _it = _who(row, items_by_key)
             add(["  [NOT CONVERGING] %s: finding %s (%s) is still open after two rechecks in a row." % (
                 who, fid, " ".join(title.split())[:100]),
-                "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."], _it)
+                "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."],
+                session=session)
     sstate["rows"] = len(rows)
     shared = stall_watch._read_json(_p("last-told.json"))
     shared["rows"] = max(len(rows), int(shared.get("rows") or 0)) if isinstance(shared.get("rows"), int) else len(rows)
@@ -1129,7 +1161,8 @@ def tell(now, sstate, rows, book, items, problems, attempts):
         add(["  [NO VERDICT TWICE] %s, %s@%s: %s" % (a.get("name"), os.path.basename(key[0] or ""),
                                                     str(key[1])[:12], " ".join(str(a.get("why")).split())[:300]),
              "      Nothing more starts for this commit by itself. You can: fix the cause, then run "
-             "%s by hand." % "second-review.sh"], items_by_key.get(key))
+             "%s by hand." % "second-review.sh"], session=(
+                getattr(items_by_key.get(key), "session", "") or a.get("session") or ""))
     # -- what could not be read or started ------------------------------------------
     for p in problems:
         k = "problem:" + p[:120]

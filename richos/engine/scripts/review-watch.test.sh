@@ -45,6 +45,9 @@
 #   W10  monitors.json starts review-watch.sh --monitor always
 #   W11  --host-json (the operator install's host child, slice 4): a look's notices
 #        are one JSON line per lead session, for the host to send to that lead
+#   W12  a verdict reaches its lead session even when the worker committed while
+#        its review ran: by the review's own record (lock, then attempt row), and
+#        by the work's stable identity when no record names it
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -439,6 +442,60 @@ assert "[CHANGES-REQUESTED] echo-sonnet-w1, handover review" in rows[0]["text"],
 assert rows[0]["text"].startswith("REVIEW-WATCH "), rows
 '
 check "W11 --host-json: the verdict is one JSON line for the lead session that registered the work" $? "rc=$RC out=$OUT"
+
+# --- W12 ---------------------------------------------------------------------
+# Second review of cc/echo-opus-review4 at cac403f77, finding 1 (fixtures/operator_notice.py):
+# the lead session was found only through an item at the reviewed tip, so a worker that committed
+# while its review ran got its verdict sent to session "", which the host refuses, while the
+# consumed-row cursor moved on: the verdict was lost.
+resetstate
+reg echo-sonnet-w1 3660 -
+python3 - "$SB" <<'PY'
+import json, os, sys
+p = os.path.join(sys.argv[1], "workspaces", "agents", "sess-w--echo-sonnet-w1.json")
+r = json.load(open(p)); r["session_id"] = "lead-session-1"
+json.dump(r, open(p, "w"))
+PY
+OUT="$(RICHOS_ENTITY_ROOT="$SB" FAKE_SR_MODE=changes-requested bash "$RW" --tick --host-json 2>&1)"; RC=$?
+waitcalls 1; waitrows 1
+printf 'base\nmine\nmore\n' >"$REPO/a.txt"
+G commit -qam "the worker commits again while its review runs"
+OUT="$(RICHOS_ENTITY_ROOT="$SB" bash "$RW" --tick --host-json 2>&1)"; RC=$?
+G reset -q --hard "$TIP"
+printf '%s\n' "$OUT" | python3 -c '
+import json, sys
+rows = [json.loads(l) for l in sys.stdin.read().splitlines() if l.strip()]
+assert len(rows) == 1, rows
+assert rows[0]["session"] == "lead-session-1", rows
+assert "[CHANGES-REQUESTED] " in rows[0]["text"] and "mid-job (long-job)" in rows[0]["text"], rows
+'
+check "W12 the worker committed while its review ran: the verdict still goes to its lead session (the review's record)" $? \
+    "rc=$RC out=$OUT"
+python3 - "$LIB" "$SB/w12" <<'PY'
+import json, os, sys
+lib, root = sys.argv[1:3]
+os.makedirs(root)
+os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, "rw")
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+sys.path.insert(0, lib)
+import review_watch as rw
+rw.HOST_JSON["on"] = True
+repo = os.path.realpath(os.path.join(root, "fictional-repo"))
+old, new = "a" * 40, "b" * 40
+row = {"id": "review-1", "repo": repo, "tip": old, "work": "teammate:worker", "trigger": "long-job",
+       "verdict": "changes-requested", "findings": 1, "p1": 1, "author": "worker", "reviewer": "claude",
+       "reviewer_model": "opus"}
+got = {}
+for label, tip in (("unchanged tip", old), ("worker committed during review", new)):
+    item = rw.Item("teammate:worker", "worker", repo, tip, "c" * 40, "running")
+    item.session = "lead-session-1"
+    state = {"rows": 0}
+    notice = json.loads(rw.tell(10000, state, [row], rw.Book([row], {}, []), [item], [], [])[0])
+    got[label] = (notice["session"], state["rows"])
+print(got)
+sys.exit(0 if all(v == ("lead-session-1", 1) for v in got.values()) else 1)
+PY
+check "W12 with no record of the review, the work's stable identity names the lead session (the reviewer's fixture)" $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
