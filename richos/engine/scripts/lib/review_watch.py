@@ -85,8 +85,8 @@ WHAT IS TOLD (plan §2.4, §2.5). Each printed block wakes the lead.
 Starting a review is not told: the verdict is.
 
 It never edits, lands, merges, pauses or messages anything. The only processes
-it ever stops are reviews it (or another watcher) started and recorded, with
-every process below one of them.
+it ever stops are reviews it (or another watcher) started and recorded: the
+process group each one leads, which holds second-review's reviewer too.
 
 ===========================================================================
 COMMANDS (review-watch.sh passes --engine-root and --config)
@@ -242,8 +242,7 @@ def group_gone(pgid):
     """Is no process of this group left running? ESRCH: none at all. EPERM: on macOS killpg
     refuses a group whose members are all zombies (measured 2026-10-09, Darwin 24.6: a SIGKILLed,
     unreaped `sleep` group answers EPERM, a reaped one ESRCH); a review and everything under it
-    run as this user, so EPERM is never a live process of a review that could still be signaled.
-    The same rule as second_review.group_gone."""
+    run as this user, so EPERM is never a live process of a review that could still be signaled."""
     try:
         os.killpg(int(pgid), 0)
     except ProcessLookupError:
@@ -859,49 +858,40 @@ class Watcher(object):
         return bool(start) and (not info.get("pid_start") or start == info["pid_start"])
 
     def stop(self, info):
-        """Stop a review by its recorded process id, only while its start time
-        still matches: the process group it leads and the group of every process
-        below it, since second-review's reviewer leads a session of its own."""
+        """Stop a review by its recorded process id, only while its start time still matches: the
+        process group it leads, which holds second-review's reviewer too."""
         self.stop_all([info], STOP_TERM_SECONDS, STOP_KILL_SECONDS)
 
     def stop_all(self, infos, term_seconds, kill_seconds):
-        """Stop every review in `infos` AT ONCE: SIGTERM to each recorded group, one shared wait,
-        then SIGKILL to whichever is still alive, one shared wait. The whole stop is bounded by
+        """Stop every review in `infos` AT ONCE: SIGTERM to each recorded process group, one shared
+        wait, then SIGKILL to each group not yet gone, one shared wait. The whole stop is bounded by
         term_seconds + kill_seconds however many reviews there are (never their sum).
 
-        A REVIEW IS STOPPED ONLY WHEN ITS REVIEWER HAS STOPPED (second review of f14155545,
-        finding 1): second-review's reviewer leads its own session, out of reach of a signal to
-        the recorded group, and a launcher that exits first would leave it running. So the groups
-        of every process below each recorded pid are read once, before any signal, and each is
-        signaled and waited for beside the recorded one. Returns the infos NOT seen gone inside
-        the bound (normally none), so a caller never records a running review as stopped.
-
-        READ AGAIN BEFORE SIGKILL (second review of 783a8dba1, finding 1): a review still running
-        after the SIGTERM grace may have started its reviewer since the first read (second-review
-        holds a stop that lands while it starts one, until it is registered). The process table
-        is read once more for those reviews, so the SIGKILL reaches that new group while its
-        parent still names it, before the parent dies and it is out of reach."""
+        ONE GROUP PER REVIEW, WAITED FOR WHOLE (second review of b5ff41f02, finding 1): a review
+        leads a process group of its own and second-review keeps its reviewer in it, so one signal
+        to the group reaches every process of the review whenever it was forked, and no process
+        table is read. A review is stopped only once its whole group is gone, not just the recorded
+        leader, and SIGKILL goes again on every pass of its wait, so a process forked while the
+        first one was delivered ends too. Returns the infos whose group was NOT seen gone inside the
+        bound (normally none), so a caller never records a running review as stopped."""
         live = [i for i in infos if i.get("pid") and self.alive(i)]
-        below = self.groups_below([int(i["pid"]) for i in live]) if live else {}
-        groups = dict((id(i), [int(i["pid"])] + below.get(int(i["pid"]), [])) for i in live)
 
         def running(info):
-            if self.alive(info):
-                return True
-            return any(not group_gone(g) for g in groups[id(info)][1:])
+            child = self.children.get(info["pid"])
+            if child is not None:
+                child.poll()                        # reap this watcher's own child, the group's leader
+            return not group_gone(info["pid"])
         for sig, grace in ((signal.SIGTERM, term_seconds), (signal.SIGKILL, kill_seconds)):
-            if sig == signal.SIGKILL:
-                again = self.groups_below([int(i["pid"]) for i in live])
-                for info in live:
-                    groups[id(info)] += [g for g in again.get(int(info["pid"]), []) if g not in groups[id(info)]]
-            for info in live:
-                for g in groups[id(info)]:
-                    try:
-                        os.killpg(g, sig)
-                    except (OSError, ValueError):
-                        pass                        # gone already
             end = time.monotonic() + grace
+            send = True
             while live:
+                if send:
+                    for info in live:
+                        try:
+                            os.killpg(int(info["pid"]), sig)
+                        except (OSError, ValueError):
+                            pass                    # gone already
+                    send = sig == signal.SIGKILL
                 live = [i for i in live if running(i)]
                 if not live or time.monotonic() >= end:
                     break
@@ -909,46 +899,6 @@ class Watcher(object):
             if not live:
                 return []
         return live
-
-    @staticmethod
-    def groups_below(pids):
-        """{pid: [process groups of every descendant of pid, other than pid's own]}, from one read
-        of the process table. Only descendants of a review this watcher recorded, never a name or
-        a path matched; never group 0 or 1 or this watcher's own group. {} when ps cannot be read,
-        and then only the recorded groups are stopped, as before."""
-        try:
-            r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], capture_output=True, text=True,
-                               timeout=1, env=dict(os.environ, LC_ALL="C"))
-        except (OSError, subprocess.TimeoutExpired):
-            return {}
-        if r.returncode != 0:
-            return {}
-        kids, group = {}, {}
-        for line in r.stdout.splitlines():
-            try:
-                pid, ppid, pgid = (int(x) for x in line.split())
-            except ValueError:
-                continue
-            kids.setdefault(ppid, []).append(pid)
-            group[pid] = pgid
-        try:
-            mine = os.getpgid(0)
-        except OSError:
-            mine = -1
-        out = {}
-        for top in pids:
-            found, todo, seen = [], [top], set([top])
-            while todo:
-                for c in kids.get(todo.pop(), ()):
-                    if c in seen:
-                        continue
-                    seen.add(c)
-                    todo.append(c)
-                    g = group.get(c)
-                    if g and g > 1 and g != mine and g != top and g not in found:
-                        found.append(g)
-            out[top] = found
-        return out
 
     # -- locks -------------------------------------------------------------------
     def take_lock(self, item, trigger, now, attempt):

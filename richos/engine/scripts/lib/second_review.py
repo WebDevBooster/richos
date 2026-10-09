@@ -75,9 +75,11 @@ HOW IT RUNS (Sage's catch 5)
     admission is waited on (bounded, one sample per 30 s, said once); an
     unmeasurable CPU refuses.
   * A 60-minute limit (the first by-hand review took about 30). Past it the
-    reviewer's own process group, captured at spawn, is stopped. When this
-    command is itself stopped (review-watch replacing a mid-job review with
-    the handover one), it stops that group first.
+    reviewer is stopped by its own process id (SIGTERM, then SIGKILL).
+  * The reviewer runs in this command's own process group, never a session of
+    its own: review-watch starts second-review.sh leading a group and stops a
+    review by signaling that group, so the reviewer ends with it whenever it
+    was forked (second review of b5ff41f02, finding 1).
   * The reviewer's builds are capped at REVIEW_BUILD_JOBS jobs (CARGO_BUILD_JOBS,
     MAKEFLAGS, CMAKE_BUILD_PARALLEL_LEVEL in its environment, and said in its
     input). The first real runs, 2026-10-09: the engine's CPU breaker stopped a
@@ -135,16 +137,7 @@ MAX_INLINE_LOG_BYTES = 128 * 1024
 FIXTURE_FILE_BYTES = 1024 * 1024
 FIXTURE_TOTAL_BYTES = 20 * 1024 * 1024
 REVIEW_BUILD_JOBS = 2
-_REVIEWER = {"pgid": None}
-# A stop that lands while run_bounded is starting the reviewer (its fork done, its group not yet
-# in _REVIEWER) is held (depth > 0, the signal in "held") and taken the moment the group is
-# registered, so _on_stop always has the group to end (second review of 783a8dba1, finding 1).
-_HOLD = {"depth": 0, "held": 0}
-# Stopped from outside, the reviewer's own group is stopped and seen gone before this process
-# exits: 1.0 s after SIGTERM, then SIGKILL and 0.5 s more. 1.5 s in all, inside review_watch.py's
-# quit grace (QUIT_TERM_SECONDS, 2 s), so the watcher never SIGKILLs this process mid-wait.
-STOP_REVIEWER_TERM_SECONDS = 1.0
-STOP_REVIEWER_KILL_SECONDS = 0.5
+_REVIEWER = {"proc": None}
 
 EXIT_PASSED, EXIT_CHANGES, EXIT_NO_VERDICT, EXIT_REFUSED = 0, 1, 2, 64
 
@@ -672,43 +665,33 @@ def version_of(binary):
 
 
 def run_bounded(argv, cwd, prompt, out_path, err_path, limit, env=None):
-    """(exit code or None on the time limit, seconds). The reviewer leads its
-    own process group, captured at spawn; past the limit that group, and only
-    that group, is stopped."""
+    """(exit code or None on the time limit, seconds).
+
+    THE REVIEWER STAYS IN THIS COMMAND'S PROCESS GROUP (second review of b5ff41f02, finding 1).
+    review-watch starts second-review.sh leading a process group of its own and stops a review by
+    signaling that group, so the reviewer, and whatever it starts in its group, ends with it
+    whenever it was forked: nothing has to be registered before a stop can reach it. Until
+    b5ff41f02 the reviewer led a session of its own, and one forked after the watcher's last read
+    of the process table outlived the SIGKILL. Past the limit the reviewer itself is stopped by its
+    process id: SIGTERM, ten seconds, SIGKILL."""
     start = time.monotonic()
     with open(out_path, "wb") as out, open(err_path, "wb") as err:
-        # REGISTERED BEFORE A STOP CAN ACT (second review of 783a8dba1, finding 1): the reviewer
-        # leads its own session, so a SIGTERM inside Popen (fork done, Popen not yet returned)
-        # would find no group in _REVIEWER and exit, leaving the reviewer running. The stop is
-        # held until the group is registered, then taken. No signal mask: a blocked mask would be
-        # inherited by the reviewer across exec.
-        _HOLD["depth"] += 1
-        try:
-            p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=out, stderr=err,
-                                 start_new_session=True, env=build_env(env))
-            _REVIEWER["pgid"] = p.pid
-        finally:
-            _HOLD["depth"] -= 1
-            if _HOLD["held"] and not _HOLD["depth"]:
-                signum, _HOLD["held"] = _HOLD["held"], 0
-                _on_stop(signum, None)
+        p = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=out, stderr=err, env=build_env(env))
+        _REVIEWER["proc"] = p
         try:
             p.communicate(prompt.encode("utf-8"), timeout=limit)
             return p.returncode, time.monotonic() - start
         except subprocess.TimeoutExpired:
-            for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 10)):
+            for stop in (p.terminate, p.kill):
+                stop()
                 try:
-                    os.killpg(p.pid, sig)
-                except ProcessLookupError:
-                    break
-                try:
-                    p.wait(timeout=grace)
+                    p.wait(timeout=10)
                     break
                 except subprocess.TimeoutExpired:
                     continue
             return None, time.monotonic() - start
         finally:
-            _REVIEWER["pgid"] = None
+            _REVIEWER["proc"] = None
 
 
 def build_env(env=None):
@@ -721,51 +704,16 @@ def build_env(env=None):
     return e
 
 
-def group_gone(pgid):
-    """Is no process of this group left running? ESRCH: none at all. EPERM: on macOS killpg
-    refuses a group whose members are all zombies (measured 2026-10-09, Darwin 24.6: a SIGKILLed,
-    unreaped `sleep` group answers EPERM, a reaped one ESRCH); every process this engine starts
-    runs as its own user, so EPERM is never a live reviewer it could still signal."""
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return True
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-    return False
-
-
 def _on_stop(signum, _frame):
-    """Stopped from outside: the reviewer leads its own session, out of reach of any signal to
-    this process's group, so it is stopped here and this process exits only once its group is
-    gone: SIGTERM, STOP_REVIEWER_TERM_SECONDS, SIGKILL, STOP_REVIEWER_KILL_SECONDS. A stopped
-    review leaves no reviewer running on its own (second review of f14155545, finding 1).
-    While run_bounded is starting the reviewer the stop is held, and run_bounded calls this
-    again once the reviewer's group is registered (second review of 783a8dba1, finding 1)."""
-    if _HOLD["depth"]:
-        _HOLD["held"] = signum
-        return
-    pgid = _REVIEWER.get("pgid")
-    if pgid:
-        for sig, grace in ((signal.SIGTERM, STOP_REVIEWER_TERM_SECONDS),
-                           (signal.SIGKILL, STOP_REVIEWER_KILL_SECONDS)):
-            try:
-                os.killpg(pgid, sig)
-            except OSError:
-                break                               # gone already (or all zombies)
-            end = time.monotonic() + grace
-            while True:
-                try:
-                    os.waitpid(pgid, os.WNOHANG)    # the leader is this process's own child: reap it
-                except ChildProcessError:
-                    pass
-                if group_gone(pgid) or time.monotonic() >= end:
-                    break
-                time.sleep(0.02)
-            if group_gone(pgid):
-                break
+    """Stopped from outside. review-watch signals this command's whole process group, which holds
+    the reviewer too, so the reviewer has the signal already; it is passed on for a stop sent to
+    this process alone (by hand), and this process exits."""
+    p = _REVIEWER.get("proc")
+    if p is not None:
+        try:
+            p.send_signal(signum)
+        except OSError:
+            pass
     raise SystemExit(128 + signum)
 
 

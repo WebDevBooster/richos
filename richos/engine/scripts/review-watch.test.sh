@@ -53,15 +53,15 @@
 #        its own inside the bound with none left running
 #   W14  the app's watcher picks only receipts with request.role worker for a
 #        mid-job review, never a quiet handover reviewer's cc/ workspace
-#   W15  the host's quit records a review stopped only once its reviewer, which
-#        leads its own session, is gone too (a responsive and a deaf launcher)
+#   W15  the host's quit records a review stopped only once its whole process
+#        group, its reviewer included, is gone (a responsive and a deaf launcher)
 #   W16  a SIGTERM during spawn, before the review's pid reaches its lock, still
 #        stops that review and settles it as stopped
 #   W17  a verdict goes to the review's recorded owner first; a registry fallback
 #        needs the same work, never another work holding the reviewed commit
-#   W18  a SIGTERM while second-review starts its reviewer (fork done, Popen not
-#        returned): the reviewer's group is registered first, then stopped; a
-#        launcher wedged there past the grace is reached by a second read
+#   W18  a reviewer forked at any point of a stop, even the moment before the
+#        SIGKILL by a second-review that cannot act on the stop, ends with its
+#        review's group (the reviewer's fixture fork_after_final_scan.py)
 #   W19  the repeated handover notice goes to the recorded owner of the same
 #        work, on that work's own clock, never to another work at the tip
 #   W20  the plain monitor prints a verdict only in its owner's session, unless
@@ -653,7 +653,9 @@ check "W14 the app's watcher reviews mid-job only receipts with request.role wor
 # never reaches it; _on_stop sent it one SIGTERM and exited at once, and stop_all, seeing the
 # launcher gone, recorded "stopped" over a reviewer that ignores SIGTERM and runs on. Two
 # launchers: the real second_review._on_stop and run_bounded ("responsive"), and one that ignores
-# SIGTERM itself ("deaf"), whose reviewer only the watcher can stop.
+# SIGTERM itself ("deaf"), whose reviewer only the watcher can stop. Since the second review of
+# b5ff41f02 (finding 1) the reviewer stays in its launcher's process group, as second-review's
+# run_bounded keeps it, and the one group signal reaches both.
 cat >"$SB/w15.py" <<'PY'
 import json, os, signal, subprocess, sys, time
 lib, root, mode = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -673,7 +675,7 @@ if role == "launcher":
         sr.run_bounded([sys.executable, "-B", "-c", REVIEWER, root], root, "", os.devnull, os.devnull, 60)
     else:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        subprocess.Popen([sys.executable, "-B", "-c", REVIEWER, root], start_new_session=True).wait()
+        subprocess.Popen([sys.executable, "-B", "-c", REVIEWER, root]).wait()
     sys.exit(0)
 if role == "watcher":
     os.environ["REVIEW_WATCH_STATE_DIR"] = root
@@ -760,7 +762,7 @@ PY
 for mode in responsive deaf; do
     W15OUT="$(python3 "$SB/w15.py" "$LIB" "$SB/w15-$mode" "$mode" 2>&1)"; W15RC=$?
     printf '    %s\n' "$W15OUT"
-    check "W15 the host's quit ($mode launcher): stopped is recorded only once the reviewer's own group is gone" \
+    check "W15 the host's quit ($mode launcher): stopped is recorded only once the review's group, reviewer included, is gone" \
         $W15RC "$W15OUT"
 done
 
@@ -913,21 +915,23 @@ check "W17 the recorded owner comes first, and a registry fallback needs the sam
     $? "see above"
 
 # --- W18 ---------------------------------------------------------------------
-# Second review of 783a8dba1, finding 1 (fixtures/reviewer_spawn_at_quit.py): run_bounded forked
-# the reviewer, which leads its own session, before saving its group in _REVIEWER; a SIGTERM in
-# between made _on_stop exit with no group to end, and the watcher, whose one read of the process
-# table came before the fork, returned no review left running over a reviewer that ran on. The
-# real second_review.run_bounded and _on_stop under the real Watcher.stop_all; the process table is
-# read for real, before the reviewer exists, and the SIGTERM lands while Popen has not returned.
-# Two windows: "brief" (0.3 s, as a real Popen: second-review registers its reviewer, then ends it
-# itself) and "wedged" (10 s, longer than the watcher's 2 s SIGTERM grace, the reviewer's fixture
-# as written: only the watcher's second read of the process table, before SIGKILL, can reach it).
+# Second review of b5ff41f02, finding 1 (fixtures/fork_after_final_scan.py): the reviewer led a
+# session of its own, so the watcher found it only by reading the process table, and one forked
+# after its last read, before the SIGKILL, outlived the stop. Now the reviewer stays in its
+# launcher's process group (second-review's run_bounded) and the watcher signals that group and
+# waits for it whole, so no moment of forking escapes. The real second_review.run_bounded and
+# _on_stop under the real Watcher.stop_all; the fork is scheduled inside the watcher's own
+# os.killpg calls. Two windows: "after-final-scan" (the reviewer's fixture: second-review cannot
+# act on the stop, here SIGTERM and SIGHUP blocked, forks the moment before the SIGKILL and is
+# wedged 10 s before it could record the reviewer) and "brief" (the fork just before the SIGTERM,
+# Popen returning 0.3 s later, as a real one does).
 cat >"$SB/w18.py" <<'PY'
 import os, select, signal, subprocess, sys, time
 lib, window = sys.argv[1], sys.argv[2]
 role = sys.argv[3] if len(sys.argv) > 3 else ""
 sys.path.insert(0, lib)
-WINDOW = {"brief": 0.3, "wedged": 10.0}[window]    # the fork and exec are done; Popen returns after this
+WEDGE = {"after-final-scan": 10.0, "brief": 0.3}[window]
+FORK_AT = {"after-final-scan": signal.SIGKILL, "brief": signal.SIGTERM}[window]
 
 def line(stream):
     if not select.select([stream], [], [], 5)[0]:
@@ -938,6 +942,8 @@ if role == "launcher":
     import second_review as sr
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, sr._on_stop)
+    if window == "after-final-scan":
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGHUP})
     original = subprocess.Popen
     ready_read, ready_write = os.pipe()
     heartbeat_write = int(sys.argv[4])
@@ -949,12 +955,12 @@ if role == "launcher":
 
     def spawning(*args, **kwargs):
         print("before reviewer fork", flush=True)
-        assert sys.stdin.readline().strip() == "spawn"
+        assert sys.stdin.readline().strip() == "fork"
         kwargs["pass_fds"] = (ready_write, heartbeat_write)
         child = original(*args, **kwargs)
         assert os.read(ready_read, 1) == b"R"
         print(child.pid, flush=True)
-        time.sleep(WINDOW)                          # the SIGTERM lands here, before run_bounded saves the group
+        time.sleep(WEDGE)                           # the launcher has not recorded its reviewer yet
         return child
     sr.subprocess.Popen = spawning
     sr.run_bounded([sys.executable, "-B", "-c", reviewer_code, str(ready_write), str(heartbeat_write)],
@@ -969,55 +975,78 @@ launcher = subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__), li
                             start_new_session=True, pass_fds=(heartbeat_write,))
 os.close(heartbeat_write)
 reviewer, ok = None, False
+
+
+class ForkInsideTheStop(object):
+    """review_watch's os, with the reviewer's fork scheduled just before the first FORK_AT signal."""
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+    def killpg(self, pgid, sig):
+        global reviewer
+        if sig == FORK_AT and reviewer is None and pgid == launcher.pid:
+            launcher.stdin.write("fork\n")
+            launcher.stdin.flush()
+            reviewer = int(line(launcher.stdout))
+        return os.killpg(pgid, sig)
+
+
+def exists(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
 try:
     assert line(launcher.stdout) == "before reviewer fork"
     watcher = rw.Watcher("/fixture/engine", "", world=object())
     watcher.children[launcher.pid] = launcher
-    real_below = rw.Watcher.groups_below
-
-    def read_then_spawn(pids):
-        global reviewer
-        snapshot = real_below(pids)                 # the first read of the process table, before the fork
-        if reviewer is not None:
-            return snapshot                         # a later read: the reviewer exists by now
-        launcher.stdin.write("spawn\n")
-        launcher.stdin.flush()
-        reviewer = int(line(launcher.stdout))
-        return snapshot
-    watcher.groups_below = read_then_spawn
+    rw.os = ForkInsideTheStop()
     remaining = watcher.stop_all([{"pid": launcher.pid}], rw.QUIT_TERM_SECONDS, rw.QUIT_KILL_SECONDS)
+    rw.os = os
     launcher.wait(timeout=5)
     os.set_blocking(heartbeat_read, False)
     try:
-        os.read(heartbeat_read, 4096)               # beats written before the launcher exited
+        os.read(heartbeat_read, 4096)               # beats written before the stop ended
     except BlockingIOError:
         pass
     time.sleep(0.2)
     try:
         advanced = bool(os.read(heartbeat_read, 4096))   # b"" (end of file): every writer is gone
     except BlockingIOError:
-        advanced = False
-    gone = rw.group_gone(reviewer)
-    print("SIGTERM while run_bounded's Popen has not returned (%s, %.1f s): launcher exit=%s, stop_all remaining=%s, "
-          "reviewer heartbeat advanced=%s, reviewer group gone=%s" % (window, WINDOW, launcher.returncode, remaining,
-                                                                      advanced, gone))
-    # brief: second-review ends its own reviewer and exits 143; wedged: the watcher's SIGKILL (-9) ends both.
-    ok = launcher.returncode == {"brief": 143, "wedged": -9}[window] and remaining == [] and not advanced and gone
+        advanced = True                             # a writer is still there
+    for _ in range(20):                             # a reviewer orphaned by the stop is reaped by launchd
+        if reviewer is None or not exists(reviewer):
+            break
+        time.sleep(0.05)
+    alive = reviewer is not None and exists(reviewer)
+    print("reviewer forked %s (%s, launcher wedged %.1f s): forked=%s, launcher exit=%s, stop_all remaining=%s, "
+          "reviewer heartbeat advanced=%s, reviewer alive=%s" % (
+              "just before the SIGKILL" if FORK_AT == signal.SIGKILL else "just before the SIGTERM", window, WEDGE,
+              reviewer is not None, launcher.returncode, remaining, advanced, alive))
+    # after-final-scan: the group SIGKILL (-9) ends both; brief: second-review exits on the SIGTERM (143)
+    # and the group SIGKILL ends the reviewer, which ignores SIGTERM.
+    ok = reviewer is not None and launcher.returncode == {"after-final-scan": -9, "brief": 143}[window] \
+        and remaining == [] and not advanced and not alive
 finally:
+    rw.os = os
     for pid in (reviewer, launcher.pid):
         if pid:
-            try:
-                os.killpg(pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            for kill in (os.killpg, os.kill):
+                try:
+                    kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
     launcher.wait(timeout=5)
     os.close(heartbeat_read)
 sys.exit(0 if ok else 1)
 PY
-for window in brief wedged; do
+for window in after-final-scan brief; do
     W18OUT="$(python3 "$SB/w18.py" "$LIB" "$window" 2>&1)"; W18RC=$?
     printf '    %s\n' "$W18OUT"
-    check "W18 a SIGTERM while second-review starts its reviewer ($window): no reviewer is left running" \
+    check "W18 a reviewer forked during a stop ($window) ends with its review's group: none left running" \
         $W18RC "$W18OUT"
 done
 
