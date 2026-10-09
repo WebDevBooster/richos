@@ -314,6 +314,9 @@ fn ensure_app_review_watch(engine: &Path, data_dir: &Path, claude: &Path, at_lau
             // The list `quota::Service` opens from this same folder: each review runs on the
             // account in use when its reviewer starts, as a work lease does.
             accounts: data_dir.join(richos_core::claude_accounts::LIST_FILE),
+            // The Settings switch "Let Codex review your team's work" (round 20.2), which the
+            // row's commands below write: read by the watcher when each review starts.
+            codex_reviews: data_dir.join(richos_core::codex_reviews::SETTING_FILE),
         },
     };
     match richos_core::review_watch::ensure(&launch) {
@@ -3991,7 +3994,10 @@ fn main() {
             dictation_app::dictation_open_settings,
             dictation_take_sheet_request,
             #[cfg(target_os = "macos")]
-            dictation_app::dictation_capture_key
+            dictation_app::dictation_capture_key,
+            // --- "Let Codex review your team's work" (round 20.2, ruling §114) — appended ---
+            codex_reviews_status,
+            codex_reviews_set
         ])
         .build(context)
         .expect("error while building RichOS")
@@ -9747,6 +9753,26 @@ fn confirm_quit_and_stop(app: AppHandle, state: State<'_, AppState>) {
 fn cancel_quit(state: State<'_, AppState>) -> bool {
     state.quit_confirmed.store(false, std::sync::atomic::Ordering::SeqCst);
     true
+}
+
+/// **"Let Codex review your team's work": what the Settings row shows** (round 20.2). The
+/// user's choice and what the Mac reports about Codex now, read each time Settings opens: Codex
+/// found where the review finds it and signed in by its own `login status` (a few milliseconds;
+/// `richos_core::codex_reviews`). Asked in the environment the reviews run in.
+#[tauri::command(async)]
+fn codex_reviews_status(state: State<'_, AppState>) -> richos_core::codex_reviews::Status {
+    let probe = richos_core::codex_reviews::Probe::system(&std::env::var("PATH").unwrap_or_default());
+    richos_core::codex_reviews::status(&state.data_dir, &probe)
+}
+
+/// **The switch pressed.** On is refused while Codex is not installed and signed in (the row
+/// shows why, and nothing is written); off always goes through. The next review the app's
+/// review-watch starts reads it. The state after.
+#[tauri::command(async)]
+fn codex_reviews_set(state: State<'_, AppState>, on: bool) -> Result<richos_core::codex_reviews::Status, String> {
+    let probe = richos_core::codex_reviews::Probe::system(&std::env::var("PATH").unwrap_or_default());
+    richos_core::codex_reviews::set(&state.data_dir, &probe, on)
+        .map_err(|e| format!("the Codex review setting could not be saved: {e}"))
 }
 
 #[cfg(test)]

@@ -316,7 +316,8 @@ const quotaReading = {state: "fresh", checkedAt: quotaNow, retryAt: null, messag
   resets: {state: "fresh", checkedAt: quotaNow, offers: [quotaOffer], approval: null, lastAttempt: null, weeklyThreshold: 99}};
 async function openQuota(p) {
   await p.click("#set-btn");
-  await p.check("#set-techy");
+  // A click, not `check`: the switch asks first (the scope sheet, over the menu since round 20.2).
+  await p.click("#set-techy");
   await p.waitForFunction(() => !document.getElementById("set-quota-open").hidden || !document.getElementById("techy-scope").hidden);
   if (await p.locator("#techy-scope").isVisible()) await p.click("#techy-scope-confirm");
   if (await p.locator("#set-menu").isHidden()) await p.click("#set-btn");
