@@ -27,13 +27,19 @@ default) are not this repository's to check and are skipped.
 """
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
+import types
+from pathlib import Path
 
 DECLARATION = "richos/engine/scripts/lib/verification-dependencies.json"
 ENGINE = "richos/engine/"
 LAND_BRANCH = "main"
 SELF = "richos/app/scripts/autocheck/dependency-pins.py"
+INPUTS = ENGINE + "scripts/lib/verification_inputs.py"
 
 
 def git(*args, check=True, text=True):
@@ -130,13 +136,167 @@ def report(found, title):
     say("")
 
 
+EXPORTED = ("richos/engine", "richos/app/scripts", "richos/mobile")  # what the declaration's readers live in
+
+
+def export_tree(tree, into):
+    """The files of TREE (a commit or tree id) the verifier reads, extracted under INTO as the
+    verifier sees a checkout: bytes, modes and layout from the tree, nothing from the working copy.
+    That is the engine, the app scripts, the mobile tools, and every repository-rooted external
+    reader the tree's own declaration names."""
+    wanted = list(EXPORTED)
+    shown = subprocess.run(["git", "show", f"{tree}:{DECLARATION}"], capture_output=True,
+                           stdin=subprocess.DEVNULL)
+    if shown.returncode == 0:
+        try:
+            rows = (json.loads(shown.stdout).get("nodes") or {}).values()
+        except ValueError:
+            rows = ()  # a malformed declaration names no external reader; check() refuses it itself
+        for row in rows:
+            for external in (row.get("external") or []) if isinstance(row, dict) else []:
+                if external.get("root") == "repository" and external.get("path"):
+                    wanted.append(external["path"])
+    # The committed blobs themselves: no .gitattributes (export-ignore, substitution, eol) applies.
+    listed = subprocess.run(["git", "ls-tree", "-r", "-z", "--full-tree", tree, "--", *wanted],
+                            capture_output=True, stdin=subprocess.DEVNULL)
+    if listed.returncode:
+        raise RuntimeError(f"git ls-tree {tree} failed: {listed.stderr.decode(errors='replace').strip()}")
+    entries = []
+    for record in listed.stdout.split(b"\0"):
+        if not record:
+            continue
+        meta, _, name = record.partition(b"\t")
+        mode, kind, sha = meta.decode().split()
+        if kind == "blob":
+            entries.append((mode, sha, name.decode("utf-8", errors="surrogateescape")))
+    if not entries:
+        return
+    # A full export writes ~840 MB and took 4.4 s a tree (2026-10-09), so the export stays partial.
+    # A partial export cannot keep a symlink (its target may lie outside it, and a link through a
+    # directory with `..` is not worth resolving; none are tracked today): the verifier would read a
+    # dangling link and skip the call it carries. Such a tree is refused, not exported.
+    for mode, _, name in entries:
+        if mode == "120000":
+            raise RuntimeError(f"{name} is a tracked symlink in the files the check exports, so the "
+                               "verifier could read a dangling link and skip the call it carries")
+    blobs = subprocess.run(["git", "cat-file", "--batch"], capture_output=True,
+                           input="".join(f"{sha}\n" for _, sha, _ in entries).encode())
+    if blobs.returncode:
+        raise RuntimeError(f"git cat-file for {tree} failed: {blobs.stderr.decode(errors='replace').strip()}")
+    data, at = blobs.stdout, 0
+    for mode, sha, name in entries:
+        end = data.index(b"\n", at)
+        header = data[at:end].split()
+        if len(header) != 3 or header[1] != b"blob":
+            raise RuntimeError(f"git cat-file gave {data[at:end]!r} for {name}")
+        size = int(header[2])
+        content = data[end + 1:end + 1 + size]
+        at = end + 1 + size + 1
+        dest = Path(into, name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+        dest.chmod(0o755 if mode == "100755" else 0o644)
+
+
+def verifier_messages(module, root):
+    """Every refusal the verifier's own Dependencies.node gives for the checkout at ROOT: each node,
+    each edge target and each unit root, with its own message and its own file reads (exactly as
+    verification-inputs.test.py builds it: Dependencies(<engine>, <declaration>)). None when the
+    checkout has no declaration."""
+    engine = Path(root) / ENGINE.rstrip("/")
+    path = Path(root) / DECLARATION
+    if not path.is_file():
+        return None
+    doc = json.loads(path.read_text())
+    graph = module.Dependencies(engine, doc)
+    nodes = doc.get("nodes") or {}
+    names = set(nodes) | set((doc.get("units") or {}).values())
+    for row in nodes.values():
+        names.update(edge["to"] for edge in (row.get("edges") or []) if isinstance(row, dict))
+    found = set()
+    for name in sorted(names, key=str):
+        try:
+            graph.node(name)
+        except module.Unsupported as exc:
+            found.add(str(exc))
+    return found
+
+
+def reader_floor(base):
+    """The selector's own refusals (`unqualified reader`, `omitted known key reads`, and every other
+    reason Dependencies.node gives) over the WHOLE declaration as it would be committed, from the
+    selector's own code run on an export of the staged tree. A message that the merge-base's export
+    gives too is not this commit's and is not refused. An exception propagates: check() refuses the
+    commit on it."""
+    scratch = tempfile.mkdtemp(prefix="dependency-pins-")
+    try:
+        staged, parent = Path(scratch, "staged"), Path(scratch, "base")
+        export_tree(git("write-tree").stdout.strip(), staged)
+        code = Path(staged, INPUTS)
+        if not code.is_file():
+            raise RuntimeError(f"{INPUTS} is not in the staged tree's export, so the verifier cannot run")
+        if not Path(staged, DECLARATION).is_file():
+            raise RuntimeError(f"{DECLARATION} is not in the staged tree's export")
+        module = types.ModuleType("verification_inputs")
+        exec(compile(code.read_text(), str(code), "exec"), module.__dict__)
+
+        def plain(message, root):
+            # the export folder differs between the two trees; the refusal is the same
+            for form in {str(root), str(root.resolve())}:
+                message = message.replace(form, "<export>")
+            return message
+
+        now = {plain(m, staged) for m in verifier_messages(module, staged) or ()}
+        if not now:
+            return []
+        before = set()
+        if base:
+            export_tree(base, parent)
+            try:
+                before = {plain(m, parent) for m in verifier_messages(module, parent) or ()}
+            except ValueError:
+                before = set()  # a merge-base declaration that does not parse has no baseline refusals
+        return [(DECLARATION, message) for message in sorted(now - before)]
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def report_floor(found):
+    say("")
+    say("=== COMMIT REFUSED: a changed reader is not fully declared in verification-dependencies.json ===")
+    for source, message in found:
+        say(f"  {source}: {message}")
+    say("")
+    say("  verification-inputs.test.sh refuses this once it reaches main. Fix, in this commit: declare each")
+    say("  config key the file reads in its row's keys (or literal_keys, with a reason), and give every edge")
+    say(f"  target a node of its own in {DECLARATION}; then renew the pin with --renew and stage it.")
+    say("")
+
+
+def staged_symlinks():
+    """Tracked symlinks (mode 120000) in the index under the exported folders."""
+    listed = git("ls-files", "-s", "-z", "--", *EXPORTED).stdout
+    return [r.partition("\t")[2] for r in listed.split("\0") if r.startswith("120000 ")]
+
+
 def check():
+    # First, before any early return: an export cannot keep a symlink, so the verifier could read a
+    # dangling link and skip the call it carries, whether or not the commit names a declared path.
+    links = staged_symlinks()
+    if links:
+        say("")
+        say(f"=== COMMIT REFUSED: the reader check could not run ({links[0]} is a tracked symlink in the files the check exports, so the verifier could read a dangling link and skip the call it carries) ===")
+        return 1
     paths, base = branch_paths()
     if not paths:
         return 0
     got = read_blob(None, DECLARATION)
     if got is None:
-        return 0  # this tree has no declaration, so nothing is pinned
+        if base and read_blob(base, DECLARATION) is not None:
+            say("")
+            say(f"=== COMMIT REFUSED: the reader check could not run ({DECLARATION} exists at the merge-base but is not in the staged tree) ===")
+            return 1
+        return 0  # this tree never had a declaration, so nothing is pinned
     text = got.decode("utf-8", errors="replace")
     retyped = DECLARATION in paths
     # The common case: nothing the branch changed is named in the declaration; no parse.
@@ -145,8 +305,10 @@ def check():
         return 0
     try:
         declaration = json.loads(text)
-    except ValueError:
-        return 0  # verification-inputs.test.sh reports a malformed file; not this check's job
+    except ValueError as exc:  # a check that cannot read the declaration refuses
+        say("")
+        say(f"=== COMMIT REFUSED: the reader check could not run ({type(exc).__name__}: {DECLARATION} does not parse: {exc}) ===")
+        return 1
     also = set()
     if retyped and base:
         # A pin this branch typed by hand is checked too, whether or not its file changed.
@@ -157,10 +319,19 @@ def check():
             old = set()
         also = {(p, w, d) for p, w, d, _ in pins(declaration)} - old
     found = stale(declaration, None, only=set(paths), also=also)
-    if not found:
-        return 0
-    report(found, "COMMIT REFUSED: a changed file is pinned in verification-dependencies.json")
-    return 1
+    if found:
+        report(found, "COMMIT REFUSED: a changed file is pinned in verification-dependencies.json")
+        return 1
+    try:
+        floor = reader_floor(base)
+    except Exception as exc:  # a check that cannot run refuses; it never passes by silence
+        say("")
+        say(f"=== COMMIT REFUSED: the reader check could not run ({type(exc).__name__}: {exc}) ===")
+        return 1
+    if floor:
+        report_floor(floor)
+        return 1
+    return 0
 
 
 def renew(targets):
