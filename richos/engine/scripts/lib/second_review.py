@@ -657,6 +657,21 @@ def find_codex():
     return shutil.which("codex") or ""
 
 
+def codex_signed_in(codex):
+    """(signed in, what Codex said): Codex's own answer to `codex login status`, which reads its login
+    and starts none. Measured 2026-10-09 on codex-cli 0.162.0-alpha.2: exit 0 with "Logged in using
+    ChatGPT" on stderr when signed in, exit 1 with "Not logged in" when not. Asked before a Codex review
+    so a signed-out Codex is never run (the app's switch: Claude reviews that one, round 20.2); the
+    app's Settings row reads the same command (richos-core codex_reviews.rs)."""
+    try:
+        p = subprocess.run([codex, "login", "status"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, "it could not say whether it is signed in (%s)" % exc
+    said = " ".join((p.stderr + p.stdout).decode("utf-8", "replace").split())[:200]
+    return p.returncode == 0, said
+
+
 def find_claude(named=""):
     """The Claude CLI: the one named (--claude, the CLI the app ships), else the test seam,
     else the operator's. A named one that cannot run is no CLI, never a fallback to another."""
@@ -1070,8 +1085,11 @@ def review(a):
     raw = []
     if use_codex:
         codex = find_codex()
+        signed_in, said = codex_signed_in(codex) if codex else (False, "")
         if not codex:
             row["fallback_why"] = "the Codex CLI was not found inside ChatGPT.app or on PATH"
+        elif not signed_in:
+            row["fallback_why"] = "Codex isn't signed in (codex login status: %s)" % (said or "no answer")
         else:
             row["reviewer"], row["cli_version"] = "codex", version_of(codex)
             answer_path = os.path.join(out_dir, "answer.json")

@@ -43,6 +43,11 @@
 #        an app item) through this command, the reviewer gets the added account's
 #        folder as CLAUDE_CONFIG_DIR and its id; after a switch back, Account 1's
 #        inherited folder; the ledger stays where it was
+#   C16  the app's Codex review switch (round 20.2, CEO §114) picks the reviewer of
+#        each app review when it starts, through the watcher's own spawn: off (or
+#        never set, first run) Claude; on with Codex signed in, Codex with every
+#        isolation flag; on with Codex signed out (what `codex login status`
+#        reports), Claude, and no Codex review is run; on with Codex missing, Claude
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -89,6 +94,16 @@ import json, os, re, sys, time
 argv = sys.argv[1:]
 if argv[:1] == ["--version"]:
     print("codex-cli 9.9.9-fake")
+    sys.exit(0)
+if argv[:2] == ["login", "status"]:
+    # What codex-cli 0.162.0-alpha.2 answers, measured 2026-10-09: exit 0 and "Logged in using
+    # ChatGPT" on stderr when signed in, exit 1 and "Not logged in" when not. Never a review call.
+    with open(os.path.join(os.environ["FAKE_LOG"], "..", "login-status.count"), "a") as f:
+        f.write("1\n")
+    if os.environ.get("FAKE_CODEX_LOGIN") == "out":
+        sys.stderr.write("Not logged in\n")
+        sys.exit(1)
+    sys.stderr.write("Logged in using ChatGPT\n")
     sys.exit(0)
 log = os.environ["FAKE_LOG"]
 d = os.path.join(log, "%02d" % len(os.listdir(log)))
@@ -430,6 +445,80 @@ check "C15 an app review runs Claude on the account in use when the reviewer sta
     $? "$(cat "$SB/c15.out")"
 [ "$(( $(wc -l <"$SB/state/reviews.jsonl" | tr -d ' ') - ROWS0 ))" = "2" ]
 check "C15 both reviews are in the same ledger: the account's folder moves only the reviewer" $? "rows before=$ROWS0"
+
+# --- C16 ---------------------------------------------------------------------
+# The Codex review switch in the app's Settings (round 20.2; his words, §114: "we should give
+# the user a toggle/switch to manually enable that"). The app saves it as codex-reviews.json
+# beside its account list; the watcher hands each app item that path, and the choice is read
+# when the review starts. The real chain again: the watcher's spawn of an app item, this
+# script, the reviewer it launches. Each case: (setting, Codex as the Mac reports it) ->
+# which reviewer ran, whether a Codex review was run at all, and its arguments.
+TMPDIR="$RUN_TMP" CLAUDE_CONFIG_DIR="$RUN_CFG" python3 - "$SCRIPT_DIR" "$REPO" "$(G rev-parse HEAD)" "$BASE" \
+    "$SB/brief.txt" "$SB/bin/fake-reviewer" "$SB/codex-reviews.json" "$SB/rw16" "$SB/bin/no-such-codex" <<'PY' >"$SB/c16.out" 2>&1
+import json, os, sys
+from types import SimpleNamespace
+scripts, repo, tip, base, words, claude, setting, state, missing = sys.argv[1:]
+sys.path.insert(0, os.path.join(scripts, "lib"))
+import review_watch as rw
+os.environ["REVIEW_WATCH_SECOND_REVIEW"] = os.path.join(scripts, "second-review.sh")
+os.environ["REVIEW_WATCH_STATE_DIR"] = state
+os.makedirs(state)
+log = os.environ["FAKE_LOG"]
+ledger = os.path.join(os.environ["SECOND_REVIEW_STATE_DIR"], "reviews.jsonl")
+cases = [("never set (first run)", None, {}),
+         ("off", False, {}),
+         ("on, Codex signed in", True, {}),
+         ("on, Codex signed out", True, {"FAKE_CODEX_LOGIN": "out"}),
+         ("on, Codex missing", True, {"SECOND_REVIEW_CODEX": missing})]
+got = []
+for name, on, env in cases:
+    if on is None:
+        if os.path.exists(setting):
+            os.unlink(setting)
+    else:
+        with open(setting, "w") as f:
+            json.dump({"on": on}, f)
+    saved = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
+    it = rw.Item("teammate:x1", "echo-sonnet-x1", repo, tip, base, "running", ref="echo-sonnet-x1",
+                 source="app", words=[words])
+    it.claude, it.codex_reviews = claude, setting
+    watcher = rw.Watcher(os.path.dirname(scripts), "", world=SimpleNamespace())
+    before = len(os.listdir(log))
+    pid, _start = watcher.spawn(it, "long-job", os.path.join(state, "review-%d.log" % len(got)))
+    watcher.children[pid].wait()
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    calls = [json.load(open(os.path.join(log, c, "call.json"))) for c in sorted(os.listdir(log))[before:]]
+    row = json.loads(open(ledger).read().splitlines()[-1])
+    codex = [c for c in calls if c["kind"] == "codex"]
+    got.append({"case": name, "reviewer": row.get("reviewer"), "verdict": row.get("verdict"),
+                "codex runs": len(codex), "argv": " ".join(codex[0]["argv"]) if codex else "",
+                "fallback": row.get("fallback_why") or ""})
+print(json.dumps(got, indent=1))
+ISOLATION = ("exec --ephemeral --ignore-user-config --ignore-rules -c notify=[] --disable plugins --disable apps "
+             "--disable hooks --disable computer_use --disable browser_use --sandbox workspace-write")
+want = {"never set (first run)": "claude", "off": "claude", "on, Codex signed in": "codex",
+        "on, Codex signed out": "claude", "on, Codex missing": "claude"}
+bad = []
+for g in got:
+    if g["reviewer"] != want[g["case"]] or g["verdict"] != "passed":
+        bad.append("%s: reviewed by %s (%s), want %s" % (g["case"], g["reviewer"], g["verdict"], want[g["case"]]))
+    if want[g["case"]] == "claude" and g["codex runs"]:
+        bad.append("%s: a Codex review was run" % g["case"])
+    if want[g["case"]] == "codex" and not g["argv"].startswith(ISOLATION):
+        bad.append("%s: Codex ran without its isolation flags: %s" % (g["case"], g["argv"]))
+by = {g["case"]: g for g in got}
+if "signed in" not in by["on, Codex signed out"]["fallback"]:
+    bad.append("signed out: the row does not say why Claude reviewed: %r" % by["on, Codex signed out"]["fallback"])
+print("\n".join(bad))
+sys.exit(1 if bad else 0)
+PY
+check "C16 the app's Codex switch picks each review's reviewer when it starts: off or never set Claude; on and signed in Codex, isolated; on and signed out or missing Claude, with no Codex review run" \
+    $? "$(cat "$SB/c16.out")"
 
 echo
 echo "second-review.test.sh: $PASS passed, $FAIL failed"
