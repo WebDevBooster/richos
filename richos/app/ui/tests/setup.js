@@ -749,6 +749,60 @@ async function main() {
     return "◉ present and the greeting invites it";
   });
 
+  await run.check("13b while voice is on, the icon in the sentences follows the button (D20) and has the button's name (D21)", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    await page.click("#setup-later");
+    const read = () =>
+      page.evaluate(() => {
+        const i = document.querySelector("#messages .tl-prose svg.talk-icon-inline");
+        const f = document.querySelector(".voice-footnote svg.talk-icon-inline");
+        const fill = (n, c) => getComputedStyle(n.querySelector(c)).fill;
+        return {
+          label: i.getAttribute("aria-label"), role: i.getAttribute("role"), hidden: i.getAttribute("aria-hidden"),
+          disc: fill(i, ".talk-icon-disc"), bar: fill(i, ".talk-icon-bar"),
+          fdisc: fill(f, ".talk-icon-disc"), flabel: f.getAttribute("aria-label"),
+          bdisc: fill(document.querySelector("#talk-toggle"), ".talk-icon-disc"),
+          bbar: fill(document.querySelector("#talk-toggle"), ".talk-icon-bar"),
+          blabel: document.getElementById("talk-toggle").getAttribute("aria-label"),
+        };
+      });
+    let r = await read();
+    assertEqual(r.role, "img", "the inline icon needs a role");
+    assert(r.hidden === null, "the inline icon must not be aria-hidden");
+    assertEqual(r.label, r.blabel, "resting: the inline icon says the button's name");
+    assertEqual(r.disc, r.bdisc, "resting: disc follows the button");
+    // The renderer's own entry into voice mode; the preview cannot open a microphone.
+    await page.evaluate(() => setTalkPressed(true));
+    r = await read();
+    assertEqual(r.disc, r.bdisc, "listening: the greeting icon's disc must follow the button: " + JSON.stringify(r));
+    assertEqual(r.fdisc, r.bdisc, "listening: the voice row icon's disc must follow the button: " + JSON.stringify(r));
+    assertEqual(r.bar, r.bbar, "listening: the bars must follow the button: " + JSON.stringify(r));
+    assertEqual(r.label, "Stop talking", "listening: the name follows the button");
+    assertEqual(r.flabel, "Stop talking", "listening: the voice row icon's name follows the button");
+    await page.close();
+    return "disc, bars and spoken name follow #talk-toggle at rest and listening";
+  });
+
+  await run.check("13c Tab on the setup sheet never leaves it (D22: every stop shows a ring)", async () => {
+    const page = await openApp(browser, { setup: "missing-both" });
+    await page.waitForSelector("#setup-sheet:not([hidden])");
+    const seen = [];
+    for (let k = 0; k < 7; k++) {
+      await page.keyboard.press("Tab");
+      seen.push(await page.evaluate(() => {
+        const a = document.activeElement;
+        return a && a.closest("#setup-sheet") ? a.id || a.tagName : "OUT:" + (a ? a.tagName : "none");
+      }));
+    }
+    assert(!seen.some((x) => x.startsWith("OUT")), "Tab left the sheet: " + seen.join(" > "));
+    await page.keyboard.press("Shift+Tab");
+    const back = await page.evaluate(() => (document.activeElement.closest("#setup-sheet") ? "in" : "out"));
+    assertEqual(back, "in", "Shift+Tab left the sheet");
+    await page.close();
+    return "seven Tabs and a Shift+Tab stayed on the sheet: " + seen.join(" > ");
+  });
+
   // =======================================================================================
   // THE ENGINE STEP CANNOT BE GOT PAST BY ACCIDENT
   // =======================================================================================

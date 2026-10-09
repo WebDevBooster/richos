@@ -4443,6 +4443,8 @@ function setTalkPressed(pressed) {
   talkToggleBtn.setAttribute("aria-pressed", pressed ? "true" : "false");
   talkToggleBtn.setAttribute("aria-label", pressed ? "Stop talking" : "Talk to Rich");
   talkToggleBtn.title = pressed ? "Stop talking" : "Talk to Rich";
+  // D21: the inline copies of the icon (greeting, voice row) say what the button says.
+  document.querySelectorAll("svg.talk-icon-inline").forEach((i) => i.setAttribute("aria-label", pressed ? "Stop talking" : "Talk to Rich"));
 }
 
 async function enterVoiceMode() {
@@ -8876,6 +8878,25 @@ function openQuestion() {
   }
   return null;
 }
+
+/// D21 (nightly 47): Tab on the last control of a modal question walked out of the sheet onto
+/// the page itself (`AXWebArea`), where nothing is ringed. A question keeps Tab inside: past
+/// the last stop it returns to the first, and Shift+Tab from the first goes to the last.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab" || event.defaultPrevented) return;
+  const q = openQuestion();
+  if (!q) return;
+  const stops = [...q.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((n) => !n.disabled && n.offsetParent !== null);
+  if (!stops.length) return;
+  // The sheet moves focus itself, so the next stop is the same in every webview setting (WebKit's
+  // "Tab highlights each item" off would otherwise skip the buttons) and never the page.
+  const at = stops.indexOf(document.activeElement);
+  const step = event.shiftKey ? -1 : 1;
+  const to = at === -1 ? (event.shiftKey ? stops.length - 1 : 0) : (at + step + stops.length) % stops.length;
+  event.preventDefault();
+  stops[to].focus();
+});
 
 function syncQuestionInert() {
   for (const marked of document.querySelectorAll("[data-question-inert]")) {
