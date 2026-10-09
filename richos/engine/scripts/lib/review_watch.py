@@ -1162,7 +1162,11 @@ def _verdict_file(row):
 
 
 def _who(row, items_by_key):
-    it = items_by_key.get((os.path.realpath(row.get("repo") or ""), row.get("tip")))
+    """(name, item) of the work a ledger row reviewed: the item at its tip only when it is the
+    same work, so another work holding that commit never lends its name or its `continues:` key."""
+    it = items_by_key.get((os.path.realpath(row.get("repo") or ""), row.get("tip"), row.get("work") or ""))
+    if it is None and not row.get("work"):
+        it = items_by_key.get((os.path.realpath(row.get("repo") or ""), row.get("tip")))
     return (it.name if it else row.get("author") or "?"), it
 
 
@@ -1170,25 +1174,30 @@ def owner_session(row, items, book, attempts):
     """The lead session a verdict goes to (--host-json), by the work's STABLE identity, never by
     the reviewed tip alone: a worker that commits while its review runs no longer has an item at
     that tip, and a verdict sent to an empty session is refused by the host and lost.
-    In order: the item at the exact tip; the review's own record (its lock while it runs, its
-    attempt row once settled), which kept the session it was started for; any item of the same
-    work (`teammate:<root key>`, which a continuation shares). "" when none names one (Codex's
-    work, a teammate started from his terminal, a review run by hand)."""
+    THE RECORDED OWNER COMES FIRST (second review of f14155545, finding 3): another work can hold
+    the reviewed commit (a handover reviewer's cc/ workspace is made at the worker's commit), so
+    a match on repository and tip alone can name another lead. In order: the review's own record
+    (its lock while it runs, then its newest attempt row once settled), which kept the session it
+    was started for; then the registry, for the SAME work only (`teammate:<root key>`, which a
+    continuation shares), its item at the exact tip before any other item of it. A record or an
+    item of another work never names the lead. "" when none names one (Codex's work, a teammate
+    started from his terminal, a review run by hand)."""
     key = (os.path.realpath(row.get("repo") or ""), row.get("tip"))
-    for it in items:
-        if it.key == key and it.session:
-            return it.session
+    work = row.get("work") or ""
+
+    def same_work(other):
+        return not work or not other or other == work
     info = book.running.get(key) or {}
-    if info.get("session"):
+    if info.get("session") and same_work(info.get("work")):
         return info["session"]
     for a in reversed(attempts or []):
-        if (os.path.realpath(a.get("repo") or ""), a.get("tip")) == key and a.get("session"):
+        if (os.path.realpath(a.get("repo") or ""), a.get("tip")) == key and a.get("session") \
+                and same_work(a.get("work")):
             return a["session"]
-    work = row.get("work")
     if work:
-        for it in items:
-            if it.work == work and it.session:
-                return it.session
+        mine = [it for it in items if it.work == work and it.session]
+        for it in sorted(mine, key=lambda i: i.key != key):
+            return it.session
     return ""
 
 
@@ -1267,7 +1276,9 @@ def host_json_lines(now, body, owners):
 
 
 def tell(now, sstate, rows, book, items, problems, attempts):
+    # By (repo, tip) for a row that names no work, and by (repo, tip, work) for one that does (_who).
     items_by_key = dict((it.key, it) for it in items)
+    items_by_key.update(((it.repo, it.tip, it.work), it) for it in items)
     told = sstate.setdefault("told", {})
     body, owners = [], []
 
@@ -1330,7 +1341,7 @@ def tell(now, sstate, rows, book, items, problems, attempts):
                                                     str(key[1])[:12], " ".join(str(a.get("why")).split())[:300]),
              "      Nothing more starts for this commit by itself. You can: fix the cause, then run "
              "%s by hand." % "second-review.sh"], session=(
-                getattr(items_by_key.get(key), "session", "") or a.get("session") or ""))
+                a.get("session") or getattr(items_by_key.get(key + (a.get("work") or "",)), "session", "") or ""))
     # -- what could not be read or started ------------------------------------------
     for p in problems:
         k = "problem:" + p[:120]

@@ -57,6 +57,8 @@
 #        leads its own session, is gone too (a responsive and a deaf launcher)
 #   W16  a SIGTERM during spawn, before the review's pid reaches its lock, still
 #        stops that review and settles it as stopped
+#   W17  a verdict goes to the review's recorded owner first; a registry fallback
+#        needs the same work, never another work holding the reviewed commit
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -869,6 +871,39 @@ for window in process-start in-popen; do
     check "W16 a SIGTERM during spawn ($window): the partly registered review is stopped and settled as stopped" \
         $W16RC "$W16OUT"
 done
+
+# --- W17 ---------------------------------------------------------------------
+# Finding 3 (fixtures/verdict_owner_collision.py): owner_session took the first item at the
+# reviewed repository and tip, whatever its work, before the review's own record; once the worker
+# moved on and another work held that commit, the verdict went to that other lead.
+python3 - "$LIB" "$SB/w17" <<'PY'
+import os, sys
+lib, root = sys.argv[1:3]
+os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, "rw")
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+sys.path.insert(0, lib)
+import review_watch as rw
+repo = os.path.realpath(os.path.join(root, "fictional-repository"))
+old, new = "a" * 40, "b" * 40
+row = {"repo": repo, "tip": old, "work": "teammate:lead-A--worker"}
+owner = rw.Item(row["work"], "worker", repo, new, "c" * 40, "running")
+owner.session = "lead-A"
+other = rw.Item("teammate:lead-B--reviewer", "reviewer", repo, old, "c" * 40, "running")
+other.session = "lead-B"
+record = {"repo": repo, "tip": old, "work": row["work"], "session": "lead-A"}
+got = {}
+for label, running, attempts in (("running lock", {(repo, old): record}, []), ("settled attempt", {}, [record])):
+    got[label] = rw.owner_session(row, [owner, other], rw.Book([], running, attempts), attempts)
+got["no record, same work moved on"] = rw.owner_session(row, [other, owner], rw.Book([], {}, []), [])
+got["no record, only another work at the tip"] = rw.owner_session(row, [other], rw.Book([], {}, []), [])
+got["unique-tip control"] = rw.owner_session(row, [owner], rw.Book([], {}, [record]), [record])
+print(got)
+want = {"running lock": "lead-A", "settled attempt": "lead-A", "no record, same work moved on": "lead-A",
+        "no record, only another work at the tip": "", "unique-tip control": "lead-A"}
+sys.exit(0 if got == want else 1)
+PY
+check "W17 the recorded owner comes first, and a registry fallback needs the same work, never another work at the tip" \
+    $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
