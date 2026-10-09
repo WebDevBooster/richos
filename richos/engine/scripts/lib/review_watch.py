@@ -85,9 +85,10 @@ WHAT IS TOLD (plan §2.4, §2.5). Each printed block wakes the lead.
 Starting a review is not told: the verdict is.
 
 It never edits, lands, merges, pauses or messages anything. The only processes
-it ever stops are reviews it (or another watcher) started and recorded: the
-process group each one leads, which holds second-review's reviewer too, and
-the process groups that reviewer made for its own commands.
+it ever stops are reviews it (or another watcher) started and recorded: every
+process of this user that carries the review's own mark (MARK_ENV, a random
+value set at its start, which everything the review starts inherits however it
+is parented or grouped), and every process in the session the review leads.
 
 ===========================================================================
 COMMANDS (review-watch.sh passes --engine-root and --config)
@@ -138,9 +139,20 @@ STOP_KILL_SECONDS = 5
 # review_watch.rs) with two seconds to settle and exit.
 QUIT_TERM_SECONDS = 1.0
 QUIT_KILL_SECONDS = 1.0
-# How long a stop waits for a review's process group to be frozen (SIGSTOP) before it reads the
-# process table for the groups below it.
+# How long a stop waits for every process of a review to be frozen (SIGSTOP) before it ends them.
 FREEZE_SECONDS = 0.5
+# THE REVIEW'S OWNERSHIP MARK (the real second review of 0d83e456d, findings 1 and 2): a random value
+# spawn puts in this variable of the review's environment, which every process the review starts
+# inherits, whatever its parent (a tool's background task is reparented to PID 1 once its shell
+# returns) and whatever its process group or session. A stop ends every process of this user whose
+# environment carries that exact value; the lock goes only once none is left. Not "...TOKEN": Codex's
+# documented default shell_environment_policy drops variables whose names contain KEY, SECRET or
+# TOKEN from its commands' environment.
+# MEASURED 2026-10-09 (macOS 15.6, SIP on): the kernel withholds the environment of Apple's own
+# platform binaries (/bin/bash, /bin/zsh, /bin/sleep, /usr/bin/perl, /usr/bin/tail, sandbox-exec)
+# even from their own user, while python, node and the Command Line Tools' python3 show it; so the
+# review's own session (it leads one from spawn) counts too, which those keep unless they setsid.
+MARK_ENV = "RICHOS_REVIEW_OWNER"
 MAX_LOSSES = 2
 KEEP_SECONDS = 7 * 86400
 SESSION_KEEP_SECONDS = 2 * 86400
@@ -258,6 +270,105 @@ def group_gone(pgid):
     except (OSError, ValueError):
         return False
     return False
+
+
+_PROCARGS = {}
+
+
+def environment(pid):
+    """[b"NAME=value"] of a process's environment as it was started, or [] when it cannot be read
+    (another user's process, one that has exited, or one of Apple's platform binaries: MARK_ENV)."""
+    if sys.platform.startswith("linux"):
+        try:
+            with open("/proc/%d/environ" % pid, "rb") as f:
+                return f.read().split(b"\0")
+        except OSError:
+            return []
+    if "libc" not in _PROCARGS:
+        import ctypes
+        import ctypes.util
+        _PROCARGS["ctypes"] = ctypes
+        _PROCARGS["libc"] = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+        _PROCARGS["buf"] = ctypes.create_string_buffer(1 << 20)        # kern.argmax on macOS
+    ctypes, buf = _PROCARGS["ctypes"], _PROCARGS["buf"]
+    size = ctypes.c_size_t(len(buf))
+    mib = (ctypes.c_int * 3)(1, 49, pid)            # CTL_KERN, KERN_PROCARGS2
+    if _PROCARGS["libc"].sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0 or size.value < 4:
+        return []
+    raw = buf.raw[:size.value]
+    # argc, the executable's path, NUL padding, argc arguments, then the environment.
+    argc, parts = int.from_bytes(raw[:4], sys.byteorder), raw[4:].split(b"\0")
+    i = 1
+    while i < len(parts) and not parts[i]:
+        i += 1
+    return parts[i + argc:]
+
+
+def owned_processes(reviews):
+    """[{pid: (pgid, stat)}], one per (leader pid, mark, leader verified) in `reviews`: the live
+    processes of this user that carry that review's mark in their environment, from one read of the
+    process table; every one {} when the table cannot be read. Ownership captured at the review's
+    start, never a name, a path or an ancestry: the exact mark and the user id.
+    AND THE SESSION ITS LEADER LEADS (spawn starts each review in a session of its own), for what
+    hides its environment (MARK_ENV): its members count while the leader is verified alive (its
+    start identity, or this watcher's own child), or when one of them carries the mark. A dead
+    leader's pid can be reused once its session is gone, so its session id alone is never proof."""
+    out = [{} for _ in reviews]
+    try:
+        r = subprocess.run(["ps", "-A", "-o", "pid=,uid=,pgid=,stat="], capture_output=True, text=True,
+                           timeout=1, env=dict(os.environ, LC_ALL="C"))
+    except (OSError, subprocess.TimeoutExpired):
+        return out
+    if r.returncode != 0:
+        return out
+    uid, me = os.getuid(), os.getpid()
+    marks = [("%s=%s" % (MARK_ENV, mark)).encode() if mark else None for _leader, mark, _verified in reviews]
+    session = [{} for _ in reviews]
+    proven = [verified for _leader, _mark, verified in reviews]
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        try:
+            pid, puid, pgid, stat = int(parts[0]), int(parts[1]), int(parts[2]), parts[3]
+            if puid != uid or pid == me or stat.startswith("Z"):
+                continue
+            sid = os.getsid(pid)
+        except (IndexError, ValueError, OSError):
+            continue
+        env = environment(pid) if any(marks) else []
+        for n, (leader, _mark, _verified) in enumerate(reviews):
+            marked = bool(marks[n]) and marks[n] in env
+            if marked:
+                out[n][pid] = (pgid, stat)
+            if sid == leader:
+                session[n][pid] = (pgid, stat)
+                proven[n] = proven[n] or marked
+    for n in range(len(reviews)):
+        if proven[n]:
+            out[n].update(session[n])
+    return out
+    if r.returncode != 0:
+        return out
+    uid, me = os.getuid(), os.getpid()
+    marks = [("%s=%s" % (MARK_ENV, mark)).encode() if mark else None for _leader, mark in reviews]
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        try:
+            pid, puid, pgid, stat = int(parts[0]), int(parts[1]), int(parts[2]), parts[3]
+            if puid != uid or pid == me or stat.startswith("Z"):
+                continue
+            sid = os.getsid(pid)
+        except (IndexError, ValueError, OSError):
+            continue
+        env = None
+        for n, (leader, _mark) in enumerate(reviews):
+            if sid != leader:
+                if not marks[n]:
+                    continue
+                env = environment(pid) if env is None else env
+                if marks[n] not in env:
+                    continue
+            out[n][pid] = (pgid, stat)
+    return out
 
 
 def repo_tag(repo):
@@ -805,7 +916,8 @@ class Watcher(object):
         self.engine_root = engine_root
         self.config = config
         self.world = world or World(engine_root, config)
-        self.children = {}                          # pid -> Popen, reaped every look
+        self.children = {}                          # pid -> Popen, until its lock is settled
+        self.marks = {}                             # pid -> the MARK_ENV value its review carries
 
     # -- processes (overridden by the replay test) ---------------------------------
     def second_review(self):
@@ -813,9 +925,12 @@ class Watcher(object):
             self.engine_root, "scripts", "second-review.sh")
 
     def spawn(self, item, trigger, log_path):
-        """(pid, start identity) of a started review."""
+        """(pid, start identity) of a started review, which leads a session of its own and carries a
+        mark of its own (MARK_ENV) in its environment."""
         argv = ["bash", self.second_review()] + item.args(trigger)
-        env = dict(os.environ, **item.env) if item.env else None
+        mark = os.urandom(16).hex()
+        env = dict(os.environ, **(item.env or {}))
+        env[MARK_ENV] = mark
         # PARTLY REGISTERED (second review of f14155545, finding 2): a review leads its own
         # session, so a quit that lands inside Popen (its fork done, Popen not yet returned) would
         # lose the only handle on it. The quit is held until the child is in self.children, then
@@ -826,6 +941,7 @@ class Watcher(object):
                 p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                      start_new_session=True, cwd=state_root(), env=env)
             self.children[p.pid] = p
+            self.marks[p.pid] = mark
         finally:
             self.hold_quit -= 1
             if self.held_quit and not self.hold_quit:
@@ -850,10 +966,7 @@ class Watcher(object):
             return None
         child = self.children.get(pid)
         if child is not None:
-            if child.poll() is not None:
-                self.children.pop(pid, None)
-                return False
-            return True
+            return child.poll() is None
         try:
             os.kill(int(pid), 0)
         except PermissionError:
@@ -864,123 +977,94 @@ class Watcher(object):
         return bool(start) and (not info.get("pid_start") or start == info["pid_start"])
 
     def stop(self, info):
-        """Stop a review by its recorded process id, only while its start time still matches: the
-        process group it leads, which holds second-review's reviewer too."""
-        self.stop_all([info], STOP_TERM_SECONDS, STOP_KILL_SECONDS)
+        """Stop one review (stop_all); [] once it is gone, else [info]."""
+        return self.stop_all([info], STOP_TERM_SECONDS, STOP_KILL_SECONDS)
 
     def stop_all(self, infos, term_seconds, kill_seconds):
         """Stop every review in `infos` AT ONCE, bounded by 2 * FREEZE_SECONDS + term_seconds +
         kill_seconds however many reviews there are (never their sum).
 
-        ONE GROUP PER REVIEW (second review of b5ff41f02, finding 1): a review leads a process
-        group of its own and second-review keeps its reviewer in it, so a signal to the group
-        reaches every process of it whenever it was forked.
-        AND EVERY GROUP ITS REVIEWER MADE (esc-20261009T054753Z-400c68b3, measured): Codex runs each
-        shell command in a process group of its own and does not end it on SIGTERM, so a stop of
-        the review's group alone left a running `cargo test` behind. So the review's group is
-        FROZEN first (SIGSTOP, again on every pass until each of its processes is stopped): a frozen
-        process cannot start another, so one read of the process table then names every group
-        below it, with no window. Those groups are SIGKILLed; the review's own group gets SIGTERM
-        and SIGCONT, so second-review exits and releases its scratch. Whatever of it is left after
-        term_seconds is frozen and read again (anything it started while running) and SIGKILLed,
-        SIGKILL again on every pass of the wait. Returns the infos with a group NOT seen gone
-        inside the bound (normally none), so a caller never records a running review as stopped."""
-        live = [i for i in infos if i.get("pid") and self.alive(i)]
+        A REVIEW IS EVERY PROCESS THAT CARRIES ITS MARK (the real second review of 0d83e456d,
+        findings 1 and 2; owned_processes), never what an ancestry or a process group says: a
+        tool's background task reparented to PID 1, a command in a group or session of its own and
+        a reviewer whose launcher has exited are all still the review's. While its recorded leader
+        is verified alive, the group it leads (second-review and its reviewer) is signaled as a
+        group too, so nothing forked between two reads escapes. FROZEN FIRST: SIGSTOP to all of it,
+        read again, SIGSTOP whatever was not stopped yet, until a read finds every process stopped
+        (a stopped process starts nothing) or FREEZE_SECONDS pass. Then every process outside the
+        leader's group is SIGKILLed, and the group gets SIGTERM and SIGCONT, so second-review exits
+        and releases its scratch. Whatever is left after term_seconds is frozen again and
+        SIGKILLed, again on every read, until none is left. Returns the infos with a process NOT
+        seen gone inside the bound (normally none), so a caller never settles a running review."""
+        live = [i for i in infos if i.get("pid")]
+        for i in live:
+            i["_verified"] = bool(self.alive(i))
 
-        def running(info):
-            child = self.children.get(info["pid"])
-            if child is not None:
-                child.poll()                        # reap this watcher's own child, the group's leader
-            return any(not group_gone(g) for g in info["_groups"])
+        def scan(infos):
+            return owned_processes([(int(i["pid"]), i.get("mark") or self.marks.get(i["pid"], ""), i["_verified"])
+                                    for i in infos])
 
-        def signal_all(groups, sig):
-            for g in groups:
+        def kill(pids, sig):
+            for p in pids:
                 try:
-                    os.killpg(g, sig)
-                except (OSError, ValueError):
+                    os.kill(p, sig)
+                except OSError:
                     pass                            # gone already
 
-        def collect(infos):
-            """Freeze each review's group, then one read of the process table: its groups below."""
-            pids = [int(i["pid"]) for i in infos]
+        def killpg(infos, sig):
+            for i in infos:
+                if i["_verified"]:
+                    try:
+                        os.killpg(int(i["pid"]), sig)
+                    except OSError:
+                        pass
+
+        def left(infos, found):
+            """The reviews with a process left, and what was found of each; this watcher's own
+            leaders are reaped first."""
+            keep = []
+            for i, procs in zip(infos, found):
+                child = self.children.get(i["pid"])
+                if child is not None:
+                    child.poll()
+                if procs or (i["_verified"] and not group_gone(i["pid"])):
+                    keep.append((i, procs))
+            return [i for i, _p in keep], [p for _i, p in keep]
+
+        def freeze(infos):
             end = time.monotonic() + FREEZE_SECONDS
             while True:
-                signal_all(pids, signal.SIGSTOP)
-                rows = self.process_table()
-                if rows is None or time.monotonic() >= end or all(
-                        stat[:1] in ("T", "Z") for _pid, (_ppid, pgid, stat) in rows.items() if pgid in pids):
-                    break
+                killpg(infos, signal.SIGSTOP)
+                found = scan(infos)
+                running = [p for procs in found for p, (_g, stat) in procs.items() if stat[:1] != "T"]
+                if not running or time.monotonic() >= end:
+                    return found
+                kill(running, signal.SIGSTOP)
                 time.sleep(0.02)
-            for info in infos:
-                groups = info.get("_groups") or [int(info["pid"])]
-                info["_groups"] = groups + [g for g in self.groups_below(rows or {}, groups[0]) if g not in groups]
+
+        live, found = left(live, scan(live))
         if not live:
             return []
-        collect(live)
-        signal_all([g for i in live for g in i["_groups"][1:]], signal.SIGKILL)
-        own = [int(i["pid"]) for i in live]
-        signal_all(own, signal.SIGTERM)
-        signal_all(own, signal.SIGCONT)
-        for grace, freeze in ((term_seconds, False), (kill_seconds, True)):
-            if freeze:
-                collect(live)
+        found = freeze(live)
+        kill([p for i, procs in zip(live, found) for p, (g, _s) in procs.items()
+              if not (i["_verified"] and g == int(i["pid"]))], signal.SIGKILL)
+        killpg(live, signal.SIGTERM)
+        killpg(live, signal.SIGCONT)
+        for grace, last in ((term_seconds, False), (kill_seconds, True)):
+            if last:
+                found = freeze(live)
             end = time.monotonic() + grace
-            while live:
-                if freeze:
-                    signal_all([g for i in live for g in i["_groups"]], signal.SIGKILL)
-                live = [i for i in live if running(i)]
+            while True:
+                if last:
+                    killpg(live, signal.SIGKILL)
+                    kill([p for procs in found for p in procs], signal.SIGKILL)
+                live, found = left(live, scan(live))
                 if not live or time.monotonic() >= end:
                     break
                 time.sleep(0.05)
             if not live:
                 return []
         return live
-
-    @staticmethod
-    def process_table():
-        """{pid: (ppid, pgid, stat)} from one read of the process table, or None when it cannot be read."""
-        try:
-            r = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,stat="], capture_output=True, text=True,
-                               timeout=1, env=dict(os.environ, LC_ALL="C"))
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        if r.returncode != 0:
-            return None
-        rows = {}
-        for line in r.stdout.splitlines():
-            parts = line.split()
-            try:
-                rows[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3])
-            except (IndexError, ValueError):
-                continue
-        return rows
-
-    @staticmethod
-    def groups_below(rows, top):
-        """The process groups of every descendant of a process of the review group `top` (the
-        recorded pid leads it), other than `top` itself, from `rows` (process_table). Every member
-        of the group, not only the recorded leader: a reviewer whose launcher has exited is no
-        longer the leader's descendant. Only processes of a review this watcher recorded, never a
-        name or a path matched; never group 0 or 1 or this watcher's own group."""
-        kids = {}
-        for pid, (ppid, _pgid, _stat) in rows.items():
-            kids.setdefault(ppid, []).append(pid)
-        try:
-            mine = os.getpgid(0)
-        except OSError:
-            mine = -1
-        todo = [top] + [pid for pid, (_ppid, pgid, _stat) in rows.items() if pgid == top and pid != top]
-        found, seen = [], set(todo)
-        while todo:
-            for c in kids.get(todo.pop(), ()):
-                if c in seen:
-                    continue
-                seen.add(c)
-                todo.append(c)
-                g = rows[c][1]
-                if g > 1 and g != mine and g != top and g not in found:
-                    found.append(g)
-        return found
 
     # -- locks -------------------------------------------------------------------
     def take_lock(self, item, trigger, now, attempt):
@@ -1033,6 +1117,8 @@ class Watcher(object):
             os.unlink(claimed)
         except OSError:
             pass
+        self.children.pop(info.get("pid"), None)
+        self.marks.pop(info.get("pid"), None)
         return a
 
     @staticmethod
@@ -1066,13 +1152,15 @@ class Watcher(object):
             if alive is None and age < START_GRACE_SECONDS:
                 running[(info.get("repo"), info.get("tip"))] = info
                 continue
-            if alive and age > OVERRUN_MINUTES * 60:
-                self.stop(info)
+            if alive and age > OVERRUN_MINUTES * 60 and not self.stop(info):
                 self.settle(path, info, now, rows, "lost",
                             "it ran %d minutes, past the %d-minute bound, and was stopped by its recorded process id"
                             % (age / 60, OVERRUN_MINUTES))
                 continue
-            if alive:
+            # ITS LAUNCHER HAS EXITED; WHAT IT STARTED MAY NOT HAVE (the real second review of 0d83e456d,
+            # finding 2): a reviewer past run_bounded's limit leaves its tools behind. They are
+            # ended by the review's mark, and the lock is settled only once none is left.
+            if alive or self.stop(info):
                 running[(info.get("repo"), info.get("tip"))] = info
                 continue
             self.settle(path, info, now, rows)
@@ -1080,7 +1168,8 @@ class Watcher(object):
 
     def start(self, item, trigger, now, attempt, supersede=None, rows=()):
         if supersede:
-            self.stop(supersede)
+            if self.stop(supersede):
+                return None                         # still running: the next look tries again
             self.settle(supersede["path"], supersede, now, rows, "superseded",
                         "replaced by the handover review of the same commit")
         got = self.take_lock(item, trigger, now, attempt)
@@ -1097,7 +1186,7 @@ class Watcher(object):
             self.settle(path, info, now, rows, "lost", "second-review could not be started: %s" % exc)
             self._starting = None
             return None
-        info["pid"], info["pid_start"] = pid, pstart
+        info["pid"], info["pid_start"], info["mark"] = pid, pstart, self.marks.get(pid, "")
         self.rewrite_lock(path, info)
         self._starting = None
         return info
@@ -1154,6 +1243,7 @@ class Watcher(object):
                 self.settle(info["path"], info, now, rows, "stopped",
                             "the app quit while it ran; it starts again at a look after the app opens, if still due")
             self.children.pop(info.get("pid"), None)
+            self.marks.pop(info.get("pid"), None)
 
     # -- one look --------------------------------------------------------------------
     def look(self, now, session_state):

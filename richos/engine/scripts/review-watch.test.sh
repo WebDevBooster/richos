@@ -77,6 +77,12 @@
 #        process group of its own, as Codex runs them
 #   W24  nothing undelivered is marked told at the upgrade or expires, and a
 #        told verdict stays told while it is in the ledger
+#   W25  the quit ends a tool's background task its launching shell left behind,
+#        reparented to PID 1: it carries the review's mark (the reviewer's
+#        fixture background_tool_quit.py)
+#   W26  past run_bounded's time limit the launcher exits, and its lock is settled
+#        only once the reviewer's tool, which carries its mark, is gone (the
+#        reviewer's fixture timeout_then_quit.py)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1367,13 +1373,14 @@ if role == "watcher":
                 self.told = True
                 print("ready", flush=True)
             return []
+    # Started as every review is (Watcher.start and spawn): a session of its own and its own mark.
+    import shlex
+    fake = os.path.join(root, "fake-second-review.sh")
+    open(fake, "w").write("#!/bin/bash\nexec %s\n" % " ".join(shlex.quote(s) for s in [
+        sys.executable, "-B", os.path.abspath(__file__), lib, root, mode, "launcher"]))
+    os.environ["REVIEW_WATCH_SECOND_REVIEW"] = fake
     w = Quiet("/fixture/engine", "", world=object())
-    p = subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__), lib, root, mode, "launcher"],
-                         start_new_session=True)
-    w.children[p.pid] = p
-    os.makedirs(os.path.join(root, "locks"))
-    json.dump({"pid": p.pid, "repo": "fictional", "tip": "a" * 40, "started_at": time.time()},
-              open(os.path.join(root, "locks", "one.lock"), "w"))
+    w.start(rw.Item("teammate:fixture", "fixture", root, "a" * 40, "b" * 40, "running"), "long-job", time.time(), 1)
     deadline = time.monotonic() + 5
     while not os.path.exists(os.path.join(root, "reviewer.pid")):
         if time.monotonic() > deadline:
@@ -1523,6 +1530,153 @@ for k in want:
 sys.exit(0 if got == want else 1)
 PY
 check "W24 nothing undelivered is marked told at the upgrade or expires; a told verdict stays told" $? "see above"
+
+# --- W25, W26 ----------------------------------------------------------------
+# The real second review of 0d83e456d (rv-20261009T060535Z-0d83e456-4819), findings 1 and 2: a
+# stop found the review's processes by walking ancestry and process groups, so (W25,
+# fixtures/background_tool_quit.py) a tool's background child, reparented to PID 1 once its
+# launching shell returned, survived the quit, and (W26, fixtures/timeout_then_quit.py) after
+# run_bounded's time limit the launcher's exit dropped the lock while the reviewer's tool ran on.
+# Through the real Watcher.start, spawn, reconcile and stop_own, the real second_review.run_bounded
+# and _on_stop, and a review stand-in that second-review's place runs (REVIEW_WATCH_SECOND_REVIEW).
+cat >"$SB/w25.py" <<'PY'
+import json, os, shlex, signal, subprocess, sys, time
+lib, root, case = sys.argv[1], sys.argv[2], sys.argv[3]
+role = sys.argv[4] if len(sys.argv) > 4 else ""
+sys.path.insert(0, lib)
+HERE = os.path.abspath(__file__)
+
+
+def me(*more):
+    return [sys.executable, "-B", HERE, lib, root, case] + list(more)
+
+
+def beat(name):
+    end = time.monotonic() + 60
+    while time.monotonic() < end:
+        tmp = os.path.join(root, name + ".tmp")
+        json.dump({"pid": os.getpid(), "ppid": os.getppid(), "pgid": os.getpgid(0), "beat": time.monotonic()},
+                  open(tmp, "w"))
+        os.replace(tmp, os.path.join(root, name + ".json"))
+        time.sleep(0.03)
+    sys.exit(0)
+
+
+quiet = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+if role == "background":
+    beat("background")
+if role == "tool":                                  # a tool command: starts a background task, returns
+    subprocess.Popen(me("background"), **quiet)
+    sys.exit(0)
+if role == "loop":
+    beat("tool")
+if role == "reviewer":
+    if case == "background":                        # the tool in a session of its own, as Codex runs it
+        rc = subprocess.Popen(me("tool"), start_new_session=True).wait()
+        json.dump({"exit": rc}, open(os.path.join(root, "tool-returned.json"), "w"))
+    else:                                           # the tool in the launcher's own group
+        subprocess.Popen(me("loop"), **quiet)
+    time.sleep(60)
+    sys.exit(0)
+if role == "launcher":
+    import second_review as sr
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, sr._on_stop)
+    rc, _s = sr.run_bounded(me("reviewer"), root, "", os.devnull, os.devnull, 60 if case == "background" else 1.0)
+    json.dump({"timed_out": rc is None}, open(os.path.join(root, "launcher-done.json"), "w"))
+    sys.exit(0)
+
+
+def read(name):
+    try:
+        return json.load(open(os.path.join(root, name + ".json")))
+    except (OSError, ValueError):
+        return None
+
+
+def exists(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def until(what, seconds=10):
+    end = time.monotonic() + seconds
+    while not what():
+        if time.monotonic() > end:
+            raise RuntimeError("the fixture did not get there")
+        time.sleep(0.02)
+
+
+os.makedirs(root)
+os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, "rw")
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+fake = os.path.join(root, "fake-second-review.sh")
+open(fake, "w").write("#!/bin/bash\nexec %s\n" % " ".join(shlex.quote(s) for s in me("launcher")))
+os.environ["REVIEW_WATCH_SECOND_REVIEW"] = fake
+import review_watch as rw
+w = rw.Watcher("/fixture/engine", "", world=object())
+info = w.start(rw.Item("teammate:fixture", "fixture", root, "a" * 40, "b" * 40, "running"), "long-job", time.time(), 1)
+leader, ok = info["pid"], False
+watched = "background" if case == "background" else "tool"
+try:
+    if case == "background":
+        until(lambda: read("tool-returned") and (read("background") or {}).get("ppid") == 1)
+        got = {"tool shell exit": read("tool-returned")["exit"], "background parent": read("background")["ppid"],
+               "background in the tool's group": read("background")["pgid"] != os.getpgid(leader)}
+        t0 = time.monotonic()
+        w.stop_own(time.time())
+    else:
+        until(lambda: read("tool") and read("launcher-done") and w.children[leader].poll() is not None)
+        got = {"reviewer timed out": read("launcher-done")["timed_out"], "launcher exit": w.children[leader].returncode,
+               "tool in the launcher's group": read("tool")["pgid"] == leader}
+        t0 = time.monotonic()
+        w.reconcile(time.time(), [])               # the look after the launcher exited
+        w.stop_own(time.time())                     # then the quit
+    got["stop took under 5 s"] = time.monotonic() - t0 < 5
+    pid = read(watched)["pid"]
+    for _ in range(20):                             # an orphan is reaped by launchd, not by us
+        if not exists(pid):
+            break
+        time.sleep(0.05)
+    b1 = read(watched)
+    time.sleep(0.3)
+    got["%s still running" % watched] = exists(pid)
+    got["%s heartbeat advanced" % watched] = read(watched) != b1
+    got["attempts"] = [a["outcome"] for a in rw.read_jsonl(rw._p("attempts.jsonl"))]
+    got["locks left"] = len([f for f in os.listdir(rw._p("locks")) if f.endswith(".lock")])
+    print("%s: %s" % (case, json.dumps(got, sort_keys=True)))
+    ok = (got["%s still running" % watched] is False and got["%s heartbeat advanced" % watched] is False
+          and got["locks left"] == 0 and got["stop took under 5 s"]
+          and got["attempts"] == (["stopped"] if case == "background" else ["lost"]))
+finally:
+    for name in ("background", "tool"):
+        r = read(name)
+        if r:
+            try:
+                os.kill(r["pid"], signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+    try:
+        os.killpg(leader, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    child = w.children.get(leader)
+    if child is not None and child.poll() is None:
+        child.wait(timeout=3)
+sys.exit(0 if ok else 1)
+PY
+W25OUT="$(python3 "$SB/w25.py" "$LIB" "$SB/w25" background 2>&1)"; W25RC=$?
+printf '    %s\n' "$W25OUT"
+check "W25 the quit ends a tool's background task its launching shell left behind, reparented to PID 1" $W25RC "$W25OUT"
+W26OUT="$(python3 "$SB/w25.py" "$LIB" "$SB/w26" timeout 2>&1)"; W26RC=$?
+printf '    %s\n' "$W26OUT"
+check "W26 past run_bounded's time limit, the launcher's exit settles its lock only once the reviewer's tool is gone" \
+    $W26RC "$W26OUT"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
