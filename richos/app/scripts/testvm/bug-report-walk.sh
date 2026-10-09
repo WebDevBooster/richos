@@ -224,9 +224,31 @@ check "the second report card" "no second report card" wait_text 'Not sent yet' 
 # With two cards on screen a search of the whole tree can outlast ax.sh's deadline on a busy host
 # (walk-5a15093aaa62: "Send report" was not clicked), so each click stops at the first match and
 # is tried up to three times.
-click_first() { for _ in 1 2 3; do "$T/ax.sh" "$VM" click --title "$1" --first && return 0; sleep 2; done; return 1; }
+#
+# THE PRESS ITSELF CAN FAIL WHERE THE FIND DOES NOT: walk-29408ebd443e found the second card's
+# "Send report" (matches=1) and every AXPress on it answered "Can't get object", three times. So
+# the last resort is the pointer: the button's own position from the find, clicked at its center.
+click_first() {
+  local title="$1" at
+  for _ in 1 2; do "$T/ax.sh" "$VM" click --title "$title" --first && return 0; sleep 2; done
+  at=$("$T/ax.sh" "$VM" find --title "$title" --first 2>/dev/null | sed -n "s/.* pos=\([0-9.-]*\) \([0-9.-]*\) size=\([0-9.]*\) \([0-9.]*\).*/\1 \2 \3 \4/p" | head -1)
+  [ -n "$at" ] || return 1
+  # shellcheck disable=SC2086  # four numbers, split on purpose
+  set -- $at
+  note "pressing '$title' failed; clicking it at its center ($at) instead"
+  "$T/ax.sh" "$VM" click --at "$(python3 -c 'import sys; x,y,w,h=map(float,sys.argv[1:]); print("%d,%d" % (x+w/2, y+h/2))' "$1" "$2" "$3" "$4")"
+}
+# The card arrives with a 2.6 s entrance (`is-new`); step 3 pressed Send long after it ended.
+sleep 4
+"$T/shot.sh" "$VM" "$S/5-report-dark.png" || fail "capture 5-report-dark"
 click_first 'Send report' || fail "Send report (second report)"
 check "the second report waits to send" "the second report never said Waiting to send" wait_text 'Waiting to send' 12
+# Where Cancel report is, read now, while nothing is racing: the click in flight must land within
+# the stand-in's hold, and a find plus a press can take 20 s on a busy host.
+cancel_at=$("$T/ax.sh" "$VM" find --title 'Cancel report' --first 2>/dev/null | sed -n "s/.* pos=\([0-9.-]*\) \([0-9.-]*\) size=\([0-9.]*\) \([0-9.]*\).*/\1 \2 \3 \4/p" | head -1)
+# shellcheck disable=SC2086  # four numbers, split on purpose
+cancel_at=$([ -n "$cancel_at" ] && python3 -c 'import sys; x,y,w,h=map(float,sys.argv[1:]); print("%d,%d" % (x+w/2, y+h/2))' $cancel_at)
+note "Cancel report is at ${cancel_at:-an unknown place}"
 # Back up, holding each answer 22 s (under the app's 25 s request timeout): the retry loop's
 # request arrives and is IN FLIGHT, holding the one-send-at-a-time lock, while Cancel is pressed.
 "$T/guest.sh" "$VM" "nohup python3 $G/github-stand-in.py $PORT $G/stand-in-2.log 22 413 >/dev/null 2>&1 & echo \$! > $G/stand-in.pid; echo started" || fail "starting the holding stand-in"
@@ -237,7 +259,11 @@ for _ in $(seq 1 45); do
 done
 if [ "$arrived" = yes ]; then
   note "ok: the retry's request is in flight"
-  "$T/ax.sh" "$VM" click --title 'Cancel report' --first || fail "Cancel report while the send was in flight"
+  if [ -n "$cancel_at" ]; then
+    "$T/ax.sh" "$VM" click --at "$cancel_at" || fail "Cancel report while the send was in flight"
+  else
+    click_first 'Cancel report' || fail "Cancel report while the send was in flight"
+  fi
   check "the card says Canceling…" "the card never said Canceling…" wait_text 'Canceling…' 2
   "$T/shot.sh" "$VM" "$S/5-canceling-dark.png" || fail "capture 5-canceling-dark"
   check "Sent · #413: it had gone out" "the card never said Sent · #413" wait_text 'Sent · #413' 15
