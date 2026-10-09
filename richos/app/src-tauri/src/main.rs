@@ -325,10 +325,16 @@ fn ensure_app_review_watch(engine: &Path, data_dir: &Path, claude: &Path, at_lau
 fn ensure_operator_review_watch(desk: &Arc<richos_core::operator_desk::OperatorDesk>, data_dir: &Path) {
     let declaration = desk.declaration().clone();
     let weak = Arc::downgrade(desk);
+    // True only once the lead was told: the watcher records a verdict delivered on that
+    // acknowledgment alone, and tells a refused one again at its next look.
     let sink: richos_core::review_watch::NoticeSink = Arc::new(move |notice: richos_core::review_watch::Notice| {
-        let Some(desk) = weak.upgrade() else { return };
-        if let Err(e) = desk.tell_lead(&notice.session, &notice.text) {
-            eprintln!("[richos] his team: a second-review notice was not delivered ({e})");
+        let Some(desk) = weak.upgrade() else { return false };
+        match desk.tell_lead(&notice.session, &notice.text) {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("[richos] his team: a second-review notice was not delivered ({e}); it is told again at the next look");
+                false
+            }
         }
     });
     let launch = richos_core::review_watch::Launch {

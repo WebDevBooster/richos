@@ -83,6 +83,9 @@
 #   W26  past run_bounded's time limit the launcher exits, and its lock is settled
 #        only once the reviewer's tool, which carries its mark, is gone (the
 #        reviewer's fixture timeout_then_quit.py)
+#   W27  a verdict is delivered only once the host accepts it: a failed pipe, or no
+#        acknowledgment from a host that acknowledges, leaves it for the next look
+#        (the reviewer's fixture delivery_ack_gap.py)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1111,6 +1114,7 @@ def run(rows, items, attempts, fresh=True):
     with patch.object(rw.stall_watch, "_read_json", return_value={}), patch.object(rw.stall_watch, "_write_json"):
         for t in (100, 100 + rw.REPEAT_MINUTES * 60):
             out.append([json.loads(s)["session"] for s in rw.tell(t, state, rows, book, items, [], attempts)])
+            rw.deliver(rw.PRINTED["keys"], t)      # the host accepted it, as tick records it (W27)
     return out
 got, want = {}, {}
 owner_attempt = [{"repo": repo, "tip": tip, "work": A, "session": "lead-A", "outcome": "verdict"}]
@@ -1222,7 +1226,9 @@ def monitor(sid):
 
 def look(me, state, t):
     rw.MONITOR["session"] = me
-    return any("[PASSED]" in ln for ln in rw.tell(t, state, [row], book, [], [], attempts))
+    told = any("[PASSED]" in ln for ln in rw.tell(t, state, [row], book, [], [], attempts))
+    rw.deliver(rw.PRINTED["keys"], t)              # its output accepted, as tick records it (W27)
+    return told
 
 
 def scenario(name, a_live_first, host_first=False):
@@ -1489,6 +1495,7 @@ def look(me, state, t, rows, att, host=False):
     rw.MONITOR["session"] = "" if host else me
     rw.HOST_JSON["on"] = host
     out = rw.tell(t, state, rows, rw.Book(rows, {}, att), [], [], att)
+    rw.deliver(rw.PRINTED["keys"], t)              # its output accepted, as tick records it (W27)
     rw.HOST_JSON["on"] = False
     return any("[PASSED]" in ln for ln in out)
 
@@ -1677,6 +1684,78 @@ W26OUT="$(python3 "$SB/w25.py" "$LIB" "$SB/w26" timeout 2>&1)"; W26RC=$?
 printf '    %s\n' "$W26OUT"
 check "W26 past run_bounded's time limit, the launcher's exit settles its lock only once the reviewer's tool is gone" \
     $W26RC "$W26OUT"
+
+# --- W27 ---------------------------------------------------------------------
+# The real second review of 0d83e456d, finding 3 (fixtures/delivery_ack_gap.py): tell recorded a
+# verdict delivered before tick wrote it, so a host pipe that failed at quit lost a passed verdict
+# for good. Now a verdict is delivered only once its output is accepted: written and flushed, or,
+# for the operator host that says it acknowledges (RICHOS_REVIEW_WATCH_ACKS=1), acknowledged on the
+# watcher's stdin once the host sent it to the lead. Through the real tick and tell.
+python3 - "$LIB" "$SB/w27" <<'PY'
+import io, json, os, sys
+lib, root = sys.argv[1:3]
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+os.environ.pop("RICHOS_REVIEW_WATCH_ACKS", None)
+sys.path.insert(0, lib)
+import review_watch as rw
+
+
+class BrokenPipe(object):
+    def write(self, text):
+        raise BrokenPipeError("the host closed the pipe during quit")
+
+    def flush(self):
+        pass
+
+
+now = rw.parse_iso("2026-10-09T07:00:00Z")
+row = {"id": "review-A", "repo": os.path.join(root, "fictional-repository"), "tip": "a" * 40, "work": "teammate:A",
+       "author": "worker-A", "trigger": "quiet", "verdict": "passed", "at": rw.iso(now), "record": "", "findings": 0}
+attempt = {"repo": row["repo"], "tip": row["tip"], "work": row["work"], "session": "lead-A", "outcome": "verdict"}
+
+
+class Watcher(object):
+    def look(self, t, state):
+        return rw.tell(t, state, [row], rw.Book([row], {}, [attempt]), [], [], [attempt])
+
+
+def look(sd, t, out=None):
+    out = out or io.StringIO()
+    try:
+        rw.tick(Watcher(), sd, now=t, out=out)
+    except BrokenPipeError:
+        return "broken pipe"
+    return out.getvalue()
+
+
+got, want = {}, {}
+for name, host, acks in (("monitor", False, False), ("host", True, False), ("host, acknowledging", True, True)):
+    os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, name)
+    rw.HOST_JSON["on"], rw.MONITOR["session"] = host, ("" if host else "lead-A")
+    if acks:
+        os.environ["RICHOS_REVIEW_WATCH_ACKS"] = "1"
+        r, w = os.pipe()
+        rw.ACKS["fd"] = r
+    sd = rw.session_dir("operator-host" if host else "lead-A")
+    seq = [look(sd, now, BrokenPipe())]
+    seq += [look(sd, now + 60 * n) for n in (1, 2)]
+    g = {"the host pipe failed": seq[0] == "broken pipe", "the next look tells it": "[PASSED]" in seq[1],
+         "the look after that": "[PASSED]" in seq[2]}
+    if acks:
+        keys = [k for ln in seq[2].splitlines() for k in json.loads(ln).get("keys", [])]
+        os.write(w, (json.dumps({"ack": keys}) + "\n").encode())
+        g["acknowledged, the next look"] = "[PASSED]" in look(sd, now + 180)
+        os.environ.pop("RICHOS_REVIEW_WATCH_ACKS")
+    got[name] = g
+    want[name] = {"the host pipe failed": True, "the next look tells it": True, "the look after that": acks}
+    if acks:
+        want[name]["acknowledged, the next look"] = False
+for k in want:
+    print("%s: %s" % (k, got[k]))
+sys.exit(0 if got == want else 1)
+PY
+check "W27 a verdict is delivered only once the host accepts it: a failed pipe or no acknowledgment leaves it for the next look" \
+    $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate

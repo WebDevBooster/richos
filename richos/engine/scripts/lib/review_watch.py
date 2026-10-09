@@ -105,6 +105,7 @@ SECOND_REVIEW_STATE_DIR places the ledger.
 """
 
 import argparse
+import contextlib
 import datetime as _dt
 import fcntl
 import glob
@@ -1419,22 +1420,76 @@ def _row_key(row):
     return str(row.get("id") or "%s:%s:%s:%s" % (row.get("repo"), row.get("tip"), row.get("work"), row.get("at")))
 
 
-def host_json_lines(now, body, owners):
-    """[JSON line]: one {"session", "text"} per lead session, its blocks under the usual head."""
-    out, order = {}, []
-    for block, session in zip(body, owners):
+def host_json_lines(now, body, owners, keys):
+    """[JSON line]: one {"session", "text", "keys"} per lead session, its blocks under the usual
+    head, with the review ids of the verdicts in it for the host to acknowledge (host_acks)."""
+    out, ids, order = {}, {}, []
+    for block, session, key in zip(body, owners, keys):
         if session not in out:
-            out[session] = []
+            out[session], ids[session] = [], []
             order.append(session)
         out[session].append(block)
+        if key and key not in ids[session]:
+            ids[session].append(key)
     lines = []
     for session in order:
         blocks = out[session]
         head = ("REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was "
                 "paused, stopped or killed)" % (hhmm(now), len(blocks), "" if len(blocks) == 1 else "s"))
         text = "\n".join([head] + [line for b in blocks for line in b])
-        lines.append(json.dumps({"session": session, "text": text}, sort_keys=True))
+        lines.append(json.dumps({"session": session, "text": text, "keys": ids[session]}, sort_keys=True))
     return lines
+
+
+# DELIVERED ONLY ONCE THE HOST ACCEPTS IT (the real second review of 0d83e456d, finding 3): tell()
+# records nothing delivered. It leaves the review ids of the owned verdicts it printed in
+# PRINTED, and tick() marks them delivered in last-told.json only once its output is accepted:
+# written and flushed, or, for an operator host that says it acknowledges (ACKS_ENV, set by
+# richos-core review_watch.rs), acknowledged on this process's stdin ({"ack": [ids]}) once the host
+# has told the lead. A pipe that fails, or a notice the host's desk refuses, leaves the verdict to
+# be told again at the next look.
+ACKS_ENV = "RICHOS_REVIEW_WATCH_ACKS"
+PRINTED = {"keys": []}
+ACKS = {"fd": 0, "buf": b""}
+
+
+def host_acks():
+    return HOST_JSON["on"] and os.environ.get(ACKS_ENV) == "1"
+
+
+def read_acks():
+    """The review ids the host has acknowledged since the last read, without waiting."""
+    try:
+        os.set_blocking(ACKS["fd"], False)
+        while True:
+            chunk = os.read(ACKS["fd"], 65536)
+            if not chunk:
+                break
+            ACKS["buf"] += chunk
+    except OSError:
+        pass                                        # nothing more yet (BlockingIOError), or no stdin
+    lines = ACKS["buf"].split(b"\n")
+    ACKS["buf"] = lines.pop()
+    keys = []
+    for line in lines:
+        try:
+            keys += [str(k) for k in json.loads(line).get("ack") or []]
+        except (ValueError, AttributeError, TypeError):
+            continue
+    return keys
+
+
+def deliver(keys, now):
+    """Record these verdicts delivered. Called under the look lock."""
+    if not keys:
+        return
+    path = _p("last-told.json")
+    shared = stall_watch._read_json(path)
+    delivered = shared.get("delivered") if isinstance(shared.get("delivered"), dict) else {}
+    for k in keys:
+        delivered.setdefault(k, now)
+    shared["delivered"] = delivered
+    stall_watch._write_json(path, shared)
 
 
 def tell(now, sstate, rows, book, items, problems, attempts):
@@ -1442,24 +1497,30 @@ def tell(now, sstate, rows, book, items, problems, attempts):
     items_by_key = dict((it.key, it) for it in items)
     items_by_key.update(((it.repo, it.tip, it.work), it) for it in items)
     told = sstate.setdefault("told", {})
-    body, owners = [], []
+    body, owners, keys = [], [], []
+    PRINTED["keys"] = []
 
-    def add(block, it=None, session=None):
+    def add(block, it=None, session=None, key=None):
         # Each block keeps the session of the lead whose teammate it is about, so the operator
-        # host can deliver it to that lead (--host-json); "" when no lead started the work.
+        # host can deliver it to that lead (--host-json); "" when no lead started the work. An
+        # owned verdict's block keeps its review id too, recorded delivered only once accepted.
         body.append(block)
         owners.append(session if session is not None else (getattr(it, "session", "") or ""))
+        keys.append(key)
+        if key and key not in PRINTED["keys"]:
+            PRINTED["keys"].append(key)
     # -- new verdicts, from where this session last read the ledger ---------------
     # ONLY A VERDICT'S RECORDED OWNER CONSUMES IT (second review of b5ff41f02, finding 2).
     # last-told.json's `rows` is where a monitor's FIRST look starts reading, so a verdict written
     # while nobody watched is still told; it is nobody's record of an owned verdict. That record is
-    # `delivered` beside it ({review id: when}), written only when a verdict is printed for its
-    # owner: by the owner's own monitor, or by the operator host (--host-json), which sends every
-    # block to its owner. A verdict whose owner this watcher delivers to is told whenever it is not
-    # in `delivered`, wherever any cursor is and however old it is: another lead's monitor may have
-    # shown it (its owner had no live monitor then) or left it (it had one), and neither consumes
-    # it. Passed and mid-job verdicts have no reminder; this is their only delivery. `delivered`
-    # keeps every id still in the ledger, so a told verdict never comes back. Nothing is inferred
+    # `delivered` beside it ({review id: when}), written only once a verdict printed for its owner
+    # was accepted (PRINTED, tick): by the owner's own monitor, or by the operator host
+    # (--host-json), which sends every block to its owner. A verdict whose owner this watcher
+    # delivers to is told whenever it is not in `delivered`, wherever any cursor is and however old
+    # it is: another lead's monitor may have shown it (its owner had no live monitor then) or left
+    # it (it had one), and neither consumes it. Passed and mid-job verdicts have no reminder; this
+    # is their only delivery. `delivered` keeps every id still in the ledger, so a told verdict
+    # never comes back. Nothing is inferred
     # from the old cursor-only state: on the first look under this rule an owner may be told its
     # earlier verdicts once more, a repeat and never a loss (that review's recheck).
     # AND ONLY WHAT IS PRINTED (the same review's recheck): a monitor's block is capped at
@@ -1504,18 +1565,16 @@ def tell(now, sstate, rows, book, items, problems, attempts):
             stop = i                                # the cap: this row and every later one wait for the next look
             break
         used += cost
-        if owned:
-            delivered[key] = now
         for b in blocks:
-            add(b, session=session)
+            add(b, session=session, key=key if owned else None)
         if row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB:
             told[_cr_key(row.get("repo"), row.get("tip"), row.get("work"))] = {"first": now, "last": now, "count": 1}
         for k, _fid, _title in nc:
             told[k] = {"first": now}
     sstate["rows"] = max(start, stop)
     shared["rows"] = max(stop, seen or 0)
-    keys = set(_row_key(r) for r in rows if r.get("verdict"))
-    shared["delivered"] = dict((k, t) for k, t in delivered.items() if k in keys)
+    ids = set(_row_key(r) for r in rows if r.get("verdict"))
+    shared["delivered"] = dict((k, t) for k, t in delivered.items() if k in ids)
     stall_watch._write_json(_p("last-told.json"), shared)
     verdict_blocks = len(body)
     # -- an unhandled changes-requested handover, again every 30 minutes ------------
@@ -1563,7 +1622,7 @@ def tell(now, sstate, rows, book, items, problems, attempts):
         if now - float(told[k].get("first") or now) > KEEP_SECONDS:
             del told[k]
     if HOST_JSON["on"]:
-        return host_json_lines(now, body, owners) if body else []
+        return host_json_lines(now, body, owners, keys) if body else []
     body = [(n, b) for n, (b, s) in enumerate(zip(body, owners)) if for_this_monitor(s)]
     if not body:
         return []
@@ -1625,14 +1684,26 @@ def prune(keep):
                 pass
 
 
-def tick(watcher, sd, now=None, out=None):
-    """One look under the machine-wide look lock (two watchers take turns)."""
-    out = out or sys.stdout
-    now = clock() if now is None else now
+@contextlib.contextmanager
+def look_lock():
+    """The machine-wide look lock (two watchers take turns)."""
     os.makedirs(state_root(), exist_ok=True)
     fd = os.open(_p("look.lock"), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def tick(watcher, sd, now=None, out=None):
+    """One look under the look lock; the verdicts it printed are delivered once accepted (PRINTED)."""
+    out = out or sys.stdout
+    now = clock() if now is None else now
+    with look_lock():
+        if host_acks():
+            deliver(read_acks(), now)
         path = os.path.join(sd, "told.json")
         sstate = stall_watch._read_json(path)
         try:
@@ -1643,14 +1714,16 @@ def tick(watcher, sd, now=None, out=None):
             lines = [] if k in told else ["REVIEW-WATCH %s: a look failed (%s: %s); the next look tries again" % (
                 hhmm(now), exc.__class__.__name__, str(exc)[:200])]
             told[k] = {"first": now}
+            PRINTED["keys"] = []
+        printed, PRINTED["keys"] = (PRINTED["keys"] if lines else []), []
         sstate["last_look"] = now
         stall_watch._write_json(path, sstate)
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
     if lines:
         out.write("\n".join(lines) + "\n")
         out.flush()
+    if printed and not host_acks():
+        with look_lock():
+            deliver(printed, now)
     return len(lines)
 
 
