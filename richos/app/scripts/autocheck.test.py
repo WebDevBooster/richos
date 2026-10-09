@@ -1829,6 +1829,59 @@ class Install(Fixture):
         self.assertIn("UNREACHABLE", out.stdout)
 
 
+class TimeLimit(unittest.TestCase):
+    """A check that runs out of time ends gracefully and leaves no process (2026-10-09: the
+    test browser of a UI suite killed by subprocess.run's SIGKILL aborted at launch, parent
+    "Exited process", and macOS showed "Playwright quit unexpectedly")."""
+
+    SUITE = (
+        "import os, signal, subprocess, sys, time\n"
+        "browser = subprocess.Popen(['sleep', '300'])\n"  # the stand-in test browser
+        "open(sys.argv[1], 'w').write(str(browser.pid))\n"
+        "if sys.argv[2] == 'polite':\n"  # Playwright closes its browser on SIGTERM
+        "    def bye(*_):\n"
+        "        browser.terminate(); open(sys.argv[1] + '.term', 'w').write('x'); os._exit(0)\n"
+        "    signal.signal(signal.SIGTERM, bye)\n"
+        "else:\n"
+        "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "time.sleep(300)\n"
+    )
+
+    def alive(self, pid):
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+
+    def run_late(self, mode, grace):
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as top:
+            marker = os.path.join(top, "browser.pid")
+            with self.assertRaises(subprocess.TimeoutExpired):
+                # load-bound: the 1 s limit is the stimulus (the suite sleeps 300 s, never finishing); no verdict depends on host speed
+                module.run_bounded([sys.executable, "-c", self.SUITE, marker, mode], timeout=1, grace=grace, text=True)
+            pid = int(Path(marker).read_text())
+            deadline = __import__("time").time() + 3
+            while self.alive(pid) and __import__("time").time() < deadline:
+                __import__("time").sleep(0.05)
+            alive = self.alive(pid)
+            if alive:
+                os.kill(pid, 9)
+            return alive, os.path.exists(marker + ".term")
+
+    def test_a_suite_that_closes_its_browser_on_sigterm_is_given_the_chance(self):
+        alive, termed = self.run_late("polite", 3)
+        self.assertTrue(termed, "the suite was never sent SIGTERM")
+        self.assertFalse(alive, "the browser outlived its suite")
+
+    def test_a_suite_that_ignores_sigterm_still_leaves_no_browser(self):
+        alive, _termed = self.run_late("stubborn", 1)
+        self.assertFalse(alive, "the browser outlived its suite")
+
+
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result
     sys.exit(0 if result.wasSuccessful() else 1)

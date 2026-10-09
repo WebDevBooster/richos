@@ -69,6 +69,53 @@ ACTIVE = "RICHOS_AUTOCHECK_ACTIVE"
 ZERO = "0" * 40
 
 
+TERM_GRACE_SECONDS = 5    # a check that ran out of time gets SIGTERM, then this long, before SIGKILL
+
+
+def run_bounded(argv, timeout, grace=None, **kwargs):
+    """subprocess.run(capture_output, timeout) that ends a late check gracefully.
+
+    subprocess.run kills only the DIRECT child, and with SIGKILL. A UI suite ended that way
+    leaves its test browser (Playwright.app, a GUI app) orphaned; if the suite was still
+    launching it, the browser aborts and macOS shows "Playwright quit unexpectedly" on the
+    user's screen (measured 2026-10-09: crash reports 15:28:36 and 16:16:48, both "parentProc:
+    Exited process", the browser dead 67-80 ms after launch). So the check runs in its own
+    session; on the time limit its whole group gets SIGTERM (Playwright closes its browser on
+    it), then SIGKILL after `grace`, and nothing of the group is left. Raises TimeoutExpired
+    like subprocess.run."""
+    grace = TERM_GRACE_SECONDS if grace is None else grace
+    kwargs.pop("capture_output", None)
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **kwargs)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as expired:
+        for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, None)):
+            try:
+                os.killpg(proc.pid, sig)
+            except ProcessLookupError:
+                break
+            if wait is not None:
+                try:
+                    proc.wait(timeout=wait)
+                except subprocess.TimeoutExpired:
+                    continue
+                # the leader is gone; anything it left in the group still goes
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                break
+        proc.communicate()
+        raise expired
+    except BaseException:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        raise
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+
 def say(text=""):
     print(text, file=sys.stderr, flush=True)
 
@@ -246,8 +293,8 @@ def policy_applies(repo, staged):
 def release_policy(repo, what):
     say(f"+ bash {RELEASE_POLICY}")
     try:
-        result = subprocess.run(["bash", RELEASE_POLICY], cwd=repo.top, env=repo.env,
-                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        result = run_bounded(["bash", RELEASE_POLICY], cwd=repo.top, env=repo.env,
+                                stdin=subprocess.DEVNULL, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         banner(f"{what.upper()} REFUSED: native-release-policy did not finish in 120 s",
                ["It measures about 3 s; a hang is a failure, not a pass."])
@@ -274,8 +321,8 @@ def physical_check(repo, what):
         return 0
     say(f"+ python3 {PHYSICAL_CHECK} scan")
     try:
-        result = subprocess.run([sys.executable, PHYSICAL_CHECK, "scan", "--root", str(repo.top)], cwd=repo.top,
-                                env=repo.env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        result = run_bounded([sys.executable, PHYSICAL_CHECK, "scan", "--root", str(repo.top)], cwd=repo.top,
+                                env=repo.env, stdin=subprocess.DEVNULL, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         banner(f"{what.upper()} REFUSED: the physical-phone check did not finish in 120 s",
                ["It measures about a second; a hang is a failure, not a pass."])
@@ -814,8 +861,8 @@ def run_fast_checks(repo, what, commands):
         spent += seconds
         say("+ (cd " + cwd + " && " + " ".join(shlex.quote(a) for a in argv) + ")")
         try:
-            result = subprocess.run(argv, cwd=repo.top / cwd, env={**repo.env, **MUTATION_SWITCH},
-                                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            result = run_bounded(argv, cwd=repo.top / cwd, env={**repo.env, **MUTATION_SWITCH},
+                                    stdin=subprocess.DEVNULL, text=True,
                                     timeout=FAST_HANG_SECONDS)
         except subprocess.TimeoutExpired:
             banner(f"{what.upper()} REFUSED: {label} did not finish in {FAST_HANG_SECONDS} s",
@@ -856,8 +903,8 @@ def branch_selection(repo, what, run_quick=True):
     for suite in quick:
         say(f"+ (cd richos/app/ui/tests && node {suite})")
         try:
-            result = subprocess.run(["node", suite], cwd=repo.top / "richos/app/ui/tests", env=repo.env,
-                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+            result = run_bounded(["node", suite], cwd=repo.top / "richos/app/ui/tests", env=repo.env,
+                                    stdin=subprocess.DEVNULL, text=True, timeout=120)
         except subprocess.TimeoutExpired:
             banner(f"{what.upper()} REFUSED: {suite} did not finish in 120 s",
                    [f"It measures under a second ({QUICK_WEIGHTS}); a hang is a failure, not a pass."])
@@ -1096,8 +1143,7 @@ def device_identifier_gate(repo, what):
         say(f"autocheck: {what}: {DEVICE_IDENTIFIERS} is not in this tree; device identifiers NOT checked")
         return 0
     try:
-        out = subprocess.run([sys.executable, str(script), "--scan-tree", str(repo.top)],
-                             capture_output=True, text=True, timeout=600, env=repo.env)
+        out = run_bounded([sys.executable, str(script), "--scan-tree", str(repo.top)], text=True, timeout=600, env=repo.env)
         rows = out.stdout.splitlines()
     except (OSError, subprocess.SubprocessError):
         rows = []
@@ -1649,9 +1695,8 @@ def phone_watch(repo, old, new):
     env = {k: v for k, v in repo.env.items() if not k.startswith("GIT_")}
     env.pop(ACTIVE, None)
     try:
-        result = subprocess.run([sys.executable, str(script), "trigger", "--repo", str(repo.top), "--from", old,
-                                 "--to", new], cwd=repo.top, env=env, stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, timeout=120)
+        result = run_bounded([sys.executable, str(script), "trigger", "--repo", str(repo.top), "--from", old,
+                                 "--to", new], cwd=repo.top, env=env, stdin=subprocess.DEVNULL, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as exc:
         result = None
         detail = str(exc)
@@ -1710,8 +1755,7 @@ def refresh_hook_sidecars(repo, old, new):
     env = {k: v for k, v in repo.env.items() if not k.startswith("GIT_")}
     env.pop(ACTIVE, None)
     try:
-        result = subprocess.run(["bash", str(install)], cwd=repo.top, env=env, stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, timeout=300)
+        result = run_bounded(["bash", str(install)], cwd=repo.top, env=env, stdin=subprocess.DEVNULL, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as exc:
         result = None
         detail = str(exc)
