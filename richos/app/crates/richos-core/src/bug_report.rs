@@ -330,8 +330,13 @@ impl Scrubber {
     }
 }
 
+/// **A letter or a digit, and nothing else**: what a private name must not run into on either side.
+/// An underscore is not one: in Markdown it is emphasis, like `*` and `~`, so "_Jane Doe_" shows
+/// "Jane Doe" in the issue (review rv-20261009T183159Z-a2fc94dc-20e7 finding 1: on a2fc94dc4 an
+/// underscore counted as part of a word, the name was never whole there, and "\_Jane Doe\_" went
+/// out with no heads-up, in the draft and after a change Rich checked).
 fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
+    c.is_alphanumeric()
 }
 
 fn char_before(text: &str, at: usize) -> Option<char> {

@@ -1334,3 +1334,50 @@ fn a_change_rich_writes_keeps_the_report_checked_and_a_change_by_hand_does_not()
     by_hand.sections[0].paragraphs[0] = "Marta saw the window freeze.".into();
     assert_eq!(check.with_change(&by_hand, &change.section, &add, kept), None);
 }
+
+// ---- the review of a2fc94dc4 (rv-20261009T183159Z-a2fc94dc-20e7), fixture `privacy_probe.rs` ----
+
+/// What GitHub is sent for `sheet` under `check`: the body decided, showing the card again first
+/// when the last scrub leaves out what it still shows, as the window does.
+fn sent_body(sheet: &Sheet, check: &Check) -> String {
+    let public = match decide(sheet, Some(check), &[]) {
+        Decision::Send(public) => public,
+        Decision::Show(again) => match decide(&sheet_of(&again), Some(&Check::of(&again)), &[]) {
+            Decision::Send(public) => public,
+            other => panic!("{other:?}"),
+        },
+        Decision::Unchecked => panic!("unchecked"),
+    };
+    let (_, request) = issue_request(&public);
+    request["body"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn a_private_name_between_underscores_stars_or_tildes_is_left_out() {
+    // On a2fc94dc4 "_Jane Doe_", with Rich naming Jane Doe private, went out as "\_Jane Doe\_" with
+    // no heads-up: an underscore counted as part of a word, so the name was never whole there.
+    let jane = r#"[{"text": "Jane Doe", "kind": "person"}]"#;
+    for said in ["_Jane Doe_ saw the window freeze.", "Jane Doe_ saw the window freeze.", "*Jane Doe* saw the window freeze.", "~~Jane Doe~~ saw the window freeze.", "__jane doe__ saw the window freeze."] {
+        let written = checked_with(said, jane);
+        let body = sent_body(&sheet_of(&written.draft), &Check::of(&written.draft));
+        assert!(!body.to_lowercase().contains("jane") && !body.to_lowercase().contains("doe"), "{said:?} sent {body:?}");
+        assert!(body.contains("\\[a person\\]"), "{body}");
+        assert_eq!(private_in_edit(said, &[], &written.draft.private).len(), 1, "no heads-up on {said:?}");
+    }
+    // RichOS's own names go by the same rule.
+    assert_eq!(joined(&Scrubber::new(terms()).scrub("_Dana Whitfield_ and *Acme*")), "_[a person]_ and *[a company]*");
+}
+
+#[test]
+fn a_private_name_between_underscores_in_words_changed_by_hand_is_left_out_once_rich_checks_them() {
+    // The same on a2fc94dc4 after a change by hand that Rich checked, naming the person: the
+    // report was sendable at once, and "\_Jane Doe\_" went out.
+    let jane = r#"[{"text": "Jane Doe", "kind": "person"}]"#;
+    let written = checked_with("The window froze.", "[]");
+    let mut edited = sheet_of(&written.draft);
+    edited.sections[0].paragraphs[0] = "_Jane Doe_ saw the window freeze.".into();
+    let recheck = check_edit(Ok(format!(r#"{{"private": {jane}}}"#)), &edited, &[]).unwrap();
+    assert!(matches!(decide(&edited, Some(&recheck), &[]), Decision::Show(_)), "sent without showing what was left out");
+    let body = sent_body(&edited, &recheck);
+    assert!(!body.contains("Jane") && body.contains("\\_\\[a person\\]\\_ saw the window freeze."), "{body}");
+}
