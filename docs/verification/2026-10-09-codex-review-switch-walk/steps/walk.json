@@ -19,7 +19,7 @@
 {"op":"until","args":["find","--title","Let Codex review your team","--contains"],"contains":"Let Codex review","seconds":20},
 {"op":"tree","name":"02-settings-tree"},
 {"op":"shot","name":"02-settings-not-installed","ocr":true},
-{"op":"ax","args":["click","--title","Let Codex review your team","--contains"]},
+{"op":"ax","args":["click","--at","1485,331"]},
 {"op":"wait","seconds":1},
 {"op":"shot","name":"03-not-installed-nudge","ocr":true},
 {"op":"until","args":["find","--value","Install it and sign in to ChatGPT","--contains"],"contains":"Install it","seconds":10,"allow_fail":true},
