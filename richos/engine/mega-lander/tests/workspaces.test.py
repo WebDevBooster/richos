@@ -4262,6 +4262,22 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
             self.assertEqual(sr.repo_identity(wt), want, repr(name))
             self.assertEqual(F.review_repo_identity(wt), want, repr(name))
 
+    def test_second_review_identity_ignores_the_git_environment_a_hook_inherits(self):
+        spec = importlib.util.spec_from_file_location(
+            "srv_ident_env", os.path.join(ENGINE, "scripts", "lib", "second_review.py"))
+        sr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sr)
+        F = ws._fence_program()
+        local, foreign = self.other, os.path.join(self.env.root, "identenv")
+        run("git", "clone", "-q", "--no-hardlinks", local, foreign)
+        want = {"s": sr.repo_identity(foreign), "f": F.review_repo_identity(foreign)}
+        self.assertNotEqual(want["f"], F.review_repo_identity(local))
+        inherited = {"GIT_DIR": os.path.join(local, ".git"), "GIT_WORK_TREE": local,
+                     "GIT_COMMON_DIR": os.path.join(local, ".git")}
+        with patch.dict(os.environ, inherited):
+            self.assertEqual(sr.repo_identity(foreign), want["s"])
+            self.assertEqual(F.review_repo_identity(foreign), want["f"])
+
     def test_second_review_an_unlisted_repository_is_not_refused(self):
         self.declare("")
         run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)

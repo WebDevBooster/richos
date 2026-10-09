@@ -300,10 +300,10 @@ def git(cwd, *args, **kw):
             break
         env.pop(name, None)
     try:
-        r = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True, text=True,
+        r = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True, text=not kw.get("raw"),
                            timeout=kw.get("timeout", 60), env=env)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return 127, "", str(error)
+        return 127, (b"" if kw.get("raw") else ""), str(error)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -1019,12 +1019,7 @@ def review_repo_resolved(repo):
     real = os.path.realpath(repo or "")
     resolved = False
     if repo and os.path.isdir(real):
-        try:
-            r = subprocess.run(["git", "-C", real, "rev-parse", "--git-common-dir"], capture_output=True,
-                               timeout=60, env=dict(os.environ, GIT_OPTIONAL_LOCKS="0", LC_ALL="C"))
-            code, out = r.returncode, r.stdout
-        except (OSError, subprocess.TimeoutExpired):
-            code, out = 127, b""
+        code, out, _e = git(real, "rev-parse", "--git-common-dir", raw=True)
         common = os.fsdecode(out[:-1] if out.endswith(b"\n") else out)
         if code == 0 and common:
             real = os.path.realpath(os.path.join(real, common))

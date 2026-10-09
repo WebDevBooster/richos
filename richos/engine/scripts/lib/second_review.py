@@ -949,8 +949,10 @@ def repo_identity(path):
     the review is written, so a worktree moved or removed later still matches."""
     real = os.path.realpath(path or "")
     try:
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")}
         r = subprocess.run(["git", "-C", real, "rev-parse", "--git-common-dir"], capture_output=True,
-                           timeout=30)
+                           timeout=30, env=env)
         raw = r.stdout[:-1] if r.stdout.endswith(b"\n") else r.stdout
         common = os.fsdecode(raw)
         if r.returncode == 0 and common:
