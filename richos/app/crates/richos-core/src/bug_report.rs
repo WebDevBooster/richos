@@ -51,6 +51,8 @@
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};
+use unicode_normalization::char::canonical_combining_class;
+use unicode_normalization::UnicodeNormalization;
 
 /// Where every report is filed: `github.com/WebDevBooster/richos` (round 21 "Premises checked",
 /// `git remote -v` in richos).
@@ -192,6 +194,8 @@ impl Segment {
 ///     guesses left a name he had listed in the public report).
 ///   - A name of **two or more words** is matched in any letter case, in every alphabet ("acme
 ///     deal", "CAFÉ NORTH" for "Café North", [`fold_char`]).
+///   - **An accented letter is one letter however it is encoded**: "é" as one character or as "e"
+///     and a combining accent ([`folded`]). This holds for every rule here.
 ///   - A **one-word conversation name** is not matched at all (round 21 `privateTerms` does the
 ///     same): "Running" is a conversation in the demo and an ordinary word everywhere else.
 ///   - Any other **one-word name written Capitalized** ("Acme", "Deeply") is matched only where it
@@ -356,10 +360,16 @@ fn fold_char(c: char) -> impl Iterator<Item = char> {
     c.to_lowercase().flat_map(char::to_uppercase).flat_map(char::to_lowercase)
 }
 
-/// `text` with its letter case folded away ([`fold_char`]): the same words in any capitals
-/// fold to the same string.
+/// `text` with its letter case folded away ([`fold_char`]) and its accents written one way: the
+/// same words in any capitals, and however their accented letters are encoded, fold to the same
+/// string. "é" is one character (U+00E9) or "e" followed by a combining acute accent (U+0301),
+/// the same visible letter; both are compared decomposed, Unicode's canonical caseless match
+/// (D145: decompose, fold, decompose again, since folding can make a letter that decomposes).
+/// Review rv-20261009T184833Z-c3c40906-bf02 finding 1: on c3c40906d, with Rich naming "Café
+/// North" private one way, "CAFÉ NORTH" written the other way went out with no heads-up.
 fn folded(text: &str) -> String {
-    text.chars().flat_map(fold_char).collect()
+    let once: String = text.nfd().flat_map(fold_char).collect();
+    once.nfd().collect()
 }
 
 /// **The same words, however they are spaced**: `text` with its letter case folded away
@@ -369,7 +379,7 @@ fn key(text: &str) -> String {
     text.split_whitespace().map(folded).collect::<Vec<_>>().join(" ")
 }
 
-/// What a match of `term` must hold, one folded character at a time ([`fold_char`]), with `None`
+/// What a match of `term` must hold, one folded character at a time ([`folded`]), with `None`
 /// for each run of spaces, tabs and line breaks between its words: any run in the term matches
 /// any run in the text, so "Jane\nDoe", "Jane  Doe" and "Jane Doe" are one name whichever of them
 /// Rich listed and whichever the text holds (review rv-20261009T173448Z-baf60f3c-c54d finding 1:
@@ -388,14 +398,19 @@ fn needle_of(term: &str) -> Vec<Option<char>> {
 }
 
 /// Where a match of `needle` ([`needle_of`]) that starts at byte `start` of `text` ends, if one
-/// does: `text` is folded one character at a time, so the end is always a character boundary of
-/// the ORIGINAL text, whatever lengths the two spellings have ("ß" is one character and folds to
-/// two). A `None` in the needle takes a whole run of whitespace in the text, one character or many;
-/// the needle neither starts nor ends with one, so a match starts and ends on a word.
+/// does: `text` is folded ([`folded`]) one letter as written at a time, a character with the
+/// combining marks that follow it, so the end is always the end of a whole letter of the ORIGINAL
+/// text, whatever lengths the two spellings have ("ß" is one character and folds to two; "é" is
+/// one character or two, and decomposes to two), and an accent is never left behind outside a
+/// match nor a name found inside a letter ("Cafe" is not in "Café" written either way). A `None`
+/// in the needle takes a whole run of whitespace in the text, one character or many; the needle
+/// neither starts nor ends with one, so a match starts and ends on a word.
 fn folded_match_end(text: &str, start: usize, needle: &[Option<char>]) -> Option<usize> {
+    let rest = &text[start..];
     let mut matched = 0;
     let mut in_space = false;
-    for (i, c) in text[start..].char_indices() {
+    let mut chars = rest.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
         if c.is_whitespace() {
             if !in_space {
                 if needle.get(matched) != Some(&None) {
@@ -407,14 +422,22 @@ fn folded_match_end(text: &str, start: usize, needle: &[Option<char>]) -> Option
             continue;
         }
         in_space = false;
-        for f in fold_char(c) {
+        let mut end = i + c.len_utf8();
+        while let Some(&(j, mark)) = chars.peek() {
+            if canonical_combining_class(mark) == 0 {
+                break;
+            }
+            end = j + mark.len_utf8();
+            chars.next();
+        }
+        for f in folded(&rest[i..end]).chars() {
             if needle.get(matched) != Some(&Some(f)) {
                 return None;
             }
             matched += 1;
         }
         if matched == needle.len() {
-            return Some(start + i + c.len_utf8());
+            return Some(start + end);
         }
     }
     None

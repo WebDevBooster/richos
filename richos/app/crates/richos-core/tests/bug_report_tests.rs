@@ -1403,3 +1403,51 @@ fn an_at_name_in_the_body_notifies_nobody_on_github() {
     let typed = Sheet { title: "t".into(), sections: vec![SheetSection { heading: "What happened".into(), paragraphs: vec!["@\u{200B}x".into()], steps: vec![] }] };
     assert_eq!(sent_body(&typed, &Check::of(&draft_of(&typed, vec![]))), "### What happened\n\n@\u{200B}\u{200B}x\n");
 }
+
+// ---- the review of c3c40906d (rv-20261009T184833Z-c3c40906-bf02), fixture `privacy_probe.rs` ----
+
+/// "Café North" twice, the same visible name: "é" as one character (U+00E9), and as "e" followed
+/// by the combining acute accent (U+0301). Text copied from different places carries either.
+const CAFE_ONE: &str = "Caf\u{E9} North";
+const CAFE_TWO: &str = "Cafe\u{301} North";
+
+#[test]
+fn a_private_name_with_an_accent_written_the_other_unicode_way_is_left_out() {
+    // On c3c40906d, with Rich naming "Café North" private one way and the text holding it the other
+    // way, the report went out with "CAFÉ NORTH" in it and no heads-up, both ways round.
+    for (listed, said) in [(CAFE_ONE, "CAFE\u{301} NORTH froze."), (CAFE_TWO, "CAF\u{C9} NORTH froze.")] {
+        let private = serde_json::json!([{"text": listed, "kind": "company"}]).to_string();
+        let written = checked_with(said, &private);
+        let body = sent_body(&sheet_of(&written.draft), &Check::of(&written.draft));
+        assert!(!body.contains("NORTH") && body.contains("\\[a company\\] froze."), "{listed:?} in {said:?} sent {body:?}");
+        let name = said.trim_end_matches(" froze.").to_string();
+        assert_eq!(private_in_edit(said, &[], &written.draft.private), vec![name], "no heads-up on {said:?}");
+    }
+    // RichOS's own names go by the same rule, and the stand-in replaces the words as written. A
+    // one-word name written Capitalized is still matched only where it is written with a capital.
+    let app = Scrubber::new(vec![PrivateTerm::new(CAFE_TWO, Kind::CompanyName), PrivateTerm::new("Rene\u{301}e", Kind::PersonName)]);
+    assert_eq!(joined(&app.scrub("Ask CAF\u{C9} NORTH. Ren\u{E9}e and ren\u{E9}e.")), "Ask [a company]. [a person] and ren\u{E9}e.");
+    // Two spellings of one name are one private word, and each is found as it is written.
+    let both = Scrubber::with_rich(vec![PrivateTerm::new(CAFE_ONE, Kind::CompanyName)], vec![PrivateTerm::new(CAFE_TWO, Kind::CompanyName)]);
+    assert!(both.terms().is_empty(), "{:?}", both.terms());
+    assert_eq!(both.private_in(&format!("{CAFE_ONE} and {CAFE_TWO}")), vec![CAFE_ONE.to_string(), CAFE_TWO.to_string()]);
+    // A name without the accent is still another name: "Cafe North" is not "Café North".
+    assert!(Scrubber::with_rich(vec![], vec![PrivateTerm::new("Cafe North", Kind::CompanyName)]).private_in(CAFE_TWO).is_empty());
+}
+
+#[test]
+fn a_private_name_with_an_accent_written_the_other_unicode_way_is_left_out_once_rich_checks_a_change_by_hand() {
+    // The same on c3c40906d after a change by hand that Rich checked, naming "Café North": the
+    // report was sendable at once, and "CAFÉ NORTH" went out.
+    for (listed, said) in [(CAFE_ONE, "CAFE\u{301} NORTH froze."), (CAFE_TWO, "CAF\u{C9} NORTH froze.")] {
+        let written = checked_with("The window froze.", "[]");
+        let mut edited = sheet_of(&written.draft);
+        edited.sections[0].paragraphs[0] = said.into();
+        assert_eq!(decide(&edited, Some(&Check::of(&written.draft)), &[]), Decision::Unchecked);
+        let reply = serde_json::json!({"private": [{"text": listed, "kind": "company"}]}).to_string();
+        let recheck = check_edit(Ok(reply), &edited, &[]).unwrap();
+        assert!(matches!(decide(&edited, Some(&recheck), &[]), Decision::Show(_)), "sent without showing what was left out");
+        let body = sent_body(&edited, &recheck);
+        assert!(!body.contains("NORTH") && body.contains("\\[a company\\] froze."), "{listed:?} in {said:?} sent {body:?}");
+    }
+}
