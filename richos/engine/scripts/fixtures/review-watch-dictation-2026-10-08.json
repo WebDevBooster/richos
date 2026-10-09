@@ -1,0 +1,583 @@
+{
+ "_source": "2026-10-08 dictation record, timestamps only. Registry rows: ~/.claude/state/workspaces/done/<session>--<name>.json (started_at, end, disposition, continues). Commit times: richos `git log --no-merges --format='%h %ct' <merge>^1..<merge>^2` for each landing merge (dict4c 9ba369198, dict1c 67cad59ec, dict3b 9c0393be2, dict2 990da3d3f, dict5c 153945058), each commit given to the teammate whose registry run window holds its committer time. No commit content, no transcript content.",
+ "repo": "richos",
+ "teammates": [
+  {
+   "name": "echo-opus-dict4",
+   "registered_at": "2026-10-08T03:14:33Z",
+   "started_at": "2026-10-08T03:15:30Z",
+   "end_at": "2026-10-08T05:57:58Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T06:57:15Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "941988288",
+     "at": "2026-10-08T03:29:45Z"
+    },
+    {
+     "sha": "94a4f412a",
+     "at": "2026-10-08T03:36:51Z"
+    },
+    {
+     "sha": "2ab9ce9e6",
+     "at": "2026-10-08T03:43:09Z"
+    },
+    {
+     "sha": "caaee3ba9",
+     "at": "2026-10-08T04:42:58Z"
+    },
+    {
+     "sha": "8f1858a74",
+     "at": "2026-10-08T04:45:32Z"
+    },
+    {
+     "sha": "5498dcd9f",
+     "at": "2026-10-08T04:46:36Z"
+    },
+    {
+     "sha": "106165d90",
+     "at": "2026-10-08T05:00:53Z"
+    },
+    {
+     "sha": "0851b5273",
+     "at": "2026-10-08T05:16:14Z"
+    },
+    {
+     "sha": "76167734c",
+     "at": "2026-10-08T05:16:37Z"
+    },
+    {
+     "sha": "d1e2ca003",
+     "at": "2026-10-08T05:35:13Z"
+    },
+    {
+     "sha": "b0b337ddf",
+     "at": "2026-10-08T05:35:38Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-opus-dict4c",
+   "registered_at": "2026-10-08T06:14:58Z",
+   "started_at": "2026-10-08T06:16:20Z",
+   "end_at": "2026-10-08T06:43:20Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T06:57:18Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "46ee4cd68",
+     "at": "2026-10-08T06:18:37Z"
+    },
+    {
+     "sha": "79cd8cecb",
+     "at": "2026-10-08T06:20:09Z"
+    },
+    {
+     "sha": "ecd148880",
+     "at": "2026-10-08T06:27:55Z"
+    },
+    {
+     "sha": "292c58e22",
+     "at": "2026-10-08T06:30:57Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-opus-dict1",
+   "registered_at": "2026-10-08T02:52:41Z",
+   "started_at": "2026-10-08T02:53:45Z",
+   "end_at": "2026-10-08T06:03:39Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T07:18:12Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "9637764d6",
+     "at": "2026-10-08T03:15:21Z"
+    },
+    {
+     "sha": "356a31629",
+     "at": "2026-10-08T03:18:42Z"
+    },
+    {
+     "sha": "7522c1c1c",
+     "at": "2026-10-08T03:44:53Z"
+    },
+    {
+     "sha": "6de2d5772",
+     "at": "2026-10-08T03:53:08Z"
+    },
+    {
+     "sha": "d8ce5d359",
+     "at": "2026-10-08T03:56:05Z"
+    },
+    {
+     "sha": "d348c0255",
+     "at": "2026-10-08T04:16:06Z"
+    },
+    {
+     "sha": "747a9aaf6",
+     "at": "2026-10-08T04:22:44Z"
+    },
+    {
+     "sha": "7ece55606",
+     "at": "2026-10-08T04:23:08Z"
+    },
+    {
+     "sha": "030dc463b",
+     "at": "2026-10-08T04:31:45Z"
+    },
+    {
+     "sha": "a5b5fe947",
+     "at": "2026-10-08T04:41:29Z"
+    },
+    {
+     "sha": "5bfe4add6",
+     "at": "2026-10-08T04:55:56Z"
+    },
+    {
+     "sha": "8f53619bf",
+     "at": "2026-10-08T04:56:13Z"
+    },
+    {
+     "sha": "5a7ea3492",
+     "at": "2026-10-08T05:22:10Z"
+    },
+    {
+     "sha": "b5707fbbe",
+     "at": "2026-10-08T05:36:53Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-opus-dict1b",
+   "registered_at": "2026-10-08T06:17:29Z",
+   "started_at": "2026-10-08T06:18:15Z",
+   "end_at": "2026-10-08T06:44:38Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T07:18:09Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "28bd4d600",
+     "at": "2026-10-08T06:24:52Z"
+    },
+    {
+     "sha": "f27a28079",
+     "at": "2026-10-08T06:38:54Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-opus-dict1c",
+   "registered_at": "2026-10-08T07:08:04Z",
+   "started_at": "2026-10-08T07:08:42Z",
+   "end_at": "2026-10-08T07:12:40Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T07:18:03Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "3c1f88f89",
+     "at": "2026-10-08T07:12:20Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-opus-dict3",
+   "registered_at": "2026-10-08T07:18:36Z",
+   "started_at": "2026-10-08T07:19:34Z",
+   "end_at": "2026-10-08T09:28:58Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T10:10:44Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "34fc0f4b6",
+     "at": "2026-10-08T07:34:50Z"
+    },
+    {
+     "sha": "869f32fbb",
+     "at": "2026-10-08T07:46:55Z"
+    },
+    {
+     "sha": "07dcb4157",
+     "at": "2026-10-08T07:53:14Z"
+    },
+    {
+     "sha": "478d66d64",
+     "at": "2026-10-08T08:03:10Z"
+    },
+    {
+     "sha": "cf0fb8c9f",
+     "at": "2026-10-08T08:03:27Z"
+    },
+    {
+     "sha": "7101056cb",
+     "at": "2026-10-08T08:18:37Z"
+    },
+    {
+     "sha": "d8ffc3884",
+     "at": "2026-10-08T08:35:00Z"
+    },
+    {
+     "sha": "8da28a140",
+     "at": "2026-10-08T08:35:51Z"
+    },
+    {
+     "sha": "39c72531d",
+     "at": "2026-10-08T09:04:16Z"
+    },
+    {
+     "sha": "a9fa3dd5d",
+     "at": "2026-10-08T09:17:44Z"
+    },
+    {
+     "sha": "f0b22e674",
+     "at": "2026-10-08T09:26:25Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-sonnet-dict3b",
+   "registered_at": "2026-10-08T09:46:36Z",
+   "started_at": "2026-10-08T09:47:36Z",
+   "end_at": "2026-10-08T09:49:20Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T10:10:36Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "afd2466be",
+     "at": "2026-10-08T09:49:05Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-opus-dict2",
+   "registered_at": "2026-10-08T07:18:26Z",
+   "started_at": "2026-10-08T07:19:20Z",
+   "end_at": "2026-10-08T12:22:35Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T12:40:46Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "e3bad4393",
+     "at": "2026-10-08T07:45:16Z"
+    },
+    {
+     "sha": "7cd0faffa",
+     "at": "2026-10-08T08:18:31Z"
+    },
+    {
+     "sha": "e9a81a537",
+     "at": "2026-10-08T08:19:07Z"
+    },
+    {
+     "sha": "db310fdc2",
+     "at": "2026-10-08T08:19:30Z"
+    },
+    {
+     "sha": "eb16b01ce",
+     "at": "2026-10-08T08:32:20Z"
+    },
+    {
+     "sha": "86494cb40",
+     "at": "2026-10-08T08:40:12Z"
+    },
+    {
+     "sha": "dadf5ed3e",
+     "at": "2026-10-08T08:58:43Z"
+    },
+    {
+     "sha": "ee92df2c4",
+     "at": "2026-10-08T08:59:13Z"
+    },
+    {
+     "sha": "7b150e308",
+     "at": "2026-10-08T09:09:44Z"
+    },
+    {
+     "sha": "7095c5fc7",
+     "at": "2026-10-08T09:16:55Z"
+    },
+    {
+     "sha": "40fb439b6",
+     "at": "2026-10-08T09:22:54Z"
+    },
+    {
+     "sha": "32919eb3c",
+     "at": "2026-10-08T09:28:05Z"
+    },
+    {
+     "sha": "6c0da40b8",
+     "at": "2026-10-08T09:36:36Z"
+    },
+    {
+     "sha": "0d5788c6e",
+     "at": "2026-10-08T09:43:39Z"
+    },
+    {
+     "sha": "2e02d6c36",
+     "at": "2026-10-08T09:52:49Z"
+    },
+    {
+     "sha": "dada2c885",
+     "at": "2026-10-08T10:12:01Z"
+    },
+    {
+     "sha": "c8796a76d",
+     "at": "2026-10-08T10:14:49Z"
+    },
+    {
+     "sha": "6bbfa285d",
+     "at": "2026-10-08T10:27:01Z"
+    },
+    {
+     "sha": "eec0a58e8",
+     "at": "2026-10-08T10:30:01Z"
+    },
+    {
+     "sha": "2370181e1",
+     "at": "2026-10-08T10:35:12Z"
+    },
+    {
+     "sha": "30d09ecb5",
+     "at": "2026-10-08T10:45:44Z"
+    },
+    {
+     "sha": "f8e160495",
+     "at": "2026-10-08T10:58:15Z"
+    },
+    {
+     "sha": "5459d8022",
+     "at": "2026-10-08T11:10:41Z"
+    },
+    {
+     "sha": "1c7536ee3",
+     "at": "2026-10-08T11:16:26Z"
+    },
+    {
+     "sha": "1dca0722a",
+     "at": "2026-10-08T11:24:52Z"
+    },
+    {
+     "sha": "b45d85d3f",
+     "at": "2026-10-08T11:54:47Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-fable-dict5",
+   "registered_at": "2026-10-08T12:26:04Z",
+   "started_at": "2026-10-08T12:27:18Z",
+   "end_at": "2026-10-08T16:56:54Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T18:58:06Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "ef9fbbe81",
+     "at": "2026-10-08T13:12:22Z"
+    },
+    {
+     "sha": "68b8851e3",
+     "at": "2026-10-08T13:13:04Z"
+    },
+    {
+     "sha": "fa3946bdc",
+     "at": "2026-10-08T13:13:40Z"
+    },
+    {
+     "sha": "bbcb65190",
+     "at": "2026-10-08T13:14:44Z"
+    },
+    {
+     "sha": "a65ab7ee4",
+     "at": "2026-10-08T13:21:18Z"
+    },
+    {
+     "sha": "1733118a8",
+     "at": "2026-10-08T13:32:52Z"
+    },
+    {
+     "sha": "c29c5a319",
+     "at": "2026-10-08T13:54:57Z"
+    },
+    {
+     "sha": "d3c46aa97",
+     "at": "2026-10-08T13:55:27Z"
+    },
+    {
+     "sha": "addb626b9",
+     "at": "2026-10-08T14:07:45Z"
+    },
+    {
+     "sha": "4c19a1b7f",
+     "at": "2026-10-08T14:17:05Z"
+    },
+    {
+     "sha": "b56070037",
+     "at": "2026-10-08T14:25:23Z"
+    },
+    {
+     "sha": "68b22f3f4",
+     "at": "2026-10-08T14:30:01Z"
+    },
+    {
+     "sha": "0126b2d30",
+     "at": "2026-10-08T14:31:41Z"
+    },
+    {
+     "sha": "296b41b01",
+     "at": "2026-10-08T14:37:26Z"
+    },
+    {
+     "sha": "7eed1de96",
+     "at": "2026-10-08T14:42:59Z"
+    },
+    {
+     "sha": "f07ae7621",
+     "at": "2026-10-08T14:47:36Z"
+    },
+    {
+     "sha": "6a753f32f",
+     "at": "2026-10-08T14:52:04Z"
+    },
+    {
+     "sha": "b95290282",
+     "at": "2026-10-08T15:00:47Z"
+    },
+    {
+     "sha": "17356bd24",
+     "at": "2026-10-08T15:04:31Z"
+    },
+    {
+     "sha": "0faa03faf",
+     "at": "2026-10-08T15:11:37Z"
+    },
+    {
+     "sha": "5e65f0e32",
+     "at": "2026-10-08T15:13:57Z"
+    },
+    {
+     "sha": "6dcd14dcb",
+     "at": "2026-10-08T15:55:53Z"
+    },
+    {
+     "sha": "a4ef55e04",
+     "at": "2026-10-08T16:08:33Z"
+    },
+    {
+     "sha": "63e10f3fb",
+     "at": "2026-10-08T16:14:48Z"
+    },
+    {
+     "sha": "31f787bae",
+     "at": "2026-10-08T16:43:22Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-fable-dict5b",
+   "registered_at": "2026-10-08T16:58:45Z",
+   "started_at": "2026-10-08T16:59:37Z",
+   "end_at": "2026-10-08T18:16:26Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T18:58:06Z"
+   },
+   "continues": [
+    "echo-fable-dict5"
+   ],
+   "commits": [
+    {
+     "sha": "f5c877e52",
+     "at": "2026-10-08T17:08:30Z"
+    },
+    {
+     "sha": "9be79b133",
+     "at": "2026-10-08T17:16:20Z"
+    },
+    {
+     "sha": "a8a232c0e",
+     "at": "2026-10-08T17:49:56Z"
+    },
+    {
+     "sha": "0df12e036",
+     "at": "2026-10-08T18:15:09Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-fable-dict5c",
+   "registered_at": "2026-10-08T18:30:38Z",
+   "started_at": "2026-10-08T18:31:27Z",
+   "end_at": "2026-10-08T18:42:13Z",
+   "end_signal": "SubagentStop",
+   "disposition": {
+    "kind": "landed",
+    "at": "2026-10-08T18:58:03Z"
+   },
+   "continues": [],
+   "commits": [
+    {
+     "sha": "131b1f832",
+     "at": "2026-10-08T18:39:59Z"
+    },
+    {
+     "sha": "d6c4ef6e5",
+     "at": "2026-10-08T18:41:01Z"
+    },
+    {
+     "sha": "8c8f30e63",
+     "at": "2026-10-08T18:41:24Z"
+    }
+   ]
+  },
+  {
+   "name": "echo-opus-dict4b",
+   "registered_at": "2026-10-08T06:13:55Z",
+   "started_at": null,
+   "end_at": "2026-10-08T06:15:10Z",
+   "end_signal": "stopped",
+   "disposition": {
+    "kind": "discarded",
+    "at": "2026-10-08T06:15:10Z"
+   },
+   "continues": [],
+   "commits": []
+  }
+ ]
+}

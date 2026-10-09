@@ -16,5 +16,11 @@
     "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/codex-watch.sh --monitor",
     "description": "Wakes the lead when Codex writes to it: each new entry in ~/.richos-coordination/rich-codex/to-rich.md or rich-codex-questions/to-rich.md is told once, with every one of its lines. Looks every 15 s and only reads",
     "when": "always"
+  },
+  {
+    "name": "review-watch",
+    "command": "bash \"${CLAUDE_PLUGIN_ROOT}\"/scripts/review-watch.sh --monitor",
+    "description": "Starts the second review by itself (the CEO's ruling 113): a different model reviews a teammate's own commits at its handover, every hour of a long job, when it goes quiet, and at each Codex READY entry, in the repositories SECOND_REVIEW_REPOS lists. Looks every 60 s, tells each verdict once, and again every 30 minutes while a changes-requested handover has no continuation",
+    "when": "always"
   }
 ]
