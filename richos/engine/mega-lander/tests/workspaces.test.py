@@ -4246,6 +4246,22 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.assertEqual(F.review_repo_identity(local), a)
         self.assertEqual(F.review_repo_identity(foreign), b)
 
+    def test_second_review_identity_survives_awkward_folder_names_unchanged(self):
+        spec = importlib.util.spec_from_file_location(
+            "srv_ident_awk", os.path.join(ENGINE, "scripts", "lib", "second_review.py"))
+        sr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sr)
+        F = ws._fence_program()
+        base = os.path.join(self.env.root, "identawk")
+        for i, name in enumerate(["storage ", "storage\r", "stor\tage", "st\u00f6rage", "storage"]):
+            bare = os.path.join(base, name)
+            wt = os.path.join(base, "wt%d" % i)
+            run("git", "clone", "-q", "--bare", "--no-hardlinks", self.other, bare)
+            run("git", "-C", bare, "worktree", "add", "-q", "--detach", wt, "HEAD")
+            want = os.path.realpath(bare)
+            self.assertEqual(sr.repo_identity(wt), want, repr(name))
+            self.assertEqual(F.review_repo_identity(wt), want, repr(name))
+
     def test_second_review_an_unlisted_repository_is_not_refused(self):
         self.declare("")
         run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)

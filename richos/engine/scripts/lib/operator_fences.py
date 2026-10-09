@@ -1019,8 +1019,13 @@ def review_repo_resolved(repo):
     real = os.path.realpath(repo or "")
     resolved = False
     if repo and os.path.isdir(real):
-        code, out, _err = git(real, "rev-parse", "--git-common-dir")
-        common = out[:-1] if out.endswith("\n") else out
+        try:
+            r = subprocess.run(["git", "-C", real, "rev-parse", "--git-common-dir"], capture_output=True,
+                               timeout=60, env=dict(os.environ, GIT_OPTIONAL_LOCKS="0", LC_ALL="C"))
+            code, out = r.returncode, r.stdout
+        except (OSError, subprocess.TimeoutExpired):
+            code, out = 127, b""
+        common = os.fsdecode(out[:-1] if out.endswith(b"\n") else out)
         if code == 0 and common:
             real = os.path.realpath(os.path.join(real, common))
             resolved = True
