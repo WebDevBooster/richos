@@ -83,7 +83,8 @@ both() { # $1 name: one capture in each theme, dark first, and back to dark
 "$T/guest.sh" "$VM" "chmod 755 $G/claude $G/claude-fill-first; printf '{\"five\":10,\"weekly\":20}' > $G/usage-1.json; printf 'Noted.' > $G/reply.txt" \
   || setup_failed "the fixture files"
 PAYLOAD=$(cat "${TESTVM_ROOT:-$HOME/.richos-testvm}/run/$VM/payload")
-case "$PAYLOAD" in /Users/admin/*/testvm/*) ;; *) setup_failed "the guest payload ($PAYLOAD)" ;; esac
+# run.sh's payload is /Users/admin/testvm/<vm> (measured on walk-85648710ca8f).
+case "$PAYLOAD" in /Users/admin/testvm/*) ;; *) setup_failed "the guest payload ($PAYLOAD)" ;; esac
 GHOME="$PAYLOAD/home"
 # The token goes into the keychain the app reads: the GUI session's default keychain for this
 # fixture HOME, which keychain.sh made at boot.
@@ -136,11 +137,12 @@ check "Rich asks what went wrong" "Rich did not ask" wait_text 'What went wrong?
 "$T/ax.sh" "$VM" type "In the $COMPANY chat the names on the left get cut off when I make the text bigger." --role AXTextArea --first --replace || fail "typing the answer"
 "$T/ax.sh" "$VM" --key 36 || fail "Return"
 check "the report card, not sent yet" "no report card" wait_text 'Not sent yet' 40
-"$T/ax.sh" "$VM" tree > "$S/2-report.tree" 2>&1 || true
-check "the company is a stand-in" "no [a company] stand-in on the card" has '\[a company\]' "$S/2-report.tree"
-check "the person is a stand-in" "no [a person] stand-in on the card" has '\[a person\]' "$S/2-report.tree"
-refuse "the person's name is on the card" has "$PERSON" "$S/2-report.tree"
-check "From the RichOS reporting account" "no From line" has 'the RichOS reporting account' "$S/2-report.tree"
+# Asked node by node: a whole-tree read of the conversation outlasts ax.sh's 20 s deadline on a
+# busy host (walk-aba5c01c19ce, exit 124).
+check "the company is a stand-in" "no [a company] stand-in on the card" wait_text '[a company]' 3
+check "the person is a stand-in" "no [a person] stand-in on the card" wait_text '[a person]' 3
+refuse "the person's name is on the card" wait_text "$PERSON" 1
+check "From the RichOS reporting account" "no From line" wait_text 'the RichOS reporting account' 3
 refuse "something reached the endpoint before Send" "$T/guest.sh" "$VM" "test -s $G/stand-in.log"
 "$T/guest.sh" "$VM" "cat $G/writer-prompts.log" > "$S/writer-prompts.log" 2>&1 || true
 check "Rich was given the user's words" "Rich was not given the user's words" has 'cut off when I make the text bigger' "$S/writer-prompts.log"
@@ -148,7 +150,7 @@ both 2-report
 
 # ---- 3. Send while the endpoint is down: kept on this Mac ----
 "$T/ax.sh" "$VM" click --title 'Send report' || fail "Send report"
-check "waiting to send, saved on this Mac" "the card never said Waiting to send" wait_text 'Waiting to send' 30
+check "waiting to send, saved on this Mac" "the card never said Waiting to send" wait_text 'Waiting to send' 12
 check "Rich's offline line" "no offline line" wait_text "This Mac is offline, so the report didn't go out" 5
 # shellcheck disable=SC2016  # the $(...) is meant to expand in the guest's shell, not here
 DATA=$("$T/guest.sh" "$VM" 'd="$(find /Users/admin -type d -name bug-reports -path "*com.richos.app*" 2>/dev/null | head -1)"; echo "$d"')
@@ -159,7 +161,7 @@ both 3-waiting
 # ---- 4. the endpoint comes up: it goes out by itself ----
 "$T/guest.sh" "$VM" "nohup python3 $G/github-stand-in.py $PORT $G/stand-in.log >/dev/null 2>&1 & echo started" || fail "starting the stand-in"
 note "the stand-in endpoint is up; waiting for the report to go out by itself"
-check "Sent · #412, by itself" "the card never said Sent · #412" wait_text 'Sent · #412' 40
+check "Sent · #412, by itself" "the card never said Sent · #412" wait_text 'Sent · #412' 16
 check "Rich says it went out" "Rich did not say it went out" wait_text "You're back online, so I sent your bug report" 5
 "$T/guest.sh" "$VM" "cat $G/stand-in.log" > "$S/stand-in.log" 2>&1 || true
 posts=$(grep -c '"path": "/repos/WebDevBooster/richos/issues"' "$S/stand-in.log" || true)
