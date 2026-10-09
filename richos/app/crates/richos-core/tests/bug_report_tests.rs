@@ -231,7 +231,7 @@ fn the_issue_is_the_sheet_word_for_word() {
          ### Version\n\nRichOS 1.2.0, nightly 45 · macOS 15.6 · Apple silicon\n"
     );
     // The request is the title and that body, and nothing else.
-    let (path, json) = issue_request(&sheet);
+    let (path, json) = issue_request(&public_of(&sheet));
     assert_eq!(path, "/repos/WebDevBooster/richos/issues");
     assert_eq!(json, serde_json::json!({ "title": "Names are cut off at 135%", "body": body }));
     // The card's link is built from the number, never from a URL the page passes.
@@ -284,12 +284,37 @@ fn sheet(title: &str) -> Sheet {
     }
 }
 
+fn plain(text: &str) -> Vec<Segment> {
+    vec![Segment { text: text.to_string(), was: None, kind: None }]
+}
+
+/// `sheet` as a draft of plain words, as the card would show it.
+fn draft_of(sheet: &Sheet, private: Vec<PrivateTerm>) -> Draft {
+    Draft {
+        title: plain(&sheet.title),
+        sections: sheet
+            .sections
+            .iter()
+            .map(|s| DraftSection { heading: s.heading.clone(), paragraphs: s.paragraphs.iter().map(|p| plain(p)).collect(), steps: s.steps.iter().map(|p| plain(p)).collect() })
+            .collect(),
+        private,
+    }
+}
+
+/// What may leave this Mac of `sheet`, when it is exactly what Rich checked and holds nothing private.
+fn public_of(sheet: &Sheet) -> Public {
+    match decide(sheet, Some(&Check::of(&draft_of(sheet, vec![]))), &[]) {
+        Decision::Send(public) => public,
+        other => panic!("not sendable: {other:?}"),
+    }
+}
+
 #[test]
 fn send_files_one_issue_from_the_reporting_account_and_keeps_a_record_of_it() {
     let dir = scratch("send");
     let outbox = Outbox::open(&dir);
     let github = FakeGitHub::answering(vec![Outcome::Created { number: 412, url: "https://github.com/WebDevBooster/richos/issues/412".into() }]);
-    let delivery = outbox.send(&sheet("Names are cut off"), &Token(Some("tok-1")), &github, 1_000).unwrap();
+    let delivery = outbox.send(&public_of(&sheet("Names are cut off")), &Token(Some("tok-1")), &github, 1_000).unwrap();
     match delivery {
         Delivery::Sent(sent) => {
             assert_eq!(sent.number, 412);
@@ -316,7 +341,7 @@ fn a_failed_send_is_kept_on_the_mac_exactly_as_approved_and_resent_when_it_can_g
     {
         let outbox = Outbox::open(&dir);
         let offline = FakeGitHub::answering(vec![Outcome::Unreachable]);
-        match outbox.send(&approved, &Token(Some("tok")), &offline, 10_000).unwrap() {
+        match outbox.send(&public_of(&approved), &Token(Some("tok")), &offline, 10_000).unwrap() {
             Delivery::Waiting { reason, .. } => assert_eq!(reason, Reason::Offline),
             other => panic!("{other:?}"),
         }
@@ -349,7 +374,7 @@ fn a_failed_send_is_kept_on_the_mac_exactly_as_approved_and_resent_when_it_can_g
 fn try_now_sends_a_waiting_report_at_once() {
     let dir = scratch("trynow");
     let outbox = Outbox::open(&dir);
-    let id = match outbox.send(&sheet("x"), &Token(Some("t")), &FakeGitHub::answering(vec![Outcome::Status { code: 503 }]), 0).unwrap() {
+    let id = match outbox.send(&public_of(&sheet("x")), &Token(Some("t")), &FakeGitHub::answering(vec![Outcome::Status { code: 503 }]), 0).unwrap() {
         Delivery::Waiting { id, reason } => {
             assert_eq!(reason, Reason::GithubDown);
             id
@@ -367,7 +392,7 @@ fn with_no_reporting_account_set_up_nothing_is_tried_and_the_report_waits() {
     let dir = scratch("notoken");
     let outbox = Outbox::open(&dir);
     let github = FakeGitHub::answering(vec![]);
-    match outbox.send(&sheet("x"), &Token(None), &github, 0).unwrap() {
+    match outbox.send(&public_of(&sheet("x")), &Token(None), &github, 0).unwrap() {
         Delivery::Waiting { reason, .. } => assert_eq!(reason, Reason::NotSetUp),
         other => panic!("{other:?}"),
     }
@@ -380,7 +405,7 @@ fn with_no_reporting_account_set_up_nothing_is_tried_and_the_report_waits() {
 fn a_canceled_report_is_gone_and_is_never_sent() {
     let dir = scratch("cancel");
     let outbox = Outbox::open(&dir);
-    let id = match outbox.send(&sheet("x"), &Token(Some("t")), &FakeGitHub::answering(vec![Outcome::Unreachable]), 0).unwrap() {
+    let id = match outbox.send(&public_of(&sheet("x")), &Token(Some("t")), &FakeGitHub::answering(vec![Outcome::Unreachable]), 0).unwrap() {
         Delivery::Waiting { id, .. } => id,
         other => panic!("{other:?}"),
     };
@@ -539,7 +564,7 @@ fn cancel_says_canceled_only_once_the_copy_is_gone_and_names_the_issue_when_it_w
     // whatever the shell answered, and the shell only answered whether a file was removed.
     let dir = scratch("withdraw");
     let outbox = Outbox::open(&dir);
-    let waiting = |answer: Outcome| match outbox.send(&sheet("x"), &Token(Some("t")), &FakeGitHub::answering(vec![answer]), 0).unwrap() {
+    let waiting = |answer: Outcome| match outbox.send(&public_of(&sheet("x")), &Token(Some("t")), &FakeGitHub::answering(vec![answer]), 0).unwrap() {
         Delivery::Waiting { id, .. } => id,
         other => panic!("{other:?}"),
     };
@@ -1164,4 +1189,148 @@ fn a_name_rich_lists_across_a_blank_line_is_left_out_before_the_draft_splits_it_
 /// Rich's checked draft of `said`, naming `private` (a JSON list), with no names RichOS holds.
 fn checked_with(said: &str, private: &str) -> Checked {
     checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap()
+}
+
+#[test]
+fn words_the_user_changes_by_hand_are_not_sent_until_rich_has_checked_them() {
+    // Finding 1, fixture `manual_edit.js`: on 3007e3200 Change it → Done made the user's own words
+    // sendable after only the heads-up's scan, which cannot know an ordinary client's name, and
+    // Send filed "Jane Doe at SecretCo saw the window freeze while opening the plan." (On
+    // 3007e3200 this test does not compile: Send had no check of Rich's to be held on.)
+    let app = vec![PrivateTerm::new("Pat Morgan", Kind::PersonName), PrivateTerm::new("Example Company", Kind::CompanyName)];
+    let written = checked(Ok(answer_naming("The window froze while opening the plan.", "[]")), &screen(), false, VERSION, &Scrubber::new(app.clone())).unwrap();
+    let check = Check::of(&written.draft);
+    let card = sheet_of(&written.draft);
+    assert!(matches!(decide(&card, Some(&check), &app), Decision::Send(_)), "the report Rich checked is not sendable");
+
+    // Change it → Done: the user's own words, with names no rule knows.
+    let mut edited = card.clone();
+    edited.sections[0].paragraphs[0] = "Jane Doe at SecretCo saw the window freeze while opening the plan.".into();
+    assert!(private_in_edit(&edited.sections[0].paragraphs[0], &app, check.private()).is_empty(), "the heads-up was never able to know these");
+    assert_eq!(decide(&edited, Some(&check), &app), Decision::Unchecked, "words Rich never saw were sendable");
+    assert_eq!(decide(&edited, None, &app), Decision::Unchecked);
+    let mut one = card.clone();
+    one.title.push('!');
+    assert_eq!(decide(&one, Some(&check), &app), Decision::Unchecked, "one changed character is a change");
+    // He is asked about the whole report as it would go.
+    let prompt = edit_check_prompt(&edited);
+    assert!(prompt.contains("Jane Doe at SecretCo saw the window freeze") && prompt.contains("{\"private\": ["), "{prompt}");
+
+    // Claude cannot check them: no check, and they are kept on this Mac with nothing waiting to go.
+    for rich in [Err("claude took too long".to_string()), Ok("I can't help with that.".to_string()), Ok(r#"{"private": "none"}"#.to_string())] {
+        assert!(check_edit(rich, &edited, check.private()).is_err());
+    }
+    let dir = scratch("edited");
+    let outbox = Outbox::open(&dir);
+    let id = match outbox.keep_edited(Edited { sheet: edited.clone(), private: check.private().to_vec() }, &screen(), "claude took too long", 1_000).unwrap() {
+        WriteUp::Unchecked { id } => id,
+        other => panic!("{other:?}"),
+    };
+    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty());
+
+    // Rich checks them once Claude answers: the card comes back with the names left out, unsent.
+    let rich = r#"{"private": [{"text": "Jane Doe", "kind": "person"}, {"text": "SecretCo", "kind": "company"}]}"#;
+    let ready = outbox.check_due(1_000 + CHECK_RETRY_MS, |u| checked_edit(Ok(rich.to_string()), u.edited.as_ref().expect("the changed words"), &app)).unwrap();
+    assert_eq!(ready.len(), 1);
+    assert_eq!(ready[0].0, id);
+    assert_eq!(ready[0].1.digest, EDIT_DIGEST);
+    assert_eq!(draft_words(&ready[0].1.draft).lines().nth(1), Some("[a person] at [a company] saw the window freeze while opening the plan."));
+    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty());
+
+    // Rich checks them at Send: what he names is left out and the card is shown again first;
+    // pressed again, the words he checked go, and nothing else.
+    let at_send = check_edit(Ok(rich.to_string()), &edited, check.private()).unwrap();
+    let shown = match decide(&edited, Some(&at_send), &app) {
+        Decision::Show(draft) => draft,
+        other => panic!("sent without showing what was left out: {other:?}"),
+    };
+    let public = match decide(&sheet_of(&shown), Some(&Check::of(&shown)), &app) {
+        Decision::Send(public) => public,
+        other => panic!("{other:?}"),
+    };
+    assert!(public.body().contains("\\[a person\\] at \\[a company\\] saw the window freeze"), "{}", public.body());
+    assert!(!public.body().contains("Jane") && !public.body().contains("SecretCo"), "{}", public.body());
+
+    // A change with nothing private in it goes at once, once Rich has checked it.
+    let mut harmless = card.clone();
+    harmless.sections[0].paragraphs[0] = "The window froze twice while opening the plan.".into();
+    let nothing = check_edit(Ok(r#"{"private": []}"#.to_string()), &harmless, check.private()).unwrap();
+    match decide(&harmless, Some(&nothing), &app) {
+        Decision::Send(public) => assert!(public.body().contains("The window froze twice while opening the plan."), "{}", public.body()),
+        other => panic!("{other:?}"),
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn what_github_is_sent_is_the_issue_rich_checked_scrubbed_last_as_one_string() {
+    // The invariant's other half: the body is scrubbed as ONE string after every other
+    // transformation (paragraphs joined, headings and step numbers added, every mark escaped), and
+    // GitHub is sent exactly that. A card whose paragraphs end "…Jane" and start "Doe…" (words
+    // split before they were scrubbed, as finding 2's were) is caught there.
+    let jane = vec![PrivateTerm::new("Jane Doe", Kind::PersonName)];
+    let card = Sheet {
+        title: "The window froze".into(),
+        sections: vec![
+            SheetSection { heading: "What happened".into(), paragraphs: vec!["It was opened by Jane".into(), "Doe saw it freeze.".into()], steps: vec![] },
+            SheetSection { heading: "Version".into(), paragraphs: vec![VERSION.into()], steps: vec![] },
+        ],
+    };
+    let check = Check::of(&draft_of(&card, jane.clone()));
+    // What the last scrub leaves out, the card is shown again with, before anything goes.
+    let shown = match decide(&card, Some(&check), &[]) {
+        Decision::Show(draft) => draft,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(draft_words(&shown).lines().nth(1), Some("It was opened by [a person] saw it freeze."));
+    let again = sheet_of(&shown);
+    let public = match decide(&again, Some(&Check::of(&shown)), &[]) {
+        Decision::Send(public) => public,
+        other => panic!("{other:?}"),
+    };
+    let dir = scratch("sent-words");
+    let outbox = Outbox::open(&dir);
+    let github = FakeGitHub::answering(vec![Outcome::Created { number: 7, url: "u".into() }]);
+    assert!(matches!(outbox.send(&public, &Token(Some("t")), &github, 0).unwrap(), Delivery::Sent(_)));
+    let seen = github.seen.borrow();
+    // What GitHub received is the words decided, and they are the issue assembled from the card,
+    // scrubbed whole, last.
+    assert_eq!((seen[0].2.as_str(), seen[0].3.as_str()), (public.title(), public.body()));
+    assert_eq!(seen[0].3, Scrubber::with_rich(vec![], jane).scrub_markdown(&issue_of(&again).body));
+    assert_eq!(seen[0].3, format!("### What happened\n\nIt was opened by \\[a person\\] saw it freeze.\n\n### Version\n\n{VERSION}\n"));
+    std::fs::remove_dir_all(dir).unwrap();
+
+    // The scrub reads the words as GitHub shows them: a name with a mark in it is found though the
+    // body escapes the mark, and its stand-in is escaped like every other word.
+    let body = |p: &str| issue_body(&Sheet { title: "t".into(), sections: vec![SheetSection { heading: "What happened".into(), paragraphs: vec![p.into()], steps: vec![] }] });
+    let acme = Scrubber::with_rich(vec![], vec![PrivateTerm::new("Acme_Co", Kind::CompanyName)]);
+    assert_eq!(acme.scrub_markdown(&body("Acme_Co *broke* it.")), "### What happened\n\n\\[a company\\] \\*broke\\* it.\n");
+    // An escape is not a backslash the user wrote; a backslash the user wrote is, and its line goes.
+    assert_eq!(Scrubber::default().scrub_markdown(&body("[a person] saw it.")), body("[a person] saw it."));
+    assert_eq!(Scrubber::default().scrub_markdown(&body("Open C:\\Users\\x please.")), "### What happened\n\n\\[a file on this Mac\\].\n");
+    // The two marks that made GitHub show other words than the ones written are escaped now.
+    assert_eq!(body("~~Jane~~ Doe and Jane&#32;Doe"), "### What happened\n\n\\~\\~Jane\\~\\~ Doe and Jane\\&\\#32;Doe\n");
+    // A title's backtick is an apostrophe: GitHub draws `Jane` in a title as code, not as "`Jane`".
+    assert_eq!(issue_of(&Sheet { title: "`Jane` froze".into(), sections: vec![] }).title, "'Jane' froze");
+}
+
+#[test]
+fn a_change_rich_writes_keeps_the_report_checked_and_a_change_by_hand_does_not() {
+    let written = checked_with("The window froze.", "[]");
+    let check = Check::of(&written.draft);
+    let card = sheet_of(&written.draft);
+    let change = change_naming("Jane Doe saw it too.", r#"[{"text": "Jane Doe", "kind": "person"}]"#);
+    let (add, kept) = scrub_change(&change, &[], check.private());
+    let after = check.with_change(&card, &change.section, &add, kept.clone()).expect("the card was what Rich checked");
+    // The card once the window adds his words under What happened, after its paragraphs: sendable.
+    let mut with_add = card.clone();
+    with_add.sections[0].paragraphs.push("[a person] saw it too.".into());
+    match decide(&with_add, Some(&after), &[]) {
+        Decision::Send(public) => assert!(public.body().contains("\\[a person\\] saw it too."), "{}", public.body()),
+        other => panic!("{other:?}"),
+    }
+    // A change asked with words the user had changed by hand does not make those words checked.
+    let mut by_hand = card.clone();
+    by_hand.sections[0].paragraphs[0] = "Marta saw the window freeze.".into();
+    assert_eq!(check.with_change(&by_hand, &change.section, &add, kept), None);
 }

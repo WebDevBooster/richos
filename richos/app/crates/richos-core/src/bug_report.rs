@@ -25,6 +25,11 @@
 //!   - **The issue, word for word** ([`Sheet`], [`issue_body`], [`issue_request`]). What goes to
 //!     GitHub is rendered from the sheet the user approved and nothing else: no label, no footer,
 //!     no attachment (round 21 "Left out, on purpose": no screenshot).
+//!   - **What leaves this Mac, decided once** ([`decide`], [`Public`]). The words sent are words
+//!     Rich checked, to the character ([`Check`]; a word the user changed by hand is checked by
+//!     him first, [`check_edit`]), scrubbed LAST as one whole string per field, after every other
+//!     transformation, with nothing transforming them afterwards. [`Outbox::send`] takes only
+//!     what `decide` made.
 //!   - **Send, and keep what could not go** ([`Outbox`]). The report is written to this Mac BEFORE
 //!     the request is made, so a failure, a quit or a crash leaves it here exactly as approved. A
 //!     waiting report is tried again by itself ([`Outbox::send_due`]) and at once on *Try now*.
@@ -289,6 +294,25 @@ impl Scrubber {
         if at < text.len() || out.is_empty() {
             out.push(Segment::plain(&text[at..]));
         }
+        out
+    }
+
+    /// **AN ISSUE'S BODY, SCRUBBED AS ONE WHOLE STRING**: `markdown` as this module writes it
+    /// ([`issue_body`]), with every private span of the words GitHub shows ([`shown`]) replaced by
+    /// its stand-in, escaped like every other word of it. Nothing transforms the result: it is
+    /// the body that is sent ([`decide`]).
+    pub fn scrub_markdown(&self, markdown: &str) -> String {
+        let (words, at) = shown(markdown);
+        // Where the character shown at `offset` starts in `markdown`; the end of the words is the end of it.
+        let start_of = |offset: usize| at.binary_search_by_key(&offset, |&(w, _)| w).map_or(markdown.len(), |k| at[k].1);
+        let mut out = String::with_capacity(markdown.len());
+        let mut last = 0;
+        for (start, end, kind) in self.spans(&words) {
+            out.push_str(&markdown[last..start_of(start)]);
+            out.push_str(&escaped(kind.stand_in()));
+            last = start_of(end);
+        }
+        out.push_str(&markdown[last..]);
         out
     }
 
@@ -978,6 +1002,10 @@ pub struct Unchecked {
     pub next_try_at_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checked: Option<Checked>,
+    /// Words the user changed by hand that Rich could not check at Send ([`Outbox::keep_edited`]):
+    /// he is asked about these ([`checked_edit`]) rather than to write `answer` up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited: Option<Edited>,
 }
 
 /// How long a report Rich could not check rests before he is asked again: one `claude --print`
@@ -1127,17 +1155,46 @@ pub struct SheetSection {
     pub steps: Vec<String>,
 }
 
+/// **EVERY MARK THAT COULD MAKE GITHUB SHOW OTHER WORDS THAN THE ONES WRITTEN**, escaped in an
+/// issue's body ([`escaped`]) so that what GitHub shows is the words themselves: emphasis, code,
+/// links, HTML, headings, tables, and since review rv-20261009T174727Z-3007e320-578a also `~`
+/// (strikethrough: "~~Jane~~ Doe" shows "Jane Doe") and `&` (an entity: "Jane&#32;Doe" shows
+/// "Jane Doe"). The last scrub reads the body as shown ([`shown`]), so a mark left unescaped
+/// here would be a way for a name to be shown that the scrub did not read.
+const MARKS: &str = "\\`*_[]<>#|~&";
+
 /// Markdown's punctuation, escaped so GitHub shows the words the user read rather than
-/// formatting they never saw.
+/// formatting they never saw ([`MARKS`]).
 fn escaped(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
-        if "\\`*_[]<>#|".contains(c) {
+        if MARKS.contains(c) {
             out.push('\\');
         }
         out.push(c);
     }
     out
+}
+
+/// **THE WORDS GITHUB SHOWS** for a body this module wrote ([`issue_body`]): every escaped mark
+/// read as the mark itself. With them, where each of their characters starts in `markdown`, as
+/// (offset in the words shown, offset in `markdown`), in order.
+fn shown(markdown: &str) -> (String, Vec<(usize, usize)>) {
+    let mut words = String::with_capacity(markdown.len());
+    let mut at = Vec::with_capacity(markdown.len());
+    let mut chars = markdown.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let c = match chars.peek() {
+            Some(&(_, next)) if c == '\\' && MARKS.contains(next) => {
+                chars.next();
+                next
+            }
+            _ => c,
+        };
+        at.push((words.len(), i));
+        words.push(c);
+    }
+    (words, at)
 }
 
 /// The issue's body: each section as a heading and its words, nothing added.
@@ -1168,10 +1225,232 @@ pub fn issue_page(number: u64) -> String {
     format!("https://github.com/{REPOSITORY}/issues/{number}")
 }
 
-/// The API path and JSON body that file `sheet` on [`REPOSITORY`]: its title and its body, and
+/// The API path and JSON body that file `public` on [`REPOSITORY`]: its title and its body, and
 /// nothing else (no labels, no assignees).
-pub fn issue_request(sheet: &Sheet) -> (String, serde_json::Value) {
-    (format!("/repos/{REPOSITORY}/issues"), serde_json::json!({ "title": sheet.title.trim(), "body": issue_body(sheet) }))
+pub fn issue_request(public: &Public) -> (String, serde_json::Value) {
+    (format!("/repos/{REPOSITORY}/issues"), serde_json::json!({ "title": public.title(), "body": public.body() }))
+}
+
+// ---------------------------------------------------------------------------------------
+// WHAT LEAVES THIS MAC: ONE DECISION, AT THE ONE PLACE A REPORT LEAVES
+// ---------------------------------------------------------------------------------------
+//
+// Review after review found words that reached the issue without passing the last check: words
+// the user typed after Rich checked the report (review rv-20261009T174727Z-3007e320-578a finding
+// 1), and words joined or split into paragraphs after they were scrubbed (finding 2). The class is
+// closed by ONE invariant, decided in ONE place ([`decide`]) and sent from nowhere else
+// ([`Outbox::send`] takes only a [`Public`], and only `decide` makes one):
+//
+//   (a) the words sent are words Rich checked: the issue as assembled from the card now is, to
+//       the character, the issue as it was when he last checked it ([`Check`]); if any word
+//       differs, nothing is sent and he checks the changed report first ([`check_edit`]), or it
+//       waits on this Mac until he can ([`Outbox::keep_edited`]);
+//   (b) they are scrubbed LAST, as one whole string each (the title, and the whole body with its
+//       headings, paragraphs and steps), with every private word RichOS holds and every one Rich
+//       named, after every other transformation; nothing transforms them afterwards.
+
+/// **THE WORDS OF ONE ISSUE AS ASSEMBLED FROM THE CARD**, before the last scrub: its title (one
+/// line, with a backtick written as an apostrophe, because GitHub draws a title's `word` as code
+/// and the scrub reads the words as GitHub shows them), and its body ([`issue_body`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Issue {
+    pub title: String,
+    pub body: String,
+}
+
+/// The issue `sheet` assembles to: every transformation there is, before the last scrub.
+pub fn issue_of(sheet: &Sheet) -> Issue {
+    Issue { title: sheet.title.trim().replace('`', "'"), body: issue_body(sheet) }
+}
+
+/// **WORDS THAT MAY LEAVE THIS MAC**: words Rich checked, scrubbed last. Made only by [`decide`];
+/// [`Outbox::send`] and [`issue_request`] take nothing else, so there is no other way for a report
+/// to reach GitHub.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Public(Issue);
+
+impl Public {
+    pub fn title(&self) -> &str {
+        &self.0.title
+    }
+    pub fn body(&self) -> &str {
+        &self.0.body
+    }
+}
+
+/// **WHAT RICH LAST CHECKED OF ONE REPORT**: its words exactly as the card showed them then
+/// ([`issue_of`]), and the private words he named in them. Made only from a draft he wrote or
+/// checked ([`Check::of`]), from his check of words the user changed ([`check_edit`]), or by a
+/// change he wrote into the report he checked ([`Check::with_change`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Check {
+    issue: Issue,
+    private: Vec<PrivateTerm>,
+}
+
+impl Check {
+    /// What Rich checked when `draft` was put on the card: its words as the card shows them
+    /// ([`sheet_of`]) and the private words he named in it.
+    pub fn of(draft: &Draft) -> Check {
+        Check { issue: issue_of(&sheet_of(draft)), private: draft.private.clone() }
+    }
+
+    /// The private words Rich named in this report.
+    pub fn private(&self) -> &[PrivateTerm] {
+        &self.private
+    }
+
+    /// **A CHANGE RICH WROTE INTO THE REPORT HE CHECKED**: `sheet` is the card's words the change
+    /// was asked with, `add` his words as the card adds them under `section` (a paragraph after
+    /// the section's others, as the window inserts it), `private` the private words he named for
+    /// it ([`scrub_change`]), kept with every one he named before. `None` when `sheet` is not what
+    /// he checked (the user changed words by hand first): those words still wait for his check,
+    /// at Send.
+    pub fn with_change(&self, sheet: &Sheet, section: &str, add: &[Segment], private: Vec<PrivateTerm>) -> Option<Check> {
+        if issue_of(sheet) != self.issue {
+            return None;
+        }
+        let mut changed = sheet.clone();
+        let at = changed.sections.iter().rposition(|s| s.heading == section).unwrap_or(0);
+        let words: String = add.iter().map(|s| s.text.as_str()).collect();
+        if let Some(target) = changed.sections.get_mut(at).filter(|_| !words.trim().is_empty()) {
+            target.paragraphs.push(words.trim().to_string());
+        }
+        Some(Check { issue: issue_of(&changed), private: distinct(self.private.iter().cloned().chain(private)) })
+    }
+}
+
+/// A new report's id, which its [`Check`] is kept under while its card is on screen.
+pub fn report_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// **THE CARD'S WORDS, AS THE WINDOW READS THEM** (`sheetOf` in `ui/bug-report.js`): the title,
+/// and each section's heading, paragraphs and steps, each one's words joined and trimmed, empty
+/// ones dropped.
+pub fn sheet_of(draft: &Draft) -> Sheet {
+    let words = |segments: &Vec<Segment>| segments.iter().map(|s| s.text.as_str()).collect::<String>().trim().to_string();
+    Sheet {
+        title: words(&draft.title),
+        sections: draft
+            .sections
+            .iter()
+            .map(|s| SheetSection {
+                heading: s.heading.clone(),
+                paragraphs: s.paragraphs.iter().map(words).filter(|p| !p.is_empty()).collect(),
+                steps: s.steps.iter().map(words).filter(|p| !p.is_empty()).collect(),
+            })
+            .collect(),
+    }
+}
+
+/// What may happen when the user presses Send.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Decision {
+    /// These words go, exactly.
+    Send(Public),
+    /// The last scrub left out more than the card shows: the card is shown again with it left
+    /// out, and Rich's check of it is this draft ([`Check::of`]). Nothing is sent until Send.
+    Show(Draft),
+    /// Some word differs from what Rich last checked: nothing is sent until he checks it.
+    Unchecked,
+}
+
+/// **THE ONE DECISION ABOUT WHAT LEAVES THIS MAC** (the invariant above). `sheet` is the card's
+/// words at Send, `check` what Rich last checked of this report, `app` the private words RichOS
+/// holds. Sent only when the issue assembled from `sheet` is the one Rich checked, scrubbed last
+/// as one whole string per field with his private words and RichOS's; when that last scrub leaves
+/// out what the card still shows, the card is shown again first, so what goes is what the user
+/// last saw.
+pub fn decide(sheet: &Sheet, check: Option<&Check>, app: &[PrivateTerm]) -> Decision {
+    let issue = issue_of(sheet);
+    let Some(check) = check.filter(|c| c.issue == issue) else { return Decision::Unchecked };
+    let scrubber = Scrubber::with_rich(app.to_vec(), check.private.clone());
+    let public = Issue {
+        title: scrubber.scrub(&issue.title).iter().map(|s| s.text.as_str()).collect(),
+        body: scrubber.scrub_markdown(&issue.body),
+    };
+    if public != issue {
+        let again = redraft(sheet, check, app);
+        // Only when the card can show it: what it cannot (a heading, a step's number) is sent
+        // left out without showing the card again, so pressing Send always ends.
+        if issue_of(&sheet_of(&again)) != issue {
+            return Decision::Show(again);
+        }
+    }
+    Decision::Send(Public(public))
+}
+
+/// **THE CARD'S WORDS AS A DRAFT AGAIN**, scrubbed with the private words of `check` and the ones
+/// RichOS holds: the title, each section's paragraphs as one string ([`paragraphs_of`]) and each
+/// step. A stand-in already on the card is plain words here (what it replaced is not in the
+/// sheet), so it stays as it reads.
+pub fn redraft(sheet: &Sheet, check: &Check, app: &[PrivateTerm]) -> Draft {
+    let scrubber = Scrubber::with_rich(app.to_vec(), check.private.clone());
+    Draft {
+        title: scrubber.scrub(sheet.title.trim()),
+        sections: sheet
+            .sections
+            .iter()
+            .map(|s| DraftSection {
+                heading: s.heading.clone(),
+                paragraphs: paragraphs_of(&s.paragraphs.join("\n\n"), &scrubber),
+                steps: s.steps.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).map(|t| scrubber.scrub(t)).collect(),
+            })
+            .collect(),
+        private: check.private.clone(),
+    }
+}
+
+/// The line over Rich's answer when he checked words the user changed.
+pub const EDIT_DIGEST: &str = "Checked your changes for private details";
+
+/// The line over the card shown again because the last scrub left out more than it showed
+/// ([`Decision::Show`]).
+pub const SHOWN_AGAIN_DIGEST: &str = "Checked every word again before sending";
+
+/// **THE PROMPT FOR RICH'S CHECK OF WORDS THE USER CHANGED**: the whole report as it would go, as
+/// GitHub would show it, and one question: what in it is private.
+pub fn edit_check_prompt(sheet: &Sheet) -> String {
+    let issue = issue_of(sheet);
+    format!(
+        "You are Rich, inside the RichOS desktop app. You wrote this bug report, and the user changed some of \
+its words by hand before sending it. Once sent it is a GitHub issue that anyone can read. Words in square \
+brackets stand in for private details already left out.\n\n\
+The report as it would go:\n<<<\n{title}\n\n{body}\n>>>\n\n\
+Check every word of it for anything private before it goes. Answer with ONLY a JSON object, no other text: \
+{{\"private\": [{{\"text\": \"...\", \"kind\": \"person\"}}]}}\n\
+- private: every name of a person, company, conversation, product, client or folder, and anything else \
+private, that is in the report above, copied exactly as it is written there, with kind one of person, \
+company, conversation, folder, file, email, other. [] when there is none.",
+        title = issue.title,
+        body = shown(&issue.body).0.trim_end(),
+    )
+}
+
+/// **RICH'S CHECK OF WORDS THE USER CHANGED, OR NONE**: `rich` is his answer to
+/// [`edit_check_prompt`] about `sheet`, or why there is none; `report` the report's private words
+/// so far. His answer must hold a well-formed `private` list ([`private_of`]); anything else is no
+/// check, and the report waits.
+pub fn check_edit(rich: Result<String, String>, sheet: &Sheet, report: &[PrivateTerm]) -> Result<Check, String> {
+    let found = private_of(&json_object(&rich?)?)?;
+    Ok(Check { issue: issue_of(sheet), private: distinct(report.iter().cloned().chain(found)) })
+}
+
+/// **WORDS THE USER CHANGED THAT RICH COULD NOT CHECK YET**, kept on this Mac
+/// ([`Outbox::keep_edited`]): the card's words when Send was pressed, and the report's private
+/// words so far. Nothing of it is sent from there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Edited {
+    pub sheet: Sheet,
+    pub private: Vec<PrivateTerm>,
+}
+
+/// Rich's check of `edited` as a card: the changed report, with anything he named left out, under
+/// [`EDIT_DIGEST`]. Like any check, it is shown, never sent by itself.
+pub fn checked_edit(rich: Result<String, String>, edited: &Edited, app: &[PrivateTerm]) -> Result<Checked, String> {
+    let check = check_edit(rich, &edited.sheet, &edited.private)?;
+    Ok(Checked { draft: redraft(&edited.sheet, &check, app), digest: EDIT_DIGEST.into() })
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1390,9 +1669,29 @@ impl Outbox {
             attempts: 1,
             next_try_at_ms: now_ms.saturating_add(CHECK_RETRY_MS),
             checked: None,
+            edited: None,
         };
         self.write_unchecked(&unchecked)?;
         eprintln!("[richos] bug report {}: Rich could not check it ({why}); it waits on this Mac", unchecked.id);
+        Ok(WriteUp::Unchecked { id: unchecked.id })
+    }
+
+    /// **CHANGED WORDS RICH COULD NOT CHECK AT SEND**, kept on this Mac like any report he could
+    /// not check (`why`): nothing of it is sent, and [`Outbox::check_due`] asks him about it again
+    /// until he answers, when it comes back as a card ([`checked_edit`]) to send or not.
+    pub fn keep_edited(&self, edited: Edited, screen: &Screen, why: &str, now_ms: u64) -> io::Result<WriteUp> {
+        let unchecked = Unchecked {
+            id: uuid::Uuid::new_v4().to_string(),
+            created_at_ms: now_ms,
+            answer: String::new(),
+            screen: screen.clone(),
+            attempts: 1,
+            next_try_at_ms: now_ms.saturating_add(CHECK_RETRY_MS),
+            checked: None,
+            edited: Some(edited),
+        };
+        self.write_unchecked(&unchecked)?;
+        eprintln!("[richos] bug report {}: Rich could not check the changed words ({why}); it waits on this Mac", unchecked.id);
         Ok(WriteUp::Unchecked { id: unchecked.id })
     }
 
@@ -1488,15 +1787,15 @@ impl Outbox {
         }
     }
 
-    /// **SEND AN APPROVED SHEET.** It is written to this Mac first, then tried once. Sent, or
-    /// waiting with the reason; either way nothing approved is lost.
-    pub fn send(&self, sheet: &Sheet, credentials: &dyn Credentials, transport: &dyn Transport, now_ms: u64) -> io::Result<Delivery> {
-        let (_, request) = issue_request(sheet);
+    /// **SEND WORDS THAT MAY LEAVE THIS MAC**, exactly ([`Public`], which only [`decide`] makes).
+    /// They are written to this Mac first, then tried once. Sent, or waiting with the reason;
+    /// either way nothing approved is lost, and what is tried later is these words.
+    pub fn send(&self, public: &Public, credentials: &dyn Credentials, transport: &dyn Transport, now_ms: u64) -> io::Result<Delivery> {
         let pending = Pending {
             id: uuid::Uuid::new_v4().to_string(),
             created_at_ms: now_ms,
-            title: request["title"].as_str().unwrap_or_default().to_string(),
-            body: request["body"].as_str().unwrap_or_default().to_string(),
+            title: public.title().to_string(),
+            body: public.body().to_string(),
             attempts: 0,
             reason: None,
             next_try_at_ms: now_ms,
