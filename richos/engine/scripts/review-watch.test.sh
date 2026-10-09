@@ -86,6 +86,9 @@
 #   W27  a verdict is delivered only once the host accepts it: a failed pipe, or no
 #        acknowledgment from a host that acknowledges, leaves it for the next look
 #        (the reviewer's fixture delivery_ack_gap.py)
+#   W28  a mid-job verdict is recorded delivered only once the app's worker hook has
+#        written and flushed its answer: a closed pipe leaves it for the next tool call
+#        (the reviewer's fixture mid_job_failed_output.py)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1756,6 +1759,76 @@ sys.exit(0 if got == want else 1)
 PY
 check "W27 a verdict is delivered only once the host accepts it: a failed pipe or no acknowledgment leaves it for the next look" \
     $? "see above"
+
+# --- W28 ---------------------------------------------------------------------
+# The real second review of 283b4379d, finding 2 (fixtures/mid_job_failed_output.py): the app's
+# worker hook recorded a mid-job verdict delivered before it printed the notice, so a hook whose
+# output pipe had closed lost it for good. Now it is recorded only once the hook's answer is written
+# and flushed. Through the real scripts/app-engine-hook.py handle; scope, receipts and the unrelated
+# pre-tool controls are stand-ins, as in the reviewer's fixture.
+python3 - "$ENGINE" "$SB/w28" <<'PY'
+import fcntl, importlib.util, io, json, os, sys
+from pathlib import Path
+from types import SimpleNamespace
+engine, td = Path(sys.argv[1]), sys.argv[2]
+os.makedirs(td)
+spec = importlib.util.spec_from_file_location("w28_hook", engine / "scripts/app-engine-hook.py")
+hook = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hook)
+review = hook.load("w28_review", engine / "scripts/lib/app_review.py")
+
+
+class ClosedPipe(io.StringIO):
+    def write(self, text):
+        raise BrokenPipeError("the host has closed its hook pipe")
+
+
+paths = review.app_paths(td)
+record = Path(td) / "verdict"
+record.mkdir()
+(record / "verdict.json").write_text(json.dumps({"answer": {"findings": [
+    {"priority": 2, "title": "Planted defect", "files": ["result.txt:1"], "evidence": "missing result"}]}}))
+Path(paths["ledger"]).parent.mkdir(parents=True)
+Path(paths["ledger"]).write_text(json.dumps({"id": "rv-pending", "repo": td, "branch": "cc/worker", "trigger": "long-job",
+                                             "verdict": "changes-requested", "tip": "a" * 40, "record": str(record)}) + "\n")
+os.environ["RICHOS_APP_STATE"] = os.environ["RICHOS_ENTITY_ROOT"] = td
+work = SimpleNamespace(validate_shell_target=lambda p: None, worker_context=lambda a, p: None,
+                       worker_spaces=lambda a, p: [(td, "cc/worker")])
+real_load = hook.load
+hook.load = lambda name, path: (SimpleNamespace(capture=lambda p, *a, **kw: p) if name == "richos_app_evidence"
+                                else work if name == "richos_desktop_work" else real_load(name, path))
+hook.scope = lambda: {"actions_allowed": True}
+hook.run = lambda *a, **kw: None
+payload = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "agent_id": "worker"}
+
+
+def call(out):
+    real, sys.stdout = sys.stdout, out
+    try:
+        hook.handle(payload)
+        return out.getvalue()
+    except BrokenPipeError:
+        return "broken pipe"
+    finally:
+        sys.stdout = real
+
+
+delivered = Path(paths["delivered"]) / "rv-pending"
+got = {"the hook's output failed": call(ClosedPipe()) == "broken pipe",
+       "recorded delivered after the failure": delivered.exists()}
+held = os.open(os.path.join(paths["watch"], "delivered.lock"), os.O_WRONLY | os.O_CREAT, 0o600)
+fcntl.flock(held, fcntl.LOCK_EX)
+got["a call while another tells it says nothing"] = "Planted defect" not in call(io.StringIO())
+os.close(held)
+got["the next hook tells it"] = "Planted defect" in call(io.StringIO())
+got["recorded delivered once told"] = delivered.exists()
+got["the hook after that tells it again"] = "Planted defect" in call(io.StringIO())
+print("    %s" % json.dumps(got, sort_keys=True))
+sys.exit(0 if got == {"the hook's output failed": True, "recorded delivered after the failure": False,
+                      "a call while another tells it says nothing": True, "the next hook tells it": True,
+                      "recorded delivered once told": True, "the hook after that tells it again": False} else 1)
+PY
+check "W28 a mid-job verdict is recorded delivered only once the worker hook's answer is written and flushed" $? "see above"
 
 # --- W04 ---------------------------------------------------------------------
 resetstate

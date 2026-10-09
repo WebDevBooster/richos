@@ -919,19 +919,23 @@ class DesktopWork(unittest.TestCase):
         (repo,branch),=self.app.worker_spaces(self.scope,call)
         self.assertEqual(Path(repo).resolve(),self.repo)
         state=self.root/"engine-state"
-        self.assertEqual(hook.mid_job_notice(self.app,self.scope,call,state),"")      # no ledger yet
+        def told(payload):
+            got=[]
+            self.assertEqual(hook.mid_job_notice(self.app,self.scope,payload,state,got.append),bool(got))
+            return "".join(got)
+        self.assertEqual(told(call),"")      # no ledger yet
         Path(self.review.app_paths(state)["reviews"]).mkdir(parents=True)
         self.review_row("rv-mid-1","long-job","changes-requested",branch,"a"*40,"Result is not committed")
         self.review_row("rv-mid-pass","long-job","passed",branch,"b"*40,"Passing-row finding")
         self.review_row("rv-handover","handover","changes-requested",branch,"c"*40,"Handover finding")
         self.review_row("rv-other","quiet","changes-requested","cc/someone-else","d"*40,"Another worker's")
-        told=hook.mid_job_notice(self.app,self.scope,call,state)
-        self.assertIn("asked for changes",told)
-        self.assertIn("P1 Result is not committed (result.txt:1)",told)
-        for absent in ("Passing-row finding","Handover finding","Another worker's"):self.assertNotIn(absent,told)
-        self.assertEqual(hook.mid_job_notice(self.app,self.scope,call,state),"","told twice")
-        self.assertEqual(hook.mid_job_notice(self.app,self.scope,{**call,"agent_id":"someone"},state),"")
-        self.assertEqual(hook.mid_job_notice(self.app,self.scope,{**call,"agent_id":None},state),"")
+        text=told(call)
+        self.assertIn("asked for changes",text)
+        self.assertIn("P1 Result is not committed (result.txt:1)",text)
+        for absent in ("Passing-row finding","Handover finding","Another worker's"):self.assertNotIn(absent,text)
+        self.assertEqual(told(call),"","told twice")
+        self.assertEqual(told({**call,"agent_id":"someone"}),"")
+        self.assertEqual(told({**call,"agent_id":None}),"")
 
     def test_the_apps_review_watch_starts_mid_job_reviews_only_with_the_users_words(self):
         """Second review, slice 4: the app's own review-watch (scripts/lib/review_watch.py
