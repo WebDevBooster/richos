@@ -4421,6 +4421,30 @@ class SecondReview_AMidJobVerdictReachesTheRunningTeammate(Base):
         self.assertIn("the microphone is never handed back", got)
         self.assertEqual(self.call(aid), "")                     # still once
 
+    def test_second_review_a_continuation_gets_a_verdict_on_the_work_it_continues(self):
+        """Review rv-20261009T031207Z-ba444a8a-607a, finding 2: a continuation
+        judged every inherited verdict against its OWN registration, so a
+        verdict on the predecessor's work that finished between the two
+        registrations never reached it. Each verdict is judged against the
+        registration of the work it is on; delivery stays once per teammate."""
+        old_aid, _p = self.spawn("zach-opus-mid4")
+        aid, _q = self.spawn("zach-opus-mid5")
+        old, cur = self.rec("zach-opus-mid4"), self.rec("zach-opus-mid5")
+        t = time.time()
+        old["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t - 7200))
+        cur["registered_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t - 600))
+        cur["continues"] = [old["key"]]
+        ws.save_agent(old)
+        ws.save_agent(cur)
+        self.verdict("teammate:" + old["key"], finished=t - 9000, title="older than the predecessor")
+        self.verdict("teammate:" + old["key"], finished=t - 1200, title="the microphone is never handed back")
+        self.assertIn("the microphone is never handed back", self.call(old_aid))
+        got = self.call(aid)
+        self.assertIn("CHANGES-REQUESTED", got)
+        self.assertIn("the microphone is never handed back", got)
+        self.assertNotIn("older than the predecessor", got)
+        self.assertEqual(self.call(aid), "")                     # once for this teammate too
+
 
 class HuntV3_01_ARecordWithoutItsWorkspacesIsDamaged(Base):
     """Hunt part 4 v3, V3-01: a keyed record that had lost its `workspaces`

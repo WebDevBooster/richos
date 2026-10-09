@@ -13,7 +13,8 @@ It is the body of scripts/hooks/deliver-review-verdict.sh, a matcherless
 PreToolUse hook. For a call made inside a teammate (the payload carries
 agent_id), every verdict in second-review's ledger (<state>/reviews.jsonl) on
 that teammate's work (its own record, or one it continues) that finished after
-the teammate was registered, and was not yet delivered to it, is printed as
+that work was registered (the continued record's registration for a verdict on
+continued work), and was not yet delivered to this teammate, is printed as
 additionalContext, which reaches the teammate's model with that call. "Once" is
 a marker file per teammate and review, created exclusively, so two calls made
 at the same moment cannot both deliver it.
@@ -100,14 +101,19 @@ def load_workspaces():
 
 
 def teammate(agent_id):
-    """(record, {work keys of its chain}, registration epoch) or None."""
+    """(record, {work key: that work's registration epoch}) for every record of
+    its chain (its own and each one it continues), or None. A verdict is judged
+    against the registration of the work it is ON, never the continuation's
+    own: a verdict on the predecessor's work that finished between the two
+    registrations is still owed to the continuation (review
+    rv-20261009T031207Z-ba444a8a-607a, finding 2)."""
     ws = load_workspaces()
     key = ws.key_for_id(agent_id)
     rec = ws.load_agent(key) if key else None
     if not rec:
         return None
-    works = set("teammate:%s" % r["key"] for r in ws._chain(rec))
-    return rec, works, epoch(rec.get("registered_at")) or 0.0
+    works = dict(("teammate:%s" % r["key"], epoch(r.get("registered_at")) or 0.0) for r in ws._chain(rec))
+    return rec, works
 
 
 def claim(key, rid):
@@ -174,8 +180,10 @@ def main():
     who = teammate(aid)
     if not who:
         return 0
-    rec, works, registered = who
-    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= registered - 1
+    rec, works = who
+    # "Once" is per teammate: the marker is keyed by THIS record, so a verdict
+    # its predecessor already received still reaches the continuation, once.
+    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= works[r["work"]] - 1
              and claim(rec["key"], str(r["id"]))]
     if texts:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",

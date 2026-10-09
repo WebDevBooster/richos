@@ -585,4 +585,9 @@ mutant sr-unreadable-launcher-ignored "test_second_review_a_listed_repository_wh
     '    except OSError as exc:{NL}        if False:' \
     "a listed repository whose review setup cannot be established would merge as if it were established (review rv-20261009T031207Z-ba444a8a-607a, finding 1)."
 
+mutant sr-continuation-judges-by-its-own-registration "test_second_review_a_continuation_gets_a_verdict_on_the_work_it_continues" "scripts/lib/review_delivery.py" \
+    '    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= works[r["work"]] - 1' \
+    '    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= works["teammate:%s" % rec["key"]] - 1' \
+    "a verdict on a predecessor's work that finished before its continuation was registered would never reach the continuation (review rv-20261009T031207Z-ba444a8a-607a, finding 2)."
+
 mutation_end

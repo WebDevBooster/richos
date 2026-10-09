@@ -8701,7 +8701,7 @@
     },
     "mega-lander/tests/workspaces.test.py": {
       "source": "mega-lander/tests/workspaces.test.py",
-      "sha256": "1f21117ab06a548a5e92df8276314f90b62573d885cc12462a0ede97a5bfb755",
+      "sha256": "6956b2405a71c2bfb3b6d6b40e131577d2317ce915689e4739804fb18af0c5b9",
       "evidence": "AST census of every ws call, subprocess and run call: fixed Git fixtures, captured sleep processes, a literal shutdown writer and seven Stop guards. Private HOME/config directories and Git config do not replace real app cleanup or QA settings. Six guards receive only a forbidden lead; workspace gate receives a private unadopted repository. The sole land CLI call explicitly patches out the scratch sweep. The added resource-waits Stop guard also returns at the forbidden-lead recovery before reading settings or wait state. Renewed 2026-09-30 (hunt part 4): the finding-20 case runs app.test.py as a subprocess for the one case test_pause_message_is_fixed selects (edge to that case) and reads the five sibling *.mutation.sh files as text; the finding 11-15 and 29 cases add literal sleeper processes, ps reads, a patched container reaper and a private RICHOS_WORKSPACES_GATE_BUDGET. No configuration read is added. Renewed 2026-10-07 (merge-gate abort): MergeGateRefusal installs and switches on the operator fence in its private repository through scripts/operator-fences.sh with a literal private entity config, writes a private session record for its own pid, takes the lease with scripts/land-lease.sh (CLAUDE_PID removed from the child environment), adds a literal refusing pre-merge-commit hook and runs workspaces.py merge as a subprocess. No configuration read is added. Env (2026-10-08) also exports SCRATCH_BUILD_CACHE_ROOT and SCRATCH_CARGO_TARGET_ROOTS pointing into its own temporary root and restores them on close, so the lander's build-cache step never reads the operator's configured cache folders.",
       "keys": [],
       "edges": [
@@ -8754,7 +8754,7 @@
     },
     "mega-lander/tests/workspaces.mutation.sh": {
       "source": "mega-lander/tests/workspaces.mutation.sh",
-      "sha256": "c21bfcbfd182ca8926c52eb65f3ca0d503977293d594a3cd234f7f925c5cd073",
+      "sha256": "de5dda724ce2cd6a5800d6485b6a1dda8cc7dccce37fa6be1bfc3b72dbc99882",
       "evidence": "Reviewed all finite old/new mutation operands: local workspace predicates, records, Git queries and fixed helper calls. No mutant introduces a dynamic configuration reader or executable. Focused inner suite keeps the same fixture boundaries; copied configuration presence remains a harness input.",
       "keys": [],
       "edges": [
@@ -10204,8 +10204,8 @@
     },
     "scripts/lib/review_delivery.py": {
       "source": "scripts/lib/review_delivery.py",
-      "sha256": "24c0d8870fca24186a21e2144a28b4b66ab3568ae7efa424870fe1aa94fea1f4",
-      "evidence": "Full program reviewed (2026-10-09): parses the payload's agent_id, reads second-review's ledger and verdict records as JSON data, loads the fixed workspaces.py for key_for_id, load_agent and _chain (registry reads only), creates one marker file per teammate and review under the review-watch state directory, and prints additionalContext. Nothing is executed, no configuration key is read, every outcome is exit 0.",
+      "sha256": "ca416390f374e360843ea0d1ad5c1f9917e2dddfca8dc8e55142d052c27c5116",
+      "evidence": "Full program reviewed (2026-10-09): parses the payload's agent_id, reads second-review's ledger and verdict records as JSON data, loads the fixed workspaces.py for key_for_id, load_agent and _chain (registry reads only), creates one marker file per teammate and review under the review-watch state directory, and prints additionalContext. Nothing is executed, no configuration key is read, every outcome is exit 0. Renewed 2026-10-09 (review rv-20261009T031207Z-ba444a8a-607a, finding 2): each verdict is compared with the registered_at of the chain record whose work it is on, read from the same registry records; no new read, import or key.",
       "keys": [],
       "edges": [
         {
@@ -16420,7 +16420,7 @@
         "ass-kicker/tests/stated-actions.mutation.sh": "b618924aea2850d90d62567fadc25017f615a32e87e4000fb713bf32fc72bbaa",
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
-        "mega-lander/tests/workspaces.test.py": "1f21117ab06a548a5e92df8276314f90b62573d885cc12462a0ede97a5bfb755",
+        "mega-lander/tests/workspaces.test.py": "6956b2405a71c2bfb3b6d6b40e131577d2317ce915689e4739804fb18af0c5b9",
         "mega-lander/workspaces.py": "b6ff556f4895614752fd4445776b77fd0f59da31e107a8441ee671ea654e9956",
         "mega-lander/workspaces.sh": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
