@@ -104,7 +104,9 @@ function loadPlaywright() {
     // EVERY SUITE'S BROWSER COMES THROUGH HERE, so this is where a failed navigation gets its
     // evidence bundle — once, rather than at eighty `page.goto` call sites. Timeouts and the
     // error a suite sees are untouched; see the header of `navigation-evidence.js`.
-    return navigation.instrumentPlaywright(pw);
+    // And no browser outlives its suite (`lib/browser-reaper.js`): a SIGKILLed suite used to leave
+    // Playwright.app behind to crash later, with macOS's "quit unexpectedly" dialog on screen.
+    return require("./browser-reaper").install(navigation.instrumentPlaywright(pw));
   }
   // NAME THE FIX, not the symptom. The message this replaced offered three options and
   // left the reader to work out which one applied to the directory they were standing in.
