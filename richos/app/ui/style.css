@@ -10168,10 +10168,12 @@ body.panel-full .op-body {
 .bugcard.is-canceled .bug-ctitle {
   display: block;
 }
-/* what a stand-in replaced — only the user sees it, never part of the report */
+/* what a stand-in replaced — only the user sees it, never part of the report.
+   299: above every layer its stand-in can sit in (the conversation, `#bugdock` at 65), and
+   below `.settings` (300), which §15 puts above every overlay. */
 #bug-subtip {
   position: fixed;
-  z-index: 320;
+  z-index: 299;
   max-width: 320px;
   padding: 10px 14px;
   background: var(--card);
