@@ -943,6 +943,22 @@ def keep_fixtures(src, dest):
     return left
 
 
+def repo_identity(path):
+    """The canonical identity of the repository at `path`: the real path of its
+    main checkout, from Git's common directory. Recorded in every verdict row when
+    the review is written, so a worktree moved or removed later still matches."""
+    real = os.path.realpath(path or "")
+    try:
+        r = subprocess.run(["git", "-C", real, "rev-parse", "--git-common-dir"], capture_output=True,
+                           text=True, timeout=30)
+        common = r.stdout.strip()
+        if r.returncode == 0 and common:
+            real = os.path.realpath(os.path.join(real, common))
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return os.path.dirname(real) if os.path.basename(real) == ".git" else real
+
+
 def review(a):
     say = lambda s: (sys.stderr.write(s + "\n"), sys.stderr.flush())
     w = resolve_work(a)
@@ -958,7 +974,7 @@ def review(a):
         json.dump(SCHEMA, f)
     prompt = ""
 
-    row = {"id": rid, "at": iso(started_at), "repo": w.repo, "branch": w.branch, "base": w.base, "tip": w.tip,
+    row = {"id": rid, "at": iso(started_at), "repo": w.repo, "repo_id": repo_identity(w.repo), "branch": w.branch, "base": w.base, "tip": w.tip,
            "work": w.work_key, "author": w.author, "author_model": w.author_model, "trigger": a.trigger,
            "reviewer": "", "reviewer_model": "", "reviewer_effort": "", "cli_version": "",
            "verdict": None, "forced": False, "findings": 0, "p1": 0, "earlier_findings": len(earlier),

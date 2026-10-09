@@ -4010,7 +4010,14 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
             f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n'
                     'SECOND_REVIEW_REPOS="%s"\n' % listed)
 
-    def verdict(self, tip, verdict="passed", trigger="handover", findings=(), repo=None):
+    def repo_identity(self, repo):
+        if not os.path.isdir(repo):
+            return os.path.realpath(repo)
+        common = run("git", "-C", repo, "rev-parse", "--git-common-dir").stdout.strip()
+        real = os.path.realpath(os.path.join(repo, common))
+        return os.path.dirname(real) if os.path.basename(real) == ".git" else real
+
+    def verdict(self, tip, verdict="passed", trigger="handover", findings=(), repo=None, legacy=False):
         rid = "rv-test-%s-%d" % (tip[:8], len(open(self.ledger).readlines()) if os.path.exists(self.ledger) else 0)
         record = os.path.join(os.path.dirname(self.ledger), "reviews", rid)
         os.makedirs(record)
@@ -4022,6 +4029,8 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
                "reviewer": "codex", "reviewer_model": "gpt-6.1-sol", "findings": len(found),
                "p1": sum(1 for p, _t in findings if p == 1), "record": record,
                "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        if not legacy:
+            row["repo_id"] = self.repo_identity(repo or self.other)
         with open(self.ledger, "a") as f:
             f.write(json.dumps(row) + "\n")
         return rid
@@ -4145,6 +4154,42 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.head(), before)
         self.no_merge_left()
+
+    def refused_after(self, name, change, legacy=False, then_pass=True):
+        cc, (tip,) = self.finished(name)
+        if then_pass:
+            self.verdict(tip, "passed", repo=self.other)
+        self.verdict(tip, "changes-requested", repo=cc, findings=[(1, "worktree defect")], legacy=legacy)
+        change(cc)
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land(name, self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertEqual(self.head(), before)
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/" + name, check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+
+    def test_second_review_a_newer_refusal_survives_its_worktree_being_moved(self):
+        moved = os.path.join(self.env.root, "moved-rv11")
+        self.refused_after("zach-opus-rv11", lambda cc: run("git", "-C", self.other, "worktree", "move", cc, moved))
+
+    def test_second_review_a_newer_refusal_survives_its_worktree_being_removed(self):
+        self.refused_after("zach-opus-rv12", lambda cc: run("git", "-C", self.other, "worktree", "remove", "--force", cc))
+
+    def test_second_review_a_legacy_refusal_with_an_unresolvable_path_still_refuses(self):
+        self.refused_after("zach-opus-rv13",
+                           lambda cc: run("git", "-C", self.other, "worktree", "remove", "--force", cc), legacy=True)
+
+    def test_second_review_a_legacy_pass_with_an_unresolvable_path_authorizes_nothing(self):
+        cc, (tip,) = self.finished("zach-opus-rv14")
+        self.verdict(tip, "passed", repo=cc, legacy=True)
+        run("git", "-C", self.other, "worktree", "remove", "--force", cc)
+        before = self.head()
+        with self.assertRaises(ws.SpecError):
+            ws.merge_and_land("zach-opus-rv14", self.sid)
+        self.assertEqual(self.head(), before)
 
     def test_second_review_an_unlisted_repository_is_not_refused(self):
         self.declare("")

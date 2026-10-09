@@ -1007,20 +1007,45 @@ def read_reviews(ledger):
     return rows
 
 
-def review_repo_identity(repo):
-    """The canonical identity of a repository for matching verdicts: the real
-    path of its main checkout. Git decides it (the common git directory), so
-    every linked worktree of a repository has the identity of that repository
-    while an independent clone stays distinct. A path Git cannot resolve (gone,
-    or not a repository) is its own real path; a git directory named .git
-    stands for its parent."""
+def review_repo_resolved(repo):
+    """(the canonical identity of a repository for matching verdicts, whether Git
+    resolved it). The identity is the real path of its main checkout; Git decides
+    it (the common git directory), so every linked worktree of a repository has
+    the identity of that repository while an independent clone stays distinct. A
+    path Git cannot resolve (gone, moved, or not a repository) is its own real
+    path and is reported as unresolved; a git directory named .git stands for its
+    parent."""
     real = os.path.realpath(repo or "")
+    resolved = False
     if repo and os.path.isdir(real):
         code, out, _err = git(real, "rev-parse", "--git-common-dir")
         common = out.strip()
         if code == 0 and common:
             real = os.path.realpath(os.path.join(real, common))
-    return os.path.dirname(real) if os.path.basename(real) == ".git" else real
+            resolved = True
+    return (os.path.dirname(real) if os.path.basename(real) == ".git" else real), resolved
+
+
+def review_repo_identity(repo):
+    return review_repo_resolved(repo)[0]
+
+
+def review_row_belongs(row, ident):
+    """Whether a verdict row counts for the repository `ident`. A row stores the
+    identity second-review resolved when it WROTE the review (`repo_id`), so a
+    worktree that is later moved or removed still resolves. A row without it
+    (written before that) is resolved from its path; if the path no longer
+    resolves, its repository is unknown, so it counts against a land when it is
+    anything but a pass, and never as a pass."""
+    if not ident or not row.get("repo"):
+        return False
+    stored = row.get("repo_id")
+    if stored:
+        return stored == ident
+    found, resolved = review_repo_resolved(row["repo"])
+    if resolved:
+        return found == ident
+    return row.get("verdict") != "passed"
 
 
 def review_of(rows, tip, repo):
@@ -1028,7 +1053,7 @@ def review_of(rows, tip, repo):
     it). A row of another repository, or with no repository, never counts: the
     ledger is shared, and independent clones or forks can hold the same commit."""
     ident = review_repo_identity(repo) if repo else ""
-    mine = [r for r in rows if ident and r.get("repo") and review_repo_identity(r["repo"]) == ident]
+    mine = [r for r in rows if review_row_belongs(r, ident)]
     land = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]
     mid = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_MID_JOB]
     return (land[-1] if land else None), (mid[-1] if mid else None)
