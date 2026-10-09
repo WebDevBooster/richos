@@ -4024,8 +4024,11 @@
           if (preset.bugPrivateHold) await bugHold("private");
           const text = String(args.text || "");
           const hits = [];
+          // A space in a name takes a whole run of whitespace, a line break included, as the
+          // core's `folded_match_end` does: "Jane" and "Doe" on two lines are still the name.
           bugTerms().concat(args.private || []).forEach((t) => {
-            const m = new RegExp("(^|[^\\p{L}\\p{N}_])(" + t.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")(?![\\p{L}\\p{N}_])", "iu").exec(text);
+            const words = t.text.trim().split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+            const m = new RegExp("(^|[^\\p{L}\\p{N}_])(" + words.join("\\s+") + ")(?![\\p{L}\\p{N}_])", "iu").exec(text);
             if (m) hits.push([m.index + m[1].length, m[2]]);
           });
           (preset.bugPrivateWords || []).forEach((w) => { const at = text.indexOf(w); if (at !== -1) hits.push([at, w]); });

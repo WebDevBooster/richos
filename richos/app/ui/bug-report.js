@@ -846,9 +846,11 @@ window.RichBug = (function () {
       w.textContent = "";
       return;
     }
+    // Read the way Send reads the card (`wordsOf`), so a line break typed in a change is a break
+    // here too: "Jane" and "Doe" on two lines are not asked about as "JaneDoe" (review of 665df1bb3).
     var doc = f.card.querySelector(".bug-doc").cloneNode(true);
     doc.querySelectorAll(".bug-sub").forEach(function (s) { s.remove(); });
-    var text = Array.prototype.map.call(doc.querySelectorAll(".bug-title,.bug-sec p,.bug-sec li"), function (n) { return n.textContent; }).join("\n");
+    var text = Array.prototype.map.call(doc.querySelectorAll(".bug-title,.bug-sec p,.bug-sec li"), wordsOf).join("\n");
     var asked = (f.warnAsked = (f.warnAsked || 0) + 1);
     askPrivate(text, f).then(function (all) {
       if (asked !== f.warnAsked || !warns(f)) return;

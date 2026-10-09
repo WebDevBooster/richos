@@ -41,9 +41,10 @@
 //      wait on this Mac, unsent, when Claude can't check them. Whether a sheet may go is the
 //      shell's decision (`richos_core::bug_report::decide`, tested in Rust); `mock.js` decides it
 //      the same way and `filed()` is what actually went out.
-//  14. The review of 665df1bb3 (rv-20261009T223503Z-665df1bb-17bf), red there: Bust a bug
+//  14. The review of 665df1bb3 (rv-20261009T223503Z-665df1bb-17bf), each red there: Bust a bug
 //      pressed again over Corrections shows the report already in the conversation, on top and
-//      answerable.
+//      answerable; and the heads-up reads a line break typed in a change the way Send does, so a
+//      name on two lines is named. `mock.js` matches a name across any whitespace, as the core does.
 "use strict";
 
 const path = require("path");
@@ -874,6 +875,39 @@ async function main() {
     await page.waitForSelector("#bug-flows .bugcard .bug-pill:has-text('Not sent yet')");
     await page.close();
     return `question ${top.question}, answer box ${top.input}; answered, card written`;
+  });
+
+  await run.check("the privacy heads-up reads a line break typed in a change as a break, so a name on two lines is still named", async () => {
+    // Finding 2, fixture `line-break-warning.js`: on 665df1bb3 Send read the card with
+    // `wordsOf()`, the heads-up with `textContent`, so "Jane" and "Doe" on two lines reached the
+    // heads-up as "JaneDoe" and the name was never named.
+    const page = await open("dark", { bugRichPrivate: [{ text: "Jane Doe", kind: "person_name" }] });
+    await bustABug(page);
+    await answer(page, "The window froze while opening the plan.");
+    await page.click("#bug-change");
+    await page.waitForSelector(".bugcard.is-editing");
+    await page.evaluate(() => {
+      const p = document.querySelector(".bugcard .bug-sec p");
+      p.focus();
+      const r = document.createRange();
+      r.selectNodeContents(p);
+      r.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.keyboard.type(" Jane");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Doe saw it.");
+    const html = await page.locator(".bugcard .bug-sec p").first().evaluate((p) => p.innerHTML);
+    await page.waitForFunction(() => window.__RICHOS_MOCK_BUG__.calls.some((c) => c.cmd === "bug_report_private_in" && String(c.text).includes("Doe saw it.")));
+    const asked = (await calls(page, "bug_report_private_in")).filter((c) => String(c.text).includes("Doe saw it.")).pop().text;
+    assert(!asked.includes("JaneDoe") && /Jane\s+Doe saw it\./.test(asked), `the heads-up was asked about joined words: ${JSON.stringify(asked)} (the paragraph was ${html})`);
+    await page.waitForSelector(".bug-warn:not([hidden])");
+    const warn = await page.locator(".bug-warn").innerText();
+    assertEqual(warn, "“Jane Doe” looks private. Anyone can read this report on GitHub.", "heads-up");
+    await page.close();
+    return `asked ${JSON.stringify(asked)}; ${warn}`;
   });
 
   // ---- the review of 3007e3200 (rv-20261009T174727Z-3007e320-578a) ----
