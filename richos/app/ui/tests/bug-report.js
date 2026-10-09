@@ -36,6 +36,11 @@
 //  12. The review of 84d1bdced (rv-20261009T151254Z-84d1bdce-20df), red there: Send waits for
 //      the privacy answer on the latest words, so the heads-up comes before the report goes out.
 //      `mock.js` holds those answers with `preset.bugPrivateHold` until `releasePrivate()`.
+//  13. The review of 3007e3200 (rv-20261009T174727Z-3007e320-578a), red there: words changed by
+//      hand go out only after Rich has checked them (shown again with what he left out), and
+//      wait on this Mac, unsent, when Claude can't check them. Whether a sheet may go is the
+//      shell's decision (`richos_core::bug_report::decide`, tested in Rust); `mock.js` decides it
+//      the same way and `filed()` is what actually went out.
 "use strict";
 
 const path = require("path");
@@ -84,6 +89,8 @@ async function main() {
   const lastSaid = (page, scope) =>
     page.locator((scope || "#bug-flows") + " .bug-rich").last().locator(".tl-prose").allInnerTexts().then((t) => t.join("\n"));
   const calls = (page, cmd) => page.evaluate((c) => window.__RICHOS_MOCK_BUG__.calls.filter((x) => x.cmd === c), cmd);
+  /// Every sheet that actually went out (not every one Send was pressed for: the shell decides).
+  const filed = (page) => page.evaluate(() => window.__RICHOS_MOCK_BUG__.filed());
   const settle = (page) => page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a.effect && a.effect.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => null))));
   async function shot(page, name) {
     if (!SHOTS) return;
@@ -316,11 +323,17 @@ async function main() {
     await page.click("#bug-done");
     await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet · changed')");
     assert(await page.isVisible(".bug-warn"), "the heads-up went away while the name is still there");
-    // The user may still send it, having been told.
+    // Send: words changed by hand are Rich's to check before anything goes, and he leaves the
+    // name out (review rv-20261009T174727Z-3007e320-578a finding 1: on 3007e3200 it was filed as
+    // typed). The card comes back as it would go, unsent.
+    await page.click("#bug-send");
+    await page.waitForSelector("#bug-flows .bug-rich:has-text('I checked it again before sending')");
+    assertEqual((await filed(page)).length, 0, "the name went out before Rich checked it");
+    assert(!(await page.locator(".bugcard .bug-doc").innerText()).includes("Jane Doe"), "the card shown again still has the name");
     await page.click("#bug-send");
     await page.waitForSelector(".bugcard.is-sent");
-    const sent = (await calls(page, "bug_report_send"))[0].sheet;
-    assert(JSON.stringify(sent).includes("Jane Doe"), "what the user typed was not what was sent");
+    const out = JSON.stringify(await filed(page));
+    assert(!out.includes("Jane Doe") && out.includes("[a person]"), "what went out: " + out);
     await page.close();
     return warn;
   });
@@ -432,10 +445,16 @@ async function main() {
     await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
     assertEqual(await sends(page), 0, "the report went out with the heads-up the user had not seen");
     assertEqual(await page.locator(".bugcard .bug-pill").innerText(), "Not sent yet · changed", "the card left the draft");
-    // Pressed again, having been told: it goes, with the words as the user wrote them.
+    // Pressed again, having been told: the words as the user wrote them go to the shell, which
+    // has Rich check them first (review rv-20261009T174727Z-3007e320-578a finding 1) and leaves
+    // the address out; the card comes back as it would go, and goes on the next press.
+    await page.click("#bug-send");
+    assert(JSON.stringify((await calls(page, "bug_report_send"))[0].sheet).includes("alice@büro.de"), "Send was not asked with the words as the user wrote them");
+    await page.waitForSelector("#bug-flows .bug-rich:has-text('I checked it again before sending')");
+    assertEqual((await filed(page)).length, 0, "the address went out before Rich checked the changed words");
     await page.click("#bug-send");
     await page.waitForSelector(".bugcard.is-sent");
-    assert(JSON.stringify((await calls(page, "bug_report_send"))[0].sheet).includes("alice@büro.de"), "what the user approved is not what was sent");
+    assert(!JSON.stringify(await filed(page)).includes("alice@büro.de"), "the address went out");
     await page.close();
 
     // A press while the check is out with nothing private to find: it goes once the answer comes.
@@ -670,6 +689,85 @@ async function main() {
     return asked;
   });
 
+  // ---- the review of 3007e3200 (rv-20261009T174727Z-3007e320-578a) ----
+  const RICH_NAMES = [{ text: "Jane Doe", kind: "person_name" }, { text: "SecretCo", kind: "company_name" }];
+  const SAID_BY_HAND = "Jane Doe at SecretCo saw the window freeze while opening the plan.";
+  /// Change it, replace the first paragraph with `words` typed by hand, and Done.
+  async function changeByHand(page, words) {
+    await page.click("#bug-change");
+    await page.waitForSelector(".bugcard.is-editing");
+    await page.evaluate(() => {
+      const p = document.querySelector(".bugcard .bug-sec p");
+      p.focus();
+      const r = document.createRange();
+      r.selectNodeContents(p);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    await page.keyboard.type(words);
+    await page.click("#bug-done");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet · changed')");
+  }
+
+  await run.check("words changed by hand go out only after Rich has checked them, and wait on this Mac when he can't", async () => {
+    // Finding 1, fixture `manual_edit.js`: on 3007e3200 Change it → Done made the user's own words
+    // sendable after only the heads-up, which cannot know an ordinary client's name, and Send
+    // filed "Jane Doe at SecretCo saw the window freeze while opening the plan." with no heads-up.
+    // `mock.js` decides Send as the shell does (`richos_core::bug_report::decide`, tested in Rust).
+    const page = await open("dark", { bugSendCheckHold: true, bugRichCheck: RICH_NAMES });
+    await bustABug(page);
+    await answer(page, "The window froze while opening the plan.");
+    await changeByHand(page, SAID_BY_HAND);
+    await page.waitForFunction((said) => window.__RICHOS_MOCK_BUG__.calls.some((c) => c.cmd === "bug_report_private_in" && c.text.includes(said)), SAID_BY_HAND);
+    assert(await page.isHidden(".bug-warn"), "a heads-up for names no rule can know");
+    await page.click("#bug-send");
+    await page.waitForSelector(".bug-working:has-text('Rich is checking your changes…')");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Rich is checking your changes…')");
+    assertEqual((await filed(page)).length, 0, "the changed words went out before Rich checked them");
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.releaseSendCheck());
+    await page.waitForSelector("#bug-flows .bug-rich:has-text('I checked it again before sending')");
+    assertEqual(await page.locator(".bugcard").count(), 1, "the card shown again is a second card");
+    assertEqual(await page.locator(".bug-working").count(), 0, "Rich is still shown checking");
+    const again = await page.locator(".bugcard .bug-doc").innerText();
+    assert(!again.includes("Jane Doe") && !again.includes("SecretCo") && again.includes("[a person] at [a company] saw the window freeze"), again);
+    assertEqual((await filed(page)).length, 0, "it went out before the user saw what Rich left out");
+    await page.click("#bug-send");
+    await page.waitForSelector(".bugcard.is-sent");
+    const out = JSON.stringify(await filed(page));
+    assert(!out.includes("Jane Doe") && !out.includes("SecretCo") && out.includes("[a person] at [a company]"), out);
+    await page.close();
+
+    // Claude can't check them: nothing is sent, the words wait on this Mac with no Send offered,
+    // and the card comes back once he has checked them.
+    const down = await open("dark", { bugRichCheck: RICH_NAMES });
+    await bustABug(down);
+    await answer(down, "The window froze while opening the plan.");
+    await down.evaluate(() => window.__RICHOS_MOCK_BUG__.setClaude("down"));
+    await changeByHand(down, SAID_BY_HAND);
+    await down.click("#bug-send");
+    await down.waitForSelector("#bug-flows .bug-rich:has-text(\"I couldn't check your changes for private details yet\")");
+    await down.waitForSelector(".bugcard .bug-pill:has-text(\"Waiting for Rich's check · saved on this Mac\")");
+    const said = await lastSaid(down);
+    assertEqual(await down.locator("#bug-send").count(), 0, "Send is offered for words Rich hasn't checked");
+    assert(await down.isVisible("#bug-unchecked-cancel"), "no way to cancel the words that wait");
+    const kept = await down.evaluate(() => window.__RICHOS_MOCK_BUG__.unchecked());
+    assert(kept.length === 1 && JSON.stringify(kept[0].edited).includes(SAID_BY_HAND), "the changed words are not kept: " + JSON.stringify(kept));
+    assertEqual((await filed(down)).length, 0, "something went out");
+    await down.evaluate(() => window.__RICHOS_MOCK_BUG__.claudeAnswers());
+    await down.waitForSelector("#bug-flows .bug-rich:has-text(\"I've checked your changes now.\")");
+    assertEqual(await down.locator(".bugcard").count(), 1, "the checked card is a second card");
+    const checked = await down.locator(".bugcard .bug-doc").innerText();
+    assert(!checked.includes("Jane Doe") && !checked.includes("SecretCo"), checked);
+    await down.waitForFunction(() => window.__RICHOS_MOCK_BUG__.unchecked().length === 0);
+    assertEqual((await filed(down)).length, 0, "it went out before the user pressed Send");
+    await down.click("#bug-send");
+    await down.waitForSelector(".bugcard.is-sent");
+    assert(!JSON.stringify(await filed(down)).includes("Jane Doe"), "the name went out");
+    await down.close();
+    return said;
+  });
+
   // ---- both themes: contrast, the type floor, indicators ----
   const ROOTS = "#bug-flows, #bugdock:not([hidden]), #bug-subtip.is-shown";
   // Declared skippable, each the conversation's own 14px tier (style.css's Bust a bug note).
@@ -688,6 +786,8 @@ async function main() {
     ["canceling", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-send"); await p.waitForSelector(".bugcard.is-queued"); await p.click("#bug-cancel"); await p.waitForSelector(".bugcard .bug-pill:has-text('Canceling…')"); }, { bugNet: "offline", bugCancel: "hold" }],
     ["canceled", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.click("#bug-cancel"); await p.waitForSelector(".bugcard.is-canceled"); }],
     ["unchecked", async (p) => { await bustABug(p); await p.fill("#input", ANSWER); await p.keyboard.press("Enter"); await p.waitForSelector("#bug-unchecked-cancel"); }, { bugClaude: "down" }],
+    ["checking-changes", async (p) => { await bustABug(p); await answer(p, ANSWER); await changeByHand(p, SAID_BY_HAND); await p.click("#bug-send"); await p.waitForSelector(".bugcard .bug-pill:has-text('Rich is checking your changes…')"); }, { bugSendCheckHold: true }],
+    ["changes-unchecked", async (p) => { await bustABug(p); await answer(p, ANSWER); await p.evaluate(() => window.__RICHOS_MOCK_BUG__.setClaude("down")); await changeByHand(p, SAID_BY_HAND); await p.click("#bug-send"); await p.waitForSelector("#bug-unchecked-cancel"); }],
     ["panel", async (p) => { await p.click("#nav-corrections"); await bustABug(p); await p.fill("#bugdock-input", ANSWER); await p.keyboard.press("Enter"); await p.waitForSelector("#bugdock .bugcard .bug-pill:has-text('Not sent yet')"); }],
   ];
   for (const theme of ["dark", "light"]) {

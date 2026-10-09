@@ -8,12 +8,22 @@
 //   ask -> checking -> draft <-> editing -> sending -> sent
 //            |           \-> canceled          \-> waiting (offline / GitHub down) -> sent
 //            \-> unchecked (Claude didn't answer: kept on this Mac, nothing to send) -> draft
+//   sending -> draft again (Rich checked changed words and left more out, or the last scrub did)
+//   sending -> unchecked (changed words Claude didn't answer about: kept, nothing sent) -> draft
 //
 // No report is offered for sending without Rich's check (review rv-20261009T162841Z-69294215-70e6
 // finding 2): when Claude fails, times out or answers with no report, the shell keeps the user's
 // words on this Mac and answers `{state: "unchecked"}`; Rich says he couldn't check it yet, and the
 // shell asks him again by itself. When he has, `rich://bug-report` brings `{ checked }` and the
 // card comes then, unsent. A report kept before a quit comes in the Rich panel.
+//
+// What is SENT is decided by the shell alone, at Send (`bug_report_send`, `richos_core::
+// bug_report::decide`; review rv-20261009T174727Z-3007e320-578a): the words go only when they are
+// the words Rich last checked of this report (`f.report`), scrubbed last as one whole string.
+// Words the user changed by hand are checked by Rich first ("Rich is checking your changes…");
+// when Claude can't answer they wait on this Mac, unsent, like any report he couldn't check; and
+// when the last scrub leaves out more than the card shows, the card comes back with it left out,
+// to send or not. This file never decides that a report may go.
 //
 // Pressing Bust a bug opens nothing new: Rich asks in the conversation on screen, under a quiet
 // "Bust a bug" divider. Where a window covers the conversation (Corrections, Feedback, Search, the
@@ -408,11 +418,23 @@ window.RichBug = (function () {
   var HERE_IT_IS = "Here's the report as I'd file it. Nothing goes out until you press Send. Anyone can read GitHub issues, so I left out names, company details and file paths.";
   var NOT_CHECKED = "I couldn't check this report for private details yet, because Claude didn't answer, so it isn't ready to send. It's saved on this Mac, and I'll check it by myself as soon as Claude answers, then show it to you here.";
 
-  /// Rich's checked report on its card, waiting for the user: `answer` is `{draft, digest}`.
+  var CHECKING_CHANGES = "Rich is checking your changes…";
+  var CHANGES_NOT_CHECKED = "I couldn't check your changes for private details yet, because Claude didn't answer, so I didn't send the report. It's saved on this Mac, and I'll check it by myself as soon as Claude answers, then show it to you here.";
+  var SHOWN_AGAIN = "I checked it again before sending and left out more private details, because anyone can read GitHub issues. Here it is as it would go. Nothing goes out until you press Send.";
+
+  /// Rich's checked report on its card, waiting for the user: `answer` is `{report, draft,
+  /// digest}`. `report` is the id the shell keeps his check under; Send names it, and the shell
+  /// sends only words that are what he checked (`bug_report_send`).
   function showDraft(f, answer, lead, workedFor) {
+    var old = f.card;
+    f.report = answer.report || null;
+    f.handEdited = false;
     f.draft = answer.draft;
     f.private = (answer.draft && answer.draft.private) || [];
     richSays(f, [lead], { worked: workedFor, digest: answer.digest });
+    // A card shown again (Rich checked changed words, or the last scrub left more out) replaces
+    // the one before it: one report, one card.
+    if (old) old.remove();
     f.card = buildCard(f);
     box(f).appendChild(f.card);
     f.step = "draft";
@@ -445,6 +467,21 @@ window.RichBug = (function () {
     bridge.invoke("bug_report_take_unchecked", { id: id }).catch(function () {});
   }
 
+  /// **CHANGED WORDS RICH COULD NOT CHECK AT SEND**: nothing was sent. The card stays, with no
+  /// Send on it, until he has checked them (`onChecked` shows it again); the way out is Cancel
+  /// report, which takes them off this Mac.
+  function changesKept(f, id) {
+    f.uncheckedId = id;
+    f.step = "unchecked";
+    paintCard(f);
+    var art = richSays(f, [CHANGES_NOT_CHECKED]);
+    var acts = node("div", "bug-actions-inline");
+    acts.appendChild(button("Cancel report", false, function () { dropUnchecked(f); }, "bug-unchecked-cancel"));
+    art.appendChild(acts);
+    f.uncheckedActs = acts;
+    paintComposers();
+  }
+
   function dropUnchecked(f) {
     if (f.step !== "unchecked" || !f.uncheckedActs || f.uncheckedActs.hidden) return;
     var id = f.uncheckedId;
@@ -455,7 +492,8 @@ window.RichBug = (function () {
       f.uncheckedActs.remove();
       f.uncheckedActs = null;
       f.uncheckedId = null;
-      f.step = "closed";
+      f.step = f.card ? "canceled" : "closed";
+      if (f.card) paintCard(f);
       richSays(f, ["Canceled. Nothing was sent, and it's no longer saved on this Mac."]);
       paintComposers();
     }).catch(function (e) {
@@ -489,7 +527,8 @@ window.RichBug = (function () {
     f.uncheckedId = null;
     if (f.uncheckedActs) { f.uncheckedActs.remove(); f.uncheckedActs = null; }
     if (f.dock) showDock();
-    showDraft(f, c, (earlier ? "I've checked the bug report you told me about earlier. " : "I've checked it now. ") + HERE_IT_IS, null);
+    var lead = earlier ? "I've checked the bug report you told me about earlier. " : f.card ? "I've checked your changes now. " : "I've checked it now. ";
+    showDraft(f, c, lead + HERE_IT_IS, null);
     if (!f.dock && f.el.hidden && host) host.toast("Rich checked your bug report. It's waiting for you to send it.");
   }
 
@@ -505,7 +544,7 @@ window.RichBug = (function () {
       var more = f.nextChanges && f.nextChanges.shift();
       if (more && f.step === "draft") askChange(f, more, false);
     }
-    bridge.invoke("bug_report_change", { said: text, sheet: sheetOf(f), private: f.private || [] }).then(function (answer) {
+    bridge.invoke("bug_report_change", { said: text, sheet: sheetOf(f), private: f.private || [], report: f.report || null }).then(function (answer) {
       w2.remove();
       if (f.step !== "changing") return;
       if (answer.private) f.private = answer.private;
@@ -809,7 +848,13 @@ window.RichBug = (function () {
         break;
       case "sending":
         c.classList.add("is-sending");
-        pill.textContent = "Sending…";
+        pill.textContent = f.handEdited ? CHECKING_CHANGES : "Sending…";
+        acts.hidden = true;
+        break;
+      case "unchecked":
+        // Changed words Rich couldn't check yet: nothing to send until he has (`changesKept`).
+        c.classList.add("is-queued");
+        pill.textContent = "Waiting for Rich's check · saved on this Mac";
         acts.hidden = true;
         break;
       case "changing":
@@ -861,6 +906,7 @@ window.RichBug = (function () {
   }
   function openEditor(f) {
     f.sendHeld = null; // a Send pressed before changing it is not a Send of the changed words
+    f.beforeEdit = JSON.stringify(sheetOf(f));
     f.step = "editing";
     paintCard(f);
     paintComposers();
@@ -876,6 +922,9 @@ window.RichBug = (function () {
   function finishEdit(f) {
     if (f.step !== "editing") return;
     f.edited = true;
+    // Only says what Send will be doing first ("Rich is checking your changes…"): whether the
+    // words may go is the shell's to decide, against Rich's own check, never this flag's.
+    if (JSON.stringify(sheetOf(f)) !== f.beforeEdit) f.handEdited = true;
     f.step = "draft";
     paintCard(f);
     paintComposers();
@@ -908,7 +957,18 @@ window.RichBug = (function () {
     f.step = "sending";
     paintCard(f);
     paintComposers();
-    bridge.invoke("bug_report_send", { sheet: sheetOf(f) }).then(function (d) { delivered(f, d, null); }).catch(function () {
+    var checking = f.handEdited ? working(f, CHECKING_CHANGES) : null;
+    bridge.invoke("bug_report_send", { report: f.report || null, sheet: sheetOf(f), screen: publicScreen(f.screen) }).then(function (a) {
+      if (checking) checking.remove();
+      if (f.step !== "sending") return;
+      // Not sent: the last scrub left more out than the card showed, or Rich checked the changed
+      // words and named something. The card comes back as it would go.
+      if (a && a.state === "checked") return showDraft(f, a, SHOWN_AGAIN, null);
+      // Not sent: Rich couldn't check the changed words yet; they wait on this Mac.
+      if (a && a.state === "unchecked") return changesKept(f, a.id);
+      delivered(f, a, null);
+    }).catch(function () {
+      if (checking) checking.remove();
       f.step = "draft";
       paintCard(f);
       paintComposers();

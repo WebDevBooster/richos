@@ -520,7 +520,8 @@ pub async fn bug_report_send(app: AppHandle, report: Option<String>, sheet: bug:
         let app_terms = scrubber.terms().to_vec();
         let check = bugs.checks().get(&report).cloned();
         let mut decision = bug::decide(&sheet, check.as_ref(), &app_terms);
-        if decision == bug::Decision::Unchecked {
+        let changed_by_hand = decision == bug::Decision::Unchecked;
+        if changed_by_hand {
             let private = check.map(|c| c.private().to_vec()).unwrap_or_default();
             let input = bug::writer_input(&bug::edit_check_prompt(&sheet), None);
             match bug::check_edit(ask_rich(&bin, folder.as_deref(), &bugs.quiet_dir, &input), &sheet, &private) {
@@ -548,7 +549,8 @@ pub async fn bug_report_send(app: AppHandle, report: Option<String>, sheet: bug:
             }
             bug::Decision::Show(draft) => {
                 bugs.checks().insert(report.clone(), bug::Check::of(&draft));
-                Ok(serde_json::json!({ "state": "checked", "report": report, "draft": draft, "digest": bug::SHOWN_AGAIN_DIGEST }))
+                let digest = if changed_by_hand { bug::EDIT_DIGEST } else { bug::SHOWN_AGAIN_DIGEST };
+                Ok(serde_json::json!({ "state": "checked", "report": report, "draft": draft, "digest": digest }))
             }
             // Rich has just checked these very words, so they cannot differ from what he checked.
             bug::Decision::Unchecked => Err("nothing was sent".to_string()),
