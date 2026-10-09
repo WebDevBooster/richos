@@ -301,6 +301,15 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/deliver-review-verdict.sh",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [

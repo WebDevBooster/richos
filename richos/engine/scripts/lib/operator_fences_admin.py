@@ -93,6 +93,35 @@ def declared_repos(decl):
     return [os.path.realpath(os.path.expanduser(p)) for p in raw.split()]
 
 
+def declared_reviews(decl, main):
+    """The review ledger the launcher of `main` must carry: the second review's
+    ledger when the declaration's SECOND_REVIEW_REPOS lists it, else ""."""
+    if F.review_listed((decl or {}).get("SECOND_REVIEW_REPOS", ""), main):
+        return F.review_ledger_default()
+    return ""
+
+
+def review_problems(repo, conf, decl):
+    """[problem] when the launcher's review ledger disagrees with the
+    declaration: an edited SECOND_REVIEW_REPOS does nothing until `install`
+    copies it, as for LAND_LEASE_HOLDERS."""
+    if decl is None:
+        return []
+    paths = F.repo_paths(repo)
+    want = declared_reviews(decl, paths["main"] if paths else repo)
+    have = conf.get("REVIEWS") or ""
+    if want == have:
+        return []
+    if want and not have:
+        return ["%s: SECOND_REVIEW_REPOS lists it but its launcher does not refuse unreviewed work; run "
+                "operator-fences.sh install" % repo]
+    if have and not want:
+        return ["%s: its launcher refuses unreviewed work but SECOND_REVIEW_REPOS does not list it; run "
+                "operator-fences.sh install" % repo]
+    return ["%s: its launcher reads the review ledger %s, not %s; run operator-fences.sh install"
+            % (repo, have, want)]
+
+
 def chain_reachable(main):
     """Will a repository-local reference-transaction hook actually run? The
     same test install-ref-forensics.sh makes: with core.hooksPath set, the
@@ -190,7 +219,7 @@ def install_one(repo, entity, decl):
     holders = " ".join(decl.get("LAND_LEASE_HOLDERS", "").split())
     write_executable(target, launcher_text({
         "STATE": state, "REPO": main, "COMMON": common, "HOME": home, "KEY": key, "HOLDERS": holders,
-        "ENGINE": ENGINE, "PROGRAM": program, "DIGEST": digest}))
+        "REVIEWS": declared_reviews(decl, main), "ENGINE": ENGINE, "PROGRAM": program, "DIGEST": digest}))
     return {"main": main, "common": common, "state": state, "moved": moved, "chain": chain_members(common),
             "hooks_path": hooks_path}
 
@@ -296,6 +325,7 @@ def check_one(repo, mode, decl=None):
         problems.append("%s: cannot compute the lease home (%s)" % (repo, error))
     if mode != "on-ready":
         problems.extend(holder_problems(repo, conf, decl)[0])
+        problems.extend(review_problems(repo, conf, decl))
     return problems
 
 

@@ -4904,14 +4904,17 @@ def merge_and_land(ref, me="", message=""):
     repository's main checkout (which must be on that branch), with git's own
     hooks and checks, then lands it exactly as the automatic land does
     (ignored files are kept, never a reason to stay). A merge git refuses
-    stops here with git's words; nothing is landed. Returns (merged, land
-    result)."""
+    stops here with git's words; nothing is landed. In a repository listed in
+    SECOND_REVIEW_REPOS nothing is merged unless the newest handover verdict
+    on exactly each branch tip says passed (_review_check, CEO §113), and the
+    merge message names that review. Returns (merged, land result)."""
     rec = _resolve(ref, me)
     fin, _pz, why = finished_state(rec)
     if not fin:
         raise SpecError("%s is not finished (%s); merge it when its run has ended" % (rec["name"], why))
     chain = _chain(rec)
     merged = []
+    todo = []
     for repo, b in _branch_targets(chain):
         main = main_checkout(repo)
         target, tip, why_not = integration_target(chain, repo)
@@ -4922,11 +4925,27 @@ def merge_and_land(ref, me="", message=""):
             raise SpecError("cannot merge %s of %s: %s" % (b, repo, unread))
         if not t or is_ancestor(main, t, tip):
             continue
+        todo.append((repo, b, main, t))
+    # A branch whose tip another branch of this work already contains comes in
+    # with that one, so it is neither merged nor reviewed on its own.
+    todo = [x for x in todo
+            if not any(y[2] == x[2] and y[3] != x[3] and is_ancestor(x[2], x[3], y[3]) for y in todo)]
+    reviews = _review_check(todo)
+    for repo, b, main, t in todo:
+        target, tip, why_not = integration_target(chain, repo)
+        if why_not:
+            raise SpecError("cannot merge %s of %s: %s" % (b, repo, why_not))
+        if is_ancestor(main, t, tip):
+            continue
         rc, head, _e = git(main, "symbolic-ref", "--quiet", "--short", "HEAD")
         if rc or head.strip() != target:
             raise SpecError("cannot merge %s: the main checkout %s is on %s, not on %s, the branch this work "
                             "integrates on" % (b, main, head.strip() or "a detached HEAD", target))
-        args = ["merge", "--no-ff", "--no-edit"] + (["-m", message] if message else []) + [b]
+        msg = ["-m", message] if message else []
+        if reviews.get(t):
+            # The merge commit names the review that let it in (plan §2.4).
+            msg = ["-m", message or "Merge branch '%s'" % b, "-m", reviews[t]]
+        args = ["merge", "--no-ff", "--no-edit"] + msg + [b]
         before = git(main, "rev-parse", "HEAD")[1].strip()
         # git's own checks (pre-merge-commit) run here and may take minutes.
         r = subprocess.run(["git", "-C", main] + args, capture_output=True, text=True, env=_git_env())
@@ -4937,6 +4956,68 @@ def merge_and_land(ref, me="", message=""):
         merged.append((repo, b))
         event("merged", key=rec["key"], repo=repo, branch=b, into=target)
     return merged, land(rec["key"], me, keep_ignored=True)
+
+
+def _fence_program():
+    """The engine's operator_fences.py, where the second review's land rule
+    lives (the fence applies the same rule to every other move of main)."""
+    import importlib.util
+    path = os.path.join(engine_root(), "scripts", "lib", "operator_fences.py")
+    spec = importlib.util.spec_from_file_location("workspaces_operator_fences", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _review_check(todo):
+    """NO WORK LANDS WITHOUT A PASSING REVIEW OF EXACTLY ITS TIP (CEO §113;
+    richos-hq plan 2026-10-09 §2.5 and §4 row 3). For every branch about to be
+    merged into a repository listed in SECOND_REVIEW_REPOS (its fence launcher
+    carries the review ledger; operator-fences.sh install copies it from the
+    declaration), the newest handover verdict on exactly its tip must say
+    passed. Otherwise NOTHING is merged, and the refusal names each tip and its
+    findings. Asked here before git's merge gate spends its minutes, and with
+    the fence on or off; the fence asks the same question of a plain
+    `git merge`. Returns {tip: the merge message's review paragraph}."""
+    gated = [(x, _review_ledger(x[2])) for x in todo]
+    gated = [(x, ledger) for x, ledger in gated if ledger]
+    if not gated:
+        return {}
+    F = _fence_program()
+    out, refusals = {}, []
+    for (_repo, b, main, t), ledger in gated:
+        gaps = F.review_gaps(ledger, [t])
+        if gaps:
+            refusals.append(F.review_refusal_text(main, gaps, engine_root()).replace(
+                "=== SECOND REVIEW: refused in %s ===" % main,
+                "=== SECOND REVIEW: %s was not merged into %s ===" % (b, main), 1))
+            continue
+        row, _mid = F.review_of(F.read_reviews(ledger), t)
+        para = "Second review: %s, %s by %s (%s), %s finding(s)." % (
+            row.get("verdict"), row.get("id"), row.get("reviewer"), row.get("reviewer_model"), row.get("findings"))
+        notes = ["P%s %s (%s)" % f for f in F.review_findings(row, limit=20)]
+        out[t] = para + ("\n" + "\n".join(notes) if notes else "")
+    if refusals:
+        raise SpecError("nothing was merged.\n" + "\n".join(refusals))
+    return out
+
+
+def _review_ledger(main):
+    """The review ledger the repository's fence launcher names, or "" (not
+    listed in SECOND_REVIEW_REPOS, or no launcher installed)."""
+    rc, common, _e = git(main, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if rc != 0 or not common.strip():
+        return ""
+    try:
+        with open(os.path.join(common.strip(), "hooks", "reference-transaction"), encoding="utf-8",
+                  errors="replace") as f:
+            text = f.read(65536)
+    except OSError:
+        return ""
+    if "richos-operator-fence-launcher" not in text:
+        return ""
+    m = re.search(r'(?m)^OPERATOR_FENCES_REVIEWS="([^"]*)"\s*$', text)
+    return m.group(1) if m else ""
 
 
 def _abort_own_merge(main, before, tip):

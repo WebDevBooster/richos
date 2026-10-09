@@ -469,13 +469,19 @@ run_layer_R() {
     #     agent_id, and the Claude scratch roots; no repository decides it.
     #   guard-unguarded-rm — the Bash rule that refuses an rm Claude Code would prompt the CEO
     #     about. Its subject is the COMMAND's text and the payload's cwd, not a repository.
+    #   deliver-review-verdict - a matcherless PreToolUse delivery of a second-review
+    #     verdict to the running teammate whose work it is. Its subject is the
+    #     payload's agent_id, the review ledger and the workspace registry, all in
+    #     the operator's state directory; no repository decides it, and it never
+    #     blocks.
     # guard-pierce delegates to its installation-relative Python module; that
     # module reads runtime project/desktop roots, without this shell bootstrap.
     R_ROOTLESS_HOOKS="guard-brief-scope guard-pierce notice-claim-capability handoff-facts-annotate \
     notice-inflight-sends session-start-ci-surface session-start-scratch session-start-quota session-start-stall shell-evidence strip-ack-lines \
     task-completed-handoff teammate-idle-handoff \
     worker-created-handoff worker-started-handoff worker-updated-handoff worker-ended-handoff \
-    guard-ci-red-lands guard-land-lease-commands guard-foreign-app-data guard-shared-scratchpad guard-unguarded-rm"
+    guard-ci-red-lands guard-land-lease-commands guard-foreign-app-data guard-shared-scratchpad guard-unguarded-rm \
+    deliver-review-verdict"
 
     # FAIL LOUD, NEVER FALL BACK. A typed list kept here "in case the derivation
     # cannot run" would be the second inventory this change exists to delete, and
@@ -1253,6 +1259,7 @@ guard-foreign-app-data.sh|PreToolUse
 guard-shared-scratchpad.sh|PreToolUse
 guard-unguarded-rm.sh|PreToolUse
 guard-stop-live-work.sh|PreToolUse
+deliver-review-verdict.sh|PreToolUse
 observe-created-refs.sh|PostToolUse
 detect-nonnative-worktree.sh|PostToolUse
 worker-created-handoff.sh|PostToolUse

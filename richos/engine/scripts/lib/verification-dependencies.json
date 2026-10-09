@@ -172,7 +172,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#workspace-copy": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "4d7d13215a6f5a1cdbd9d39092e527b77950fdb456e741be5c56e4bf85ef5ad2",
+      "sha256": "e3552adc417a8b741d6113a84b5cf5ece80c3d3ce16f1bc09bd030094439c30d",
       "evidence": "Q copies the governed config into Q_ENT before q_env executes the workspace guards. The enclosing Q consumer must follow those executed guards. Later changes add registration inventory literals outside the Q copy region only (guard-record-owner-memory.sh, 2026-09-28). Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed. Renewed 2026-10-01: the guard-shared-scratchpad.sh basename is added to the registration inventory literals as data (rootless list, oracle, acknowledged list); it is never executed here. Renewed 2026-10-02 (integration of zach-sonnet-rmguard1): the guard-unguarded-rm.sh basename is added beside it in the same literals, as data; it is never executed here.",
       "keys": [],
       "edges": [],
@@ -467,7 +467,7 @@
     },
     "scripts/lib/operator_fences.py#proc": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+      "sha256": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
       "evidence": "Kernel process-generation routines read libproc or /proc only. Fence/lease commands below this region are not invoked by the process supervisor.",
       "keys": [],
       "edges": [],
@@ -1432,7 +1432,7 @@
     },
     "mega-lander/workspaces.py#barrier": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "The barrier CLI reaches reference snapshots, native process identities and private workspace/session records. Its reviewed local call closure has no dynamic helper import and does not read orchestration.config. WAIT branch: an ending the platform recorded (observe_platform_end) also imports agent_hold.py to release that agent's hold; release reads no config and executes no engine program.",
       "keys": [],
       "edges": [
@@ -1488,7 +1488,7 @@
     },
     "mega-lander/workspaces.py#lifecycle-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed CLI paths: hook/lifecycle, register-spawn, barrier, integration/record_integration, pause and gate-stop. Their local call closure reaches workspace cleanup and these three dynamic modules; it does not reach the land CLI-only QA throwaway or scratch-sweep calls. No direct orchestration.config reader. WAIT branch: pause, resume, stop, TaskStop, SessionStart and SessionEnd also import agent_hold.py to hold or release the agent's processes, and the SendMessage path imports pause_protocol.py to recognize the generated pause and RESUME. Neither reads config. Workspace cleanup (2026-10-08) also loads scripts/lib/build_caches.py by fixed path: before a workspace is removed it lists the cache folders keyed to that workspace, and after the removal moves them aside and starts one detached rm. The module reads SCRATCH_BUILD_CACHE_ROOT and SCRATCH_CARGO_TARGET_ROOTS from the environment, else from SCRATCH_REAPER_CONFIG or the engine's orchestration.config. SubagentStop (2026-10-08) also reads that agent's call records in the agent-hold state directory and the platform's own transcript of the agent under RICHOS_PROJECTS_DIR, else CLAUDE_CONFIG_DIR or HOME .claude/projects (the same root platform_agent_record reads), to see whether a background call that has ended is still to be delivered; read only, no execution and no config value.",
       "keys": [],
       "edges": [
@@ -2328,7 +2328,7 @@
     },
     "mega-lander/workspaces.py#liveness-readers": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "agent-liveness imports only key_for_id, load_agent, done_path, read_json and finished_state. Their reviewed local closure is state_dir/_p/_key_segment, agent_path/session_path/load_session, session_state/process_start/_ps_env and iso. These read registry JSON and native process status, never orchestration settings, and have no dynamic engine import.",
       "keys": [],
       "edges": []
@@ -2512,7 +2512,7 @@
     },
     "mega-lander/workspaces.py#session-recovery": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "The stop recovery predicate calls load_session and forbidden_now. Their finite local closure reads private registry/platform session JSON, native ancestry and git rev-parse, and may heal that same session under Lock/write_json/event. Helpers include session_pid, _ps_parent_and_comm, _platform_sessions_dir, worktree_session_reason, realpath, git/_git_env and registry path/time helpers. None reads orchestration.config or imports a dynamic engine module.",
       "keys": [],
       "edges": []
@@ -2530,7 +2530,7 @@
     },
     "mega-lander/workspaces.py#claims-fixture": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "The claims test calls load_agent, new_record, now and save_agent. Their finite local closure creates the literal record, resolves private agent/done paths and writes the private record/id index via write_json/_write_id. No config read or dynamic engine import.",
       "keys": [],
       "edges": []
@@ -2801,7 +2801,7 @@
     },
     "scripts/hooks/engine-status.test.sh": {
       "source": "scripts/hooks/engine-status.test.sh",
-      "sha256": "698ab1306a9e5375ee9f673c48ae94a16106755e37ecae33077fad3d11e2b285",
+      "sha256": "3a345d09d38f773a7ddaac80b7d97cb26700f0cbbcf7b640c6e5c61aa76dc6aa",
       "evidence": "Copied engine settings are transport only: engine-status consumes adoption presence, not values. The entity has a literal config. Inline mutations edit registration/inventory or the rendered instruction. A missing-Python path enumerates command links but executes only the banner and its fixed libraries. The inventory adds the two failure-type hook basenames as data; those hooks are never executed by this suite. The resource-waits hook basename is another inventory datum, never executed. The guard-record-owner-memory.sh basename (2026-09-28) is another inventory datum, never executed. Renewed 2026-09-28 (stall watcher): one ACKNOWLEDGED_SCRIPTS name (session-start-stall.sh) and its comment; no case changed. Renewed 2026-10-01: the guard-shared-scratchpad.sh basename is added to the registration inventory literals as data (rootless list, oracle, acknowledged list); it is never executed here. Renewed 2026-10-02 (integration of zach-sonnet-rmguard1): the guard-unguarded-rm.sh basename is added beside it in the same literals, as data; it is never executed here.",
       "keys": [],
       "edges": [
@@ -2995,14 +2995,14 @@
     },
     "mega-lander/workspaces.py#integration": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "integration_for/integration_target and record_integration use a finite local closure: integration record/file/path/work lookup, branch_tip/main_checkout/git, _write_integration/Lock/write_json/event and path/time helpers. Only registry JSON and git metadata are consumed; no config read or engine import. all_bodies_of_work uses the same _integration_file reader and returns its works mapping without executing lifecycle actions.",
       "keys": [],
       "edges": []
     },
     "mega-lander/workspaces.sh#integration": {
       "source": "mega-lander/workspaces.sh",
-      "sha256": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+      "sha256": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
       "evidence": "Fixed Python wrapper called with integration only; its target uses the declared integration local closure.",
       "keys": [],
       "edges": [
@@ -3692,7 +3692,7 @@
     },
     "mega-lander/workspaces.py#empty-recipient-fixture": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "The pause fixture explicitly supplies a newly created private RICHOS_WORKSPACES_DIR with no agent/done records. The recipient CLI reads load_agent(named_key(session,name)) and returns unregistered before observe_platform_end or any lifecycle operation. The recipient CLI takes entity from its argument or environment and does not perform the hook-only cwd Git lookup. Reached helpers are state_dir/_p/_key_segment, agent_path/done_path/read_json and named_key; none consumes config. The caller test hash binds this empty-registry precondition.",
       "keys": [],
       "edges": []
@@ -3881,7 +3881,7 @@
     },
     "mega-lander/workspaces.py#discard": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed discard CLI plus fixture registration new_record/named_key/_add_workspace/main_checkout/save_agent and record_end. Every local helper other than discard is shared with the already reviewed lifecycle closure. Discard validates record state/reason, records tips and invokes the same _delete_chain cleanup. CLI receives explicit --session; it never enters land-only QA or scratch-sweep paths. Retains actual engine configuration reads from app-instance cleanup.",
       "keys": [],
       "edges": [
@@ -3892,7 +3892,7 @@
     },
     "mega-lander/workspaces.sh#discard": {
       "source": "mega-lander/workspaces.sh",
-      "sha256": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+      "sha256": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
       "evidence": "Fixed Python wrapper invoked only with explicit session and discard; no shell config lookup.",
       "keys": [],
       "edges": [
@@ -4112,7 +4112,7 @@
     },
     "mega-lander/workspaces.py#isolation-registration": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed CLI register-readonly/register-cc/confirm-cc and check-spawn. Only register_readonly, register_cc and confirm_cc add local functions beyond the reviewed lifecycle/discard closure; they use the same registry, native identity and Git helpers, with no new dynamic import or config read. check-spawn calls register_spawn with dry=True. Also retains hook, integration and discard used directly by the isolation suite. Explicit --session bypasses ambient current_session for the non-payload fixture calls.",
       "keys": [],
       "edges": [
@@ -4170,7 +4170,7 @@
     },
     "mega-lander/workspaces.py#recipient": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "The recipient CLI calls recipient_state, which loads its named record then observe_platform_end and finished_state. Only recipient_state is new beyond the reviewed lifecycle closure; all its callees are already covered there. Its cleanup remains bound to actual engine app-instance settings. Explicit --session avoids ambient current_session.",
       "keys": [],
       "edges": [
@@ -4335,7 +4335,7 @@
     },
     "scripts/lib/operator_fences.py#claim-readers": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+      "sha256": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
       "evidence": "Reviewed sessions_dir, launcher_for/fenced, claude_session, alive, iso and JSON read/write helpers reached by claim-start. Local closure adds ancestors/lstart_epoch, repo_paths/git and read_launcher. Git calls read metadata; launcher content is parsed as data, never sourced. Native process identity is shared with the existing proc closure. No orchestration configuration.",
       "keys": [],
       "edges": [
@@ -5011,14 +5011,14 @@
     },
     "mega-lander/workspaces.py#land-lock-paths": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "The admin status path calls land_locks_dir and land_lock_path. Their finite closure is realpath, canonical_repository, git and _git_env. It creates the private lock directory and reads Git repository identity, never orchestration.config or another engine helper.",
       "keys": [],
       "edges": []
     },
     "scripts/lib/operator_fences.py#admin-status": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+      "sha256": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
       "evidence": "The fixed admin status dispatch imports operator_fences_admin. Its library callbacks are read_json, git, file_digest, read_launcher, repo_paths, _default_home and keyed_paths, and for the declared land-lease holders declared_holders, app_bundle and bundle_candidates (os.walk of a missing holder's app bundle; /usr/bin/codesign -d displays signatures, nothing in the bundle executes). Their only dynamic engine import is workspaces for land lock paths. The lease status/fence/install dispatches are not reached.",
       "keys": [],
       "edges": [
@@ -5032,11 +5032,12 @@
     },
     "scripts/lib/operator_fences_admin.py#status": {
       "source": "scripts/lib/operator_fences_admin.py",
-      "sha256": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
-      "evidence": "Status and declaration-check parse OPERATOR_FENCES and, to compare it with each launcher's holders, LAND_LEASE_HOLDERS from the explicit entity config. Remaining local calls read registry JSON, launcher text, file hashes, chain directory entries and Git hooksPath, and test each declared holder path for existence; no launcher, chain member or holder executes. The other config assignments parsed into the declaration dictionary are unused by status.",
+      "sha256": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
+      "evidence": "Status and declaration-check parse OPERATOR_FENCES and, to compare it with each launcher's holders, LAND_LEASE_HOLDERS from the explicit entity config. Remaining local calls read registry JSON, launcher text, file hashes, chain directory entries and Git hooksPath, and test each declared holder path for existence; no launcher, chain member or holder executes. The other config assignments parsed into the declaration dictionary are unused by status. Renewed 2026-10-09 (second review, slice 3): status also parses SECOND_REVIEW_REPOS from the same explicit entity config, to compare each launcher's baked review ledger with it.",
       "keys": [
         "OPERATOR_FENCES",
-        "LAND_LEASE_HOLDERS"
+        "LAND_LEASE_HOLDERS",
+        "SECOND_REVIEW_REPOS"
       ],
       "edges": [
         {
@@ -5058,7 +5059,7 @@
     },
     "scripts/lib/operator_fences.py#admin-holders-notice": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+      "sha256": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
       "evidence": "The fixed admin holders-notice dispatch imports operator_fences_admin and reaches cmd_holders_notice only. Its library callbacks are read_launcher, repo_paths, git, fenced, declared_holders, app_bundle and bundle_candidates (os.walk of a missing holder's app bundle; /usr/bin/codesign -d displays signatures, nothing in the bundle executes). With --repo the registry and the lease home are not read, so workspaces is not imported.",
       "keys": [],
       "edges": [
@@ -5069,7 +5070,7 @@
     },
     "scripts/lib/operator_fences_admin.py#holders-notice": {
       "source": "scripts/lib/operator_fences_admin.py",
-      "sha256": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
+      "sha256": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
       "evidence": "cmd_holders_notice and holder_problems read only the named repositories' reference-transaction launchers as text and test each declared holder path for existence; no orchestration.config is read (the declaration comparison is status's). It prints sentences and exits 0; no launcher, chain member or holder executes.",
       "keys": [],
       "edges": [
@@ -5164,7 +5165,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#seated-fixture": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "4d7d13215a6f5a1cdbd9d39092e527b77950fdb456e741be5c56e4bf85ef5ad2",
+      "sha256": "e3552adc417a8b741d6113a84b5cf5ece80c3d3ce16f1bc09bd030094439c30d",
       "evidence": "Reviewed seated route and its shared R/AL/MT/MC/OF functions. The contract template keeps engine and entity in the same repository, including its linked-worktree case; the by-reference branch is unreachable. Parsed registration commands and sidecar inventories are data except the fixed canonical canary guards listed here. The test only replaces the write guard with literal inert shims or another copy of that same guard. q_hook has four fixed hook names; registry calls are integration/lifecycle. Q transports the fixture config. OF status and EP remain dependencies even when absent or undeclared in the generated fixture. The engine-status edge conservatively retains the literal execute floor outside this seated route. Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed. Renewed 2026-10-01: the guard-shared-scratchpad.sh basename is added to the registration inventory literals as data (rootless list, oracle, acknowledged list); it is never executed here. Renewed 2026-10-02 (integration of zach-sonnet-rmguard1): the guard-unguarded-rm.sh basename is added beside it in the same literals, as data; it is never executed here.",
       "keys": [
         "PROTECTED_PATHS",
@@ -7104,7 +7105,7 @@
     },
     "hooks/hooks.json#stop-visibility-inventory": {
       "source": "hooks/hooks.json",
-      "sha256": "4d8041bba9643a8cb735c6538a37bd49790a9420e56dc37a92758ab89e1384dc",
+      "sha256": "f2e457b12355f280c840669baf68919d3a70e98afb35a10762c53b075534f2ea",
       "evidence": "Binds the dynamically enumerated Stop script inventory for config selection. A new or changed manifest needs requalification before these fixture closures can exclude a config change. Renewed 2026-09-28 (stall watcher): one SessionStart row added (session-start-stall.sh); no PreToolUse or Stop row changed.",
       "keys": [],
       "edges": []
@@ -7771,7 +7772,7 @@
     },
     "mega-lander/workspaces.py#ledger-lookup": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Ledger assignment resolution calls key_for_id then load_agent. Reviewed key/id/path/read_json helpers only read the workspace registry; no config or dynamic helper call.",
       "keys": [],
       "edges": []
@@ -7831,7 +7832,7 @@
     },
     "mega-lander/workspaces.py#event-store": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed state_dir, event, _p, iso and now only: resolves the workspace store and appends a timestamped JSON row, without config or dynamic helper calls.",
       "keys": [],
       "edges": []
@@ -7994,7 +7995,7 @@
     },
     "mega-lander/workspaces.py#left-off-registry": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Left-off reads all_agents(include_done=True); its suite writes new_record/named_key/save_agent and record_integration. Reviewed record enumeration only adds private path/read_json to the existing claims and integration closures.",
       "keys": [],
       "edges": [
@@ -8124,7 +8125,7 @@
     },
     "mega-lander/workspaces.py#quota-fixture": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Quota workers calls current_session, all_agents and finished_state; fixtures also use integration/register-spawn/hook/recipient. Reviewed current_session reads the explicit session ID or the private registry/platform records using the captured sleeper PID. These share lifecycle helpers and retain real engine cleanup settings.",
       "keys": [],
       "edges": [
@@ -8355,7 +8356,7 @@
     },
     "mega-lander/workspaces.sh#stopped-fixture": {
       "source": "mega-lander/workspaces.sh",
-      "sha256": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+      "sha256": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
       "evidence": "Fixed Python wrapper; stopped-ending invokes only integration, discard and pause with an explicit session. Land and its additional QA/scratch helpers are not invoked.",
       "keys": [],
       "edges": [
@@ -8448,8 +8449,8 @@
     },
     "mega-lander/workspaces.py#land-cli-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
-      "evidence": "Reviewed CLI integration/discard/withdraw-cc/land and current_session. Land shares existing lifecycle eligibility/deletion helpers but its CLI also calls qa_throwaway_lines and sweep_scratch_after_land. Those fixed helper imports and the real scratch sweep are included. Unsourced QA transcript classifier defaults are separately scoped. Renewed 2026-10-01 (a land sweeps only the landed agent's scratch): before land() the CLI reads land_sweep_scopes (the record, its chain, all_agents and finished_state for a live namesake) and passes the scopes to sweep_scratch_after_land, which runs the same scratch-sweep.sh with --agent arguments and formats its JSON. No scope, no sweep. Renewed 2026-10-04: the merge CLI (merge_and_land) runs git merge --no-ff of the record's own branches in that repository's main checkout and then the same land; the automatic land (_keep_ignored) moves ignored entries into the private registry's kept/ directory. No config read and no new dynamic import.",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
+      "evidence": "Reviewed CLI integration/discard/withdraw-cc/land and current_session. Land shares existing lifecycle eligibility/deletion helpers but its CLI also calls qa_throwaway_lines and sweep_scratch_after_land. Those fixed helper imports and the real scratch sweep are included. Unsourced QA transcript classifier defaults are separately scoped. Renewed 2026-10-01 (a land sweeps only the landed agent's scratch): before land() the CLI reads land_sweep_scopes (the record, its chain, all_agents and finished_state for a live namesake) and passes the scopes to sweep_scratch_after_land, which runs the same scratch-sweep.sh with --agent arguments and formats its JSON. No scope, no sweep. Renewed 2026-10-04: the merge CLI (merge_and_land) runs git merge --no-ff of the record's own branches in that repository's main checkout and then the same land; the automatic land (_keep_ignored) moves ignored entries into the private registry's kept/ directory. No config read and no new dynamic import. Renewed 2026-10-09 (second review, slice 3): merge_and_land's _review_check reads the repository's fence launcher as text for OPERATOR_FENCES_REVIEWS and, only when it is set, loads the fixed scripts/lib/operator_fences.py for its review functions, which read the review ledger and verdict records as JSON and run read-only Git queries. No configuration key is read.",
       "keys": [],
       "edges": [
         {
@@ -8472,7 +8473,7 @@
     },
     "mega-lander/workspaces.sh#land-cli-fixtures": {
       "source": "mega-lander/workspaces.sh",
-      "sha256": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+      "sha256": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
       "evidence": "Fixed Python CLI wrapper used for reviewed integration, discard, withdraw-cc and land commands. Includes the land CLI QA/scratch side effects. Renewed 2026-10-04: the merge CLI (merge_and_land) runs git merge --no-ff of the record's own branches in that repository's main checkout and then the same land; the automatic land (_keep_ignored) moves ignored entries into the private registry's kept/ directory. No config read and no new dynamic import.",
       "keys": [],
       "edges": [
@@ -8483,7 +8484,7 @@
     },
     "mega-lander/workspaces.py#observe-refs": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed observe CLI parses payload, resolves its recorded agent and observes only unfinished work. observe_created_refs and its snapshot/protected-ref helpers are shared with the lifecycle/barrier closures; payload commands are never executed.",
       "keys": [],
       "edges": [
@@ -8673,7 +8674,7 @@
     },
     "mega-lander/workspaces.py#unit-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed all external import/execution sites and unit-call census. Library calls use lifecycle, registration and observation helpers. QA uses the fixed toolkit/classifier imports. The only main(land) call patches sweep_scratch_after_land to a no-op, so its production reaper is not invoked. Stop and wait only update records and observe refs. WAIT branch: stop and pause also release or hold processes through agent_hold.py, reached by the lifecycle edge.",
       "keys": [],
       "edges": [
@@ -8697,7 +8698,7 @@
     },
     "mega-lander/tests/workspaces.test.py": {
       "source": "mega-lander/tests/workspaces.test.py",
-      "sha256": "7094c40caafcdb20b8fbcc48d390e9bd7fec9c58eef27677eb339c0904c39876",
+      "sha256": "4add9dc23bd77d04dc8937412cc3370e6a9426b8c75851b67d5bbd5b04592f34",
       "evidence": "AST census of every ws call, subprocess and run call: fixed Git fixtures, captured sleep processes, a literal shutdown writer and seven Stop guards. Private HOME/config directories and Git config do not replace real app cleanup or QA settings. Six guards receive only a forbidden lead; workspace gate receives a private unadopted repository. The sole land CLI call explicitly patches out the scratch sweep. The added resource-waits Stop guard also returns at the forbidden-lead recovery before reading settings or wait state. Renewed 2026-09-30 (hunt part 4): the finding-20 case runs app.test.py as a subprocess for the one case test_pause_message_is_fixed selects (edge to that case) and reads the five sibling *.mutation.sh files as text; the finding 11-15 and 29 cases add literal sleeper processes, ps reads, a patched container reaper and a private RICHOS_WORKSPACES_GATE_BUDGET. No configuration read is added. Renewed 2026-10-07 (merge-gate abort): MergeGateRefusal installs and switches on the operator fence in its private repository through scripts/operator-fences.sh with a literal private entity config, writes a private session record for its own pid, takes the lease with scripts/land-lease.sh (CLAUDE_PID removed from the child environment), adds a literal refusing pre-merge-commit hook and runs workspaces.py merge as a subprocess. No configuration read is added. Env (2026-10-08) also exports SCRATCH_BUILD_CACHE_ROOT and SCRATCH_CARGO_TARGET_ROOTS pointing into its own temporary root and restores them on close, so the lander's build-cache step never reads the operator's configured cache folders.",
       "keys": [],
       "edges": [
@@ -8750,7 +8751,7 @@
     },
     "mega-lander/tests/workspaces.mutation.sh": {
       "source": "mega-lander/tests/workspaces.mutation.sh",
-      "sha256": "146f273bc15d16907eba8c7e9cec74b654814538eeb2f996447311d709eb38de",
+      "sha256": "cb04df707ad4524e59349ede8c1f03eb879054ef6a525ca4428f3e9c065f4be7",
       "evidence": "Reviewed all finite old/new mutation operands: local workspace predicates, records, Git queries and fixed helper calls. No mutant introduces a dynamic configuration reader or executable. Focused inner suite keeps the same fixture boundaries; copied configuration presence remains a harness input.",
       "keys": [],
       "edges": [
@@ -8778,7 +8779,7 @@
     },
     "mega-lander/workspaces.py#fourteen-cli": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed suite CLI calls: register-cc, integration, status, retry, pause, stop, wait, discard and land, plus _turn_started_by_person import. All use the previously reviewed local library call closure. Land includes its real QA and scratch sweep. Printed command/payload text is never executed by this module.",
       "keys": [],
       "edges": [
@@ -8792,7 +8793,7 @@
     },
     "mega-lander/workspaces.sh#fourteen-cli": {
       "source": "mega-lander/workspaces.sh",
-      "sha256": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+      "sha256": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
       "evidence": "Fixed wrapper forwards the fourteen-suite command set to workspaces.py.",
       "keys": [],
       "edges": [
@@ -9022,7 +9023,7 @@
     },
     "mega-lander/workspaces.py#live-names": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed all_agents(False), finished_state and fixture record creation. Private enumeration adds only JSON reads to liveness/claims paths; no cleanup or dynamic engine import.",
       "keys": [],
       "edges": [
@@ -9047,8 +9048,8 @@
     },
     "scripts/lib/operator_fences.py#runtime": {
       "source": "scripts/lib/operator_fences.py",
-      "sha256": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
-      "evidence": "AST call/import inventory and all external execution boundaries reviewed for fence, lease, merge-owner, turn-end and early-check. Only engine imports are workspace lock paths and the claim predicate. Launcher assignments are data. Git uses the caller repository and its separately bound hooks. Admin is a separate dispatch. declared_holder's moved-holder test (2026-10-01) asks the kernel through ctypes (libSystem csops: the running ancestor's CS_VALID status and team) and runs only /usr/bin/codesign -d to display the bundle's signing team; nothing it finds executes.",
+      "sha256": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
+      "evidence": "AST call/import inventory and all external execution boundaries reviewed for fence, lease, merge-owner, turn-end and early-check. Only engine imports are workspace lock paths and the claim predicate. Launcher assignments are data. Git uses the caller repository and its separately bound hooks. Admin is a separate dispatch. declared_holder's moved-holder test (2026-10-01) asks the kernel through ctypes (libSystem csops: the running ancestor's CS_VALID status and team) and runs only /usr/bin/codesign -d to display the bundle's signing team; nothing it finds executes. Renewed 2026-10-09 (second review, slice 3): the fence also reads the review ledger the launcher bakes (OPERATOR_FENCES_REVIEWS) and verdict records as JSON, and runs read-only Git queries (merge-base, rev-list, rev-parse) on the transaction's commits.",
       "keys": [],
       "edges": [
         {
@@ -9061,7 +9062,7 @@
     },
     "scripts/lib/operator-fence-launcher.sh#fixture-chain": {
       "source": "scripts/lib/operator-fence-launcher.sh",
-      "sha256": "b83c89e06e3e8aab78b2fd3eebb4693e2e41a08d752eae525fddceb10316ac59",
+      "sha256": "02225d44edc1eb081ce8f894747f0ecc0c0ad990919ae19173e2a44acb45b66a",
       "evidence": "Full launcher reviewed. Baked assignments are not sourced config. Executes the fixed installed fence program and fixture repository chain; the suite supplies its chain callbacks.",
       "keys": [],
       "edges": [
@@ -9072,12 +9073,13 @@
     },
     "scripts/lib/operator_fences_admin.py#fixture-admin": {
       "source": "scripts/lib/operator_fences_admin.py",
-      "sha256": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
-      "evidence": "All admin bodies reviewed. Reads three named keys from explicit entity configuration, copies the fixed program and renders the fixed launcher. Registry and hook files are data in admin; copied hooks do not execute here.",
+      "sha256": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
+      "evidence": "All admin bodies reviewed. Reads three named keys from explicit entity configuration, copies the fixed program and renders the fixed launcher. Registry and hook files are data in admin; copied hooks do not execute here. Renewed 2026-10-09 (second review, slice 3): install also reads SECOND_REVIEW_REPOS and bakes the review ledger path (or an empty value) into the launcher; nothing is executed from it.",
       "keys": [
         "OPERATOR_FENCES",
         "OPERATOR_FENCES_REPOS",
-        "LAND_LEASE_HOLDERS"
+        "LAND_LEASE_HOLDERS",
+        "SECOND_REVIEW_REPOS"
       ],
       "edges": [
         {
@@ -9773,7 +9775,7 @@
     },
     "mega-lander/workspaces.py#land-record-readers": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Reviewed read_land_lock, land_record_path and land_records: bounded JSON history reads beside canonical repository lock paths, with no config read or execution.",
       "keys": [],
       "edges": [
@@ -9804,7 +9806,7 @@
     },
     "mega-lander/workspaces.py#fence-restore": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Full _recreate_deleted_ref and _fence_restore_intent reviewed: private Git ref/intent operations, launcher text reads and native process identity. No config execution; installed callbacks are separately bound by the fixture.",
       "keys": [],
       "edges": [
@@ -10186,6 +10188,28 @@
         }
       ]
     },
+    "scripts/hooks/deliver-review-verdict.sh": {
+      "source": "scripts/hooks/deliver-review-verdict.sh",
+      "sha256": "a4a67d345e9ba04a100a8000f441053ad85a548d5ef95c7ab94a75d00f1efa75",
+      "evidence": "Full wrapper reviewed (2026-10-09): a substring test of the payload for agent_id, a presence test of the review ledger from SECOND_REVIEW_STATE_DIR/CLAUDE_CONFIG_DIR, then the fixed Python helper; exit 0 on every path. No configuration key is read.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "scripts/lib/review_delivery.py"
+        }
+      ]
+    },
+    "scripts/lib/review_delivery.py": {
+      "source": "scripts/lib/review_delivery.py",
+      "sha256": "e7eada9d4552a50354ae2ef73b45e5026b831046e68475b995f5f6669c8bd22e",
+      "evidence": "Full program reviewed (2026-10-09): parses the payload's agent_id, reads second-review's ledger and verdict records as JSON data, loads the fixed workspaces.py for key_for_id, load_agent and _chain (registry reads only), creates one marker file per teammate and review under the review-watch state directory, and prints additionalContext. Nothing is executed, no configuration key is read, every outcome is exit 0.",
+      "keys": [],
+      "edges": [
+        {
+          "to": "mega-lander/workspaces.py#ledger-lookup"
+        }
+      ]
+    },
     "ass-kicker/brief-scope.py#hook": {
       "source": "ass-kicker/brief-scope.py",
       "sha256": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
@@ -10317,7 +10341,7 @@
     },
     "hooks/hooks.json#pre-stop-fixtures": {
       "source": "hooks/hooks.json",
-      "sha256": "4d8041bba9643a8cb735c6538a37bd49790a9420e56dc37a92758ab89e1384dc",
+      "sha256": "f2e457b12355f280c840669baf68919d3a70e98afb35a10762c53b075534f2ea",
       "evidence": "Binds the dynamically enumerated PreToolUse/Stop inventory and matcher selection. New inventory bytes require requalification before excluding a config edit. Renewed 2026-09-28 (stall watcher): one SessionStart row added (session-start-stall.sh); no PreToolUse or Stop row changed.",
       "keys": [],
       "edges": []
@@ -11311,7 +11335,7 @@
     },
     "scripts/hooks/contract-integrity-probe.sh#by-reference-fixtures": {
       "source": "scripts/hooks/contract-integrity-probe.sh",
-      "sha256": "4d7d13215a6f5a1cdbd9d39092e527b77950fdb456e741be5c56e4bf85ef5ad2",
+      "sha256": "e3552adc417a8b741d6113a84b5cf5ece80c3d3ce16f1bc09bd030094439c30d",
       "evidence": "Entire by-reference branch and shared R/AL/MT/MC functions reviewed. Plugin/role/marketplace/registration rows are inspected as data. Actual execution is engine-status, the fixed BR9 worktree-isolation canary and the shared model/liveness canaries. Literal fixture shims introduce no additional reader. The shared whole-source contract retains the seated helper floor, but the branch returns before seated runtime checks. Renewed 2026-09-28 (stall watcher): one BR_EXPECTED row and one R_ROOTLESS_HOOKS name (session-start-stall), registration inventory literals only; no reviewed function changed. Renewed 2026-10-01: the guard-shared-scratchpad.sh basename is added to the registration inventory literals as data (rootless list, oracle, acknowledged list); it is never executed here. Renewed 2026-10-02 (integration of zach-sonnet-rmguard1): the guard-unguarded-rm.sh basename is added beside it in the same literals, as data; it is never executed here.",
       "keys": [
         "PROTECTED_PATHS",
@@ -11463,7 +11487,7 @@
     },
     "mega-lander/workspaces.py#spawn-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Spawn reaches integration, registration, native session, Git and registry readers plus withdraw_cc. known_repos/all_integration_records read private JSON. withdraw_cc delegates to the reviewed lifecycle deletion path and retains engine cleanup configuration; no land CLI sweep is invoked.",
       "keys": [],
       "edges": [
@@ -12981,7 +13005,7 @@
     },
     "mega-lander/workspaces.py#fixture-records": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Fixture and completion functions only: named_key/new_record/_add_workspace/save_agent/load_agent/live_workspaces plus path/JSON/id/iso helpers. Writes private registry records, reads no config and runs no lifecycle command. _add_workspace also calls _remember_repo and _bind_body_of_work, which read/write private JSON and call the bound integration_record closure.",
       "keys": [],
       "edges": [
@@ -13270,7 +13294,7 @@
     },
     "mega-lander/workspaces.py#stop-records": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Stop CLI and fixture call all_agents(True), named_key/load_agent, finished_state, live_workspaces, _chain, main_checkout, integration_target, record_integration, new_record/save_agent and _bind_body_of_work. Reviewed _chain adds only load_agent traversal. All other callees are in the bound registry/integration closures. No lifecycle operation, cleanup or config-value reader executes.",
       "keys": [],
       "edges": [
@@ -13810,7 +13834,7 @@
     },
     "mega-lander/workspaces.py#desktop-work-fixtures": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "Desktop app and fixture use the reviewed lifecycle/unit/spawn/land closure. Additional append_land_record/_trim_land_records write bounded JSON only, while land_by_another_conversation reads history and thread identity. _require_clean uses the reviewed land residue/uncommitted helpers. Retain real cleanup and CLI helper configuration conservatively.",
       "keys": [],
       "edges": [
@@ -14110,7 +14134,7 @@
     },
     "mega-lander/workspaces.sh#pause-fixture": {
       "source": "mega-lander/workspaces.sh",
-      "sha256": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+      "sha256": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
       "evidence": "Wrapper executes workspaces.py; this fixture invokes only stop. Existing lifecycle closure includes actual stop cleanup and agent_hold release.",
       "keys": [],
       "edges": [
@@ -14733,7 +14757,7 @@
         {
           "root": "repository",
           "path": "richos/engine/scripts/lib/operator_fences.py",
-          "sha256": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+          "sha256": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -15242,7 +15266,7 @@
           "variable": "RICHOS_LIFECYCLE_PAYLOAD_TEST_ROOT",
           "default_engine": true,
           "path": "mega-lander/workspaces.py",
-          "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+          "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
           "evidence": "Bind this reached hook/helper at the exact optional alternate engine, defaulting to current engine; changed or missing remote source invalidates qualification."
         },
         {
@@ -15615,7 +15639,7 @@
     },
     "mega-lander/workspaces.py#wait-fixture": {
       "source": "mega-lander/workspaces.py",
-      "sha256": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+      "sha256": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
       "evidence": "record-canary.test.sh imports the fixed module and calls save_agent then wait(started) on its own literal record. The reachable Lock, _resolve_record, platform binding/end lookup, path, JSON and event helpers use sandboxed registry/project records. No QA, lifecycle command, integration target or orchestration configuration is reached.",
       "keys": [],
       "edges": []
@@ -16148,7 +16172,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
@@ -16192,7 +16216,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
@@ -16232,7 +16256,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16269,7 +16293,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
         "scripts/hooks/workspace-lifecycle.sh": "e8a6bd193fe910eb22f76da44c81b04feaa04e2a7429b055823ea8efc8df72e8",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/testdevices.py": "c9295549c45a16f78d6c58386859a20acc5041ecbe2c6abb31315ba4ea1a4c3d",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
@@ -16292,7 +16316,7 @@
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
         "scripts/lib/operator-mode.sh": "c9b25dd5eaef11ac02dc34ac11a6997404966ddb0dcd14cf019d83065b71ba6e",
         "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/record-canary.sh": "2cf0fc8ace8e444b2af29265e4fbb0fb08047e1b13978c7d41a79e594ede5c72",
         "scripts/hooks/session-start-ceo-ask.sh": "722f3e24fc066989c8721ccfa8a5b0e4b1746b265edca30083c2e3febd297079",
         "scripts/lib/ceo-asks.sh": "90532e654d581669aafdc81d5b54f330d1488ee8161d2cef72af7421c9a2698d",
@@ -16326,7 +16350,7 @@
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/teammate-name.sh": "fd4f49d710bb208948d60cb7c92ccfcfce1e9db209975c53234f161a330a34a2",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
         "scripts/lib/testdevices.py": "c9295549c45a16f78d6c58386859a20acc5041ecbe2c6abb31315ba4ea1a4c3d",
         "scripts/lib/testdevice_alerts.py": "3de44527bec2b57834c8b3e3ab5e299c8fdf87d35d9d2c66fd25141f304ef3b7",
@@ -16344,7 +16368,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16393,13 +16417,13 @@
         "ass-kicker/tests/stated-actions.mutation.sh": "b618924aea2850d90d62567fadc25017f615a32e87e4000fb713bf32fc72bbaa",
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
-        "mega-lander/tests/workspaces.test.py": "7094c40caafcdb20b8fbcc48d390e9bd7fec9c58eef27677eb339c0904c39876",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
-        "mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+        "mega-lander/tests/workspaces.test.py": "4add9dc23bd77d04dc8937412cc3370e6a9426b8c75851b67d5bbd5b04592f34",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
+        "mega-lander/workspaces.sh": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
         "scripts/hooks/claim-roles.mutation.sh": "73f0f9a1974cd17863539183827f795c5d343ff418b6acca7e98ca7242b811b2",
         "scripts/hooks/contract-integrity-layer-ep.sh": "07e3050ff624370ff1c25f7a763667de2249206ce99261333b91260645cf2fa2",
-        "scripts/hooks/contract-integrity-probe.sh": "4d7d13215a6f5a1cdbd9d39092e527b77950fdb456e741be5c56e4bf85ef5ad2",
+        "scripts/hooks/contract-integrity-probe.sh": "e3552adc417a8b741d6113a84b5cf5ece80c3d3ce16f1bc09bd030094439c30d",
         "scripts/hooks/contract-integrity.test.sh": "380dc03b27a657310adce2fa7278c2a778fe1f4998afb6a6ac456af2931d4c16",
         "scripts/hooks/engine-status.sh": "fb2713b25845c04a35dffbea62873d306d93c96ead921925695647d3edb93e1d",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
@@ -16473,8 +16497,8 @@
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/mutation-harness.sh": "f2ec43237a5c7ea406f8ae01cec513b2988651103ec03ba98792312cb20b01f5",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
-        "scripts/lib/operator_fences_admin.py": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
+        "scripts/lib/operator_fences_admin.py": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
         "scripts/lib/qa-throwaways.py": "c00b466f73136875fe8024388ccc06e83603d5c59b369e54bd9a5500180f2e86",
@@ -16513,7 +16537,7 @@
         "scripts/scratch-sweep.sh": "3f6dd28f4e86d24e3fca7fe1f8f7cb68a63e604b05e1ad2ad918b5a7eee6f241",
         "scripts/unstarted-rows-lint.sh": "4b654eefa4fb775ba218fbee15595b415684c7a90e2168eedf864c07f142e58e",
         "scripts/hooks/dispatch-pretooluse.manifest": "2c8df980b988666f70540291575d461262ca0192a012a4e3c1a8a32723daf85c",
-        "hooks/hooks.json": "4d8041bba9643a8cb735c6538a37bd49790a9420e56dc37a92758ab89e1384dc",
+        "hooks/hooks.json": "f2e457b12355f280c840669baf68919d3a70e98afb35a10762c53b075534f2ea",
         "scripts/hooks/commit-ceo-inputs.sh": "9e4a0af9cd1ea89110261baacdae395dc40543061a4f17740467c5a492598962",
         "scripts/hooks/commit-ceo-inputs.py": "23341c30830399611efc4d9979df6bcdfc5b5d06f05c71d53da2755452aa6134",
         "scripts/hooks/guard-publication-writes.sh": "8d05dfb59a29be16bdcbd19aee71b0a402f58d928c82397f0a98da96f6f2531d",
@@ -16688,7 +16712,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16812,7 +16836,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -16851,7 +16875,7 @@
         "scripts/hooks/guard-vendoring-commits.sh": "88f0eef0c45b61a143ce0ebd0cba1b8ceda9f908d0cfed09994a9acc30da1208",
         "scripts/lib/vendored-material.sh": "630fc9746255b5e2c6cf24be71ba0b9780a5d673f98559db3099b44f47fa3c92",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/scan-secrets.sh": "fd488d5b07748fd41c773c80ec133eed526869534f4f1324c847a33701ae1ab1",
         "scripts/lib/agent_hold.py": "416e6a1265633c00ed7e0a2a5d396dae2f84c10ca10ea618f2eea271fca4b5b8",
         "scripts/hooks/guard-record-owner-memory.sh": "541c13b0091e5aa1f4be35f9619da7c0cb0a35a2fc07f6fdf99cc72a97cd1806",
@@ -16876,7 +16900,7 @@
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/guard-ci-turn-gate.sh": "d5982f5f16da84d753d275669128b20c453782674189d9b8b2b7ac0dae39c324",
         "scripts/hooks/guard-failure-type-answer.sh": "9178339b1342a751b3de2fa743b2d65df019af3eb4af10e7447a82ad805895aa",
         "scripts/hooks/guard-idle-land.sh": "c65ff6beb940c15ff20cf5a7e54e2f8453c4f6594d2ed2a8d32cda662dc3efae",
@@ -16925,7 +16949,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7"
@@ -16954,7 +16978,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -17022,11 +17046,11 @@
         "scripts/lib/operator-fences-fixture.sh": "cf035be668ccb5fcaba1d6c668275f943ea115050990be0444dcabfa8e0b5fd7",
         "scripts/lib/scratch.sh": "a46b938e776a44638546063d63e1598383e2c4f55230e502f5efb79ef54db7c4",
         "scripts/operator-fences.sh": "968df58f0cbfe151759ef3794970c4ae5fd382a40a2df1ae7226bac834ef40db",
-        "scripts/lib/operator_fences_admin.py": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "scripts/lib/operator_fences_admin.py": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/lib/operator_leads.py": "773c451378ac985c2291bfeed7e17cef2ee8f31301de7706d43fc860b2938b10",
-        "scripts/lib/operator-fence-launcher.sh": "b83c89e06e3e8aab78b2fd3eebb4693e2e41a08d752eae525fddceb10316ac59",
+        "scripts/lib/operator-fence-launcher.sh": "02225d44edc1eb081ce8f894747f0ecc0c0ad990919ae19173e2a44acb45b66a",
         "scripts/land-lease.sh": "a3a621ff827d5d60c4a127e9cb155bb03a78e9fed842d34acc727a39669e84b2",
         "scripts/hooks/operator-claim.sh": "e157c7c28b11bb7a1d9965e5207bf9b52d521ff04f38a207d0ff8211136bb03f",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -17146,7 +17170,7 @@
       "sources": {
         "scripts/hooks/unevaluated-payload.test.sh": "ec86bceca7bee15e6ecb6fe5a1104832c177bb30fee64e307ae856824364091d",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
-        "hooks/hooks.json": "4d8041bba9643a8cb735c6538a37bd49790a9420e56dc37a92758ab89e1384dc",
+        "hooks/hooks.json": "f2e457b12355f280c840669baf68919d3a70e98afb35a10762c53b075534f2ea",
         "scripts/hooks/dispatch-pretooluse.sh": "9d416509d9ab8d2320e118e6920c5c6cb3f28c4889ae5969869474867508ce35",
         "scripts/hooks/guard-agent-state-claims.sh": "b7a14acc4ff57cdec91821f6fd74b3c745deb18a0bd256ac7d60a3e7dd35dd7e",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
@@ -17154,7 +17178,7 @@
         "scripts/lib/stop-hook-notice.sh": "f1431988b7e290d871da89518cd3c6c2bfc455558517862097659472ddcf409d",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
         "scripts/lib/stop-session-recovery.py": "7f73be10acfee2d62a9f05115a20d8c64bfd63764a4fffb084675ca14a4d7ed2",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/guard-agent-state-claims.py": "341d0223962f9ccfa6298b3d6982dc55b5f3ea19ec5ea4ba1deb162380811ab5",
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
         "scripts/hooks/guard-brief-scope.sh": "d62b66830b5f8665bb7492b2278ad7261f3279401142b41296ab1d2ada78c9e3",
@@ -17185,7 +17209,7 @@
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/cpu_guard.py": "a0b2987639765d9cec24c98294f045b1687c32664ccb198c08db147f09c0901a",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/engine_pass.py": "21b64bc63f511249e987c026f8b409e5d191f99bb2a122fd5011e6d95b0e9bc7",
@@ -17317,12 +17341,12 @@
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
         "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
-        "scripts/hooks/contract-integrity-probe.sh": "4d7d13215a6f5a1cdbd9d39092e527b77950fdb456e741be5c56e4bf85ef5ad2",
+        "scripts/hooks/contract-integrity-probe.sh": "e3552adc417a8b741d6113a84b5cf5ece80c3d3ce16f1bc09bd030094439c30d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
@@ -17355,8 +17379,8 @@
         "scripts/hooks/guard-sealed-worktree.sh": "c402048c55ef4e44a6f610af0f527780743a7cc944c1f79caa68190503574fd2",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "scripts/operator-fences.sh": "968df58f0cbfe151759ef3794970c4ae5fd382a40a2df1ae7226bac834ef40db",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
-        "scripts/lib/operator_fences_admin.py": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
+        "scripts/lib/operator_fences_admin.py": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
         "scripts/hooks/contract-integrity-layer-ep.sh": "07e3050ff624370ff1c25f7a763667de2249206ce99261333b91260645cf2fa2",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
@@ -17381,7 +17405,7 @@
         "ass-kicker/brief-provenance.py": "78b82b175a6d2e59032bcffd9ca49928023f4742bd8866275c581e7afb6d4a10",
         "ass-kicker/brief-scope.py": "d6910b6891d7461b98d51b234343a004834e6fd4a3c52e5dc530b6539cf376a9",
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
         "scripts/lib/agent_hold.py": "416e6a1265633c00ed7e0a2a5d396dae2f84c10ca10ea618f2eea271fca4b5b8",
         "scripts/lib/appinstances.py": "53d9cf10481a84e8ab6c768fe2506ff1347deedecc62ac1ecfc383c7ea297596",
@@ -17411,8 +17435,8 @@
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspace-spec-fourteen.mutation.sh": "bc1212593d178b4b992e399cabcd8e91df7c02a7dcd89efd5cf7517bdcadca78",
         "mega-lander/tests/workspace-spec-fourteen.test.sh": "a8c257d33a726316ce7534b9ae470c26895653f8ce3d77c7097a35ec838d79e9",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
-        "mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
+        "mega-lander/workspaces.sh": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
         "scripts/hooks/guard-sealed-worktree.sh": "c402048c55ef4e44a6f610af0f527780743a7cc944c1f79caa68190503574fd2",
         "scripts/hooks/guard-unresolved-claims.py": "9159e2947c3fd004f033cd67fd7e0218c416933684fad3a596c6a95d4a719189",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
@@ -17429,7 +17453,7 @@
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/mutation-harness.sh": "f2ec43237a5c7ea406f8ae01cec513b2988651103ec03ba98792312cb20b01f5",
         "scripts/lib/mutation-pool.sh": "c521ec5da8b8b6d1f44c41d97be2b48bb1b4dd7ff25bf985d42728b7268284b9",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/pause_protocol.py": "436c8cfad1403ea022eb4a286e91c314b4e73556c6de90e88e4a676cf5bf4d94",
         "scripts/lib/proc_tree.py": "efa89ccf3d933b09c3308e20c8c874810dcc8aeced563f5acd8b585e648549fd",
         "scripts/lib/qa-throwaways.py": "c00b466f73136875fe8024388ccc06e83603d5c59b369e54bd9a5500180f2e86",
@@ -17459,8 +17483,8 @@
       "sources": {
         "mega-lander/create-teammate-worktree.sh": "822607892bb69bede2ebf501e5e7490c754a23ad1942040af01e8b569c6280a6",
         "mega-lander/tests/workspaces-e2e.test.sh": "d975cd25ffc05a4eff5f0ebd2d9bb9377ee8551eda6ad2571da77c275dd0c92c",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
-        "mega-lander/workspaces.sh": "663ea2d8325036042d79b58b67d658967297e93fd4277d4818a178616bb646ce",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
+        "mega-lander/workspaces.sh": "6d5ddbdf25829d1519727ed230665ce81c63141cf4320274d0a2522b80ceaee1",
         "scripts/hooks/guard-sealed-worktree.sh": "c402048c55ef4e44a6f610af0f527780743a7cc944c1f79caa68190503574fd2",
         "scripts/hooks/guard-workspace-gate.sh": "704f1516e9337a8dcdf4589fd5b74473bffffcb694c1460fa16bb43a4a2b802f",
         "scripts/hooks/guard-worktree-isolation.sh": "c200f7a5b48835054ce460b95053abca44ac6dbaf677289940c23fc196917025",
@@ -17493,7 +17517,7 @@
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/cpu_policy.py": "371b63d15a28ba5936d14e490b7262fe6d9f03c84288b598b08fe9285e5c05a1",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/hooks/guard-owned-state.sh": "5f137d70ca9ea567cf0d5d06250ff50606db82f2323d2e68346e5295721d58aa",
         "scripts/hooks/owned-state.mutation.sh": "16c882410080023b2f3502ca2d7237fe005ce31b9c91be738ffba65551d05932",
         "scripts/owned-state.sh": "313a26b975baf1005c6a86beaa03cc7910481b9e1d6754d45a0e4206b5b001a0",
@@ -17540,7 +17564,7 @@
         "scripts/lib/worker_tokens.py": "faa616261812b46b92cd8b3c6a8510f232ac2d7cf4d9c638229341872a4da478",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
         "scripts/hooks/ceo-todos.test.sh": "456edf169779e0b78ae8d3ffba553ded91e72bb0ff61573fccd1ec80ed648cc6",
         "scripts/ceo-todos-render.sh": "63b00d5fde2eb129df925749ae9967521d9251936f5f19db627bded6049fddc3",
@@ -17565,7 +17589,7 @@
     "scripts/hooks/guard-resume-isolation.test.sh": {
       "commands": [],
       "sources": {
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/guard-resume-isolation.sh": "3995168d36694672fbb54a2256142f2a9ca553372c56d2c471d326bf91002a78",
         "scripts/hooks/guard-resume-isolation.test.sh": "2fc190fc539a183b423ac8ba7a22a23c56d6f8cd289aa341a67a7d6fd8f39a1d",
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
@@ -17600,12 +17624,12 @@
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
         "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
-        "scripts/hooks/contract-integrity-probe.sh": "4d7d13215a6f5a1cdbd9d39092e527b77950fdb456e741be5c56e4bf85ef5ad2",
+        "scripts/hooks/contract-integrity-probe.sh": "e3552adc417a8b741d6113a84b5cf5ece80c3d3ce16f1bc09bd030094439c30d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
@@ -17638,8 +17662,8 @@
         "scripts/hooks/guard-sealed-worktree.sh": "c402048c55ef4e44a6f610af0f527780743a7cc944c1f79caa68190503574fd2",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "scripts/operator-fences.sh": "968df58f0cbfe151759ef3794970c4ae5fd382a40a2df1ae7226bac834ef40db",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
-        "scripts/lib/operator_fences_admin.py": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
+        "scripts/lib/operator_fences_admin.py": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
         "scripts/hooks/contract-integrity-layer-ep.sh": "07e3050ff624370ff1c25f7a763667de2249206ce99261333b91260645cf2fa2",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
@@ -17658,12 +17682,12 @@
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
         "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
-        "scripts/hooks/contract-integrity-probe.sh": "4d7d13215a6f5a1cdbd9d39092e527b77950fdb456e741be5c56e4bf85ef5ad2",
+        "scripts/hooks/contract-integrity-probe.sh": "e3552adc417a8b741d6113a84b5cf5ece80c3d3ce16f1bc09bd030094439c30d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
@@ -17696,8 +17720,8 @@
         "scripts/hooks/guard-sealed-worktree.sh": "c402048c55ef4e44a6f610af0f527780743a7cc944c1f79caa68190503574fd2",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "scripts/operator-fences.sh": "968df58f0cbfe151759ef3794970c4ae5fd382a40a2df1ae7226bac834ef40db",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
-        "scripts/lib/operator_fences_admin.py": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
+        "scripts/lib/operator_fences_admin.py": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
         "scripts/hooks/contract-integrity-layer-ep.sh": "07e3050ff624370ff1c25f7a763667de2249206ce99261333b91260645cf2fa2",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",
@@ -17716,12 +17740,12 @@
         "scripts/lib/global-state-witness.sh": "043848eeb2641037b1e56bce858035e05a80cce775098c7dfa36386f6f048f73",
         "scripts/hooks/install.sh": "26092a3bdc576ae721fceeec62fe9115aabad69586da3ac83741add530666ad4",
         "scripts/lib/registered-hooks.sh": "73e390bacc85aef935d4da0f4b132ebb6790a83d55310a46c1c602614afe0a83",
-        "scripts/hooks/contract-integrity-probe.sh": "4d7d13215a6f5a1cdbd9d39092e527b77950fdb456e741be5c56e4bf85ef5ad2",
+        "scripts/hooks/contract-integrity-probe.sh": "e3552adc417a8b741d6113a84b5cf5ece80c3d3ce16f1bc09bd030094439c30d",
         "scripts/lib/resolve-roots.sh": "7201d2be91935659684b5ca5567278ff8be6ed884b11b95be965184cbed20e3e",
         "scripts/lib/resolve-main-checkout.sh": "7b365389e15be1f270adfbe361cff627a424f815d501d33d357054124ca286ca",
         "scripts/lib/model-tiers.sh": "4f5e6c367433a717393b6ef2270a9b02b279a6b8122f439bc132350170d8c317",
         "scripts/lib/agent-liveness.py": "c9835734770a40695afea6dbd6e5673cb35d5d732081a8a604fd85ccd94fc652",
-        "mega-lander/workspaces.py": "598704bc52cef383f53b1ae4f50c62efb7a253460098486178019f8629b7a38f",
+        "mega-lander/workspaces.py": "55af609792fb6615f12590d8f64cf218266235d5067a5ba8c1a7e8e3790b8cbc",
         "scripts/hooks/guard-model-ceiling.sh": "5837b9e9d2156487b00f280456da78f88e0bc66d6a4bbc32c6a1a9eeda8c60e3",
         "scripts/lib/resolve-model.sh": "99641cc02487da81c7fb6ecd216b10ddcaff5254c1c734b714aef8de8f81db03",
         "scripts/lib/unevaluated-notice.sh": "e752a54291b49b6d84a5a90c6c11d9fcdc5767d28a8e5fbe9b56c8f8bd685631",
@@ -17754,8 +17778,8 @@
         "scripts/hooks/guard-sealed-worktree.sh": "c402048c55ef4e44a6f610af0f527780743a7cc944c1f79caa68190503574fd2",
         "scripts/hooks/guard-worktree-removal.sh": "9898b5fc74453aeae60d9bba01f743069e8a809b88ee2a3fde2cae56a0f2d8e8",
         "scripts/operator-fences.sh": "968df58f0cbfe151759ef3794970c4ae5fd382a40a2df1ae7226bac834ef40db",
-        "scripts/lib/operator_fences.py": "7e7d7a663cf5f7145a2ba22deb7cee45e53c9b4f54af98f1c96e0daf26ad6701",
-        "scripts/lib/operator_fences_admin.py": "e1cbc03198f448aa291bf9d394b81634dad67bdabf79d4f7b1d4cd5b1b6ca971",
+        "scripts/lib/operator_fences.py": "abc5332129c0a1d2c7c4bcedff6aac9f09c782d1899e664e9ae261d4d3ed7918",
+        "scripts/lib/operator_fences_admin.py": "dcdaedb62366cb276073df3282665e5f7ed7c4f242c43d46ab02a746adf96a0c",
         "scripts/hooks/contract-integrity-layer-ep.sh": "07e3050ff624370ff1c25f7a763667de2249206ce99261333b91260645cf2fa2",
         "scripts/lib/entrypoints.sh": "ca4d90b9bc460ead00bc7e4cd85c523abad1b0d6077408dbc7c27393f1df8659",
         "scripts/entrypoint-currency-lint.sh": "af9a1ff354871322e9f9741820c35b8569a052bf635b37b16be34e053cb0e3ae",

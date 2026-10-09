@@ -363,3 +363,17 @@ on the real ledger). His rule is quoted in its header and refusal; it is not a p
 |---|---|---|---|---|
 | `scripts/hooks/guard-resource-waits.sh` | a | payload `agent_id` / `stop_hook_active`, orchestration.config; hands the rest to the .py | no | the wrapper passes `RESOURCE_WAIT_MINUTES` and reads one `RW` verdict line |
 | `scripts/lib/resource_waits.py` | a | wait records, `ps`, `<TESTVM_ROOT>` state, and teammates' escalation titles, questions and meanwhile lines | no: a teammate's literal wait claim, never his message | 568 `WAIT_CLAIM.finditer(whole)`; 925 `payload.get("agent_id")` is the only payload field it decides on |
+
+## Addendum, 2026-10-09: one hook added after this audit, classified the same way
+
+**Not audited at `dd6fb305`.** This row was added when the hook was written, by its author, using
+this page's classes. It is a declaration for the next audit to check, not a finding of this one.
+
+The hook hands a second-review verdict to the running teammate whose work it is. It never reads the
+operator's messages or any transcript; it reads the payload's `agent_id`, second-review's verdict
+ledger and the workspace registry, and it never blocks.
+
+| file | class | reads | decides from his words? | evidence |
+|---|---|---|---|---|
+| `scripts/hooks/deliver-review-verdict.sh` | a | payload text for `"agent_id"`, the review ledger's presence; hands the rest to the .py | no | the wrapper exits 0 on every path |
+| `scripts/lib/review_delivery.py` | a | payload `agent_id`, `<state>/reviews.jsonl`, the verdict records, the workspace registry | no | `payload.get("agent_id")` is the only payload field it decides on |

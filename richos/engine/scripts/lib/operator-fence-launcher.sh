@@ -14,7 +14,10 @@
 #      inside the MAIN checkout, it runs the fence (operator-fences/operator_fences.py,
 #      a copy of the engine's). In `prepared` the fence refuses a move of main,
 #      ORIG_HEAD in the main checkout, or switching the main checkout away from
-#      main, unless the writer holds the land lease. In `committed` it only
+#      main, unless the writer holds the land lease. In a repository listed in
+#      SECOND_REVIEW_REPOS (OPERATOR_FENCES_REVIEWS names the review ledger) it
+#      also refuses, even for the lease holder, a move of main that lands work
+#      whose tip has no passing second review (CEO §113). In `committed` it only
 #      records who started a merge, cherry-pick or revert.
 #   2. Always, whatever the state and whatever the fence decided: every
 #      executable in reference-transaction.d/, in name order, gets the same
@@ -37,6 +40,7 @@ OPERATOR_FENCES_COMMON="@COMMON@"
 OPERATOR_FENCES_HOME="@HOME@"
 OPERATOR_FENCES_KEY="@KEY@"
 OPERATOR_FENCES_HOLDERS="@HOLDERS@"
+OPERATOR_FENCES_REVIEWS="@REVIEWS@"
 OPERATOR_FENCES_ENGINE="@ENGINE@"
 OPERATOR_FENCES_PROGRAM="@PROGRAM@"
 OPERATOR_FENCES_PROGRAM_DIGEST="@DIGEST@"

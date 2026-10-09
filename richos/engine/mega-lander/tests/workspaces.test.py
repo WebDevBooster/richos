@@ -3961,6 +3961,285 @@ class MergeGateRefusal_LeavesTheMainCheckoutAsItWas(Base):
         self.assertIn("cc/" + name, branches(self.other))
 
 
+ENGINE = os.path.realpath(os.path.join(HERE, "..", ".."))
+
+
+class SecondReview_NoWorkLandsUnreviewed(Base):
+    """CEO §113 (2026-10-08): "A regular RichOS user can never be expected
+    anything even remotely close to that. So, this all must be completely
+    automated." Slice 3 of richos-hq docs/plans/2026-10-09-automatic-second-
+    review-and-t3-ideas.md (§2.5, §4 row 3) with Sage's check (§2 catches 1, 8):
+    in a repository listed in SECOND_REVIEW_REPOS, work lands only with a
+    passing second review of exactly its tip, whether it lands through
+    `workspaces.sh merge`, a plain `git merge`, a fast-forward or a codex/
+    branch. The fence is ON here, as on the operator's Mac, and this test
+    process holds the land lease, so every refusal below is the review's."""
+
+    def setUp(self):
+        super().setUp()
+        self.saved_env = {k: os.environ.pop(k, None) for k in
+                          ("CLAUDE_PID", "CLAUDE_CODE_ENTRYPOINT", "SECOND_REVIEW_STATE_DIR")}
+        os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(self.env.root, "review-state")
+        self.ledger = os.path.join(os.environ["SECOND_REVIEW_STATE_DIR"], "reviews.jsonl")
+        self.decl = os.path.join(self.env.root, "fence-entity")
+        os.makedirs(self.decl)
+        self.declare("other")
+        self.fences = os.path.join(ENGINE, "scripts", "operator-fences.sh")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        run("bash", self.fences, "on", "--repo", self.other, "--entity", self.decl)
+        start = subprocess.run(["ps", "-o", "lstart=", "-p", str(os.getpid())], capture_output=True,
+                               text=True, env=dict(os.environ, TZ="UTC0", LC_ALL="C")).stdout
+        sessions = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "sessions")
+        os.makedirs(sessions, exist_ok=True)
+        with open(os.path.join(sessions, "%d.json" % os.getpid()), "w") as f:
+            json.dump({"pid": os.getpid(), "sessionId": self.sid, "cwd": self.entity,
+                       "procStart": " ".join(start.split()), "kind": "interactive"}, f)
+        r = run("bash", os.path.join(ENGINE, "scripts", "land-lease.sh"), "acquire", "--repo", self.other)
+        self.assertIn("ACQUIRED", r.stdout, r.stdout + r.stderr)
+
+    def tearDown(self):
+        for k, v in self.saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        super().tearDown()
+
+    def declare(self, listed):
+        with open(os.path.join(self.decl, "orchestration.config"), "w") as f:
+            f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n'
+                    'SECOND_REVIEW_REPOS="%s"\n' % listed)
+
+    def verdict(self, tip, verdict="passed", trigger="handover", findings=()):
+        rid = "rv-test-%s-%d" % (tip[:8], len(open(self.ledger).readlines()) if os.path.exists(self.ledger) else 0)
+        record = os.path.join(os.path.dirname(self.ledger), "reviews", rid)
+        os.makedirs(record)
+        found = [{"priority": p, "title": t, "files": ["work.txt:1"], "evidence": "seen", "fixture": ""}
+                 for p, t in findings]
+        with open(os.path.join(record, "verdict.json"), "w") as f:
+            json.dump({"answer": {"reviewed_commit": tip, "verdict": verdict, "findings": found}}, f)
+        row = {"id": rid, "repo": self.other, "tip": tip, "verdict": verdict, "trigger": trigger,
+               "reviewer": "codex", "reviewer_model": "gpt-6.1-sol", "findings": len(found),
+               "p1": sum(1 for p, _t in findings if p == 1), "record": record,
+               "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        with open(self.ledger, "a") as f:
+            f.write(json.dumps(row) + "\n")
+        return rid
+
+    def finished(self, name, *texts):
+        cc = self.make_cc(name)
+        aid, _npath = self.spawn(name, cc=cc)
+        tips = []
+        for i, text in enumerate(texts or ("work\n",)):
+            self.commit(cc, "work%d.txt" % i, text)
+            tips.append(run("git", "-C", cc, "rev-parse", "HEAD").stdout.strip())
+        self.finish(aid)
+        return cc, tips
+
+    def head(self):
+        return run("git", "-C", self.other, "rev-parse", "main").stdout.strip()
+
+    def no_merge_left(self):
+        if run("git", "-C", self.other, "rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).returncode == 0:
+            run("git", "-C", self.other, "merge", "--abort")        # this process holds the lease
+
+    # -- workspaces.sh merge ------------------------------------------------------
+    def test_second_review_merge_is_refused_with_no_verdict(self):
+        cc, (tip,) = self.finished("zach-opus-rv0")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv0", self.sid)
+        # The land command's own refusal, before git's merge gate ever runs (the
+        # fence would refuse the same merge later, with "refused in").
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv0 was not merged into", str(e.exception))
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertTrue(os.path.isdir(cc))
+        self.assertIn("cc/zach-opus-rv0", branches(self.other))
+
+    def test_second_review_merge_is_refused_with_a_verdict_on_an_older_commit(self):
+        _cc, (older, tip) = self.finished("zach-opus-rv1", "one\n", "two\n")
+        self.verdict(older, "passed")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv1", self.sid)
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_merge_is_refused_on_changes_requested_and_names_the_findings(self):
+        _cc, (tip,) = self.finished("zach-opus-rv2")
+        self.verdict(tip, "passed", trigger="long-job")                   # a mid-job pass never counts
+        self.verdict(tip, "changes-requested", findings=[(1, "the microphone is never handed back")])
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv2", self.sid)
+        self.assertIn("changes-requested", str(e.exception))
+        self.assertIn("the microphone is never handed back", str(e.exception))
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_merge_goes_through_with_a_passing_verdict_on_the_tip(self):
+        cc, (tip,) = self.finished("zach-opus-rv3")
+        rid = self.verdict(tip, "passed", findings=[(3, "a comment could name the ruling")])
+        merged, res = ws.merge_and_land("zach-opus-rv3", self.sid, "Merge cc/zach-opus-rv3: the work")
+        self.assertEqual(merged, [(self.other, "cc/zach-opus-rv3")])
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+        body = run("git", "-C", self.other, "log", "-1", "--format=%B").stdout
+        self.assertIn("Merge cc/zach-opus-rv3: the work", body.splitlines()[0])
+        self.assertIn("Second review: passed, %s" % rid, body)
+        self.assertIn("P3 a comment could name the ruling", body)
+        self.assertFalse(os.path.exists(cc))
+
+    def test_second_review_an_unlisted_repository_is_not_refused(self):
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        _cc, (tip,) = self.finished("zach-opus-rv4")
+        _merged, res = ws.merge_and_land("zach-opus-rv4", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    # -- the fence: every other move of main ----------------------------------------
+    def test_second_review_a_plain_merge_is_refused_by_the_fence_the_same_way(self):
+        _cc, (tip,) = self.finished("zach-opus-rv5")
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/zach-opus-rv5", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW: refused", r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "cc/zach-opus-rv5")
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_a_fast_forward_and_a_direct_commit_are_refused_an_empty_commit_is_not(self):
+        run("git", "-C", self.other, "branch", "ff-work")
+        wt = os.path.join(self.env.root, "ff-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", wt, "ff-work")
+        self.commit(wt, "ff.txt")
+        tip = run("git", "-C", wt, "rev-parse", "HEAD").stdout.strip()
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--ff-only", "ff-work", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW", r.stderr)
+        self.assertEqual(self.head(), before)
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "merge", "--ff-only", "ff-work")
+        self.assertEqual(self.head(), tip)
+        run("git", "-C", self.other, "commit", "-q", "--allow-empty", "-m", "move main, no file changes")
+        with open(os.path.join(self.other, "direct.txt"), "w") as f:
+            f.write("unreviewed\n")
+        run("git", "-C", self.other, "add", "direct.txt")
+        moved = self.head()
+        r = run("git", "-C", self.other, "commit", "-q", "-m", "a direct change", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SECOND REVIEW", r.stderr)
+        self.assertEqual(self.head(), moved)
+        run("git", "-C", self.other, "reset", "-q", "--hard", "HEAD")
+        # A fast-forward to a merge made elsewhere: its tip is what lands, and a
+        # verdict on the branch it merged does not cover its own merge.
+        older = self.head()
+        run("git", "-C", self.other, "commit", "-q", "--allow-empty", "-m", "move main again, no file changes")
+        self.commit(wt, "ff2.txt")
+        merged_tip = run("git", "-C", wt, "rev-parse", "HEAD").stdout.strip()
+        self.verdict(merged_tip, "passed")
+        side = os.path.join(self.env.root, "side-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", "-b", "side", side, older)
+        run("git", "-C", side, "merge", "-q", "--no-ff", "--no-edit", "ff-work")
+        run("git", "-C", side, "merge", "-q", "--no-ff", "--no-edit", "main")
+        side_tip = run("git", "-C", side, "rev-parse", "HEAD").stdout.strip()
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--ff-only", "side", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % side_tip[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_second_review_a_codex_branch_lands_only_reviewed(self):
+        """Sage's catch 1: codex/ work never enters the registry; Rich lands it
+        with a plain merge in the main checkout, which the fence sees."""
+        run("git", "-C", self.other, "branch", "codex/the-fix")
+        wt = os.path.join(self.env.root, "codex-wt")
+        run("git", "-C", self.other, "worktree", "add", "-q", wt, "codex/the-fix")
+        self.commit(wt, "codex.txt")
+        tip = run("git", "-C", wt, "rev-parse", "HEAD").stdout.strip()
+        before = self.head()
+        r = run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "codex/the-fix", check=False)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no second review of %s" % tip[:12], r.stderr)
+        self.assertEqual(self.head(), before)
+        self.no_merge_left()
+        self.verdict(tip, "passed")
+        run("git", "-C", self.other, "merge", "--no-ff", "--no-edit", "codex/the-fix")
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
+    def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
+        r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
+        self.assertNotIn("SECOND_REVIEW_REPOS", r.stdout)
+        self.declare("")
+        r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
+        self.assertIn("SECOND_REVIEW_REPOS does not list it", r.stdout)
+        self.assertNotEqual(r.returncode, 0)
+
+
+class SecondReview_AMidJobVerdictReachesTheRunningTeammate(Base):
+    """Plan §2.5, "Changes requested, mid-job": "Delivered to the running
+    teammate once, at its next tool call, by a hook (no mailbox)." The hook is
+    scripts/hooks/deliver-review-verdict.sh (its logic: scripts/lib/review_delivery.py),
+    run here as the host runs it."""
+
+    HOOK = os.path.join(ENGINE, "scripts", "hooks", "deliver-review-verdict.sh")
+
+    def setUp(self):
+        super().setUp()
+        self.state = os.path.join(self.env.root, "review-state")
+        os.makedirs(self.state)
+        self.ledger = os.path.join(self.state, "reviews.jsonl")
+
+    def verdict(self, work, verdict="changes-requested", trigger="long-job", finished=None, title="a defect"):
+        rid = "rv-mid-%d" % (len(open(self.ledger).readlines()) if os.path.exists(self.ledger) else 0)
+        record = os.path.join(self.state, "reviews", rid)
+        os.makedirs(record)
+        with open(os.path.join(record, "verdict.json"), "w") as f:
+            json.dump({"answer": {"verdict": verdict, "findings": [
+                {"priority": 1, "title": title, "files": ["a.rs:9"], "evidence": "a fixture shows it",
+                 "fixture": ""}], "not_yet_claimed": []}}, f)
+        row = {"id": rid, "repo": self.other, "tip": "f" * 40, "work": work, "verdict": verdict,
+               "trigger": trigger, "reviewer": "codex", "reviewer_model": "gpt-6.1-sol", "findings": 1, "p1": 1,
+               "record": record,
+               "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(finished or time.time()))}
+        with open(self.ledger, "a") as f:
+            f.write(json.dumps(row) + "\n")
+        return rid
+
+    def call(self, aid=None):
+        payload = {"session_id": self.sid, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                   "tool_input": {"command": "true"}, "cwd": self.entity}
+        if aid:
+            payload["agent_id"] = aid
+        env = dict(os.environ, SECOND_REVIEW_STATE_DIR=self.state,
+                   REVIEW_WATCH_STATE_DIR=os.path.join(self.env.root, "review-watch"))
+        r = subprocess.run(["bash", self.HOOK], input=json.dumps(payload), capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        if not r.stdout.strip():
+            return ""
+        return json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    def test_second_review_a_running_teammates_next_tool_call_carries_a_new_verdict_once(self):
+        aid, _npath = self.spawn("zach-opus-mid1")
+        other_aid, _p = self.spawn("zach-opus-mid2")
+        key = self.rec("zach-opus-mid1")["key"]
+        self.verdict("teammate:" + key, finished=time.time() - 7200, title="older than the teammate")
+        self.assertEqual(self.call(aid), "")                     # nothing new: no delivery
+        self.verdict("teammate:" + key, title="the microphone is never handed back")
+        got = self.call(aid)
+        self.assertIn("CHANGES-REQUESTED", got)
+        self.assertIn("the microphone is never handed back", got)
+        self.assertNotIn("older than the teammate", got)
+        self.assertEqual(self.call(aid), "")                     # once
+        self.assertEqual(self.call(other_aid), "")               # not another teammate's work
+        self.assertEqual(self.call(None), "")                    # the lead is told by review-watch
+
+
 class HuntV3_01_ARecordWithoutItsWorkspacesIsDamaged(Base):
     """Hunt part 4 v3, V3-01: a keyed record that had lost its `workspaces`
     list passed the V2-04 check, the sweep read it as owning nothing, made its

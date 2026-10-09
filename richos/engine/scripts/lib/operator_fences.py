@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""operator_fences.py: the land lease, the Git fence and the merge-ownership record.
+"""operator_fences.py: the land lease, the Git fence and the merge-ownership record,
+and the second review's land rule (no work lands without a passing review of
+exactly its tip, CEO §113; its section below says where it applies).
 
 Spec: richos-hq docs/plans/2026-09-24-operator-back-end-spec-r3.md (Sage, e1, e2,
 e6, e7, e8), with Frank's final check G1-G12 applied on top of it
@@ -341,6 +343,10 @@ class Files(object):
         self.restore_intent = os.path.join(self.home, "restore-intents", self.key + ".json")
         self.refusals = os.path.join(self.home, "fence-refusals.jsonl")
         self.preserved = os.path.join(self.home, "preserved")
+        # The second review's ledger, for a repository in SECOND_REVIEW_REPOS
+        # only ("" otherwise, and in a launcher installed before it existed).
+        self.reviews = conf.get("REVIEWS") or ""
+        self.engine = conf.get("ENGINE") or ""
         # The repository name a refusal record carries (cmd_fence writes the same value).
         self.repo = conf.get("REPO") or conf.get("COMMON") or ""
 
@@ -745,6 +751,183 @@ def preservation_problems(target):
 
 
 # ---------------------------------------------------------------------------
+# the second review: no work lands without a passing review of exactly its tip
+# ---------------------------------------------------------------------------
+# Ruling §113 (2026-10-08): "A regular RichOS user can never be expected
+# anything even remotely close to that. So, this all must be completely
+# automated." Slice 3 of richos-hq docs/plans/2026-10-09-automatic-second-
+# review-and-t3-ideas.md (§2.4, §2.5, §4 row 3) with Sage's check (§2 catches 1
+# and 8): scripts/second-review.sh writes the verdicts, review-watch starts
+# them, and THIS refuses a move of main that lands work whose tip has no
+# passing verdict. It lives here, in the fence, because the fence sees every
+# move of main whoever makes it: `workspaces.sh merge`, a plain `git merge`, a
+# fast-forward, and Rich's land of a codex/ branch (a plain merge in the main
+# checkout, which never enters the workspace registry). workspaces.py's
+# merge_and_land asks the same functions BEFORE it merges, so its refusal comes
+# before git's merge gate runs, and also with the fence switched off.
+#
+# WHICH REPOSITORIES: only those listed in the entity's SECOND_REVIEW_REPOS.
+# `operator-fences.sh install` bakes the review ledger's path into the launcher
+# (OPERATOR_FENCES_REVIEWS) for a listed repository and leaves it empty for any
+# other, exactly as it copies LAND_LEASE_HOLDERS; `status` reports a launcher
+# that disagrees with the declaration.
+#
+# WHICH VERDICT COUNTS: the NEWEST handover or by-hand verdict whose tip is
+# exactly the commit landed, and it must say `passed`. A mid-job verdict never
+# counts (its reviewer was told to list what is not yet claimed instead of
+# reporting it). A commit is matched by its full ID alone, never by the path
+# the review ran in: the ID names the content and its whole history, and the
+# path is often a workspace that no longer exists.
+
+REVIEW_LAND_KINDS = ("handover", "manual")
+REVIEW_MID_JOB = ("long-job", "quiet")
+
+
+def review_ledger_default():
+    """The path second_review.py's state_root() gives, plus reviews.jsonl."""
+    d = (os.environ.get("SECOND_REVIEW_STATE_DIR") or "").strip()
+    if not d:
+        base = (os.environ.get("CLAUDE_CONFIG_DIR") or "").strip() or os.path.join(os.path.expanduser("~"), ".claude")
+        d = os.path.join(base, "state")
+    return os.path.join(d, "reviews.jsonl")
+
+
+def review_listed(value, main):
+    """Is the main checkout `main` listed in a SECOND_REVIEW_REPOS value?
+    Entries are folder names or paths (review_watch.py's own rule)."""
+    real = os.path.realpath(main or "")
+    for entry in (value or "").split():
+        entry = os.path.expanduser(entry)
+        if entry.startswith(os.sep):
+            if os.path.realpath(entry) == real:
+                return True
+        elif entry == os.path.basename(real):
+            return True
+    return False
+
+
+def landed_tips(cwd, old, new, keep_git_env=False):
+    """The commits whose work a move of main from `old` to `new` lands; each
+    needs a passing review of exactly itself. [] when the move lands nothing.
+
+      * not a forward move (a create, a delete, a reset backwards): [] - the
+        lease rule is the fence for those;
+      * merge commits on main's own line: each parent after the first that
+        main did not already hold (the branch tip the merge brings in);
+      * a fast-forward to work made elsewhere, or any commit on main's line
+        that is not a merge and changes a file: [new], the whole move;
+      * a commit on main's line that changes no file lands nothing."""
+    if is_zero(old) or is_zero(new) or old == new:
+        return []
+    rc, _o, _e = git(cwd, "merge-base", "--is-ancestor", old, new, keep_git_env=keep_git_env)
+    if rc != 0:
+        return []
+    rc, out, err = git(cwd, "rev-list", "--first-parent", "--parents", "%s..%s" % (old, new),
+                       keep_git_env=keep_git_env)
+    if rc != 0:
+        raise RuntimeError("git rev-list %s..%s failed: %s" % (old[:12], new[:12], err.strip()))
+    line = [ln.split() for ln in out.splitlines() if ln.strip()]
+    if not line:
+        return []
+    if len(line[-1]) < 2 or line[-1][1] != old:
+        return [new]
+    tips = []
+    for commit in line:
+        c, parents = commit[0], commit[1:]
+        if len(parents) == 1:
+            rc, out, _e = git(cwd, "rev-parse", c + "^{tree}", parents[0] + "^{tree}", keep_git_env=keep_git_env)
+            trees = out.split()
+            if rc == 0 and len(trees) == 2 and trees[0] == trees[1]:
+                continue
+            return [new]
+        for p in parents[1:]:
+            rc, _o, _e = git(cwd, "merge-base", "--is-ancestor", p, old, keep_git_env=keep_git_env)
+            if rc != 0 and p not in tips:
+                tips.append(p)
+    return tips
+
+
+def read_reviews(ledger):
+    rows = []
+    try:
+        with open(ledger, encoding="utf-8") as fh:
+            for raw in fh:
+                try:
+                    r = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and r.get("verdict"):
+                    rows.append(r)
+    except OSError:
+        pass
+    return rows
+
+
+def review_of(rows, tip):
+    """(the verdict row that decides `tip`, the newest mid-job row on it)."""
+    land = [r for r in rows if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]
+    mid = [r for r in rows if r.get("tip") == tip and r.get("trigger") in REVIEW_MID_JOB]
+    return (land[-1] if land else None), (mid[-1] if mid else None)
+
+
+def review_findings(row, limit=6):
+    """[(priority, title, files)] of a verdict, from its record."""
+    try:
+        with open(os.path.join(row.get("record") or "", "verdict.json"), encoding="utf-8") as fh:
+            answer = (json.load(fh) or {}).get("answer") or {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    out = []
+    for f in (answer.get("findings") or [])[:limit]:
+        if isinstance(f, dict):
+            out.append((f.get("priority"), " ".join(str(f.get("title") or "").split())[:140],
+                        ", ".join(str(x) for x in (f.get("files") or []))[:100]))
+    return out
+
+
+def review_gaps(ledger, tips):
+    """{tip: why} for every tip with no passing verdict; {} when all pass."""
+    rows = read_reviews(ledger)
+    gaps = {}
+    for tip in tips:
+        row, mid = review_of(rows, tip)
+        if row and row.get("verdict") == "passed":
+            continue
+        if row is None:
+            why = ["no second review of %s has a verdict yet" % tip[:12]]
+            if mid:
+                why[0] += (" (a mid-job review %s said %s; only the review at its handover counts)"
+                           % (mid.get("id"), mid.get("verdict")))
+        else:
+            why = ["the second review %s of %s says %s: %s finding(s), %s P1, by %s (%s). Record: %s" % (
+                row.get("id"), tip[:12], row.get("verdict"), row.get("findings"), row.get("p1"),
+                row.get("reviewer"), row.get("reviewer_model"), os.path.join(row.get("record") or "?", "verdict.json"))]
+            why += ["  P%s %s (%s)" % f for f in review_findings(row)]
+        gaps[tip] = why
+    return gaps
+
+
+def review_refusal_text(repo, gaps, engine, in_git=False):
+    lines = ["=== SECOND REVIEW: refused in %s ===" % repo,
+             "  Work lands only with a passing second review of exactly its tip (CEO §113)."]
+    for tip in sorted(gaps):
+        lines += ["  " + w for w in gaps[tip]]
+    if in_git:
+        # Measured: Git asks this fence after it has written the merged files.
+        lines += ["  Main did not move, but Git had already staged the merged files in the main checkout:",
+                  "  a refused merge is left in progress (end it with: git merge --abort) and a refused",
+                  "  fast-forward leaves them staged (git reset --hard HEAD). You hold the land lease for both."]
+    lines += [
+        "  The way through: review-watch starts the review by itself when a teammate hands over",
+        "  (and at Codex's READY entry); its verdict reaches the lead. For changes requested, start a",
+        "  fresh continuation with the findings as its input; its own handover is reviewed again.",
+        "  To review a tip now: %s/scripts/second-review.sh --repo %s --tip <commit> --words-file <request>"
+        % (engine or "<engine>", repo),
+        "  Only the repositories in SECOND_REVIEW_REPOS (orchestration.config) are refused."]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # the fence (e2, F2, G1, G3, G4; Frank §4 (B) HEAD)
 # ---------------------------------------------------------------------------
 
@@ -960,7 +1143,20 @@ def fence_decide(lines, common, gitdir, files, chain, argv_of_writer=None):
             detail = _holder_refusal(files, gitdir, lease, new)
             if detail:
                 refused.append(((old, new, ref), "a move of main over a refused writer's residue", detail))
+        if need and ref == MAIN and files.reviews and not is_zero(new):
+            # Lease or no lease: the second review is not the lease's question.
+            try:
+                gaps = review_gaps(files.reviews, landed_tips(os.getcwd(), old, new, keep_git_env=True))
+            except Exception as error:  # noqa: BLE001: a check that cannot decide refuses, and says so
+                gaps = {new: ["the second review of this move could not be checked (%s: %s), so it is refused"
+                              % (error.__class__.__name__, error)]}
+            if gaps:
+                refused.append(((old, new, ref), REVIEW_WHY,
+                                review_refusal_text(files.repo, gaps, files.engine, in_git=True)))
     return refused
+
+
+REVIEW_WHY = "a move of main that lands work with no passing second review of its tip"
 
 
 def _holder_refusal(files, gitdir, lease, new):
@@ -999,6 +1195,13 @@ def _restore_intent_matches(files, new, chain):
 
 def fence_refusal_text(conf, files, refused, lease, repo, rewrote=None):
     engine = conf.get("ENGINE") or "<engine>"
+    reviews = [detail for _l, why, detail in refused if detail and why == REVIEW_WHY]
+    if reviews:
+        others = [r for r in refused if r[1] != REVIEW_WHY]
+        tail = ["  Also: " + fence_refusal_text(conf, files, others, lease, repo, rewrote)] if others else []
+        return "\n".join(reviews[:1] + tail + [
+            "  If this refusal is a defect in the fence itself, Rich turns it off with one",
+            "  command: %s/scripts/operator-fences.sh off" % engine])
     held_over = [detail for _l, _w, detail in refused if detail]
     if held_over:
         return "\n".join(["=== OPERATOR FENCE: refused in %s, even for the lease holder ===" % repo]

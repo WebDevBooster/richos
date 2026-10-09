@@ -509,4 +509,40 @@ mutant p03-reconciliation-invents-an-ending "test_point_03_a_reconciled_binding_
     '        prov = _absorb_provisional(fresh, prov_key){NL}        fresh["end"] = fresh.get("end") or {"at": now(), "signal": "SubagentStop", "detail": ""}' \
     "adopting the binding would also declare the run over, so an agent still working would be landed out from under itself. The platform's per-agent record proves WHICH agent the call became and says nothing about whether it has ended (points 3, 11)."
 
+# THE SECOND REVIEW (CEO §113, 2026-10-09, slice 3 of the automatic second
+# review): work lands only with a passing review of exactly its tip. The rule
+# lives in scripts/lib/operator_fences.py (the fence and the land command both
+# ask it); the land command asks it first, and the delivery hook tells a
+# running teammate once.
+F="scripts/lib/operator_fences.py"
+mutant sr-no-refusal-anywhere "test_second_review_merge_is_refused_with_no_verdict" "$F" \
+    '            why += ["  P%s %s (%s)" % f for f in review_findings(row)]{NL}        gaps[tip] = why' \
+    '            why += ["  P%s %s (%s)" % f for f in review_findings(row)]{NL}        pass' \
+    "work with no passing second review would land by every path: the land command and the fence would both let it in (CEO §113)."
+
+mutant sr-land-command-does-not-ask "test_second_review_merge_is_refused_with_no_verdict" "$W" \
+    '    gated = [(x, ledger) for x, ledger in gated if ledger]' \
+    '    gated = []' \
+    "workspaces.sh merge would run git's merge gate for minutes before the fence refused the move, and with the fence off it would land unreviewed work (CEO §113, Sage's catch 8)."
+
+mutant sr-fence-does-not-ask "test_second_review_a_plain_merge_is_refused_by_the_fence_the_same_way" "$F" \
+    '            if gaps:{NL}                refused.append(((old, new, ref), REVIEW_WHY' \
+    '            if False:{NL}                refused.append(((old, new, ref), REVIEW_WHY' \
+    "a plain git merge, a fast-forward or a codex/ branch's land would bring unreviewed work into main (Sage's catches 1 and 8)."
+
+mutant sr-any-commit-verdict-counts "test_second_review_merge_is_refused_with_a_verdict_on_an_older_commit" "$F" \
+    '    land = [r for r in rows if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]' \
+    '    land = [r for r in rows if r.get("trigger") in REVIEW_LAND_KINDS]' \
+    "a verdict on an older commit would let newer, unreviewed commits land (plan §4 row 3)."
+
+mutant sr-fast-forward-not-seen "test_second_review_a_fast_forward_and_a_direct_commit_are_refused_an_empty_commit_is_not" "$F" \
+    '    if len(line[-1]) < 2 or line[-1][1] != old:{NL}        return [new]' \
+    '    if len(line[-1]) < 2 or line[-1][1] != old:{NL}        return []' \
+    "a fast-forward to unreviewed work made elsewhere would land it (plan §4 row 3)."
+
+mutant sr-delivered-every-call "test_second_review_a_running_teammates_next_tool_call_carries_a_new_verdict_once" "scripts/lib/review_delivery.py" \
+    '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))' \
+    '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT, 0o600))' \
+    "a mid-job verdict would be repeated at every tool call of the teammate instead of once (plan §2.5)."
+
 mutation_end
