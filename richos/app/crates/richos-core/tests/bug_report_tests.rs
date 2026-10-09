@@ -1142,3 +1142,26 @@ fn a_name_written_with_two_spaces_matches_the_same_name_written_with_one() {
     // A space still has to be there: "JaneDoe" is one word, not the name.
     assert!(private_in_edit("JaneDoe saw it.", &[], &one).is_empty());
 }
+
+// ---- the review of 3007e3200 (rv-20261009T174727Z-3007e320-578a), fixture `privacy_probe.rs` ----
+
+#[test]
+fn a_name_rich_lists_across_a_blank_line_is_left_out_before_the_draft_splits_it_into_paragraphs() {
+    // Finding 2: on 3007e3200 the draft split "Jane\n\nDoe" into two paragraphs before scrubbing
+    // either, so neither held the whole name: the card showed "Jane" and "Doe saw the window
+    // freeze.", and the issue's body read "Jane\n\nDoe saw the window freeze."
+    let said = r"Jane\n\nDoe saw the window freeze.";
+    let checked = checked_with(said, r#"[{"text": "Jane\n\nDoe", "kind": "person"}]"#);
+    let paragraphs: Vec<String> = checked.draft.sections[0].paragraphs.iter().map(|p| joined(p)).collect();
+    assert_eq!(paragraphs, ["[a person] saw the window freeze."]);
+    // Paragraphs on either side of a name still split where Rich left a blank line.
+    let said = r"It froze.\n\nJane Doe saw it.\n\nThen it closed.";
+    let checked = checked_with(said, r#"[{"text": "Jane Doe", "kind": "person"}]"#);
+    let paragraphs: Vec<String> = checked.draft.sections[0].paragraphs.iter().map(|p| joined(p)).collect();
+    assert_eq!(paragraphs, ["It froze.", "[a person] saw it.", "Then it closed."]);
+}
+
+/// Rich's checked draft of `said`, naming `private` (a JSON list), with no names RichOS holds.
+fn checked_with(said: &str, private: &str) -> Checked {
+    checked(Ok(answer_naming(said, private)), &screen(), false, VERSION, &Scrubber::default()).unwrap()
+}

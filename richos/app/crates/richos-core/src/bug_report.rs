@@ -1051,12 +1051,44 @@ pub struct Draft {
     pub private: Vec<PrivateTerm>,
 }
 
+/// **A SECTION'S PARAGRAPHS, SCRUBBED WHOLE, THEN SPLIT**: `text` is scrubbed as one string, and
+/// only then split at its blank lines into paragraphs, so a private name that runs across a blank
+/// line is one stand-in in one paragraph (review rv-20261009T174727Z-3007e320-578a finding 2: on
+/// 3007e3200 the split came first, and "Jane\n\nDoe" became the paragraphs "Jane" and "Doe saw
+/// the window freeze.", neither of them the name). A stand-in is never split; a single line break
+/// inside a paragraph reads as a space, as before. Empty paragraphs are dropped.
+fn paragraphs_of(text: &str, scrubber: &Scrubber) -> Vec<Vec<Segment>> {
+    let mut out: Vec<Vec<Segment>> = vec![vec![]];
+    for segment in scrubber.scrub(text) {
+        if segment.was.is_some() {
+            out.last_mut().expect("never empty").push(segment);
+            continue;
+        }
+        for (n, piece) in segment.text.split("\n\n").enumerate() {
+            if n > 0 {
+                out.push(vec![]);
+            }
+            out.last_mut().expect("never empty").push(Segment::plain(&piece.replace('\n', " ")));
+        }
+    }
+    out.into_iter()
+        .filter_map(|mut paragraph| {
+            if let Some(first) = paragraph.first_mut().filter(|s| s.was.is_none()) {
+                first.text = first.text.trim_start().to_string();
+            }
+            if let Some(last) = paragraph.last_mut().filter(|s| s.was.is_none()) {
+                last.text = last.text.trim_end().to_string();
+            }
+            paragraph.retain(|s| s.was.is_some() || !s.text.is_empty());
+            (!paragraph.is_empty()).then_some(paragraph)
+        })
+        .collect()
+}
+
 /// Rich's write-up as a draft: every section scrubbed, the version line added as it is.
 pub fn draft_from(written: &Written, version: &str, scrubber: &Scrubber) -> Draft {
     let scrubber = scrubber.and_rich(written.private.iter().cloned());
-    let paragraphs = |text: &str| -> Vec<Vec<Segment>> {
-        text.split("\n\n").map(str::trim).filter(|p| !p.is_empty()).map(|p| scrubber.scrub(&p.replace('\n', " "))).collect()
-    };
+    let paragraphs = |text: &str| paragraphs_of(text, &scrubber);
     let mut sections = vec![DraftSection { heading: "What happened".into(), paragraphs: paragraphs(&written.what_happened), steps: vec![] }];
     if !written.where_.is_empty() {
         sections.push(DraftSection { heading: "Where".into(), paragraphs: paragraphs(&written.where_), steps: vec![] });
