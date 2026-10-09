@@ -678,7 +678,7 @@ class AppWorld(World):
         self.app_state = os.path.realpath(app_state)
         self.claude = claude
         self.accounts = accounts
-        self.repos = ["(every connected repository)"]
+        self.repos, self.repos_error = ["(every connected repository)"], ""
         self.ws = stall_watch._load("review_watch_workspaces",
                                     os.path.join(engine_root, "mega-lander", "workspaces.py"))
         self.src = stall_watch.Sources(engine_root)
