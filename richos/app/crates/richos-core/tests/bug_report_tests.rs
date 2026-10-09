@@ -67,11 +67,11 @@ const VERSION: &str = "RichOS 1.2.0, nightly 45 · macOS 15.6 · Apple silicon";
 #[test]
 fn names_paths_and_addresses_are_replaced_by_stand_ins_and_what_they_replaced_is_kept() {
     let scrubber = Scrubber::new(terms());
-    // A path hides the rest of its LINE (since cc/echo-opus-bug7), so the other private words
-    // are on a line of their own.
-    let said = "In the acme deal chat, Dana Whitfield's notes at /Users/alex/ab/femcboost/notes.txt \
-                and ~/Desktop/plan.md went missing.\nMail dana@northwind.example about Northwind Traders \
-                and Acme. FEMCBOOST is the folder.";
+    // A path hides its whole LINE (since review rv-20261009T162841Z-69294215-70e6), so the other
+    // private words are on lines of their own.
+    let said = "In the acme deal chat, Dana Whitfield's notes went missing.\nMail dana@northwind.example about \
+                Northwind Traders and Acme. FEMCBOOST is the folder.\nThey were at \
+                /Users/alex/ab/femcboost/notes.txt and ~/Desktop/plan.md.";
     let segments = scrubber.scrub(said);
     let text = joined(&segments);
     for private in ["acme deal", "Dana Whitfield", "/Users/alex", "femcboost", "FEMCBOOST", "~/Desktop", "dana@northwind.example", "Northwind Traders", "Acme."] {
@@ -89,15 +89,15 @@ fn names_paths_and_addresses_are_replaced_by_stand_ins_and_what_they_replaced_is
         .filter_map(|s| s.was.as_deref().map(|w| (w, s.kind.unwrap())))
         .collect();
     assert!(replaced.contains(&("acme deal", Kind::ConversationName)), "{replaced:?}");
-    // A path takes the rest of its sentence with it (third review; a semicolon no longer ends it
-    // since review rv-20261009T151254Z-84d1bdce-20df): the words up to the full stop.
+    // A path takes its whole line with it, up to the line's final full stop.
     assert!(
-        replaced.contains(&("/Users/alex/ab/femcboost/notes.txt and ~/Desktop/plan.md went missing", Kind::FilePath)),
+        replaced.contains(&("They were at /Users/alex/ab/femcboost/notes.txt and ~/Desktop/plan.md", Kind::FilePath)),
         "{replaced:?}"
     );
     assert!(replaced.contains(&("dana@northwind.example", Kind::EmailAddress)), "{replaced:?}");
-    // The sentence's own full stop stays outside the stand-in.
-    assert!(text.contains("notes at [a file on this Mac].\nMail [an email address]"), "{text}");
+    // The line's own full stop stays outside the stand-in, and the line before it is untouched.
+    assert!(text.contains("Mail [an email address]"), "{text}");
+    assert!(text.ends_with("is the folder.\n[a file on this Mac]."), "{text}");
 }
 
 #[test]
@@ -447,30 +447,33 @@ fn a_path_in_backticks_is_left_out_whole() {
     // Finding 1, fixture `core-edge-cases.py`: on the tip the backtick kept the path out of the
     // detector and the whole path reached the public report.
     // Since review rv-20261009T154959Z-96dcc581-085b the backticks go with it, and so does the
-    // rest of its sentence: no closing mark ends a path.
+    // rest of its sentence: no closing mark ends a path. Since review
+    // rv-20261009T162841Z-69294215-70e6 the whole line goes.
     let (text, was) = paths_left_out("The file `/Users/alex/Clients/SecretCo/budget.xlsx` disappeared.");
-    assert_eq!(text, "The file [a file on this Mac].");
-    assert_eq!(was, ["`/Users/alex/Clients/SecretCo/budget.xlsx` disappeared"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["The file `/Users/alex/Clients/SecretCo/budget.xlsx` disappeared"]);
 }
 
 #[test]
 fn a_path_with_spaces_is_left_out_whole() {
     // Finding 1: on the tip only "/Users/alex/Client" was replaced and "Plans/SecretCo.xlsx" went public.
-    // Since the third review a plain path takes the rest of its clause ("disappeared") with it.
+    // Since the third review a plain path takes the rest of its clause ("disappeared") with it,
+    // and since review rv-20261009T162841Z-69294215-70e6 the whole line.
     let (text, was) = paths_left_out("The file /Users/alex/Client Plans/SecretCo.xlsx disappeared.");
-    assert_eq!(text, "The file [a file on this Mac].");
-    assert_eq!(was, ["/Users/alex/Client Plans/SecretCo.xlsx disappeared"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["The file /Users/alex/Client Plans/SecretCo.xlsx disappeared"]);
     // The common Mac shape: a folder with a space in it, written plainly, and one that ENDS on it.
     let (text, _) = paths_left_out("Logs are in ~/Library/Application Support/RichOS/logs/today.log now");
-    assert_eq!(text, "Logs are in [a file on this Mac]");
+    assert_eq!(text, "[a file on this Mac]");
     let (text, _) = paths_left_out("It wrote to ~/Library/Application Support and stopped.");
-    assert_eq!(text, "It wrote to [a file on this Mac].");
+    assert_eq!(text, "[a file on this Mac].");
 }
 
 #[test]
 fn a_quoted_or_escaped_path_with_spaces_is_left_out_whole() {
     // Since review rv-20261009T154959Z-96dcc581-085b the quote or bracket before a path goes with
-    // it, to the end of its line (here, of the text), whatever it is written between.
+    // it, to the end of its line (here, of the text), whatever it is written between; since review
+    // rv-20261009T162841Z-69294215-70e6 the line's words before it go too.
     for said in [
         "Open \"/Users/alex/My Clients/Secret Co/plan.pdf\" please",
         "Open '~/Documents/Secret Co/plan.pdf' please",
@@ -480,17 +483,17 @@ fn a_quoted_or_escaped_path_with_spaces_is_left_out_whole() {
         "Open /Users/alex/Secret\\ Co/plan.pdf please",
     ] {
         let (text, was) = paths_left_out(said);
-        assert_eq!(text, "Open [a file on this Mac]", "{said}");
-        assert_eq!(was, [&said[5..]], "{said}");
+        assert_eq!(text, "[a file on this Mac]", "{said}");
+        assert_eq!(was, [said], "{said}");
         assert!(!text.contains("Secret") && !text.contains("alex"), "{said} => {text}");
     }
     // Words after a plain path go with it to the end of the sentence (the third review replaced
     // the rule that kept them public): nothing in the words says where a name with spaces ends,
     // and since review rv-20261009T151254Z-84d1bdce-20df a comma does not either.
     let (text, _) = paths_left_out("Open /Users/alex/notes.txt and then quit.");
-    assert_eq!(text, "Open [a file on this Mac].");
+    assert_eq!(text, "[a file on this Mac].");
     let (text, _) = paths_left_out("Open /Users/alex/notes.txt, then quit.");
-    assert_eq!(text, "Open [a file on this Mac].");
+    assert_eq!(text, "[a file on this Mac].");
 }
 
 #[test]
@@ -639,51 +642,51 @@ fn a_private_name_rich_found_stays_left_out_on_every_later_change() {
 
 #[test]
 fn a_file_name_with_spaces_is_left_out_to_the_end_of_its_clause() {
-    // On the tip: "The file [a file on this Mac] Budget.xlsx disappeared."
+    // On the tip: "The file [a file on this Mac] Budget.xlsx disappeared." Since review
+    // rv-20261009T162841Z-69294215-70e6 the whole line goes.
     let (text, was) = paths_left_out("The file /Users/alex/Documents/Client Budget.xlsx disappeared.");
-    assert_eq!(text, "The file [a file on this Mac].");
-    assert_eq!(was, ["/Users/alex/Documents/Client Budget.xlsx disappeared"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["The file /Users/alex/Documents/Client Budget.xlsx disappeared"]);
     let (text, _) = paths_left_out("Open ~/Documents/Client Plans please.");
-    assert_eq!(text, "Open [a file on this Mac].");
+    assert_eq!(text, "[a file on this Mac].");
     let (text, _) = paths_left_out("The file /Users/alex/Client Plans/budget.xlsx disappeared, twice.");
-    assert_eq!(text, "The file [a file on this Mac].");
+    assert_eq!(text, "[a file on this Mac].");
     // Between delimiters too, since review rv-20261009T154959Z-96dcc581-085b: the opening mark
     // goes with it and no closing mark ends it.
     let (text, was) = paths_left_out("The file `/Users/alex/Documents/Client Budget.xlsx` disappeared.");
-    assert_eq!(text, "The file [a file on this Mac].");
-    assert_eq!(was, ["`/Users/alex/Documents/Client Budget.xlsx` disappeared"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["The file `/Users/alex/Documents/Client Budget.xlsx` disappeared"]);
     let (text, _) = paths_left_out("Open \"/Users/alex/Smith, Jones/plan.pdf\" please.");
-    assert_eq!(text, "Open [a file on this Mac].");
+    assert_eq!(text, "[a file on this Mac].");
 }
 
 #[test]
 fn a_file_url_is_left_out() {
     // On the tip it reached the report unchanged.
     let (text, was) = paths_left_out("Open file:///Users/alex/Documents/budget.xlsx please.");
-    assert_eq!(text, "Open [a file on this Mac].");
-    assert_eq!(was, ["file:///Users/alex/Documents/budget.xlsx please"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["Open file:///Users/alex/Documents/budget.xlsx please"]);
     let (text, _) = paths_left_out("It linked FILE:///Volumes/Work/Secret Co/plan.pdf; nothing opened.");
-    assert_eq!(text, "It linked [a file on this Mac].");
+    assert_eq!(text, "[a file on this Mac].");
 }
 
 #[test]
 fn every_named_path_start_hides_its_clause_whatever_comes_before_it() {
     // A comma or a semicolon no longer ends what is left out (review
-    // rv-20261009T151254Z-84d1bdce-20df): only a sentence end or a line break does.
+    // rv-20261009T151254Z-84d1bdce-20df): only a line break does, and since review
+    // rv-20261009T162841Z-69294215-70e6 the words before it on its line go too.
     for (said, left) in [
-        ("Saved to /Volumes/Backup Disk/Clients/x.xlsx, then it froze.", "Saved to [a file on this Mac]."),
-        ("Temp files in /private/var/folders/ab/Secret Co stay.", "Temp files in [a file on this Mac]."),
-        ("Look at /var/log/Secret Co.log: it is empty.", "Look at [a file on this Mac]."),
-        ("It wrote /tmp/Secret Co notes and stopped!", "It wrote [a file on this Mac]!"),
-        // The whole word with the slash in it goes, "path=" included (review
-        // rv-20261009T154959Z-96dcc581-085b), as does the curly quote before a path below.
-        ("The path=/Users/alex/Secret Co/x.txt; that is all.", "The [a file on this Mac]."),
-        ("Windows saved C:\\Users\\alex\\Client Plans\\budget.xlsx, then closed.", "Windows saved [a file on this Mac]."),
+        ("Saved to /Volumes/Backup Disk/Clients/x.xlsx, then it froze.", "[a file on this Mac]."),
+        ("Temp files in /private/var/folders/ab/Secret Co stay.", "[a file on this Mac]."),
+        ("Look at /var/log/Secret Co.log: it is empty.", "[a file on this Mac]."),
+        ("It wrote /tmp/Secret Co notes and stopped!", "[a file on this Mac]!"),
+        ("The path=/Users/alex/Secret Co/x.txt; that is all.", "[a file on this Mac]."),
+        ("Windows saved C:\\Users\\alex\\Client Plans\\budget.xlsx, then closed.", "[a file on this Mac]."),
         // "? " no longer ends it (since cc/echo-opus-bug7): the line's end does.
-        ("Windows saved D:/Clients/Secret Co/budget.xlsx? Yes.", "Windows saved [a file on this Mac]."),
-        ("Line one /Users/alex/Secret Co\nline two stays.", "Line one [a file on this Mac]\nline two stays."),
-        ("It said “/Users/alex/Rich’s notes.txt” twice.", "It said [a file on this Mac]."),
-        ("It opened /Users/alex/Rich's notes.txt, then froze.", "It opened [a file on this Mac]."),
+        ("Windows saved D:/Clients/Secret Co/budget.xlsx? Yes.", "[a file on this Mac]."),
+        ("Line one /Users/alex/Secret Co\nline two stays.", "[a file on this Mac]\nline two stays."),
+        ("It said “/Users/alex/Rich’s notes.txt” twice.", "[a file on this Mac]."),
+        ("It opened /Users/alex/Rich's notes.txt, then froze.", "[a file on this Mac]."),
     ] {
         let (text, _) = paths_left_out(said);
         assert_eq!(text, left, "{said}");
@@ -691,7 +694,8 @@ fn every_named_path_start_hides_its_clause_whatever_comes_before_it() {
     // A web address, "and/or" and "24/7" are not paths. "Note:/x" is one since review
     // rv-20261009T154959Z-96dcc581-085b: a word with a slash is a path unless it is a short form.
     let said = "See https://example.com/a/b and/or 24/7, or Note:/x.";
-    assert_eq!(paths_left_out(said).0, "See https://example.com/a/b and/or 24/7, or [a file on this Mac].");
+    assert_eq!(paths_left_out(said).0, "[a file on this Mac].");
+    assert_eq!(paths_left_out("See https://example.com/a/b and/or 24/7.\nOr Note:/x.").0, "See https://example.com/a/b and/or 24/7.\n[a file on this Mac].");
 }
 
 #[test]
@@ -749,9 +753,9 @@ fn the_heads_up_on_the_users_own_words_is_the_scrubbers_answer() {
     // rules gave no heads-up for an address the scrubber leaves out. The window now asks this.
     let app = terms();
     let report = vec![PrivateTerm::new("Jane Doe", Kind::PersonName)];
-    // One line per path: a path hides the rest of its line (since cc/echo-opus-bug7), so each
-    // other private word is on a line of its own.
-    let said = "Write to alice@büro.de or 用户@例子.中国 about the NORTHWIND TRADERS file file:///Users/you/Secret.xlsx.\nThen C:\\Users\\you\\notes.txt.\nFrom JANE DOE.";
+    // One line per path: a path hides its whole line (since review
+    // rv-20261009T162841Z-69294215-70e6), so each other private word is on a line of its own.
+    let said = "Write to alice@büro.de or 用户@例子.中国 about the NORTHWIND TRADERS file.\nfile:///Users/you/Secret.xlsx.\nC:\\Users\\you\\notes.txt.\nFrom JANE DOE.";
     let found = private_in_edit(said, &app, &report);
     for private in ["alice@büro.de", "用户@例子.中国", "NORTHWIND TRADERS", "file:///Users/you/Secret.xlsx", "C:\\Users\\you\\notes.txt", "JANE DOE"] {
         assert!(found.iter().any(|f| f == private), "{private:?} gets no heads-up: {found:?}");
@@ -771,21 +775,21 @@ fn a_comma_semicolon_or_bracket_in_a_file_name_does_not_end_what_is_left_out() {
     // went public: "Open [a file on this Mac], Jones Budget.xlsx please." Now only a sentence end
     // (outside the file's own extension) or a line break ends it.
     for (said, was) in [
-        ("Open /Users/alex/Documents/Smith, Jones Budget.xlsx please.", "/Users/alex/Documents/Smith, Jones Budget.xlsx please"),
-        ("Open ~/Documents/Client;Secret Budget.xlsx please.", "~/Documents/Client;Secret Budget.xlsx please"),
-        ("Open /Users/alex/Documents/Budget (SecretClient).xlsx please.", "/Users/alex/Documents/Budget (SecretClient).xlsx please"),
-        ("Open /Users/alex/Documents/SecretClient.xlsx please.", "/Users/alex/Documents/SecretClient.xlsx please"),
+        ("Open /Users/alex/Documents/Smith, Jones Budget.xlsx please.", "Open /Users/alex/Documents/Smith, Jones Budget.xlsx please"),
+        ("Open ~/Documents/Client;Secret Budget.xlsx please.", "Open ~/Documents/Client;Secret Budget.xlsx please"),
+        ("Open /Users/alex/Documents/Budget (SecretClient).xlsx please.", "Open /Users/alex/Documents/Budget (SecretClient).xlsx please"),
+        ("Open /Users/alex/Documents/SecretClient.xlsx please.", "Open /Users/alex/Documents/SecretClient.xlsx please"),
     ] {
         let (text, left) = paths_left_out(said);
-        assert_eq!(text, "Open [a file on this Mac].", "{said}");
+        assert_eq!(text, "[a file on this Mac].", "{said}");
         assert_eq!(left, [was], "{said}");
     }
     // A sentence end no longer ends it (since cc/echo-opus-bug7: ". " can be inside a file's
     // name); a line break does.
     let (text, _) = paths_left_out("Open /Users/alex/Smith, Jones.xlsx. Then it froze.");
-    assert_eq!(text, "Open [a file on this Mac].");
+    assert_eq!(text, "[a file on this Mac].");
     let (text, _) = paths_left_out("Open ~/Smith; Jones.xlsx\nThen it froze.");
-    assert_eq!(text, "Open [a file on this Mac]\nThen it froze.");
+    assert_eq!(text, "[a file on this Mac]\nThen it froze.");
 }
 
 #[test]
@@ -798,22 +802,23 @@ fn private_details_that_overlap_are_left_out_together() {
     assert_eq!(left, ["Mary Jane Smith"]);
     // A company name that starts inside a path and runs past where the path ends. Since
     // cc/echo-opus-bug7 a path runs to the end of its line, so the one place left to run past is
-    // the line's final full stop, which the path keeps outside.
+    // the line's final full stop, which the path keeps outside. Since review
+    // rv-20261009T162841Z-69294215-70e6 the path's whole line is left out.
     let company = vec![PrivateTerm::new("Acme Inc. Partners", Kind::CompanyName)];
     let (text, left) = scrubbed_with(company, "Open ~/Clients/Acme Inc. Partners plan now.");
-    assert_eq!(text, "Open [a file on this Mac].");
-    assert_eq!(left, ["~/Clients/Acme Inc. Partners plan now"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(left, ["Open ~/Clients/Acme Inc. Partners plan now"]);
     let company = vec![PrivateTerm::new("Acme Inc.", Kind::CompanyName)];
     let (text, left) = scrubbed_with(company, "Open ~/Clients/Acme Inc.");
-    assert_eq!(text, "Open [a file on this Mac]");
-    assert_eq!(left, ["~/Clients/Acme Inc."]);
+    assert_eq!(text, "[a file on this Mac]");
+    assert_eq!(left, ["Open ~/Clients/Acme Inc."]);
     // The fixture's registered company inside a path: all of it is left out, and the heads-up
     // on what is left finds nothing (on the tip it found nothing on a draft that still leaked).
     let known = Scrubber::new(vec![PrivateTerm::new("Smith, Jones", Kind::CompanyName)]);
     let said = "Open /Users/alex/Documents/Smith, Jones Budget.xlsx please.";
     let public = joined(&known.scrub(said));
-    assert_eq!(public, "Open [a file on this Mac].");
-    assert_eq!(known.private_in(said), ["/Users/alex/Documents/Smith, Jones Budget.xlsx please"]);
+    assert_eq!(public, "[a file on this Mac].");
+    assert_eq!(known.private_in(said), ["Open /Users/alex/Documents/Smith, Jones Budget.xlsx please"]);
     assert!(known.private_in(&public).is_empty(), "{public}");
 }
 
@@ -833,29 +838,30 @@ fn a_bracketed_file_name_with_brackets_inside_is_left_out_whole() {
         "Open (/Users/alex/Documents/Budget [draft (v2)] SecretClient.xlsx) please.",
     ] {
         let (text, was) = paths_left_out(said);
-        assert_eq!(text, "Open [a file on this Mac].", "{said}");
-        assert_eq!(was, [&said[5..said.len() - 1]], "{said}");
+        assert_eq!(text, "[a file on this Mac].", "{said}");
+        assert_eq!(was, [&said[..said.len() - 1]], "{said}");
         assert!(Scrubber::default().private_in(&text).is_empty(), "{text}");
     }
 }
 
 #[test]
 fn a_relative_file_path_is_left_out_and_gets_a_heads_up() {
-    // Finding 2: on the tip both reached the public report unchanged, with no heads-up.
+    // Finding 2: on the tip both reached the public report unchanged, with no heads-up. Since
+    // review rv-20261009T162841Z-69294215-70e6 the whole line goes.
     let (text, was) = paths_left_out("Open `./clients/SecretClient/budget.xlsx` please.");
-    assert_eq!(text, "Open [a file on this Mac].");
-    assert_eq!(was, ["`./clients/SecretClient/budget.xlsx` please"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["Open `./clients/SecretClient/budget.xlsx` please"]);
     let (text, was) = paths_left_out("The file clients/SecretClient/budget.xlsx disappeared.");
-    assert_eq!(text, "The file [a file on this Mac].");
-    assert_eq!(was, ["clients/SecretClient/budget.xlsx disappeared"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["The file clients/SecretClient/budget.xlsx disappeared"]);
     // Every other way a path is written: up a folder, the home folder, a Windows drive or folder.
     for said in ["Open ../SecretClient/plan.pdf now.", "Open ~/SecretClient now.", "Open C:\\SecretClient now.", "Open SecretClient\\plan.pdf now."] {
         let (text, _) = paths_left_out(said);
-        assert_eq!(text, "Open [a file on this Mac].", "{said}");
+        assert_eq!(text, "[a file on this Mac].", "{said}");
     }
     // The heads-up on the user's own words is the same scrubber's answer, so it names them too.
     let found = private_in_edit("The file clients/SecretClient/budget.xlsx disappeared.", &[], &[]);
-    assert_eq!(found, ["clients/SecretClient/budget.xlsx disappeared"]);
+    assert_eq!(found, ["The file clients/SecretClient/budget.xlsx disappeared"]);
 }
 
 #[test]
@@ -872,31 +878,33 @@ fn short_common_slash_forms_and_web_addresses_stay_public() {
 #[test]
 fn a_full_stop_inside_a_file_name_does_not_end_what_is_left_out() {
     // On 1e7b696cf: "Open [a file on this Mac]. SecretClient Budget.xlsx please."
+    // Since review rv-20261009T162841Z-69294215-70e6 the whole line goes.
     let said = "Open /Users/alex/Documents/Dr. SecretClient Budget.xlsx please.";
     let (text, was) = paths_left_out(said);
-    assert_eq!(text, "Open [a file on this Mac].");
-    assert_eq!(was, ["/Users/alex/Documents/Dr. SecretClient Budget.xlsx please"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["Open /Users/alex/Documents/Dr. SecretClient Budget.xlsx please"]);
     assert!(Scrubber::default().private_in(&text).is_empty(), "{text}");
     // The same with "!" or "?" in the name, and the line's own "!" or "?" kept outside.
     let (text, _) = paths_left_out("Open ~/Clients/Wow! SecretCo plan.pdf now!");
-    assert_eq!(text, "Open [a file on this Mac]!");
+    assert_eq!(text, "[a file on this Mac]!");
     let (text, _) = paths_left_out("Where is ~/Clients/Why? SecretCo plan.pdf now?");
-    assert_eq!(text, "Where is [a file on this Mac]?");
+    assert_eq!(text, "[a file on this Mac]?");
     // A line break still ends it, so the next line stays public.
     let (text, _) = paths_left_out("Open ~/Dr. SecretClient.xlsx please.\nThen it froze.");
-    assert_eq!(text, "Open [a file on this Mac].\nThen it froze.");
+    assert_eq!(text, "[a file on this Mac].\nThen it froze.");
     let (text, _) = paths_left_out("Open ~/Dr. SecretClient.xlsx please.\r\nThen it froze.");
-    assert_eq!(text, "Open [a file on this Mac].\r\nThen it froze.");
+    assert_eq!(text, "[a file on this Mac].\r\nThen it froze.");
 }
 
 #[test]
 fn two_plain_words_with_a_slash_are_a_path() {
     // On 1e7b696cf: "Clients/SecretCo" was read as a short form like "and/or" and stayed public.
+    // Since review rv-20261009T162841Z-69294215-70e6 the whole line goes.
     let (text, was) = paths_left_out("The folder Clients/SecretCo is gone.");
-    assert_eq!(text, "The folder [a file on this Mac].");
-    assert_eq!(was, ["Clients/SecretCo is gone"]);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["The folder Clients/SecretCo is gone"]);
     for said in ["Open SecretCo/plan now.", "Open (Clients/SecretCo) now.", "Open AND/OR/SecretCo now.", "Open w/SecretCo now.", "Open 10/SecretCo now."] {
-        assert_eq!(paths_left_out(said).0, "Open [a file on this Mac].", "{said}");
+        assert_eq!(paths_left_out(said).0, "[a file on this Mac].", "{said}");
     }
 }
 
@@ -921,4 +929,18 @@ fn a_backslash_after_a_web_address_is_a_path() {
     assert!(!Scrubber::default().private_in(said).is_empty(), "no heads-up for {said}");
     // A web address with only forward slashes is still not a path.
     assert_eq!(paths_left_out("See https://example.org/a/b please.").0, "See https://example.org/a/b please.");
+}
+
+#[test]
+fn a_line_with_a_path_in_it_is_left_out_whole() {
+    // Finding 1: on 692942153 the path was left out from its own word on, so the words of a
+    // relative path before the slash stayed public: "Open SecretCo [a file on this Mac]."
+    let said = "Open SecretCo Plans/budget.xlsx please.";
+    let (text, was) = paths_left_out(said);
+    assert_eq!(text, "[a file on this Mac].");
+    assert_eq!(was, ["Open SecretCo Plans/budget.xlsx please"]);
+    assert!(Scrubber::default().private_in(&text).is_empty(), "{text}");
+    // Only that line: the lines around it stay as they are, its indent included.
+    let (text, _) = paths_left_out("It froze.\n  Open SecretCo Plans/budget.xlsx please.\nThen it closed.");
+    assert_eq!(text, "It froze.\n  [a file on this Mac].\nThen it closed.");
 }

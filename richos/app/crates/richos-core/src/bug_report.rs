@@ -184,9 +184,8 @@ impl Segment {
 ///   - Every match is a whole word: "Acmes" and "subAcme" are not "Acme".
 ///   - **File paths**: any word with a `/` or a `\` in it, except a web address (`https://…`, with no `\`),
 ///     "and/or", "w/", "w/o", "n/a", "24/7", and an all-digit fraction or date ("1/2", 10/09/2026).
-///     From the start of that word, a bracket or quote before it included, everything to the end
-///     of its line is left out, so no space, comma, bracket, quote or ". " in a file's name leaves
-///     a piece behind ([`find_paths`]).
+///     The whole line it is on is left out, so no space, comma, bracket, quote or ". " in a
+///     file's name, before the slash or after it, leaves a piece behind ([`find_paths`]).
 ///   - Where two of these overlap, both are left out as one.
 ///     **Email addresses** are `local@host.tld`.
 #[derive(Debug, Clone, Default)]
@@ -386,28 +385,38 @@ fn is_not_a_path(word: &str) -> bool {
     (2..=3).contains(&parts.len()) && parts.iter().all(number)
 }
 
+/// **The start of the line** the word at `at` is on: just after the line break before it, past
+/// the line's leading spaces.
+fn line_start(text: &str, at: usize) -> usize {
+    let start = text[..at].rfind(['\n', '\r']).map_or(0, |i| i + 1);
+    at - text[start..at].trim_start().len()
+}
+
 /// **File paths**: every word (a run of text between spaces) with a `/` or a `\` in it, except
-/// the ones [`is_not_a_path`] names. Each is left out from the start of its word, so a bracket,
-/// quote or backtick written before it goes with it, to the end of its line ([`line_end`]); the
-/// line's own final full stop, colon, "!" or "?" stays outside.
+/// the ones [`is_not_a_path`] names. **The whole line it is on is left out**, from the line's
+/// first word ([`line_start`]) to its end ([`line_end`]); the line's own final full stop, colon,
+/// "!" or "?" stays outside.
 ///
 /// The rule recognizes no shape of path (review rv-20261009T154959Z-96dcc581-085b: three rounds
 /// in a row each found one more shape that leaked, the last nested brackets and relative paths).
 /// `/Users/…`, `~/…`, `./…`, `../…`, `clients/x/y.xlsx`, `C:\…`, `file://…` and a path between
-/// brackets that hold brackets are all a word with a slash in it. No closing mark ends one: a
-/// file's name can hold every one of them. Hiding a few words after a path is safe; leaving part
-/// of one in a public report is not.
+/// brackets that hold brackets are all a word with a slash in it. Nothing in the words says where
+/// a file's name starts or ends: a name can hold spaces and every mark, so the words before the
+/// slash can be the start of it ("SecretCo Plans/budget.xlsx" left "SecretCo" public, review
+/// rv-20261009T162841Z-69294215-70e6 finding 1), and the words after it the end. Hiding the rest
+/// of a line is safe; leaving part of a file's name in a public report is not.
 fn find_paths(text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut skip_to = 0;
     for word in text.split_whitespace() {
         // `split_whitespace` gives slices of `text` itself, so where the word sits in memory is
         // where it starts in `text`: a character boundary, since a word starts after a space.
-        let start = word.as_ptr() as usize - text.as_ptr() as usize;
-        if start < skip_to || !word.contains(['/', '\\']) || is_not_a_path(word) {
+        let at = word.as_ptr() as usize - text.as_ptr() as usize;
+        if at < skip_to || !word.contains(['/', '\\']) || is_not_a_path(word) {
             continue;
         }
-        let mut end = start + text[start..line_end(text, start)].trim_end().len();
+        let start = line_start(text, at);
+        let mut end = at + text[at..line_end(text, at)].trim_end().len();
         while end > start && text[..end].ends_with(['.', ':', '!', '?']) {
             end -= 1;
         }
@@ -1366,20 +1375,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_path_takes_its_bracket_and_the_rest_of_its_sentence_and_keeps_the_full_stop_outside() {
+    fn a_path_takes_its_whole_line_and_keeps_the_full_stop_outside() {
         // Before review rv-20261009T154959Z-96dcc581-085b the closing bracket ended this path and
-        // the quoted one was a second path; a bracket no longer ends one.
+        // the quoted one was a second path; a bracket no longer ends one. Since review
+        // rv-20261009T162841Z-69294215-70e6 the words before it on its line go too ("see").
         let text = "see (/Users/a/b.txt): and \"~/x\"";
         let found: Vec<&str> = find_paths(text).into_iter().map(|(s, e)| &text[s..e]).collect();
-        assert_eq!(found, ["(/Users/a/b.txt): and \"~/x\""]);
+        assert_eq!(found, ["see (/Users/a/b.txt): and \"~/x\""]);
         // Since cc/echo-opus-bug7 left ". " ending a path inside a file's name, a sentence end
         // no longer ends one: the line's end does, and its final full stop stays outside.
         let text = "see /a. Then ~/x! And 10/09.";
         let found: Vec<&str> = find_paths(text).into_iter().map(|(s, e)| &text[s..e]).collect();
-        assert_eq!(found, ["/a. Then ~/x! And 10/09"]);
+        assert_eq!(found, ["see /a. Then ~/x! And 10/09"]);
         let text = "see /a.\nThen ~/x!\r\nAnd 10/09.";
         let found: Vec<&str> = find_paths(text).into_iter().map(|(s, e)| &text[s..e]).collect();
-        assert_eq!(found, ["/a", "~/x"]);
+        assert_eq!(found, ["see /a", "Then ~/x"]);
     }
 
     #[test]

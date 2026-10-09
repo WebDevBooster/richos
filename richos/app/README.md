@@ -333,13 +333,13 @@ richos/app/
                               the technical view, re-prime machinery that is recorded and
                               structurally cannot render, no session id on the lane's wire,
                               the honest empty lane, and the retention window covering it
-    tests/bug_report_tests.rs 42 tests for Bust a bug (CEO §115, round 21): names (in
+    tests/bug_report_tests.rs 43 tests for Bust a bug (CEO §115, round 21): names (in
                               any capitals, in every alphabet), file
                               paths (any word with a slash or a backslash, relative
-                              ones and two plain words too, but not a web address,
-                              "and/or", "w/", "w/o", "n/a", "24/7" or an all-digit
-                              fraction or date, from the start of that word, bracket
-                              or quote included, to the end of its line), email addresses and every name Rich finds private
+                              ones and two plain words too, but not a web address
+                              without a backslash, "and/or", "w/", "w/o", "n/a", "24/7"
+                              or an all-digit fraction or date; the whole line it is
+                              on is left out), email addresses and every name Rich finds private
                               (kept for every later change; overlapping ones left out
                               together) are replaced by stand-ins that
                               keep what they replaced for the user's eyes only; the card's
@@ -1160,7 +1160,7 @@ citations are in `main.rs`'s `set_activation_policy` block and in
 
 ```sh
 # 1. The spine — fast, no native deps, no network:
-cargo test -p richos-core                       # 1951 tests + 5 doc-tests (1947 direct, 4 ignored)
+cargo test -p richos-core                       # 1952 tests + 5 doc-tests (1948 direct, 4 ignored)
 # Summarize a captured log separately: python3 scripts/rust-test-summary.py /path/to/cargo.log
 # Ordinary passes and doc-test passes are separate; do not add them into the total above.
 #     ONE IGNORED CHECK NEEDS A REAL LORO CORPUS, which is the CEO's own record, lives outside
