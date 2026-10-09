@@ -585,6 +585,21 @@ mutant sr-unreadable-launcher-ignored "test_second_review_a_listed_repository_wh
     '    except OSError as exc:{NL}        if False:' \
     "a listed repository whose review setup cannot be established would merge as if it were established (review rv-20261009T031207Z-ba444a8a-607a, finding 1)."
 
+mutant sr-unreadable-declaration-skipped "test_second_review_a_governing_declaration_that_cannot_be_read_is_refused" "$W" \
+    '            if exc.errno not in (errno.ENOENT, errno.ENOTDIR):{NL}                unknown.append(' \
+    '            if False:{NL}                unknown.append(' \
+    "a governing orchestration.config made unreadable would be read as listing nothing, and with the launcher gone its repository would merge unreviewed work (review rv-20261009T033652Z-f3bfe22f-9372, finding 1)."
+
+mutant sr-fence-entity-not-consulted "test_second_review_the_entity_the_fence_was_installed_from_governs_without_the_launcher" "$W" \
+    '    registered, unknown = _fence_registry_entities()' \
+    '    registered, unknown = [], []' \
+    "a repository listed only by the entity its fence was installed from would merge unreviewed work once the launcher is removed (review rv-20261009T033652Z-f3bfe22f-9372, finding 2)."
+
+mutant sr-fence-entity-only-the-last-install "test_second_review_the_entity_the_fence_was_installed_from_governs_without_the_launcher" "$W" \
+    '    found = [reg.get("entity")] + [r.get("entity") for r in reg.get("repositories", {}).values()' \
+    '    found = [reg.get("entity")] + [r.get("entity") for r in {}.values()' \
+    "a later install from another entity for another repository would erase the entity that governs this repository's fence (review rv-20261009T033652Z-f3bfe22f-9372, finding 2)."
+
 mutant sr-continuation-judges-by-its-own-registration "test_second_review_a_continuation_gets_a_verdict_on_the_work_it_continues" "scripts/lib/review_delivery.py" \
     '    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= works[r["work"]] - 1' \
     '    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= works["teammate:%s" % rec["key"]] - 1' \

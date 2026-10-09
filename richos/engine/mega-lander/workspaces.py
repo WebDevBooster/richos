@@ -4991,7 +4991,11 @@ def _review_check(todo, entities=()):
     if not todo:
         return {}
     F = _fence_program()
-    listed = _declared_review_listing(entities)
+    listed, unknown = _declared_review_listing(entities)
+    if unknown:
+        raise SpecError("nothing was merged.\n" + "\n".join(
+            "=== SECOND REVIEW: %s was not merged into %s ===\n  Whether %s is reviewed cannot be "
+            "established: %s." % (b, main, main, "; ".join(unknown)) for _repo, b, main, _t in todo))
     out, refusals = {}, []
     for _repo, b, main, t in todo:
         ledgers, broken = _review_ledgers(F, main, listed)
@@ -5027,19 +5031,58 @@ def _governing_entities(chain):
     return out
 
 
+def _fence_registry_entities():
+    """([entity], [why unknown]) from the fence registry `operator-fences.sh
+    install` writes (operator_fences_admin.registry_path(): REGISTRY_NAME in
+    land_locks_dir()): the entity each repository's fence was installed from,
+    and the registry's last one. THE ENTITY THAT GOVERNS A REPOSITORY'S FENCE
+    IS READ FROM HERE, NEVER ONLY FROM THE LAUNCHER (review
+    rv-20261009T033652Z-f3bfe22f-9372, finding 2): it can differ from the
+    spawning entity, and with the launcher removed nothing else names it. An
+    absent registry (nothing ever installed) names nothing; one that exists
+    but cannot be read or parsed leaves the governing entities unknown."""
+    path = os.path.join(land_locks_dir(), "operator-fences.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            reg = json.loads(f.read())
+    except FileNotFoundError:
+        return [], []
+    except (OSError, ValueError) as exc:
+        return [], ["the fence registry %s cannot be read (%s)" % (path, getattr(exc, "strerror", None) or exc)]
+    if not isinstance(reg, dict) or not isinstance(reg.get("repositories", {}), dict):
+        return [], ["the fence registry %s cannot be read (not the registry's shape)" % path]
+    found = [reg.get("entity")] + [r.get("entity") for r in reg.get("repositories", {}).values()
+                                   if isinstance(r, dict)]
+    return [e for e in found if isinstance(e, str) and e.strip()], []
+
+
 def _declared_review_listing(entities):
-    """The SECOND_REVIEW_REPOS value of every governing declaration that can be
-    read (the last assignment, as review_watch.configured_repos reads it).
+    """([SECOND_REVIEW_REPOS value], [why unknown]) of every governing
+    declaration: those of `entities` (_governing_entities) and of the entities
+    the fence registry records (_fence_registry_entities), the last assignment
+    of each, as review_watch.configured_repos reads it.
     WHETHER A REPOSITORY IS REVIEWED IS DECIDED FROM THESE (review
     rv-20261009T031207Z-ba444a8a-607a, finding 1): the fence launcher is only
     the copy `operator-fences.sh install` makes of the declaration, and reading
-    the launcher alone let a missing launcher switch the review off."""
-    values = []
-    for e in entities:
+    the launcher alone let a missing launcher switch the review off.
+    ABSENT IS NOT UNREADABLE (review rv-20261009T033652Z-f3bfe22f-9372, finding
+    1): an entity with no orchestration.config lists nothing, but one whose
+    orchestration.config exists and cannot be read leaves applicability
+    unknown, and _review_check refuses rather than read it as an empty list."""
+    registered, unknown = _fence_registry_entities()
+    seen, values = [], []
+    for e in list(entities) + registered:
+        e = os.path.realpath(os.path.expanduser(e))
+        if e in seen:
+            continue
+        seen.append(e)
+        config = os.path.join(e, "orchestration.config")
         try:
-            with open(os.path.join(e, "orchestration.config"), encoding="utf-8", errors="replace") as f:
+            with open(config, encoding="utf-8", errors="replace") as f:
                 text = f.read()
-        except OSError:
+        except OSError as exc:
+            if exc.errno not in (errno.ENOENT, errno.ENOTDIR):
+                unknown.append("the governing declaration %s cannot be read (%s)" % (config, exc.strerror or exc))
             continue
         m = None
         for m in re.finditer(r'(?m)^[ \t]*SECOND_REVIEW_REPOS[ \t]*=[ \t]*'
@@ -5047,7 +5090,7 @@ def _declared_review_listing(entities):
             pass
         if m is not None:
             values.append(next(g for g in m.groups() if g is not None))
-    return values
+    return values, unknown
 
 
 def _review_ledgers(F, main, listed):

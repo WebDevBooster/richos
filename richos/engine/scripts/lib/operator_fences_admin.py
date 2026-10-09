@@ -235,7 +235,8 @@ def cmd_install(opts, repos):
     reg["entity"] = entity
     for repo in repos:
         r = install_one(repo, entity, decl)
-        reg["repositories"][r["main"]] = {"common": r["common"], "chain": r["chain"], "installed": F.iso()}
+        reg["repositories"][r["main"]] = {"common": r["common"], "chain": r["chain"], "installed": F.iso(),
+                                          "entity": entity}  # the land command reads it (workspaces.py)
         say("installed  %s  state=%s  chain=%s%s" % (r["main"], r["state"], ",".join(r["chain"]) or "(empty)",
                                                     "  (moved the existing hook to %s)" % r["moved"] if r["moved"]
                                                     else ""))

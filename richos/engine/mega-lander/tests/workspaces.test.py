@@ -4337,6 +4337,64 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.assertIn("cannot be read", str(e.exception))
         self.assertEqual(self.head(), before)
 
+    def test_second_review_a_governing_declaration_that_cannot_be_read_is_refused(self):
+        """Review rv-20261009T033652Z-f3bfe22f-9372, finding 1 (its fixture
+        review_policy_edges.py, UNREADABLE_CONFIG): with the launcher gone, an
+        unreadable governing orchestration.config was skipped as if absent, and
+        the repository it lists merged unreviewed work. A declaration that
+        cannot be read leaves applicability unknown, so nothing is merged; an
+        absent one still lists nothing."""
+        config = os.path.join(self.entity, "orchestration.config")
+        with open(config, "w") as f:
+            f.write('SECOND_REVIEW_REPOS="other"\n')
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv12")
+        self.verdict(tip, "passed")              # even a passing tip: applicability is unknown
+        before = self.head()
+        os.chmod(config, 0)
+        try:
+            with self.assertRaises(ws.SpecError) as e:
+                ws.merge_and_land("zach-opus-rv12", self.sid)
+        finally:
+            os.chmod(config, 0o600)
+        self.assertIn("SECOND REVIEW", str(e.exception))
+        self.assertIn("%s cannot be read" % config, str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        _merged, res = ws.merge_and_land("zach-opus-rv12", self.sid)     # readable again: it passed
+        self.assertTrue(res["landed"])
+
+    def test_second_review_the_entity_the_fence_was_installed_from_governs_without_the_launcher(self):
+        """Review rv-20261009T033652Z-f3bfe22f-9372, finding 2 (its fixture,
+        FENCE_ENTITY): `operator-fences.sh install --entity` here names
+        self.decl, whose SECOND_REVIEW_REPOS lists the repository, while the
+        teammate was spawned from self.entity, which lists nothing. With the
+        launcher removed, the land command never read self.decl and merged
+        unreviewed work. The entity is recovered from the fence registry, which
+        records it per repository, so a later install from another entity for
+        another repository does not lose it."""
+        third = self.env.repo("third")
+        elsewhere = os.path.join(self.env.root, "elsewhere-entity")
+        os.makedirs(elsewhere)
+        with open(os.path.join(elsewhere, "orchestration.config"), "w") as f:
+            f.write('OPERATOR_FENCES="on"\nLAND_LEASE_HOLDERS=""\nOPERATOR_FENCES_REPOS=""\n'
+                    'SECOND_REVIEW_REPOS=""\n')
+        run("bash", self.fences, "install", "--repo", third, "--entity", elsewhere)
+        self.assertFalse(os.path.exists(os.path.join(self.entity, "orchestration.config")))
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv13")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv13", self.sid)
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv13 was not merged into", str(e.exception))
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv13", self.sid)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
     def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
         r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
         self.assertNotIn("SECOND_REVIEW_REPOS", r.stdout)
