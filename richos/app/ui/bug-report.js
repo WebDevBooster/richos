@@ -639,11 +639,21 @@ window.RichBug = (function () {
   /// The heads-up, from the core's answer about the words on the card now. Each change asks
   /// again; an answer that comes after a later question is dropped, so the heads-up is always
   /// about the latest words.
+  ///
+  /// Send waits for that answer (review rv-20261009T151254Z-84d1bdce-20df finding 2: on the tip
+  /// the report could go out while the answer was on its way, and its heads-up was never shown).
+  /// A press while the latest question is out is held (`f.sendHeld`, the heads-up as it read at
+  /// the press); when the answer arrives the report goes, unless the answer brought a heads-up
+  /// the user had not seen when pressing: then it stays unsent under it, and Send is the user's
+  /// again, after it. An answer that never comes (`catch`) sends what was pressed, as before:
+  /// the heads-up decides nothing.
   function paintWarn(f) {
     releaseEdited(f);
     var w = f.card.querySelector(".bug-warn");
     if (!warns(f)) {
       f.warnAsked = (f.warnAsked || 0) + 1;
+      f.warnAnswered = f.warnAsked;
+      f.sendHeld = null;
       w.hidden = true;
       w.textContent = "";
       return;
@@ -662,6 +672,14 @@ window.RichBug = (function () {
       w.appendChild(document.createTextNode(" Anyone can read this report on GitHub."));
     }).catch(function () {
       // Not answered: the heads-up stays as it was. It decides nothing; Send is the user's.
+    }).then(function () {
+      if (asked !== f.warnAsked) return;
+      f.warnAnswered = asked;
+      var held = f.sendHeld;
+      f.sendHeld = null;
+      if (held === null || held === undefined || f.step !== "draft") return;
+      if (!w.hidden && w.textContent !== held) return;
+      send(f);
     });
   }
 
@@ -754,6 +772,7 @@ window.RichBug = (function () {
     openEditor(f);
   }
   function openEditor(f) {
+    f.sendHeld = null; // a Send pressed before changing it is not a Send of the changed words
     f.step = "editing";
     paintCard(f);
     paintComposers();
@@ -792,6 +811,12 @@ window.RichBug = (function () {
 
   function send(f) {
     if (f.step !== "draft") return; // held while Rich changes it; never twice
+    if (f.warnAnswered !== f.warnAsked) {
+      // The heads-up on these words is still on its way: the press waits for it (`paintWarn`).
+      var w = f.card.querySelector(".bug-warn");
+      f.sendHeld = w.hidden ? "" : w.textContent;
+      return;
+    }
     f.step = "sending";
     paintCard(f);
     paintComposers();

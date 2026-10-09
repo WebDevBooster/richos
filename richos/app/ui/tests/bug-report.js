@@ -33,6 +33,9 @@
 //      there: the heads-up is the core's answer (`bug_report_private_in`), so alice@büro.de is
 //      named; and the voice hold follows the report's conversation, so speech reaches Rich after
 //      leaving it. `mock.js` answers `bug_report_private_in` with `preset.bugPrivateWords`.
+//  12. The review of 84d1bdced (rv-20261009T151254Z-84d1bdce-20df), red there: Send waits for
+//      the privacy answer on the latest words, so the heads-up comes before the report goes out.
+//      `mock.js` holds those answers with `preset.bugPrivateHold` until `releasePrivate()`.
 "use strict";
 
 const path = require("path");
@@ -402,6 +405,50 @@ async function main() {
     const holds = (await calls(page, "bug_report_voice")).map((c) => c.on);
     await page.close();
     return "bug_report_voice: " + holds.join(" → ");
+  });
+
+  // ---- the review of 84d1bdced (rv-20261009T151254Z-84d1bdce-20df) ----
+  await run.check("Send waits for the privacy check on the latest words, so the heads-up comes before the report goes out", async () => {
+    // Finding 2, fixture `warning-function-probe.js`: on the tip, with the core's answers held,
+    // Send filed "Write to alice@büro.de" at once and the heads-up never showed. `mock.js` holds
+    // every `bug_report_private_in` answer until `releasePrivate()`.
+    const sends = (page) => calls(page, "bug_report_send").then((c) => c.length);
+    const page = await open("dark", { bugPrivateHold: true, bugPrivateWords: ["alice@büro.de"] });
+    await bustABug(page);
+    await answer(page, "The names on the left get cut off when the text is bigger.");
+    await page.click("#bug-change");
+    await page.waitForSelector(".bugcard.is-editing");
+    await page.keyboard.type(" Write to alice@büro.de");
+    await page.click("#bug-done");
+    await page.waitForSelector(".bugcard .bug-pill:has-text('Not sent yet · changed')");
+    await page.click("#bug-send");
+    assertEqual(await sends(page), 0, "the report went out before the privacy check answered");
+    assert(await page.isHidden(".bug-warn"), "a heads-up before the core answered");
+    await page.evaluate(() => window.__RICHOS_MOCK_BUG__.releasePrivate());
+    await page.waitForSelector(".bug-warn:not([hidden])");
+    const warn = await page.locator(".bug-warn").innerText();
+    assertEqual(warn, "“alice@büro.de” looks private. Anyone can read this report on GitHub.", "heads-up");
+    // The answer brought a heads-up the user had not seen: the report waits under it, unsent.
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
+    assertEqual(await sends(page), 0, "the report went out with the heads-up the user had not seen");
+    assertEqual(await page.locator(".bugcard .bug-pill").innerText(), "Not sent yet · changed", "the card left the draft");
+    // Pressed again, having been told: it goes, with the words as the user wrote them.
+    await page.click("#bug-send");
+    await page.waitForSelector(".bugcard.is-sent");
+    assert(JSON.stringify((await calls(page, "bug_report_send"))[0].sheet).includes("alice@büro.de"), "what the user approved is not what was sent");
+    await page.close();
+
+    // A press while the check is out with nothing private to find: it goes once the answer comes.
+    const quiet = await open("dark", { bugPrivateHold: true });
+    await bustABug(quiet);
+    await answer(quiet, "The names on the left get cut off when the text is bigger.");
+    await quiet.click("#bug-send");
+    assertEqual(await sends(quiet), 0, "the report went out before the privacy check answered");
+    await quiet.evaluate(() => window.__RICHOS_MOCK_BUG__.releasePrivate());
+    await quiet.waitForSelector(".bugcard.is-sent");
+    assertEqual(await sends(quiet), 1, "the held Send did not go out, or went twice");
+    await quiet.close();
+    return "held until answered; " + warn;
   });
 
   await run.check("what Rich checked, under Worked for, is at least 16px in both themes", async () => {

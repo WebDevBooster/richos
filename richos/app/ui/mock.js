@@ -2513,6 +2513,9 @@
   // `preset.bugPrivateWords` is what the core's scrubber finds in the card's words beyond the
   // names this preview holds (an address, a path): the heads-up's answer, `bug_report_private_in`,
   // whose rules are Rust's and tested there (fourth review rv-20261009T142223Z-3d74fe4c-3b6d).
+  // `preset.bugPrivateHold` keeps every one of those answers back until `releasePrivate()`, so a
+  // suite can press Send before the heads-up's answer arrives (review
+  // rv-20261009T151254Z-84d1bdce-20df finding 2).
   const bugMock = {
     net: preset.bugNet || "online",
     account: preset.bugAccount || { kind: "reporting" },
@@ -2521,7 +2524,7 @@
     sent: [],
     calls: [],
     seq: 0,
-    held: { change: [], cancel: [] },
+    held: { change: [], cancel: [], private: [] },
   };
   // A release lets through what is held now and anything that arrives after it.
   const bugHold = (kind) => (bugMock.held[kind] === "released" ? Promise.resolve() : new Promise((r) => bugMock.held[kind].push(r)));
@@ -2576,6 +2579,7 @@
     waiting: () => bugMock.waiting.slice(),
     releaseChange: () => bugRelease("change"),
     releaseCancel: () => bugRelease("cancel"),
+    releasePrivate: () => bugRelease("private"),
     /// An utterance recognized by the shell, as `rich://voice-transcript` carries it. The shell
     /// emits it whether or not it held the words back for a report (`bug_report_voice`).
     say(text) { emit("rich://voice-transcript", { text, at: now() }); },
@@ -3910,6 +3914,7 @@
         case "bug_report_private_in": {
           // The words named in the order they are written, each once: the shell's answer shape.
           bugMock.calls.push({ cmd, text: args.text, private: args.private });
+          if (preset.bugPrivateHold) await bugHold("private");
           const text = String(args.text || "");
           const hits = [];
           bugTerms().concat(args.private || []).forEach((t) => {
