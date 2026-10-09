@@ -41,6 +41,9 @@
 //      wait on this Mac, unsent, when Claude can't check them. Whether a sheet may go is the
 //      shell's decision (`richos_core::bug_report::decide`, tested in Rust); `mock.js` decides it
 //      the same way and `filed()` is what actually went out.
+//  14. The review of 665df1bb3 (rv-20261009T223503Z-665df1bb-17bf), red there: Bust a bug
+//      pressed again over Corrections shows the report already in the conversation, on top and
+//      answerable.
 "use strict";
 
 const path = require("path");
@@ -833,6 +836,45 @@ async function main() {
       return `question ${top.question}, answer box ${top.input} and focused, typed and sent; card on top; ${name} still behind it`;
     });
   }
+
+  // ---- the review of 665df1bb3 (rv-20261009T223503Z-665df1bb-17bf) ----
+  await run.check("Bust a bug pressed again over Corrections shows the report already open in the conversation, on top and answerable", async () => {
+    // Finding 1, fixture `reopen-report.js`: on 665df1bb3 the report already in the conversation
+    // was focused UNDER Corrections (a full-window overlay at z-index 60), which stayed open, and
+    // the user pressed Bust a bug and saw Corrections.
+    const page = await open("dark");
+    await bustABug(page);
+    await page.waitForSelector("#bug-flows .bug-rich .tl-prose");
+    await page.click("#nav-corrections");
+    await page.waitForSelector("#corrections-overlay:not([hidden])");
+    await bustABug(page);
+    await page.waitForFunction(() => document.activeElement === document.getElementById("input"));
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const top = await page.evaluate(() => {
+      const q = document.querySelector("#bug-flows .bug-rich .tl-prose");
+      const input = document.getElementById("input");
+      const hitAt = (el) => {
+        const r = el.getBoundingClientRect();
+        const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return h === el || el.contains(h) ? "ON-TOP" : "COVERED by " + (h ? h.tagName.toLowerCase() + (h.id ? "#" + h.id : h.className ? "." + String(h.className).split(" ")[0] : "") : "nothing");
+      };
+      return { asked: q.textContent.trim(), question: hitAt(q), input: hitAt(input) };
+    });
+    assert(top.asked.startsWith("What went wrong?"), "not the report's question: " + JSON.stringify(top.asked));
+    assertEqual(top.question, "ON-TOP", "Rich's question is not what is painted where it is");
+    assertEqual(top.input, "ON-TOP", "the box the answer goes in is not what is painted where it is");
+    assertEqual(await page.locator("#bug-flows .bugflow").count(), 1, "a second report was started");
+    assert(await page.isHidden("#bugdock"), "the report moved into the panel");
+    // Answered the way a person does: a click into the box, then the keys.
+    const said = "The names on the left get cut off when I make the text bigger.";
+    await page.click("#input");
+    await page.keyboard.type(said);
+    await page.keyboard.press("Enter");
+    await page.waitForSelector("#bug-flows .bug-user:has-text('" + said + "')");
+    await page.waitForSelector("#bug-flows .bugcard .bug-pill:has-text('Not sent yet')");
+    await page.close();
+    return `question ${top.question}, answer box ${top.input}; answered, card written`;
+  });
 
   // ---- the review of 3007e3200 (rv-20261009T174727Z-3007e320-578a) ----
   const RICH_NAMES = [{ text: "Jane Doe", kind: "person_name" }, { text: "SecretCo", kind: "company_name" }];

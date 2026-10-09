@@ -3268,6 +3268,13 @@ if (window.RichBug) {
     view: () => mainView,
     blocked: () => !!sendBlockedReason,
     openThread: (threadId) => openThread(threadId),
+    // A window over the conversation, closed by its own close; false for one that has none.
+    closeWindow: (id) => {
+      const close = POPUP_CLOSERS[id];
+      if (!close) return false;
+      close();
+      return true;
+    },
     syncComposer: () => syncComposerMode(),
     voiceOn: () => voiceMode,
     announce,

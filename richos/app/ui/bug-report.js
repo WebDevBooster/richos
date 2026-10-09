@@ -130,6 +130,12 @@ window.RichBug = (function () {
     }
     return null;
   }
+  /// Close every window over the conversation with its own close (`main.js`'s `POPUP_CLOSERS`).
+  /// The two setup questions have none and stay: while one is up, Settings cannot be pressed.
+  function closeWindows() {
+    for (var w = openWindow(), n = 0; w && n < WINDOWS.length; w = openWindow(), n++)
+      if (!host || !host.closeWindow || !host.closeWindow(w[0])) return;
+  }
   // ---- what was on the screen: for the user's own Rich to check against ----------------------
   // Round 21: "Looked at the screen you were on". The words the user could SEE when they pressed
   // Bust a bug, top to bottom: every text that is rendered, inside the window and inside every
@@ -308,8 +314,11 @@ window.RichBug = (function () {
         raiseDock(covered());
         showDock();
       } else {
-        // The report is in a conversation, and the home screen is in front of it: go to it.
+        // The report is in a conversation, and the home screen or a window (Corrections,
+        // Feedback, Search, the company picker) is in front of it: go to it. A window left open
+        // covered the report while the composer behind it took the keys (review of 665df1bb3).
         if (homeOpen()) window.RichHome.hide("bug-report");
+        closeWindows();
         if (host && cur.threadId !== host.activeThread()) host.openThread(cur.threadId);
       }
       if (cur.card) {
