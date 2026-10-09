@@ -69,6 +69,103 @@ ACTIVE = "RICHOS_AUTOCHECK_ACTIVE"
 ZERO = "0" * 40
 
 
+TERM_GRACE_SECONDS = 5    # a check that ran out of time gets SIGTERM, then this long, before SIGKILL
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _descendants(root):
+    """Every live descendant pid of `root`, whatever its process group, or None when the
+    process table could not be read (never read as "no descendants")."""
+    try:
+        done = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode:
+        return None
+    table = done.stdout
+    children = {}
+    for line in table.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and all(part.isdigit() for part in parts):
+            children.setdefault(int(parts[1]), []).append(int(parts[0]))
+    found, todo = set(), [root]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            if child not in found:
+                found.add(child)
+                todo.append(child)
+    return found
+
+
+def _signal_all(pids, sig, group):
+    """Signal the group once, then each other pid that is NOT in that group (a process in the
+    group already got the signal; a second SIGTERM makes Playwright force-kill at once)."""
+    try:
+        os.killpg(group, sig)
+    except ProcessLookupError:
+        pass
+    for pid in pids:
+        try:
+            if os.getpgid(pid) == group:
+                continue
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
+def run_bounded(argv, timeout, grace=None, **kwargs):
+    """subprocess.run(capture_output, timeout) that ends a late check gracefully.
+
+    subprocess.run kills only the DIRECT child, and with SIGKILL. A UI suite ended that way
+    leaves its test browser (Playwright.app, a GUI app) orphaned; if the suite was still
+    launching it, the browser aborts and macOS shows "Playwright quit unexpectedly" on the
+    user's screen (measured 2026-10-09: crash reports 15:28:36 and 16:16:48, both "parentProc:
+    Exited process", the browser dead 67-80 ms after launch). So the check runs in its own
+    session; on the time limit its whole group gets SIGTERM (Playwright closes its browser on
+    it), then SIGKILL after `grace`, and nothing of the group is left. Raises TimeoutExpired
+    like subprocess.run."""
+    grace = TERM_GRACE_SECONDS if grace is None else grace
+    kwargs.pop("capture_output", None)
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **kwargs)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as expired:
+        # Every descendant, in any process group (Playwright's browser has its own), is recorded
+        # before the first signal; the wait is for ALL of them, not just the direct child, since a
+        # shell wrapper dies on SIGTERM at once and would cut the grace short.
+        found = _descendants(proc.pid)
+        if found is None:
+            say(f"autocheck: could not list the check's processes (ps failed); signalling its process group only, "
+                f"so a browser in another group may be left running (pid {proc.pid})")
+            found = set()
+        victims = {proc.pid, *found}
+        _signal_all(victims, signal.SIGTERM, group=proc.pid)
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline:
+            if proc.poll() is not None and not any(_alive(pid) for pid in victims - {proc.pid}):
+                break
+            time.sleep(0.1)
+        _signal_all(victims, signal.SIGKILL, group=proc.pid)
+        proc.communicate()
+        raise expired
+    except BaseException:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        raise
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+
 def say(text=""):
     print(text, file=sys.stderr, flush=True)
 
@@ -246,8 +343,8 @@ def policy_applies(repo, staged):
 def release_policy(repo, what):
     say(f"+ bash {RELEASE_POLICY}")
     try:
-        result = subprocess.run(["bash", RELEASE_POLICY], cwd=repo.top, env=repo.env,
-                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        result = run_bounded(["bash", RELEASE_POLICY], cwd=repo.top, env=repo.env,
+                                stdin=subprocess.DEVNULL, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         banner(f"{what.upper()} REFUSED: native-release-policy did not finish in 120 s",
                ["It measures about 3 s; a hang is a failure, not a pass."])
@@ -274,8 +371,8 @@ def physical_check(repo, what):
         return 0
     say(f"+ python3 {PHYSICAL_CHECK} scan")
     try:
-        result = subprocess.run([sys.executable, PHYSICAL_CHECK, "scan", "--root", str(repo.top)], cwd=repo.top,
-                                env=repo.env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+        result = run_bounded([sys.executable, PHYSICAL_CHECK, "scan", "--root", str(repo.top)], cwd=repo.top,
+                                env=repo.env, stdin=subprocess.DEVNULL, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         banner(f"{what.upper()} REFUSED: the physical-phone check did not finish in 120 s",
                ["It measures about a second; a hang is a failure, not a pass."])
@@ -814,8 +911,8 @@ def run_fast_checks(repo, what, commands):
         spent += seconds
         say("+ (cd " + cwd + " && " + " ".join(shlex.quote(a) for a in argv) + ")")
         try:
-            result = subprocess.run(argv, cwd=repo.top / cwd, env={**repo.env, **MUTATION_SWITCH},
-                                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            result = run_bounded(argv, cwd=repo.top / cwd, env={**repo.env, **MUTATION_SWITCH},
+                                    stdin=subprocess.DEVNULL, text=True,
                                     timeout=FAST_HANG_SECONDS)
         except subprocess.TimeoutExpired:
             banner(f"{what.upper()} REFUSED: {label} did not finish in {FAST_HANG_SECONDS} s",
@@ -856,8 +953,8 @@ def branch_selection(repo, what, run_quick=True):
     for suite in quick:
         say(f"+ (cd richos/app/ui/tests && node {suite})")
         try:
-            result = subprocess.run(["node", suite], cwd=repo.top / "richos/app/ui/tests", env=repo.env,
-                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+            result = run_bounded(["node", suite], cwd=repo.top / "richos/app/ui/tests", env=repo.env,
+                                    stdin=subprocess.DEVNULL, text=True, timeout=120)
         except subprocess.TimeoutExpired:
             banner(f"{what.upper()} REFUSED: {suite} did not finish in 120 s",
                    [f"It measures under a second ({QUICK_WEIGHTS}); a hang is a failure, not a pass."])
@@ -1096,8 +1193,7 @@ def device_identifier_gate(repo, what):
         say(f"autocheck: {what}: {DEVICE_IDENTIFIERS} is not in this tree; device identifiers NOT checked")
         return 0
     try:
-        out = subprocess.run([sys.executable, str(script), "--scan-tree", str(repo.top)],
-                             capture_output=True, text=True, timeout=600, env=repo.env)
+        out = run_bounded([sys.executable, str(script), "--scan-tree", str(repo.top)], text=True, timeout=600, env=repo.env)
         rows = out.stdout.splitlines()
     except (OSError, subprocess.SubprocessError):
         rows = []
@@ -1649,9 +1745,8 @@ def phone_watch(repo, old, new):
     env = {k: v for k, v in repo.env.items() if not k.startswith("GIT_")}
     env.pop(ACTIVE, None)
     try:
-        result = subprocess.run([sys.executable, str(script), "trigger", "--repo", str(repo.top), "--from", old,
-                                 "--to", new], cwd=repo.top, env=env, stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, timeout=120)
+        result = run_bounded([sys.executable, str(script), "trigger", "--repo", str(repo.top), "--from", old,
+                                 "--to", new], cwd=repo.top, env=env, stdin=subprocess.DEVNULL, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as exc:
         result = None
         detail = str(exc)
@@ -1710,8 +1805,7 @@ def refresh_hook_sidecars(repo, old, new):
     env = {k: v for k, v in repo.env.items() if not k.startswith("GIT_")}
     env.pop(ACTIVE, None)
     try:
-        result = subprocess.run(["bash", str(install)], cwd=repo.top, env=env, stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, timeout=300)
+        result = run_bounded(["bash", str(install)], cwd=repo.top, env=env, stdin=subprocess.DEVNULL, text=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as exc:
         result = None
         detail = str(exc)

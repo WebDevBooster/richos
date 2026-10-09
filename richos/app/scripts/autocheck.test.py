@@ -1829,6 +1829,134 @@ class Install(Fixture):
         self.assertIn("UNREACHABLE", out.stdout)
 
 
+class TimeLimit(unittest.TestCase):
+    """A check that runs out of time ends gracefully and leaves no process (2026-10-09: the
+    test browser of a UI suite killed by subprocess.run's SIGKILL aborted at launch, parent
+    "Exited process", and macOS showed "Playwright quit unexpectedly")."""
+
+    SUITE = (
+        "import os, signal, subprocess, sys, time\n"
+        "browser = subprocess.Popen(['sleep', '300'])\n"  # the stand-in test browser
+        "open(sys.argv[1], 'w').write(str(browser.pid))\n"
+        "if sys.argv[2] == 'polite':\n"  # Playwright closes its browser on SIGTERM
+        "    def bye(*_):\n"
+        "        browser.terminate(); open(sys.argv[1] + '.term', 'w').write('x'); os._exit(0)\n"
+        "    signal.signal(signal.SIGTERM, bye)\n"
+        "else:\n"
+        "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "time.sleep(300)\n"
+    )
+
+    def alive(self, pid):
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+
+    def run_late(self, mode, grace):
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as top:
+            marker = os.path.join(top, "browser.pid")
+            with self.assertRaises(subprocess.TimeoutExpired):
+                # load-bound: the 1 s limit is the stimulus (the suite sleeps 300 s, never finishing); no verdict depends on host speed
+                module.run_bounded([sys.executable, "-c", self.SUITE, marker, mode], timeout=1, grace=grace, text=True)
+            pid = int(Path(marker).read_text())
+            deadline = __import__("time").time() + 3
+            while self.alive(pid) and __import__("time").time() < deadline:
+                __import__("time").sleep(0.05)
+            alive = self.alive(pid)
+            if alive:
+                os.kill(pid, 9)
+            return alive, os.path.exists(marker + ".term")
+
+    def test_a_suite_that_closes_its_browser_on_sigterm_is_given_the_chance(self):
+        alive, termed = self.run_late("polite", 3)
+        self.assertTrue(termed, "the suite was never sent SIGTERM")
+        self.assertFalse(alive, "the browser outlived its suite")
+
+    def test_a_suite_that_ignores_sigterm_still_leaves_no_browser(self):
+        alive, _termed = self.run_late("stubborn", 1)
+        self.assertFalse(alive, "the browser outlived its suite")
+
+    WRAPPED_SUITE = (
+        "import os, signal, subprocess, sys, time\n"
+        "browser = subprocess.Popen(['sleep', '300'], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"  # own process group, as Playwright's
+        "open(sys.argv[1], 'w').write(str(browser.pid))\n"
+        "def bye(*_):\n"  # a suite that needs a moment to close its browser
+        "    time.sleep(1); browser.terminate(); os._exit(0)\n"
+        "signal.signal(signal.SIGTERM, bye)\n"
+        "time.sleep(300)\n"
+    )
+
+    def test_a_shell_wrapper_that_dies_on_sigterm_does_not_cut_the_grace_short(self):
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as top:
+            marker = os.path.join(top, "browser.pid")
+            argv = ["bash", "-c", '"$@"; :', "wrapper", sys.executable, "-c", self.WRAPPED_SUITE, marker]
+            with self.assertRaises(subprocess.TimeoutExpired):
+                # load-bound: the 2 s limit is the stimulus (the suite sleeps 300 s); no verdict depends on host speed
+                module.run_bounded(argv, timeout=2, grace=10, text=True)
+            pid = int(Path(marker).read_text())
+            __import__("time").sleep(0.2)
+            alive = self.alive(pid)
+            if alive:
+                os.kill(pid, 9)
+            self.assertFalse(alive, "the browser outlived its suite: the wrapper's exit cut the grace short")
+
+    def load(self):
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_process_in_the_group_gets_exactly_one_sigterm(self):
+        # Counted at the send, not at the receiver: two SIGTERMs sent back to back coalesce in a Python
+        # handler, so a receiver-side count would be red only some of the time.
+        import signal
+        from unittest import mock
+        module = self.load()
+        sent = []
+        real_kill, real_killpg = os.kill, os.killpg
+
+        def kill(pid, sig):
+            if sig == signal.SIGTERM:
+                sent.append(("pid", pid, os.getpgid(pid)))
+            return real_kill(pid, sig)
+
+        def killpg(group, sig):
+            if sig == signal.SIGTERM:
+                sent.append(("group", group, group))
+            return real_killpg(group, sig)
+
+        stays = "import signal, time; signal.signal(signal.SIGTERM, lambda *_: None); time.sleep(300)"  # outlives the first SIGTERM
+        argv = ["bash", "-c", '"$@"; :', "wrapper", sys.executable, "-c", stays]
+        with mock.patch.object(module.os, "kill", kill), mock.patch.object(module.os, "killpg", killpg):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                # load-bound: the 2 s limit is the stimulus (the suite sleeps 300 s)
+                module.run_bounded(argv, timeout=2, grace=1, text=True)
+        self.assertEqual([entry[0] for entry in sent], ["group"],
+                         f"every process here is in the group, so each must get SIGTERM once, from the group alone: {sent}")
+
+    def test_a_failed_process_listing_is_reported_not_read_as_no_descendants(self):
+        import contextlib
+        import io
+        from unittest import mock
+        module = self.load()
+        with mock.patch.object(module.subprocess, "run", side_effect=OSError("no ps")):
+            self.assertIsNone(module._descendants(os.getpid()))
+            seen = io.StringIO()
+            with contextlib.redirect_stderr(seen):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    # load-bound: the 1 s limit is the stimulus (sleep 300 never finishes)
+                    module.run_bounded(["sleep", "300"], timeout=1, grace=1, text=True)
+        self.assertIn("could not list", seen.getvalue())
+
+
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result
     sys.exit(0 if result.wasSuccessful() else 1)
