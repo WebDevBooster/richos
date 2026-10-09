@@ -69,6 +69,8 @@
 #   W21  only a verdict's owner consumes it: a monitor's first look tells its own
 #        session's verdicts another lead's monitor saw or left (the reviewer's
 #        fixture monitor_first_look_owner_loss.py)
+#   W22  the operator host recovers a verdict another monitor passed, and
+#        verdicts past a block's cap are told at the next look, never dropped
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1102,10 +1104,13 @@ got["first told by the reminder loop"] = run([row(A, "worker-A")],
                                              [item(B, "reviewer-B", "lead-B"), item(A, "worker-A", "lead-A")],
                                              owner_attempt, fresh=False)
 want["first told by the reminder loop"] = [["lead-A"], ["lead-A"]]
-# Only another work holds the tip now: nothing goes to its lead.
+# Only another work holds the tip now: nothing goes to its lead. The owner, lead-A, gets its own
+# verdict once, never yet delivered to it (second review of b5ff41f02, finding 2: the operator host
+# delivers an owner's undelivered verdict wherever the cursor is), and no reminder: its work has no
+# item here.
 got["only another work at the tip"] = run([row(A, "worker-A")], [item(B, "reviewer-B", "lead-B")], owner_attempt,
                                           fresh=False)
-want["only another work at the tip"] = [[], []]
+want["only another work at the tip"] = [["lead-A"], []]
 # Two works at one tip, each with its own changes-requested verdict: each reminder reaches its own
 # lead, and neither clock suppresses the other.
 both = [row(A, "worker-A"), row(B, "reviewer-B")]
@@ -1235,6 +1240,70 @@ for k in want:
 sys.exit(0 if got == want else 1)
 PY
 check "W21 only a verdict's owner consumes it: the owner's first look still gets a verdict another lead's monitor saw" \
+    $? "see above"
+
+# --- W22 ---------------------------------------------------------------------
+# The real second review of this change (rv-20261009T052943Z-4d99d0b7-c126,
+# fixtures/owner_delivery_edges.py): (1) the operator host's first look did not recover a verdict
+# another monitor's look had moved the shared cursor past, and the operator lead's only delivery is
+# the host; (2) an owner's look marked every pending verdict delivered before the BLOCK_CHARS cap
+# cut the printed block, so the verdicts past the cap were never told. Through the real tick().
+python3 - "$LIB" "$SB/w22" <<'PY'
+import io, os, sys
+lib, root = sys.argv[1:3]
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "sr")
+sys.path.insert(0, lib)
+import review_watch as rw
+now = rw.parse_iso("2026-10-09T01:00:00Z")
+
+
+class Verdicts(object):
+    """A watcher whose look is tell() over `count` passed verdicts, each owned by lead-A."""
+    def __init__(self, count):
+        repo = os.path.join(root, "fictional-repository")
+        self.rows = [dict(id="rv-%d" % i, repo=repo, tip="%040x" % (i + 1), work="teammate:lead-A--worker-%d" % i,
+                          author="worker-%d" % i, verdict="passed", trigger="handover", record="", findings=0,
+                          at="2026-10-09T00:30:00Z") for i in range(count)]
+        self.attempts = [dict(repo=repo, tip=r["tip"], work=r["work"], session="lead-A", outcome="verdict")
+                         for r in self.rows]
+
+    def look(self, t, state):
+        return rw.tell(t, state, self.rows, rw.Book(self.rows, {}, self.attempts), [], [], self.attempts)
+
+
+def look(watcher, sid, t, host=False):
+    rw.MONITOR["session"] = "" if host else sid
+    rw.HOST_JSON["on"] = host
+    out = io.StringIO()
+    rw.tick(watcher, rw.session_dir(sid), now=t, out=out)
+    return out.getvalue()
+
+
+def fresh(name):
+    os.environ["REVIEW_WATCH_STATE_DIR"] = os.path.join(root, name)
+    rw.stall_watch._write_json(os.path.join(rw.session_dir("lead-B"), "told.json"), {"rows": 0, "told": {}})
+
+
+got, want = {}, {}
+fresh("host-late")                                  # lead-A is a print-mode lead: no monitor, the host delivers
+w = Verdicts(1)
+b, h1, h2 = look(w, "lead-B", now), look(w, "operator-host", now + 60, True), look(w, "operator-host", now + 120, True)
+got["host after another monitor"] = {"lead-B": "[PASSED]" in b, "host first look": "[PASSED]" in h1,
+                                     "host next look": "[PASSED]" in h2}
+want["host after another monitor"] = {"lead-B": True, "host first look": True, "host next look": False}
+fresh("backlog")                                    # sixteen verdicts: more than one capped block holds
+w = Verdicts(16)
+look(w, "lead-B", now)
+told = [look(w, "lead-A", now + 60 * n).count("[PASSED]") for n in (1, 2, 3, 4)]
+got["owner backlog past the cap"] = {"first look cut by the cap": 0 < told[0] < 16, "told in all": sum(told),
+                                     "last look": told[-1]}
+want["owner backlog past the cap"] = {"first look cut by the cap": True, "told in all": 16, "last look": 0}
+for k in want:
+    print("%s: %s" % (k, got[k]))
+print("owner backlog, per look: %s" % told)
+sys.exit(0 if got == want else 1)
+PY
+check "W22 the operator host recovers a verdict another monitor passed, and verdicts past the cap wait for the next look" \
     $? "see above"
 
 # --- W04 ---------------------------------------------------------------------

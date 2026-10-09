@@ -140,6 +140,7 @@ MAX_LOSSES = 2
 KEEP_SECONDS = 7 * 86400
 SESSION_KEEP_SECONDS = 2 * 86400
 BLOCK_CHARS = 2000
+HEAD_CHARS = 140                                    # room for a block's head line, which names the count
 GIT_SECONDS = 10
 CONFIG_KEY = "SECOND_REVIEW_REPOS"
 MID_JOB = ("long-job", "quiet")
@@ -1242,6 +1243,11 @@ def for_this_monitor(owner):
     return not stall_watch.lock_held(os.path.join(_p("sessions", owner), "monitor.lock"))
 
 
+def _recent(row, now):
+    """Is this ledger row inside the seven days a delivery is remembered (KEEP_SECONDS)?"""
+    return now - (parse_iso(row.get("at")) or 0) <= KEEP_SECONDS
+
+
 def _row_key(row):
     """A verdict's key in last-told.json's `delivered`: its review id (every second-review row has one)."""
     return str(row.get("id") or "%s:%s:%s:%s" % (row.get("repo"), row.get("tip"), row.get("work"), row.get("at")))
@@ -1280,50 +1286,65 @@ def tell(now, sstate, rows, book, items, problems, attempts):
     # -- new verdicts, from where this session last read the ledger ---------------
     # ONLY A VERDICT'S RECORDED OWNER CONSUMES IT (second review of b5ff41f02, finding 2).
     # last-told.json's `rows` is where a monitor's FIRST look starts reading, so a verdict written
-    # while nobody watched is still told; any look moves it, and it is nobody's record of an owned
-    # verdict. That record is `delivered` beside it ({review id: when}), written only where the
-    # verdict reaches its owner: the owner's own monitor, or the operator host (--host-json), which
-    # sends each block to its owner. So a monitor's first look also tells every verdict its session
-    # owns that was never delivered to it, however far the cursor has moved: another lead's monitor
-    # may have shown it (the owner had no live monitor then) or left it (it had one), and neither
-    # consumes it. Passed and mid-job verdicts have no reminder; this is their only delivery.
+    # while nobody watched is still told; it is nobody's record of an owned verdict. That record is
+    # `delivered` beside it ({review id: when}), written only when a verdict is printed for its
+    # owner: by the owner's own monitor, or by the operator host (--host-json), which sends every
+    # block to its owner. A verdict whose owner this watcher delivers to is told whenever it is not
+    # in `delivered` (seven days), wherever any cursor is: another lead's monitor may have shown it
+    # (its owner had no live monitor then) or left it (it had one), and neither consumes it. Passed
+    # and mid-job verdicts have no reminder; this is their only delivery.
+    # AND ONLY WHAT IS PRINTED (the same review's recheck): a monitor's block is capped at
+    # BLOCK_CHARS, so verdicts stop where the cap is reached; those left are neither marked nor
+    # passed by this session's cursor, and the next look tells them.
     me = MONITOR["session"]
     shared = stall_watch._read_json(_p("last-told.json"))
-    delivered = shared.get("delivered") if isinstance(shared.get("delivered"), dict) else {}
+    seen = shared.get("rows") if isinstance(shared.get("rows"), int) and shared["rows"] <= len(rows) else None
+    delivered = shared.get("delivered")
+    if not isinstance(delivered, dict):
+        # The first look under this rule: what the shared cursor had passed was told under the old one.
+        delivered = dict((_row_key(r), now) for r in rows[:seen or 0] if r.get("verdict") and _recent(r, now))
     start = sstate.get("rows")
-    first = not isinstance(start, int) or start > len(rows)
-    if first:
-        start = shared.get("rows") if isinstance(shared.get("rows"), int) and shared["rows"] <= len(rows) else len(rows)
+    if not isinstance(start, int) or start > len(rows):
+        start = seen if seen is not None else len(rows)
+    budget = None if HOST_JSON["on"] else BLOCK_CHARS - HEAD_CHARS
+    used, stop = 0, len(rows)
     for i, row in enumerate(rows):
         if not row.get("verdict"):
             continue
-        backlog = i < start
-        if backlog and not (first and me and _row_key(row) not in delivered
-                            and now - (parse_iso(row.get("at")) or 0) <= KEEP_SECONDS):
+        key = _row_key(row)
+        if i < start and (key in delivered or not (me or HOST_JSON["on"]) or not _recent(row, now)):
             continue
         session = owner_session(row, items, book, attempts)
-        if backlog and session != me:
-            continue
-        if session and (session == me or HOST_JSON["on"]):
-            delivered[_row_key(row)] = now
-        add(render_verdict(row, items_by_key), session=session)
+        owned = bool(session) and (session == me or HOST_JSON["on"])
+        if (owned and key in delivered) or (i < start and not owned):
+            continue                                # told to its owner already, or not this watcher's to tell
+        blocks = [render_verdict(row, items_by_key)]
+        nc = [("nc:%s:%s" % (row.get("work"), fid), fid, title) for fid, title in not_converging(row, rows)
+              if "nc:%s:%s" % (row.get("work"), fid) not in told]
+        who, _it = _who(row, items_by_key)
+        blocks += [["  [NOT CONVERGING] %s: finding %s (%s) is still open after two rechecks in a row." % (
+                        who, fid, " ".join(title.split())[:100]),
+                    "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."]
+                   for _k, fid, title in nc]
+        cost = sum(len(x) + 1 for b in blocks for x in b) if budget is not None and for_this_monitor(session) else 0
+        if cost and used and used + cost > budget:
+            stop = i                                # the cap: this row and every later one wait for the next look
+            break
+        used += cost
+        if owned:
+            delivered[key] = now
+        for b in blocks:
+            add(b, session=session)
         if row.get("verdict") == "changes-requested" and row.get("trigger") not in MID_JOB:
             told[_cr_key(row.get("repo"), row.get("tip"), row.get("work"))] = {"first": now, "last": now, "count": 1}
-        for fid, title in not_converging(row, rows):
-            k = "nc:%s:%s" % (row.get("work"), fid)
-            if k in told:
-                continue
+        for k, _fid, _title in nc:
             told[k] = {"first": now}
-            who, _it = _who(row, items_by_key)
-            add(["  [NOT CONVERGING] %s: finding %s (%s) is still open after two rechecks in a row." % (
-                who, fid, " ".join(title.split())[:100]),
-                "      You decide: another engineer, another model or a smaller slice. The CEO is not paged."],
-                session=session)
-    sstate["rows"] = len(rows)
-    shared["rows"] = max(len(rows), int(shared.get("rows") or 0)) if isinstance(shared.get("rows"), int) else len(rows)
+    sstate["rows"] = max(start, stop)
+    shared["rows"] = max(stop, seen or 0)
     shared["delivered"] = dict((k, t) for k, t in delivered.items()
                                if isinstance(t, (int, float)) and now - t <= KEEP_SECONDS)
     stall_watch._write_json(_p("last-told.json"), shared)
+    verdict_blocks = len(body)
     # -- an unhandled changes-requested handover, again every 30 minutes ------------
     # THE SAME OWNER AS THE FIRST NOTICE (second review of 783a8dba1, finding 2): another work can
     # hold the reviewed commit (a handover reviewer's cc/ workspace is made at the worker's
@@ -1370,15 +1391,16 @@ def tell(now, sstate, rows, book, items, problems, attempts):
             del told[k]
     if HOST_JSON["on"]:
         return host_json_lines(now, body, owners) if body else []
-    body = [b for b, s in zip(body, owners) if for_this_monitor(s)]
+    body = [(n, b) for n, (b, s) in enumerate(zip(body, owners)) if for_this_monitor(s)]
     if not body:
         return []
     lines = ["REVIEW-WATCH %s: %d second-review notice%s (it only starts reviews and reports: nothing was paused, "
              "stopped or killed)" % (hhmm(now), len(body), "" if len(body) == 1 else "s")]
     used = len(lines[0])
-    for b in body:
+    for n, b in body:
         cost = sum(len(x) + 1 for x in b)
-        if used + cost > BLOCK_CHARS and len(lines) > 1:
+        # Verdict blocks were already fitted to the cap above and are recorded as told: never cut here.
+        if n >= verdict_blocks and used + cost > BLOCK_CHARS and len(lines) > 1:
             lines.append("  ... more in the next look's block, or read %s" % review_ledger())
             break
         lines += b
