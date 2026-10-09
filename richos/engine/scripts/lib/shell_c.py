@@ -8,15 +8,15 @@ this." (The same prompt reached him on 2026-10-07 from the lead's own commands.)
 check an inline shell script, so it asks the person. A PreToolUse refusal runs first, so the agent
 gets the rewrite and the person never sees a prompt.
 
-What is refused: a shell (bash, sh, zsh, dash, ksh, with or without a path) at a command position
-whose options include `-c` (`-c`, `-lc`, `-ec`, `-xc`, `-o pipefail -c` ...). A command position is the
-start of the command or the word after ; & | ( { newline ` $( , after sudo/env/nohup/time/exec/
-command/xargs/NAME=value prefixes, and after `find -exec`.
-What passes: `bash file.sh`, `bash -x file.sh`, `bash < file`, and any ordinary command. A MENTION is
-not a call: text inside quotes (a commit message, an echo) and heredoc bodies is masked first.
+What is refused: ONE plain match over the whole command text, quotes and comments included: a word
+named bash, sh, zsh, dash or ksh (with or without a path or quotes) directly followed by option words
+(each starting with -) of which one is a short-option group containing c (-c, -lc, --noprofile -c ...).
+The first word after the shell that is not an option ends the check, so `bash test.sh && git diff
+--cached` passes. A command that only MENTIONS `bash -c` (a commit message, an echo) is refused too:
+an accepted false positive; the message says to put the text in a file (git commit -F <file>).
 
-IT IS A TEXT MATCH AND LEAKS (eval, a variable holding a command, a script file that itself runs
-bash -c). Its job is to stop the habitual command, not an adversary. Any error in the check is a pass.
+IT IS A TEXT MATCH AND LEAKS (eval, a script file that itself runs bash -c). Its job is to stop the
+habitual command, not to out-think the shell. Any error in the check is a pass.
 Shared by the operator-install rule (scripts/hooks/guard-no-shell-c.sh) and by the RichOS app's hook
 (mega-lander/app.py validate_shell_target).
 """
@@ -24,102 +24,43 @@ import json
 import re
 import sys
 
-SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
-PREFIXES = {"sudo", "env", "nohup", "time", "exec", "command", "builtin", "nice", "xargs", "stdbuf",
-            "if", "then", "do", "else", "while", "until", "!"}
-ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-SEPARATORS = re.compile(r"(?:&&|\|\||;;|[;&|\n(){}`])")
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+SHELL_WORD = re.compile(r"(?<![\w.\-])(bash|sh|zsh|dash|ksh)['\"]?(?=\s)")
 
 MESSAGE = (
     "=== guard-no-shell-c: BLOCKED ===\n"
-    "  This command wraps an inline script in `{shell} -c`. Claude Code cannot check an inline shell\n"
-    "  script, so it stops and ASKS THE USER ('This shell -c script ... could not be checked. Do you\n"
-    "  want to proceed?'). The user is never the fallback check.\n"
+    "  This command contains `{shell} -c` (an inline shell script). Claude Code cannot check an inline\n"
+    "  shell script, so it stops and ASKS THE USER ('This shell -c script ... could not be checked. Do\n"
+    "  you want to proceed?'). The user is never the fallback check.\n"
     "  FIX: run the steps as separate commands (one step per Bash call), or write the script to a file\n"
-    "  in your scratch folder and run `bash <file>`. Running a script file stays allowed."
+    "  in your scratch folder and run `bash <file>`. Running a script file stays allowed.\n"
+    "  This check is a plain text match, so it also refuses a command that only MENTIONS `{shell} -c`\n"
+    "  (a commit message, an echo): write that text to a file instead, for example `git commit -F <file>`."
 )
 
 
-def _mask(command):
-    """Blank out heredoc bodies and the inside of quoted strings; keep the quotes."""
-    out = []
-    pending = []
-    for line in command.split("\n"):
-        if pending:
-            if line.strip() == pending[0]:
-                pending.pop(0)
-                out.append(line)
-            else:
-                out.append("")
-            continue
-        out.append(line)
-        pending.extend(m.group(2) for m in HEREDOC.finditer(line))
-    text = "\n".join(out)
-    res = []
-    i, n = 0, len(text)
-    while i < n:
-        c = text[i]
-        if c == "\\" and i + 1 < n:
-            res.append(text[i:i + 2])
-            i += 2
-        elif c in "'\"":
-            j = i + 1
-            while j < n and text[j] != c:
-                j += 2 if (c == '"' and text[j] == "\\") else 1
-            res.append(c + "x" + c)  # a quoted word stays one word
-            i = j + 1
-        else:
-            res.append(c)
-            i += 1
-    return "".join(res)
-
-
-def _is_shell(word):
-    return word.rsplit("/", 1)[-1] in SHELLS
-
-
-def _has_c_option(args):
-    """args: the words after the shell. True when an option before the first non-option word is -c."""
+def _has_c_option(rest):
+    """rest: the text after the shell. True when an option word before the first non-option word is a
+    short-option group containing c. Quotes around a word are ignored; any whitespace separates words."""
+    words = rest.split()
     k = 0
-    while k < len(args):
-        a = args[k]
-        if a == "--":
-            return False
-        if a in ("-o", "+o", "-O", "+O"):
+    while k < len(words):
+        a = words[k].strip("'\"")
+        if a in ("-o", "+o"):
             k += 2
             continue
-        if re.match(r"^-[A-Za-z]+$", a):
-            if "c" in a[1:]:
-                return True
-            k += 1
-            continue
-        return False
+        if not a.startswith("-"):
+            return False
+        if re.match(r"^-[A-Za-z]+$", a) and "c" in a:
+            return True
+        k += 1
     return False
 
 
 def verdict(command):
-    """Return the shell name when `command` runs an inline `shell -c` script, else None."""
-    masked = _mask(command)
-    for clause in SEPARATORS.split(masked):
-        words = clause.replace("$", " ").split()
-        k = 0
-        while k < len(words):
-            w = words[k]
-            if w in PREFIXES or ASSIGN.match(w):
-                k += 1
-                # an option of the prefix (sudo -E, nice -n): skipped; an option that takes a value leaks
-                while k < len(words) and words[k].startswith("-") and not _is_shell(words[k]):
-                    k += 1
-                continue
-            if _is_shell(w) and _has_c_option(words[k + 1:]):
-                return w.rsplit("/", 1)[-1]
-            break
-        # `find ... -exec bash -c`: the shell follows -exec anywhere in the clause
-        for pos, w in enumerate(words):
-            if w in ("-exec", "-execdir", "-ok") and pos + 1 < len(words) and _is_shell(words[pos + 1]) \
-                    and _has_c_option(words[pos + 2:]):
-                return words[pos + 1].rsplit("/", 1)[-1]
+    """Return the shell name when `command` contains `shell <options with c>`, else None."""
+    for m in SHELL_WORD.finditer(command):
+        if _has_c_option(command[m.end():]):
+            return m.group(1)
     return None
 
 

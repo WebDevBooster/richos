@@ -13894,7 +13894,7 @@
     },
     "mega-lander/tests/app.test.py": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "bd49d6952a66f3720d068ca4adf6579841e9decd52619ef35decae0c66e131cf",
+      "sha256": "2cbb9813ea82a083673e726eba030893f75c8b8e2a1eb8a02268b02131c91d76",
       "evidence": "Full fixed unittest fixture, literal holder/probe subprocess programs and one literal spawn failure override. Private Git, ECS stores, registry, scope, land locks and explicit single-hook manifest bind the app/adapter entrypoint guarantees. No agent, model, arbitrary setup or MCP server is invoked. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private. Renewed 2026-10-06 (proto-teammate shelf slice 2): setUp copies the always-active five (engine/agents/{dean,clark,reed,frank,pierce}.md) as data and writes one literal fictional teammate, mark.md, into the private roster; cases name a teammate in prepare and read the duty texts mega-lander/duties/*.md as data. Renewed 2026-10-06 (proto-teammate shelf slice 3): one case prepares Clark with role consult and no repository, starts and ends it through the existing fixture helpers with literal fictional messages, and reads the fixture's private ECS store for work units. Renewed 2026-10-06 (proto-teammate shelf slice 4): one case lists and shows the shipped shelf (team/shelf/*.md read as data), saves literal fictional definitions into the fixture's private <app data>/team/ and calls prepare once more against the private roster.",
       "keys": [],
       "edges": [
@@ -15644,7 +15644,7 @@
     },
     "mega-lander/tests/app.test.py#pause-message-case": {
       "source": "mega-lander/tests/app.test.py",
-      "sha256": "bd49d6952a66f3720d068ca4adf6579841e9decd52619ef35decae0c66e131cf",
+      "sha256": "2cbb9813ea82a083673e726eba030893f75c8b8e2a1eb8a02268b02131c91d76",
       "evidence": "Added 2026-09-30 for workspaces.test.py's finding-20 case, which runs this suite with the one name test_pause_message_is_fixed. That selects only DesktopWork.test_pause_message_is_fixed_and_does_not_claim_delivery: setUp builds private Git repositories, a private orchestration.config, agent definitions copied from the engine as data, a private registry, scope, ECS store and land-locks directory, and loads app.py; the case renders pause messages and calls inspect over no receipts. Renewed 2026-09-30 (zach-sonnet-landlock1): setUp also points CLAUDE_CONFIG_DIR inside the fixture, so an app-launched engine child keeps its land-lock home private. Renewed 2026-10-06 (proto-teammate shelf slice 2): the agent definitions setUp copies are now the always-active five plus a literal fictional teammate; the case still never reaches prepare. Renewed 2026-10-06 (proto-teammate shelf slice 3): a consult case was added beside it; this case is unchanged.",
       "keys": [],
       "edges": [
@@ -15956,7 +15956,7 @@
     },
     "scripts/hooks/guard-no-shell-c.sh": {
       "source": "scripts/hooks/guard-no-shell-c.sh",
-      "sha256": "da6b77adc0c8a84aa1e981d78acef0ffe08e176d9174f54afcd6d9edddea3b3c",
+      "sha256": "dbd0dfb97e292c47b04cfce97b09e3fb18c642b7fd88de21850a4d255069094e",
       "keys": [],
       "edges": [
         {
@@ -15970,14 +15970,14 @@
     },
     "scripts/lib/shell_c.py": {
       "source": "scripts/lib/shell_c.py",
-      "sha256": "9ecf9050242044d2140c6a351fba6e28ca4decd7495ec1d88aa504400227e844",
+      "sha256": "c63987ceda48767b1b782ea740aa052a517b93a6fa54f5b571ead3eeabb2e9c9",
       "keys": [],
       "edges": [],
       "evidence": "Classifies the supplied command text with its own masking and word scan (json, re, sys only): a shell (bash, sh, zsh, dash, ksh) at a command position with a -c option. No orchestration key, no subprocess, no file read or write."
     },
     "scripts/hooks/guard-no-shell-c.test.sh": {
       "source": "scripts/hooks/guard-no-shell-c.test.sh",
-      "sha256": "cd46efa62dba8c0dd7ab94a7c3eb1dcc0269129852f29d78dc8cd752d372e634",
+      "sha256": "739b43ae351c7c7e75a8c7775ce041196275655a90eb5ea5faaeddaf7248e52c",
       "keys": [],
       "edges": [
         {

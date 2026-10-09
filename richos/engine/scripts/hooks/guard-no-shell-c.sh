@@ -24,7 +24,7 @@ if [ -f "$_UE_LIB" ]; then
 fi
 # Cheap exit first: nearly every command has no -c in it.
 case "$_gsc_in" in
-    *" -"*c*) ;;
+    *-*c*) ;;
     *) exit 0 ;;
 esac
 _gsc_py="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"

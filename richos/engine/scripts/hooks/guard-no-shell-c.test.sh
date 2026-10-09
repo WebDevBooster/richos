@@ -66,6 +66,24 @@ check 2 P3 "after nohup" "nohup bash -c 'sleep 1' &"
 check 2 P3 "xargs" "ls | xargs -I{} bash -c 'echo {}'"
 check 2 P3 "find -exec" "find . -name '*.tmp' -exec sh -c 'rm \"\$1\"' _ {} \\;"
 
+echo "=== guard-no-shell-c: second-review cases (plain match over the whole text) ==="
+check 2 R1 "quoted shell name" "'bash' -c 'echo hi'"
+check 2 R1 "double-quoted shell name" '"sh" -c "echo hi"'
+check 2 R1 "shell inside a quoted substitution" 'echo "$(bash -c "echo hi")"'
+check 2 R2 "--noprofile before -c" "bash --noprofile -c 'echo hi'"
+check 2 R2 "xargs -I ITEM operand" "ls | xargs -I ITEM bash -c 'echo ITEM'"
+check 2 R3 "a tab instead of a space" $'bash\t-c\t\'echo hi\''
+check 2 R3 "a tab before the option" $'x=1\tbash\t-lc\t\'echo hi\''
+check 2 R4 "after a quoted heredoc mention" $'cat <<\'EOF\'\nbash -c is banned\nEOF\nbash -c \'echo hi\''
+check 2 R5 "after a ; inside a comment" $'echo a # note; x\nbash -c \'echo hi\''
+check 2 R6 "mention: echo (accepted false positive)" "echo 'run bash -c here'"
+check 2 R6 "mention: commit message (accepted false positive)" 'git commit -m "refuse bash -c wrappers"'
+if printf '%s' "$LAST_OUT" | grep -qF 'git commit -F <file>'; then
+    ok "R6 the mention refusal says how to avoid it"
+else
+    bad "R6 the mention refusal does not say how to avoid it" "$LAST_OUT"
+fi
+
 echo "=== guard-no-shell-c: passes ==="
 check 0 N1 "bash file.sh" "bash /Volumes/E1TB/tmp/claude/zach/run.sh"
 check 0 N1 "bash -x file.sh" "bash -x ./run.sh arg"
@@ -75,9 +93,7 @@ check 0 N1 "bash reading a file" "bash < ./run.sh"
 check 0 N1 "an ordinary command" "ls -la /tmp && git -C /tmp status"
 check 0 N1 "a tool with -c" "python3 -c 'print(1)'"
 check 0 N1 "git -c" "git -c core.editor=true commit -m x"
-check 0 N2 "echo mention" "echo 'run bash -c here'"
-check 0 N2 "commit message mention" 'git commit -m "refuse bash -c wrappers"'
-check 0 N2 "heredoc body" $'cat > /tmp/x.md <<\'EOF\'\nbash -c \'echo hi\'\nEOF'
+check 0 N1 "bash script then git diff --cached" "bash test.sh && git diff --cached"
 check 0 N3 "unreadable payload" "x"
 out="$(printf 'not json' | bash "$HOOK" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "N3 unreadable payload passes" || bad "N3 unreadable payload" "rc=$rc $out"
