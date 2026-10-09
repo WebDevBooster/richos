@@ -420,7 +420,10 @@ window.RichBug = (function () {
 
   var CHECKING_CHANGES = "Rich is checking your changes…";
   var CHANGES_NOT_CHECKED = "I couldn't check your changes for private details yet, because Claude didn't answer, so I didn't send the report. It's saved on this Mac, and I'll check it by myself as soon as Claude answers, then show it to you here.";
-  var SHOWN_AGAIN = "I checked it again before sending and left out more private details, because anyone can read GitHub issues. Here it is as it would go. Nothing goes out until you press Send.";
+  // Said when the shell found that the issue as it would be posted differs from the card in any
+  // character (more left out, or a title's backtick written as an apostrophe; review
+  // rv-20261009T190633Z-d9cdd913-9f1c), so it says what is true of both.
+  var SHOWN_AGAIN = "I checked it again before sending, and some of its words would go out differently from how the card showed them. Here it is exactly as it would go. Nothing goes out until you press Send.";
 
   /// Rich's checked report on its card, waiting for the user: `answer` is `{report, draft,
   /// digest}`. `report` is the id the shell keeps his check under; Send names it, and the shell
@@ -638,6 +641,10 @@ window.RichBug = (function () {
     });
   }
 
+  /// The card draws the draft word for word and changes none: every draft the shell gives it is
+  /// the issue exactly as it would be posted (`richos_core::bug_report::as_posted`: the title's
+  /// backticks as apostrophes and the last scrub, headings included), and Send posts these words
+  /// or shows the card again (review rv-20261009T190633Z-d9cdd913-9f1c).
   function buildCard(f) {
     var d = f.draft;
     var c = node("article", "bugcard is-new");
