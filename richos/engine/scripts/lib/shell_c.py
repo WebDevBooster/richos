@@ -9,10 +9,10 @@ check an inline shell script, so it asks the person. A PreToolUse refusal runs f
 gets the rewrite and the person never sees a prompt.
 
 What is refused: ONE plain match over the whole command text, quotes and comments included: a word
-named bash, sh, zsh, dash or ksh (with or without a path or quotes) directly followed by option words
-(each starting with -) of which one is a short-option group containing c (-c, -lc, --noprofile -c ...).
-The first word after the shell that is not an option ends the check, so `bash test.sh && git diff
---cached` passes. A command that only MENTIONS `bash -c` (a commit message, an echo) is refused too:
+named bash, sh, zsh, dash or ksh (with or without a path or quotes) followed, later in the same segment
+(commands are split at ; | & and newlines), by a short-option group containing c (-c, -lc, ...).
+`bash test.sh && git diff --cached` passes (different segments); `bash test.sh -c x` is refused, an
+accepted false positive. A command that only MENTIONS `bash -c` (a commit message, an echo) is refused too:
 an accepted false positive; the message says to put the text in a file (git commit -F <file>).
 
 IT IS A TEXT MATCH AND LEAKS (eval, a script file that itself runs bash -c). Its job is to stop the
@@ -24,7 +24,9 @@ import json
 import re
 import sys
 
-SHELL_WORD = re.compile(r"(?<![\w.\-])(bash|sh|zsh|dash|ksh)['\"]?(?=\s)")
+SHELL_WORD = re.compile(r"(?<![\w.\-])(bash|sh|zsh|dash|ksh)(?=[\s<>'\"]|$)")
+SEGMENT_SPLIT = re.compile(r"[;|&\n]")
+OPTION_WORD = re.compile(r"(?<![\w\-])-[A-Za-z0-9-]*")
 
 MESSAGE = (
     "=== guard-no-shell-c: BLOCKED ===\n"
@@ -38,37 +40,17 @@ MESSAGE = (
 )
 
 
-def _has_c_option(rest):
-    """rest: the text after the shell. True when an option word before the first non-option word is a
-    short-option group containing c. An option word ends at the first character that is not a letter,
-    digit or -, so -c</dev/null, -c; and -c' all count as -c. Quotes around a word are ignored. The
-    operand of -o/+o (the option name) is skipped."""
-    pos = 0
-    n = len(rest)
-    while pos < n:
-        while pos < n and (rest[pos].isspace() or rest[pos] in "'\""):
-            pos += 1
-        m = re.compile(r"-[A-Za-z0-9-]*|\+o(?![A-Za-z0-9-])").match(rest, pos)
-        if not m:
-            return False
-        a = m.group(0)
-        pos = m.end()
-        if a in ("-o", "+o"):
-            while pos < n and (rest[pos].isspace() or rest[pos] in "'\""):
-                pos += 1
-            while pos < n and re.match(r"[A-Za-z0-9_-]", rest[pos]):
-                pos += 1
-            continue
-        if re.match(r"^-[A-Za-z]+$", a) and "c" in a:
-            return True
-    return False
-
-
 def verdict(command):
-    """Return the shell name when `command` contains `shell <options with c>`, else None."""
-    for m in SHELL_WORD.finditer(command):
-        if _has_c_option(command[m.end():]):
-            return m.group(1)
+    """Return the shell name when some segment of `command` (split at ; | & and newlines) has a shell
+    word followed, later in the same segment, by a short-option group containing c; else None.
+    A group ends at the first character that is not a letter, digit or -, so -c</dev/null and -c'x'
+    count; --long options do not. No list of option operands is needed: whatever sits between the
+    shell and -c (-o pipefail, -O extglob, --rcfile f, a redirection) is simply skipped over."""
+    for segment in SEGMENT_SPLIT.split(command):
+        for m in SHELL_WORD.finditer(segment):
+            for o in OPTION_WORD.finditer(segment, m.end()):
+                if re.fullmatch(r"-[A-Za-z]+", o.group(0)) and "c" in o.group(0):
+                    return m.group(1)
     return None
 
 
