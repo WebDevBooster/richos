@@ -875,7 +875,7 @@ def render_verdict(row, items_by_key, again=None):
         str(row.get("verdict")).upper(), who, "mid-job (%s)" % trig if mid else trig,
         os.path.basename(row.get("repo") or ""), str(row.get("tip"))[:12], row.get("reviewer") or "?",
         row.get("reviewer_model") or "?", int(row.get("findings") or 0), "" if row.get("findings") == 1 else "s",
-        int(row.get("p1") or 0), " (forced by a P1)" if row.get("forced") else "")
+        int(row.get("p1") or 0), " (forced by its findings)" if row.get("forced") else "")
     if again:
         head += "  (told again, notice %d; first told %s)" % again
     out = [head]

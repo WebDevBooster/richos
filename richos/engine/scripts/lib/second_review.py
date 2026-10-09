@@ -89,7 +89,14 @@ THE VERDICT (plan §2.2, §2.4)
   * The answer must have the fixed shape; anything else is no verdict.
   * It must name the exact tip (the full SHA, or a prefix of at least 7);
     a verdict about another commit is refused.
-  * Any P1 makes it changes-requested, whatever the reviewer wrote.
+  * The verdict follows the findings (ruling §116): every finding, and every
+    earlier finding still open, says whether it blocks. It blocks only when a
+    user could hit it in normal use of the work AND it breaks what the work
+    promises. Changes-requested exactly when at least one blocks; passed
+    otherwise, whatever the reviewer wrote. Priority is information only.
+  * A passed review files each finding it did not block on, new or still open
+    from earlier, in <state>/review-follow-ups.jsonl, once; the stdout line
+    says how many and where.
   * One row per review in <state>/reviews.jsonl and the full text, answer and
     fixtures in <state>/reviews/<id>/ (<state> is ~/.claude/state, outside
     every repository and session, like the escalation ledger). One line on
@@ -151,19 +158,21 @@ SCHEMA = {
         "checks": {"type": "array", "items": {"type": "string"}},
         "findings": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["priority", "title", "files", "evidence", "fixture"],
+            "required": ["priority", "blocks", "title", "files", "evidence", "fixture"],
             "properties": {
                 "priority": {"type": "integer", "enum": [1, 2, 3]},
+                "blocks": {"type": "boolean"},
                 "title": {"type": "string"},
                 "files": {"type": "array", "items": {"type": "string"}},
                 "evidence": {"type": "string"},
                 "fixture": {"type": "string"}}}},
         "earlier_findings": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["id", "status", "note"],
+            "required": ["id", "status", "blocks", "note"],
             "properties": {
                 "id": {"type": "string"},
                 "status": {"type": "string", "enum": ["fixed", "still-open", "withdrawn"]},
+                "blocks": {"type": "boolean"},
                 "note": {"type": "string"}}}},
         "not_yet_claimed": {"type": "array", "items": {"type": "string"}},
     },
@@ -202,6 +211,10 @@ def ledger_path():
     return os.path.join(state_root(), "reviews.jsonl")
 
 
+def follow_ups_path():
+    return os.path.join(state_root(), "review-follow-ups.jsonl")
+
+
 def read_ledger():
     rows = []
     try:
@@ -218,10 +231,12 @@ def read_ledger():
     return rows
 
 
-def append_row(row):
+def append_row(row, path=None):
+    """One row (or a list of rows, in one write) appended under a lock."""
     os.makedirs(state_root(), exist_ok=True)
-    data = (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
-    fd = os.open(ledger_path(), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    rows = row if isinstance(row, list) else [row]
+    data = "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows).encode("utf-8")
+    fd = os.open(path or ledger_path(), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         os.write(fd, data)
@@ -394,7 +409,9 @@ def resolve_work(a):
 
 def earlier_findings(work_key, tip):
     """The findings still open from the newest earlier verdict on this work:
-    its own findings, plus those it reported still-open. [(id, finding)]"""
+    its own findings, plus those it reported still-open. [(id, finding)]
+    A finding a passed review already filed as a follow-up carries
+    "filed": true, so a later pass never files it twice."""
     rows = [r for r in read_ledger() if r.get("work") == work_key and r.get("verdict")]
     if not rows:
         return []
@@ -409,8 +426,9 @@ def earlier_findings(work_key, tip):
     for e in (v.get("answer") or {}).get("earlier_findings") or []:
         if e.get("status") == "still-open" and e.get("id") in carried:
             out.append((e["id"], carried[e["id"]]))
+    filed = last.get("verdict") == "passed"
     for i, f in enumerate((v.get("answer") or {}).get("findings") or [], 1):
-        out.append(("%s#%d" % (last["id"], i), f))
+        out.append(("%s#%d" % (last["id"], i), dict(f, filed=True) if filed else f))
     return out
 
 
@@ -498,10 +516,12 @@ def build_input(w, a, export, earlier):
     parts.append("## Earlier reviews of this work\n\n")
     if earlier:
         parts.append("Say of EACH of these, in `earlier_findings`, by its id: `fixed`, `still-open` or "
-                     "`withdrawn`, with a one-line note.\n\n")
+                     "`withdrawn`, with a one-line note, and whether it blocks at this tip (`blocks`, by the test "
+                     "below; false unless it is still open). Do not list it again in `findings`.\n\n")
         for fid, f in earlier:
-            parts.append("- **%s** [P%s] %s (%s): %s\n" % (fid, f.get("priority"), f.get("title"),
-                                                          ", ".join(f.get("files") or []), f.get("evidence")))
+            parts.append("- **%s** [P%s%s] %s (%s): %s\n" % (
+                fid, f.get("priority"), "; already on the follow-up list" if f.get("filed") else "",
+                f.get("title"), ", ".join(f.get("files") or []), f.get("evidence")))
         parts.append("\n")
     else:
         parts.append("None. `earlier_findings` is an empty list.\n\n")
@@ -519,8 +539,17 @@ def build_input(w, a, export, earlier):
         "- Find what the author's tests miss. Where you can, prove a finding with a small fixture: write it "
         "under `fixtures/`, run it, and quote its output in the finding's evidence. Name the fixture's path in "
         "`fixture` (empty when there is none).\n"
-        "- Every finding has a priority: 1 blocks a release (any P1 makes the verdict changes-requested), "
-        "2 must be fixed, 3 is a note. Give a title, file:line locations (paths as in `tree/`) and evidence.\n"
+        "- Every finding says whether it blocks (`blocks`). It blocks only when BOTH hold: a user could hit it "
+        "in normal use of this work, AND it breaks what the work promises (the original words and the author's "
+        "claims above). Anything that needs an unusual setup, a hand-edited file, a deliberately hostile local "
+        "process or a rare race does not block, however serious it sounds: it is filed as a follow-up "
+        "automatically when the review passes.\n"
+        "- The verdict follows the findings: changes-requested exactly when at least one finding, or one "
+        "earlier finding still open, blocks; passed otherwise, whatever `verdict` says. This replaces the "
+        "duty's rule on an unresolved verification requirement: a claim you could not see hold is a finding, "
+        "judged by the same test.\n"
+        "- `priority` is information only (1 the most serious, 3 a note); it never decides the verdict. Give a "
+        "title, file:line locations (paths as in `tree/`) and evidence.\n"
         "- Never edit `tree/` to change the work, never commit, never touch the author's workspace (%s). "
         "Run no test VM, no app, no microphone, no phone, and no broad suite rerun; never touch the host "
         "display, sleep, lock or input.\n"
@@ -892,6 +921,8 @@ def shape_problems(v, schema=SCHEMA, where="answer"):
         return out
     if t == "string" and not isinstance(v, str):
         return ["%s is not a string" % where]
+    if t == "boolean" and not isinstance(v, bool):
+        return ["%s is not true or false" % where]
     if t == "integer" and (isinstance(v, bool) or not isinstance(v, int)):
         return ["%s is not a whole number" % where]
     if "enum" in schema and v not in schema["enum"]:
@@ -899,8 +930,17 @@ def shape_problems(v, schema=SCHEMA, where="answer"):
     return []
 
 
+def blocking(answer):
+    """The findings that block: the new ones marked so, and the earlier ones
+    the reviewer says are still open and block."""
+    return ([f for f in answer["findings"] if f["blocks"]]
+            + [e for e in answer["earlier_findings"] if e["status"] == "still-open" and e["blocks"]])
+
+
 def judge(answer, tip):
-    """(verdict or None, forced, why)."""
+    """(verdict or None, forced, why). The verdict follows the findings:
+    changes-requested exactly when one blocks, passed otherwise, whatever the
+    reviewer wrote (ruling §116)."""
     if answer is None:
         return None, False, "the reviewer gave no answer"
     problems = shape_problems(answer)
@@ -910,10 +950,12 @@ def judge(answer, tip):
     if len(named) < 7 or not tip.startswith(named):
         return None, False, ("refused: the verdict names commit %r, not the tip %s it was asked to review"
                              % (answer["reviewed_commit"], tip))
-    p1 = [f for f in answer["findings"] if f["priority"] == 1]
-    if p1 and answer["verdict"] != "changes-requested":
-        return "changes-requested", True, "a P1 finding forces changes-requested (the reviewer wrote %s)" % answer["verdict"]
-    return answer["verdict"], False, ""
+    n = len(blocking(answer))
+    verdict = "changes-requested" if n else "passed"
+    if verdict != answer["verdict"]:
+        return verdict, True, ("%d blocking finding(s) make it %s (the reviewer wrote %s)"
+                               % (n, verdict, answer["verdict"]))
+    return verdict, False, ""
 
 
 # ---------------------------------------------------------------------------
@@ -980,7 +1022,8 @@ def review(a):
     row = {"id": rid, "at": iso(started_at), "repo": w.repo, "repo_id": repo_identity(w.repo), "branch": w.branch, "base": w.base, "tip": w.tip,
            "work": w.work_key, "author": w.author, "author_model": w.author_model, "trigger": a.trigger,
            "reviewer": "", "reviewer_model": "", "reviewer_effort": "", "cli_version": "",
-           "verdict": None, "forced": False, "findings": 0, "p1": 0, "earlier_findings": len(earlier),
+           "verdict": None, "forced": False, "findings": 0, "blocking": 0, "p1": 0, "follow_ups": 0,
+           "earlier_findings": len(earlier),
            "duration_s": None, "tokens": None, "meter": None, "admission": "", "quota": "",
            "fallback_why": "", "why": "", "record": record}
 
@@ -1000,9 +1043,12 @@ def review(a):
                        "earlier_findings_in": [dict(f, id=i) for i, f in earlier]}, f, indent=2, sort_keys=True)
         append_row(row)
         if row["verdict"]:
-            line = "SECOND-REVIEW %s %s@%s by %s (%s): %d finding(s), %d P1%s. Record: %s" % (
+            filed = (" %d follow-up(s) filed in %s." % (row["follow_ups"], follow_ups_path())
+                     if row["verdict"] == "passed" else "")
+            line = "SECOND-REVIEW %s %s@%s by %s (%s): %d finding(s), %d blocking, %d P1%s.%s Record: %s" % (
                 row["verdict"], os.path.basename(w.repo), w.tip[:12], row["reviewer"], row["reviewer_model"],
-                row["findings"], row["p1"], " (forced by a P1)" if row["forced"] else "", record)
+                row["findings"], row["blocking"], row["p1"], " (forced by its findings)" if row["forced"] else "",
+                filed, record)
         else:
             line = "SECOND-REVIEW no verdict %s@%s: %s. Record: %s" % (os.path.basename(w.repo), w.tip[:12],
                                                                       row["why"], record)
@@ -1065,7 +1111,7 @@ def review(a):
                 return finish(answer, raw)
             else:
                 verdict, forced, why = judge(answer, w.tip)
-                return conclude(row, answer, verdict, forced, why, finish, raw)
+                return conclude(row, answer, verdict, forced, why, finish, raw, earlier)
     if a.reviewer == "codex":
         row["why"] = row["fallback_why"] or "Codex could not review"
         return finish(None, raw)
@@ -1098,19 +1144,43 @@ def review(a):
         row["why"] = "refused: the Claude reviewer ran on %s, not Opus" % facts["model"]
         return finish(answer, raw)
     verdict, forced, why = judge(answer, w.tip)
-    return conclude(row, answer, verdict, forced, why, finish, raw)
+    return conclude(row, answer, verdict, forced, why, finish, raw, earlier)
 
 
-def conclude(row, answer, verdict, forced, why, finish, raw):
+def conclude(row, answer, verdict, forced, why, finish, raw, earlier=()):
     row["verdict"], row["forced"] = verdict, forced
     if verdict:
         row["findings"] = len(answer["findings"])
+        row["blocking"] = len(blocking(answer))
         row["p1"] = sum(1 for f in answer["findings"] if f["priority"] == 1)
         if forced:
             row["note"] = why
+        if verdict == "passed":
+            row["follow_ups"] = file_follow_ups(row, answer, earlier)
     else:
         row["why"] = why
     return finish(answer, raw)
+
+
+def file_follow_ups(row, answer, earlier):
+    """A passed review's findings go on the follow-up list, one row each: its
+    own findings, and the earlier ones it says are still open, except those an
+    earlier pass already filed. Each one filed here is marked "filed" in
+    `earlier`, which this verdict's earlier_findings_in records, so the next
+    review carries the mark. Returns how many were filed."""
+    def one(fid, f):
+        return {"at": iso(), "review": row["id"], "finding": fid, "repo": row["repo"], "branch": row["branch"],
+                "tip": row["tip"], "work": row["work"], "priority": f.get("priority"), "title": f.get("title"),
+                "files": f.get("files") or [], "evidence": f.get("evidence"), "fixture": f.get("fixture") or ""}
+    rows = [one("%s#%d" % (row["id"], i), f) for i, f in enumerate(answer["findings"], 1)]
+    still = set(e["id"] for e in answer["earlier_findings"] if e["status"] == "still-open")
+    for fid, f in earlier:
+        if fid in still and not f.get("filed"):
+            rows.append(one(fid, f))
+            f["filed"] = True
+    if rows:
+        append_row(rows, follow_ups_path())
+    return len(rows)
 
 
 def main(argv):
