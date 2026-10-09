@@ -406,6 +406,7 @@ class Item(object):
     env = None          # app mode: the partition this item's registry lives in (RICHOS_WORKSPACES_DIR)
     session = ""        # the lead session that registered the work (the operator host delivers to it)
     claude = ""         # app mode: the Claude CLI the app ships
+    accounts = ""       # app mode: the app's account list (claude-accounts.json), read when the reviewer starts
 
     def args(self, trigger):
         """second-review's arguments for this item."""
@@ -419,6 +420,8 @@ class Item(object):
                 a += ["--words-file", w]
             if self.claude:
                 a += ["--claude", self.claude]
+            if self.accounts:
+                a += ["--accounts", self.accounts]
             return a
         if self.source == "codex":
             a += ["--branch", self.branch, "--author", "codex"]
@@ -676,15 +679,18 @@ class AppWorld(World):
         `integrate` refuses without that review's pass (DESKTOP.md step 5, app.py integrate);
         a second handover review would only spend the user's subscription twice.
       * Claude reviews, on the CLI the app ships (--claude), with the user's own turn, kept
-        beside the worker's receipt by app.py prepare, as the original words.
+        beside the worker's receipt by app.py prepare, as the original words. Each review runs on
+        the Claude account the app's work runs on when its reviewer starts: second-review reads
+        the app's account list (--accounts) then, as a work lease is given the account in use.
       * No Codex channel: that is his team's.
     """
 
-    def __init__(self, engine_root, app_state, claude=""):
+    def __init__(self, engine_root, app_state, claude="", accounts=""):
         self.engine_root = engine_root
         self.config = ""
         self.app_state = os.path.realpath(app_state)
         self.claude = claude
+        self.accounts = accounts
         self.repos = ["(every connected repository)"]
         self.ws = stall_watch._load("review_watch_workspaces",
                                     os.path.join(engine_root, "mega-lander", "workspaces.py"))
@@ -746,6 +752,7 @@ class AppWorld(World):
                     if not self.is_worker(receipt):
                         continue
                     it.source, it.env, it.claude = "app", {"RICHOS_WORKSPACES_DIR": part}, self.claude
+                    it.accounts = self.accounts
                     it.words = self.words_for(part, it.name)
                     items.append(it)
                 problems += probs
@@ -1835,7 +1842,7 @@ def app_mode(a, engine_root):
     os.environ["SECOND_REVIEW_STATE_DIR"] = paths["reviews"]
     if not (os.environ.get("RICHOS_PROJECTS_DIR") or "").strip():
         os.environ["RICHOS_PROJECTS_DIR"] = os.path.join(os.path.realpath(a.app_state), "platform-projects")
-    watcher = Watcher(engine_root, "", AppWorld(engine_root, a.app_state, a.claude))
+    watcher = Watcher(engine_root, "", AppWorld(engine_root, a.app_state, a.claude, a.accounts))
     if a.status:
         for path in sorted(glob.glob(_p("locks", "*.lock"))):
             info = stall_watch._read_json(path)
@@ -1874,6 +1881,8 @@ def main(argv):
     ap.add_argument("--engine-root", default="")
     ap.add_argument("--app-state", default="", help="the app's engine state: the app's own watcher (AppWorld)")
     ap.add_argument("--claude", default="", help="app mode: the Claude CLI the app ships")
+    ap.add_argument("--accounts", default="",
+                    help="app mode: the app's Claude account list; each review runs on the account in use")
     ap.add_argument("--host-json", action="store_true",
                     help="the operator host's child: notices as JSON lines, one per lead session")
     a = ap.parse_args(argv)

@@ -309,7 +309,12 @@ fn ensure_app_review_watch(engine: &Path, data_dir: &Path, claude: &Path, at_lau
         engine: engine.to_path_buf(),
         state: data_dir.join("engine-state"),
         environment: richos_core::review_watch::environment(&runtime.path()),
-        mode: richos_core::review_watch::Mode::App { claude: claude.is_absolute().then(|| claude.to_path_buf()) },
+        mode: richos_core::review_watch::Mode::App {
+            claude: claude.is_absolute().then(|| claude.to_path_buf()),
+            // The list `quota::Service` opens from this same folder: each review runs on the
+            // account in use when its reviewer starts, as a work lease does.
+            accounts: data_dir.join(richos_core::claude_accounts::LIST_FILE),
+        },
     };
     match richos_core::review_watch::ensure(&launch) {
         Ok(pid) if at_launch => eprintln!("[richos] second review: the app's review-watch runs as pid {pid}"),

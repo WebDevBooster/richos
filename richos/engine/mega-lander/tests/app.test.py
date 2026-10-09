@@ -970,7 +970,8 @@ class DesktopWork(unittest.TestCase):
                         'printf "%%s" "$RICHOS_WORKSPACES_DIR" > "$d/partition"\nexec sleep 30\n' % calls)
         state=self.root/"engine-state";claude=self.root/"claude";claude.write_text("#!/bin/sh\n");claude.chmod(0o755)
         os.environ.update({"REVIEW_WATCH_SECOND_REVIEW":str(fake)})
-        a=type("A",(),{"app_state":str(state),"claude":str(claude),"status":False,"tick":True})
+        accounts=self.root/"claude-accounts.json"
+        a=type("A",(),{"app_state":str(state),"claude":str(claude),"accounts":str(accounts),"status":False,"tick":True})
         import time as _t
         def look(minutes):
             os.environ["REVIEW_WATCH_NOW"]=str(_t.time()+minutes*60)
@@ -983,6 +984,9 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual(args[args.index("--trigger")+1],"long-job")
         self.assertEqual(args[args.index("--reviewer")+1],"claude")
         self.assertEqual(args[args.index("--claude")+1],str(claude))
+        # The app's account list, which second-review reads when the reviewer starts (the real
+        # second review of 802194f0e, finding 1; second-review.test.sh C15 runs that through).
+        self.assertEqual(args[args.index("--accounts")+1],str(accounts))
         self.assertEqual(Path(args[args.index("--words-file")+1]).read_text(),self.USER_TURN)
         self.assertEqual((started[0]/"partition").read_text(),os.environ["RICHOS_WORKSPACES_DIR"])
         self.assertEqual(len(look(62)),1,"one tip reviewed twice at once")

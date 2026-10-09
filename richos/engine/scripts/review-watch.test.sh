@@ -665,6 +665,7 @@ for n, (name, role) in enumerate((("mark-sonnet-w", "worker"), ("frank-opus-revi
                  "workspaces": [{"kind": "cc", "repo": repo, "path": os.path.join(repo, name), "branch": "cc/" + name}]})
 world = rw.AppWorld.__new__(rw.AppWorld)
 world.app_state, world.claude, world.repos, world._merge_bases = app, "fictional-claude", ["(every)"], {}
+world.accounts = ""
 world.ws = SimpleNamespace(all_agents=lambda: recs, finished_state=lambda r, c: (False, False, ""), _chain=lambda r: [r])
 world.src = SimpleNamespace()
 now = rw.parse_iso("2026-10-09T01:01:00Z")

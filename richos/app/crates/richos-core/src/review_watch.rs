@@ -16,7 +16,8 @@
 //!   app's own registry and starts MID-JOB reviews of running workers (the handover review is
 //!   the coordinator's reviewer, which `integrate` already requires). Its verdicts reach the
 //!   running worker through the app's hook (`scripts/app-engine-hook.py`), so nothing it prints
-//!   needs delivering; its output goes to a log.
+//!   needs delivering; its output goes to a log. Each review runs on the Claude account the
+//!   app's work runs on when its reviewer starts (`--accounts`, the app's account list).
 //! * [`Mode::Operator`]: his team's install. `review_watch.py --host-json` against his
 //!   governed repository's `orchestration.config`; each notice comes back as one JSON line per
 //!   lead session, and the shell hands it to [`crate::operator_desk::OperatorDesk::tell_lead`],
@@ -84,6 +85,12 @@ pub enum Mode {
     App {
         /// The Claude CLI the app ships, which the reviews run on.
         claude: Option<PathBuf>,
+        /// The app's account list (`<data>/`[`crate::claude_accounts::LIST_FILE`]). Each review
+        /// reads the account in use from it when its reviewer starts and runs on that account's
+        /// folder, as a work lease does (`quota::Service::lease_account`, `engine_profile.rs`):
+        /// this child's environment is cleared, so a switch would otherwise never reach it (the
+        /// real second review of 802194f0e, finding 1).
+        accounts: PathBuf,
     },
     /// The operator install's watcher over his team's registry.
     Operator {
@@ -147,8 +154,8 @@ impl ReviewWatch {
         let mut command = crate::runtime::interpreter_command(&launch.python);
         command.arg(&script).arg("--monitor").arg("--engine-root").arg(&launch.engine);
         match &launch.mode {
-            Mode::App { claude } => {
-                command.arg("--app-state").arg(&launch.state);
+            Mode::App { claude, accounts } => {
+                command.arg("--app-state").arg(&launch.state).arg("--accounts").arg(accounts);
                 if let Some(claude) = claude {
                     command.arg("--claude").arg(claude);
                 }
@@ -285,11 +292,13 @@ pub fn stop_all() -> Vec<u32> {
 }
 
 /// A child's environment: the PATH given (the verified runtime's, so `python3`, `git` and
-/// `bash` are the delivered ones) and the user's own HOME and locale, nothing else inherited.
+/// `bash` are the delivered ones) and the user's own HOME and locale, nothing else inherited,
+/// except the app's own CLAUDE_CONFIG_DIR: Account 1 has no folder of its own and runs where the
+/// app's environment says, for a review as for a work lease (`engine_profile.rs`).
 pub fn environment(path: &str) -> BTreeMap<String, String> {
     let mut env = BTreeMap::new();
     env.insert("PATH".into(), path.into());
-    for key in ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG"] {
+    for key in ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "CLAUDE_CONFIG_DIR"] {
         if let Some(value) = std::env::var_os(key) {
             env.insert(key.into(), value.to_string_lossy().into_owned());
         }
@@ -327,7 +336,9 @@ mod tests {
         let launch = Launch {
             python: python(), engine: engine(), state: state.clone(),
             environment: environment("/usr/bin:/bin:/usr/sbin:/sbin"),
-            mode: Mode::App { claude: None },
+            // The app's account list beside the state (the real second review of 802194f0e,
+            // finding 1): an engine whose watcher refuses --accounts exits at once and fails here.
+            mode: Mode::App { claude: None, accounts: root.join(crate::claude_accounts::LIST_FILE) },
         };
         let pid = ensure(&launch).unwrap();
         assert_eq!(ensure(&launch).unwrap(), pid, "a second call started a second watcher");

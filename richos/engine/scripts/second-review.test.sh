@@ -38,6 +38,11 @@
 #        config.toml (its notify program made macOS ask the CEO, 2026-10-09) or
 #        his exec-policy rules, notify empty, plugins, apps, hooks, computer use
 #        and browser use off; Claude with no MCP server (--strict-mcp-config)
+#   C15  an app review runs Claude on the account the app's work runs on when the
+#        reviewer starts: started by the app's watcher (review_watch.py's spawn of
+#        an app item) through this command, the reviewer gets the added account's
+#        folder as CLAUDE_CONFIG_DIR and its id; after a switch back, Account 1's
+#        inherited folder; the ledger stays where it was
 #
 # Exit 0 = every case passed; exit 1 = at least one failed.
 
@@ -111,7 +116,8 @@ except OSError:
     tree_a = ""
 with open(os.path.join(d, "call.json"), "w") as f:
     json.dump({"argv": argv, "cwd": os.getcwd(), "pid": os.getpid(), "kind": kind, "tree_a": tree_a,
-               "jobs": [os.environ.get(k, "") for k in ("CARGO_BUILD_JOBS", "MAKEFLAGS", "CMAKE_BUILD_PARALLEL_LEVEL")]}, f)
+               "jobs": [os.environ.get(k, "") for k in ("CARGO_BUILD_JOBS", "MAKEFLAGS", "CMAKE_BUILD_PARALLEL_LEVEL")],
+               "config": os.environ.get("CLAUDE_CONFIG_DIR", ""), "account": os.environ.get("RICHOS_CLAUDE_ACCOUNT", "")}, f)
 mode = os.environ.get("FAKE_MODE", "pass")
 if mode == "sleep":
     time.sleep(600)
@@ -379,6 +385,51 @@ for _ in $(seq 1 50); do if [ -n "$RPID" ] && ! kill -0 "$RPID" 2>/dev/null; the
 check "C13 stopped from outside, second-review stops its reviewer and releases its scratch" $? \
     "second-review pid=$SRPID reviewer pid=$RPID gone=$GONE scratch_left=$(scratch_left)"
 [ -n "$RPID" ] && kill -0 "$RPID" 2>/dev/null && kill -KILL "$RPID" 2>/dev/null
+
+# --- C15 ---------------------------------------------------------------------
+# The real second review of 802194f0e, finding 1: the app's watcher starts with a cleared
+# environment, so after the user switched to an added Claude account its reviews still ran on
+# the default one. Now it passes the app's account list (claude-accounts.json, which the app's
+# work leases read through quota::Service::lease_account) and this command reads the account in
+# use when the reviewer starts, setting its folder as a work lease does (engine_profile.rs).
+# The real chain: the watcher's own spawn of an app item, this script, the reviewer it launches.
+ROWS0="$(wc -l <"$SB/state/reviews.jsonl" | tr -d ' ')"
+TMPDIR="$RUN_TMP" CLAUDE_CONFIG_DIR="$RUN_CFG" python3 - "$SCRIPT_DIR" "$REPO" "$(G rev-parse HEAD)" "$BASE" \
+    "$SB/brief.txt" "$SB/claude-accounts.json" "$SB/bin/fake-reviewer" "$SB/account-two" "$SB/rw" <<'PY' >"$SB/c15.out" 2>&1
+import json, os, sys
+from types import SimpleNamespace
+scripts, repo, tip, base, words, accounts, claude, folder, state = sys.argv[1:]
+sys.path.insert(0, os.path.join(scripts, "lib"))
+import review_watch as rw
+os.environ["REVIEW_WATCH_SECOND_REVIEW"] = os.path.join(scripts, "second-review.sh")
+os.environ["REVIEW_WATCH_STATE_DIR"] = state
+os.makedirs(state)
+log = os.environ["FAKE_LOG"]
+got = []
+for in_use in ("2", "1"):
+    with open(accounts, "w") as f:
+        json.dump({"accounts": [{"id": "1", "label": "Home"}, {"id": "2", "label": "Work", "folder": folder}],
+                   "inUse": in_use}, f)
+    it = rw.Item("teammate:x1", "echo-sonnet-x1", repo, tip, base, "running", ref="echo-sonnet-x1",
+                 source="app", words=[words])
+    it.claude, it.accounts = claude, accounts
+    watcher = rw.Watcher(os.path.dirname(scripts), "", world=SimpleNamespace())
+    before = len(os.listdir(log))
+    pid, _start = watcher.spawn(it, "long-job", os.path.join(state, "review-%s.log" % in_use))
+    watcher.children[pid].wait()
+    calls = sorted(os.listdir(log))[before:]
+    call = json.load(open(os.path.join(log, calls[-1], "call.json"))) if calls else {}
+    got.append({"in use": in_use, "reviewer": call.get("kind"), "config": call.get("config"),
+                "account": call.get("account")})
+print(json.dumps(got))
+cfg = os.environ["CLAUDE_CONFIG_DIR"]
+sys.exit(0 if got == [{"in use": "2", "reviewer": "claude", "config": folder, "account": "2"},
+                      {"in use": "1", "reviewer": "claude", "config": cfg, "account": "1"}] else 1)
+PY
+check "C15 an app review runs Claude on the account in use when the reviewer starts: the added account's folder, then Account 1's after a switch" \
+    $? "$(cat "$SB/c15.out")"
+[ "$(( $(wc -l <"$SB/state/reviews.jsonl" | tr -d ' ') - ROWS0 ))" = "2" ]
+check "C15 both reviews are in the same ledger: the account's folder moves only the reviewer" $? "rows before=$ROWS0"
 
 echo
 echo "second-review.test.sh: $PASS passed, $FAIL failed"

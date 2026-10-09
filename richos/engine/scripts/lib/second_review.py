@@ -830,11 +830,40 @@ def claude_argv(claude):
             "--no-session-persistence"]
 
 
-def claude_env():
+def claude_env(account=None):
+    """The Claude reviewer's environment. `account` (account_in_use) is the app's account in use:
+    an added account's folder becomes CLAUDE_CONFIG_DIR and its id RICHOS_CLAUDE_ACCOUNT, exactly
+    as a work lease is given them (richos-core engine_profile.rs configure); Account 1 has no
+    folder and keeps the inherited one. Only the reviewer gets them: this command's own state and
+    scratch stay where they were."""
     env = dict(os.environ)
     for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"):
         env.pop(k, None)
+    if account:
+        env["RICHOS_CLAUDE_ACCOUNT"] = account["id"]
+        if account.get("folder"):
+            env["CLAUDE_CONFIG_DIR"] = account["folder"]
     return env
+
+
+def account_in_use(path):
+    """The Claude account the app's work runs on now, from the app's account list (richos-core
+    claude_accounts.rs: `inUse` among `accounts`, else the first, the same as Accounts::in_use,
+    which quota::Service::lease_account returns to every work lease): {"id", "folder"?}. Read when
+    the reviewer starts, so a switch while the review waited for admission is honored. No list yet
+    is Account 1 alone; an unreadable one is None (no review: never the wrong account)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            stored = json.load(f)
+    except FileNotFoundError:
+        return {"id": "1"}
+    except (OSError, ValueError):
+        return None
+    try:
+        listed = [x for x in stored["accounts"] if isinstance(x.get("id"), str)]
+        return next((x for x in listed if x["id"] == stored.get("inUse")), listed[0])
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return None
 
 
 def read_claude_result(stdout_path):
@@ -1078,10 +1107,14 @@ def review(a):
         row["why"] = "no reviewer could run: %sthe claude CLI was not found" % (
             (row["fallback_why"] + "; ") if row["fallback_why"] else "")
         return finish(None, raw)
+    account = account_in_use(a.accounts) if a.accounts else None
+    if a.accounts and account is None:
+        row["why"] = "the app's Claude account list could not be read (%s), so no review started" % a.accounts
+        return finish(None, raw)
     row["reviewer"], row["cli_version"] = "claude", version_of(claude)
     row["reviewer_model"], row["reviewer_effort"] = "", CLAUDE_EFFORT
     so, se = os.path.join(out_dir, "claude.stdout.json"), os.path.join(out_dir, "claude.stderr.txt")
-    rc, secs = run_bounded(claude_argv(claude), export, prompt, so, se, limit, env=claude_env())
+    rc, secs = run_bounded(claude_argv(claude), export, prompt, so, se, limit, env=claude_env(account))
     row["duration_s"] = round((row["duration_s"] or 0) + secs, 1)
     raw = raw + [so, se]
     answer, facts = read_claude_result(so)
@@ -1128,6 +1161,8 @@ def main(argv):
     ap.add_argument("--trigger", default="manual", choices=["handover", "long-job", "quiet", "manual"])
     ap.add_argument("--reviewer", default="auto", choices=["auto", "codex", "claude"])
     ap.add_argument("--claude", default="", help="the Claude CLI to review with (the app passes the one it ships)")
+    ap.add_argument("--accounts", default="",
+                    help="the app's Claude account list (claude-accounts.json): Claude reviews on the account in use")
     ap.add_argument("--limit-minutes", type=float, default=LIMIT_SECONDS / 60.0)
     ap.add_argument("--admission-wait", type=float, default=ADMISSION_WAIT_SECONDS,
                     help="seconds to wait for CPU admission (default 1800)")
