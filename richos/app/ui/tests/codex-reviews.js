@@ -144,6 +144,13 @@ async function main() {
       });
       if (unavailable) assert(look.border === "dashed" && /rgba\(0, 0, 0, 0\)|transparent/.test(look.knob), name + ": dashed, hollow: " + JSON.stringify(look));
       else assertEqual(look.border, "solid", name + ": a solid track");
+      // Only the switch is unavailable. The ⓘ, the name and the words always work, so nothing
+      // around them claims aria-disabled, which a screen reader reads into every descendant (the
+      // 2026-10-09 VM walk's accessibility tree said the ⓘ was disabled in the not-installed state).
+      assertEqual(await page.evaluate(() => {
+        const host = document.getElementById("cx-info").parentElement.closest("[aria-disabled='true']");
+        return host ? host.id || host.className : null;
+      }), null, name + ": the ⓘ sits inside nothing marked aria-disabled");
       seen.push(name);
       await page.close();
     }

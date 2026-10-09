@@ -9777,7 +9777,7 @@ body.panel-full .op-body {
 .cx.is-nudged { background: color-mix(in srgb, var(--gold) 9%, var(--surface)); }
 .cx-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .cx-name { font-weight: 600; font-size: 1rem; line-height: 1.4; color: var(--ink); cursor: pointer; padding-top: 2px; }
-.cx-name[aria-disabled="true"] { cursor: default; }
+.cx-name.is-unavailable { cursor: default; }
 .cx-who { position: relative; display: block; font-weight: 400; font-size: 1rem; color: var(--ink-soft); margin-top: 2px; }
 .cx-who b { font-weight: 600; color: var(--ink); }
 /* the switch: off is an outlined track (the outline is the indicator, at least 3:1), on is the

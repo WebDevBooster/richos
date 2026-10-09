@@ -114,7 +114,9 @@
     const sw = $("cx-switch");
     sw.setAttribute("aria-checked", String(!!(st && st.on)));
     sw.setAttribute("aria-disabled", String(!usable()));
-    $("cx-name").setAttribute("aria-disabled", String(!usable()));
+    // Only the switch says aria-disabled: on the name block a screen reader reads it into every
+    // descendant, the ⓘ and its words included, which always work (the 2026-10-09 VM walk).
+    $("cx-name").classList.toggle("is-unavailable", !usable());
     sw.title = usable() ? "" : (st && st.codex === "signedout" ? "Codex isn’t signed in" : "The Codex app isn’t on this Mac");
     $("cx-who").innerHTML = "Reviewing now: <b>" + (v === "on" ? "Codex" : "Claude") + "</b>";
     $("cx-lapsed").innerHTML = st && st.codex === "missing" ? LAPSED.missing : LAPSED.signedout;
