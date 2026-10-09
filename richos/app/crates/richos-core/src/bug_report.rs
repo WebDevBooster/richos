@@ -802,19 +802,30 @@ fn text_of(value: &serde_json::Value, key: &str) -> String {
     value[key].as_str().unwrap_or("").trim().to_string()
 }
 
-/// The `private` list of Rich's answer, each in the kind he named.
-fn private_of(value: &serde_json::Value) -> Vec<PrivateTerm> {
-    value["private"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|p| {
-                    let text = p["text"].as_str()?.trim();
-                    (!text.is_empty()).then(|| PrivateTerm::new(text, Kind::from_rich(p["kind"].as_str().unwrap_or(""))))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+/// **THE `private` LIST OF RICH'S ANSWER, OR NO ANSWER**, each term in the kind he named. The
+/// list must be there and be a list, and every entry an object with a string `text` and a string
+/// `kind`; `[]` is "nothing private" only when he wrote `[]`. Anything else is a malformed answer,
+/// refused like a Claude failure (not offered, kept, asked again), never read as "nothing private":
+/// on c0a24290f a list left out, given as a string, or with entries saying `name` instead of
+/// `text` put "Jane Doe at SecretCo" on a card offered for sending (review
+/// rv-20261009T171105Z-c0a24290-58b4 finding 1). An entry whose text is blank names nothing and
+/// is skipped.
+fn private_of(value: &serde_json::Value) -> Result<Vec<PrivateTerm>, String> {
+    let list = match value.get("private") {
+        None => return Err("the answer had no private list".into()),
+        Some(serde_json::Value::Array(list)) => list,
+        Some(_) => return Err("the answer's private list was not a list".into()),
+    };
+    let mut terms = Vec::new();
+    for (n, entry) in list.iter().enumerate() {
+        let (Some(text), Some(kind)) = (entry.get("text").and_then(|t| t.as_str()), entry.get("kind").and_then(|k| k.as_str())) else {
+            return Err(format!("entry {} of the answer's private list had no text or no kind", n + 1));
+        };
+        if !text.trim().is_empty() {
+            terms.push(PrivateTerm::new(text, Kind::from_rich(kind)));
+        }
+    }
+    Ok(terms)
 }
 
 /// `terms` without repeats (the same words in any letter case are one term; the first kind wins).
@@ -841,7 +852,7 @@ pub fn parse_written(raw: &str) -> Result<Written, String> {
             .map(|a| a.iter().filter_map(|s| s.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
             .unwrap_or_default(),
         expected: text_of(&value, "expected"),
-        private: private_of(&value),
+        private: private_of(&value)?,
         checked: text_of(&value, "checked"),
     };
     if written.title.is_empty() || written.what_happened.is_empty() {
@@ -921,7 +932,7 @@ pub struct Change {
 
 pub fn parse_change(raw: &str) -> Result<Change, String> {
     let value = json_object(raw)?;
-    let change = Change { section: text_of(&value, "section"), add: text_of(&value, "add"), private: private_of(&value) };
+    let change = Change { section: text_of(&value, "section"), add: text_of(&value, "add"), private: private_of(&value)? };
     if change.section.is_empty() || change.add.is_empty() {
         return Err("the answer had no section or nothing to add".into());
     }

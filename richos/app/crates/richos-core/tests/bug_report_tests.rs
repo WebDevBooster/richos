@@ -204,7 +204,7 @@ fn the_reply_envelope_is_read_and_an_error_reply_is_refused() {
 
 #[test]
 fn a_change_said_to_rich_is_one_sentence_added_where_he_says() {
-    let raw = r#"{"section": "What happened", "add": "It happens in the light theme too."}"#;
+    let raw = r#"{"section": "What happened", "add": "It happens in the light theme too.", "private": []}"#;
     let change = parse_change(raw).unwrap();
     assert_eq!(change.section, "What happened");
     assert_eq!(change.add, "It happens in the light theme too.");
@@ -523,7 +523,7 @@ fn rich_is_given_what_was_on_the_screen_and_a_picture_of_the_window_to_check_aga
 
     // What the digest over his answer says: he looked only when he had the screen. (There is no
     // digest without him since review rv-20261009T162841Z-69294215-70e6.)
-    let checked = parse_written("{\"title\": \"T\", \"what_happened\": \"W\", \"checked\": \"saw the names cut off at 135%.\"}").unwrap().checked;
+    let checked = parse_written("{\"title\": \"T\", \"what_happened\": \"W\", \"checked\": \"saw the names cut off at 135%.\", \"private\": []}").unwrap().checked;
     assert_eq!(digest(&on_screen, true, &checked), "Looked at the screen you were on, at 135% text size · Saw the names cut off at 135% · Checked the version");
     assert_eq!(digest(&screen(), false, ""), "Noted the screen you were on, at 135% text size · Checked the version");
     let mut corrections = screen();
@@ -589,7 +589,7 @@ fn a_private_name_rich_found_stays_left_out_on_every_later_change() {
     assert_eq!(draft.private, vec![PrivateTerm::new("Jane Doe", Kind::PersonName)], "the card is not given the report's private words");
 
     // A change with none of its own private words: the report's still apply.
-    let change = parse_change(r#"{"section": "What happened", "add": "Jane Doe saw it in light mode too."}"#).unwrap();
+    let change = parse_change(r#"{"section": "What happened", "add": "Jane Doe saw it in light mode too.", "private": []}"#).unwrap();
     let (add, kept) = scrub_change(&change, &[], &draft.private);
     assert_eq!(joined(&add), "[a person] saw it in light mode too.");
     assert_eq!(kept, draft.private);
@@ -598,7 +598,7 @@ fn a_private_name_rich_found_stays_left_out_on_every_later_change() {
     let change = parse_change(r#"{"section": "What happened", "add": "Marta and Jane Doe saw it.", "private": [{"text": "Marta", "kind": "person"}]}"#).unwrap();
     let (add, kept) = scrub_change(&change, &[], &draft.private);
     assert_eq!(joined(&add), "[a person] and [a person] saw it.");
-    let again = parse_change(r#"{"section": "What happened", "add": "Marta saw it again."}"#).unwrap();
+    let again = parse_change(r#"{"section": "What happened", "add": "Marta saw it again.", "private": []}"#).unwrap();
     let (add, _) = scrub_change(&again, &[], &kept);
     assert_eq!(joined(&add), "[a person] saw it again.");
 }
@@ -981,6 +981,65 @@ fn when_claude_cannot_check_it_the_report_is_not_offered_and_waits_on_this_mac_u
     assert!(late.unwrap().is_empty(), "a canceled report came back");
     assert!(outbox.unchecked().unwrap().is_empty(), "{id} came back");
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn an_answer_whose_private_list_is_missing_or_malformed_is_not_offered_and_waits_on_this_mac() {
+    // Review rv-20261009T171105Z-c0a24290-58b4 finding 1, fixture `privacy-gate.py`: on c0a24290f
+    // an answer with a title and a body but no private list, a private list that is a string, or
+    // entries that say "name" instead of "text" was read as "nothing private", and its public body
+    // read "Jane Doe at SecretCo saw the window freeze" on a card offered for sending.
+    let dir = scratch("malformed-private");
+    let outbox = Outbox::open(&dir);
+    let said = "Jane Doe at SecretCo saw the window freeze while opening the plan.";
+    let place = Screen { key: "conversation".into(), here: "a conversation".into(), public: "a conversation, the main RichOS screen".into(), conversation: None, text_size: 100, theme: "dark".into(), technical_view: false, content: String::new() };
+    let known = Scrubber::new(vec![PrivateTerm::new("Northwind Traders", Kind::CompanyName)]);
+    let variants = [
+        ("list omitted", None),
+        ("list is a string", Some(serde_json::json!("not checked yet"))),
+        ("entries say name, not text", Some(serde_json::json!([{"name": "Jane Doe", "kind": "person"}, {"name": "SecretCo", "kind": "company"}]))),
+    ];
+    // Every variant is tried before anything is asserted, so a failure names all that were offered.
+    let mut offered = Vec::new();
+    for (label, private) in variants {
+        let mut reply = serde_json::json!({"title": "The window froze", "what_happened": said});
+        if let Some(p) = private {
+            reply["private"] = p;
+        }
+        let check = checked(Ok(reply.to_string()), &place, false, VERSION, &known);
+        if let WriteUp::Checked(c) = outbox.keep_unless_checked(said, &place, check, 1_000).unwrap() {
+            offered.push(format!("{label}: offered for sending, public words {:?}", draft_words(&c.draft)));
+        }
+    }
+    assert!(offered.is_empty(), "a report Rich did not check was offered:\n{}", offered.join("\n"));
+    assert_eq!(outbox.unchecked().unwrap().len(), 3, "not every one is kept on this Mac");
+    // Nothing of it waits to go to GitHub, and nothing went; each waits to be asked again.
+    assert!(outbox.pending().unwrap().is_empty() && outbox.sent().unwrap().is_empty());
+    assert!(outbox.unchecked().unwrap().iter().all(|u| u.checked.is_none() && u.next_try_at_ms == 1_000 + CHECK_RETRY_MS));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_private_list_reads_only_when_every_entry_has_its_text_and_kind() {
+    let with = |private: serde_json::Value| serde_json::json!({"title": "T", "what_happened": "W", "private": private}).to_string();
+    // Truly empty: nothing private, and the answer is read.
+    assert_eq!(parse_written(&with(serde_json::json!([]))).unwrap().private, vec![]);
+    // Each malformed shape refuses the whole answer; no entry is dropped quietly.
+    for bad in [
+        serde_json::json!(null),
+        serde_json::json!({"text": "Jane Doe", "kind": "person"}),
+        serde_json::json!(["Jane Doe"]),
+        serde_json::json!([{"text": "Jane Doe"}]),
+        serde_json::json!([{"text": "Jane Doe", "kind": 3}]),
+        serde_json::json!([{"text": 7, "kind": "person"}]),
+        serde_json::json!([{"text": "Jane Doe", "kind": "person"}, {"name": "SecretCo", "kind": "company"}]),
+    ] {
+        assert!(parse_written(&with(bad.clone())).is_err(), "read as a report: {bad}");
+    }
+    // A change said to Rich is held to the same rule: its words are added to the public report.
+    assert!(parse_change(r#"{"section": "What happened", "add": "Jane Doe saw it too."}"#).is_err());
+    assert!(parse_change(r#"{"section": "What happened", "add": "Jane Doe saw it too.", "private": [{"name": "Jane Doe", "kind": "person"}]}"#).is_err());
+    assert_eq!(parse_change(r#"{"section": "What happened", "add": "It happens in light mode too.", "private": []}"#).unwrap().private, vec![]);
 }
 
 #[test]
