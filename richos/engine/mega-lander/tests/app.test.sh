@@ -3,6 +3,9 @@
 # then the mutation harness that proves the land lock's properties can fail
 # (app.mutation.sh). A harness nobody runs proves nothing about anything, which
 # is why it is invoked from the suite it mutates.
+# The second review's app half is exercised here too (slice 4): app.test.py drives
+# scripts/lib/app_review.py through scripts/app-engine-hook.py's mid-job delivery, and
+# scripts/lib/review_watch.py's app mode (AppWorld) over this fixture's registry.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
