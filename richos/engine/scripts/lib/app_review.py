@@ -20,6 +20,7 @@ import fcntl
 import json
 import os
 import re
+import sys
 
 # The triggers of a review made while the work is still running (review_watch.py MID_JOB).
 MID_JOB = ("long-job", "quiet")
@@ -114,8 +115,14 @@ def mid_job_notice(app_state, spaces, emit):
         if not out:
             return False
         emit("\n\n".join(out))
+        # The output is written and flushed: a bookkeeping error (a full disk) must not fail the
+        # hook, whose answer the host would then discard. Mark what can be marked; a verdict whose
+        # marker cannot be made stays pending and is told again at the next tool call.
         for rid in ids:
-            os.close(os.open(os.path.join(paths["delivered"], rid), os.O_WRONLY | os.O_CREAT, 0o600))
+            try:
+                os.close(os.open(os.path.join(paths["delivered"], rid), os.O_WRONLY | os.O_CREAT, 0o600))
+            except OSError as error:
+                print(f"RichOS desktop engine: review {rid} could not be recorded delivered: {error}", file=sys.stderr)
         return True
     finally:
         os.close(lock)
