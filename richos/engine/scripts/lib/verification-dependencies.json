@@ -16693,7 +16693,8 @@
         "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
         "scripts/lib/unguarded_rm.py": "23ffb1b7d209152936e0f59c2978b233342b72e85557c6f855d9f1a6c973e838",
         "scripts/lib/shared_scratchpad.py": "641b443534b55e8c6e7c94dc349b36c52bdc15acd9ab7ea5ed1102920d7fea4d",
-        "ass-kicker/tests/record-claims.replay.py": "094a016f81b059134abe4293ceef446032f0ddafe433042a49f53ac4d6f5b0cd"
+        "ass-kicker/tests/record-claims.replay.py": "094a016f81b059134abe4293ceef446032f0ddafe433042a49f53ac4d6f5b0cd",
+        "scripts/hooks/guard-no-shell-c.sh": "dbd0dfb97e292c47b04cfce97b09e3fb18c642b7fd88de21850a4d255069094e"
       }
     },
     "scripts/hooks/mechanical-findings.test.sh": {
@@ -16919,7 +16920,8 @@
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
         "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
         "scripts/lib/unguarded_rm.py": "23ffb1b7d209152936e0f59c2978b233342b72e85557c6f855d9f1a6c973e838",
-        "scripts/lib/shared_scratchpad.py": "641b443534b55e8c6e7c94dc349b36c52bdc15acd9ab7ea5ed1102920d7fea4d"
+        "scripts/lib/shared_scratchpad.py": "641b443534b55e8c6e7c94dc349b36c52bdc15acd9ab7ea5ed1102920d7fea4d",
+        "scripts/hooks/guard-no-shell-c.sh": "dbd0dfb97e292c47b04cfce97b09e3fb18c642b7fd88de21850a4d255069094e"
       }
     },
     "scripts/hooks/stop-hook-visibility.test.sh": {
@@ -17365,7 +17367,8 @@
         "scripts/hooks/guard-shared-scratchpad.sh": "6306fff7f371d1555edc6fcf70248131ae296a29eda84405797cbe17c5183c88",
         "scripts/hooks/guard-unguarded-rm.sh": "0398206a9a1a3743193799819373aadb07142c52d5224581d9c6137baccdba79",
         "scripts/lib/unguarded_rm.py": "23ffb1b7d209152936e0f59c2978b233342b72e85557c6f855d9f1a6c973e838",
-        "scripts/lib/shared_scratchpad.py": "641b443534b55e8c6e7c94dc349b36c52bdc15acd9ab7ea5ed1102920d7fea4d"
+        "scripts/lib/shared_scratchpad.py": "641b443534b55e8c6e7c94dc349b36c52bdc15acd9ab7ea5ed1102920d7fea4d",
+        "scripts/hooks/guard-no-shell-c.sh": "dbd0dfb97e292c47b04cfce97b09e3fb18c642b7fd88de21850a4d255069094e"
       },
       "evidence": "Enumerates PreToolUse/Stop registrations and matcher payloads; boundary assertion classifies every event. Full dynamic helper inventory is source-bound."
     },
