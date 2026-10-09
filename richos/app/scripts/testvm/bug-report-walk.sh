@@ -114,9 +114,16 @@ for attempt in 1 2 3; do
   "$T/ax.sh" "$VM" find --title 'Add this company' --first >/dev/null 2>&1 || break
   note "company not added yet (attempt $attempt)"
 done
-"$T/ax.sh" "$VM" type "Good morning." --role AXTextArea --first --replace || true
-"$T/ax.sh" "$VM" click --title 'Send' --first || true
-wait_text 'Noted.' 40 || setup_failed "the conversation never answered (no 'Noted.')"
+# Up to three tries: on a busy host the first type can land before the company's conversation
+# is on screen (walk-330999851782 sat on the greeting with an empty composer).
+answered=no
+for attempt in 1 2 3; do
+  "$T/ax.sh" "$VM" type "Good morning." --role AXTextArea --first --replace || true
+  "$T/ax.sh" "$VM" click --title 'Send' --first || true
+  if wait_text 'Noted.' 12; then answered=yes; break; fi
+  note "the first message got no answer yet (attempt $attempt)"
+done
+[ "$answered" = yes ] || setup_failed "the conversation never answered (no 'Noted.')"
 note "ok: a conversation in $COMPANY"
 
 # One check: run the command; "ok: $1" when it succeeds, a failure named $2 when it does not.
@@ -166,7 +173,9 @@ check "Rich says it went out" "Rich did not say it went out" wait_text "You're b
 "$T/guest.sh" "$VM" "cat $G/stand-in.log" > "$S/stand-in.log" 2>&1 || true
 posts=$(grep -c '"path": "/repos/WebDevBooster/richos/issues"' "$S/stand-in.log" || true)
 check "one POST to /repos/WebDevBooster/richos/issues" "$posts POSTs to the issues endpoint, not 1" test "$posts" = 1
-check "the keychain's token, read at send time" "the request did not carry the keychain's token" has "\"Authorization\": \"Bearer $TOKEN\"" "$S/stand-in.log"
+# HTTP header names are case-insensitive and the app's client sends them lower-case
+# (walk-8ee6e1037b37 logged `"authorization": "Bearer walk-…"`), so the name is matched in any case.
+check "the keychain's token, read at send time" "the request did not carry the keychain's token" grep -qiF "\"authorization\": \"Bearer $TOKEN\"" "$S/stand-in.log"
 refuse "a private name reached the endpoint" grep -q -e "$COMPANY" -e "$PERSON" -e Northwind -e Dana "$S/stand-in.log"
 check "the title Rich wrote" "the title is not Rich's" has 'Conversation names in the sidebar are cut off' "$S/stand-in.log"
 "$T/guest.sh" "$VM" "ls '$DATA/waiting' | wc -l; cat '$DATA/sent.jsonl'" > "$S/4-store.txt" 2>&1 || true
