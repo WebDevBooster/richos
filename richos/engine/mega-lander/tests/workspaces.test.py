@@ -4395,6 +4395,109 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         self.assertTrue(res["landed"])
         self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
 
+    def registry(self, change=None):
+        """The fence registry `operator-fences.sh install` writes; `change`
+        edits it in place (to seed the shape an older installer wrote)."""
+        path = os.path.join(ws.land_locks_dir(), "operator-fences.json")
+        with open(path) as f:
+            reg = json.load(f)
+        if change:
+            change(reg)
+            with open(path, "w") as f:
+                json.dump(reg, f)
+        return reg
+
+    def install_unrelated(self, name="third"):
+        """Another repository's fence, installed from another entity whose
+        declaration lists only that repository. Returns its orchestration.config."""
+        repo = self.env.repo(name)
+        entity = os.path.join(self.env.root, "unrelated-entity")
+        os.makedirs(entity)
+        config = os.path.join(entity, "orchestration.config")
+        with open(config, "w") as f:
+            f.write('OPERATOR_FENCES="on"\nSECOND_REVIEW_REPOS="%s"\n' % name)
+        run("bash", self.fences, "install", "--repo", repo, "--entity", entity)
+        return config
+
+    def test_second_review_a_registry_entry_from_before_entities_were_recorded_still_governs(self):
+        """Review rv-20261009T035450Z-882c7e75-0eab, finding 1 (its fixture
+        registry_edges.py, LEGACY_REGISTRY): an entry the earlier installer
+        wrote carries only common, chain and installed. Installing another
+        repository from another entity overwrote the registry's top-level entity,
+        the reader dropped the entry's missing one, and with the launcher removed
+        unreviewed work reached main. The install now records the old entry's
+        entity first (the registry's last install wrote both it and the
+        top-level entity), so the declaration that lists the repository still
+        governs it."""
+        self.registry(lambda reg: reg["repositories"][self.other].pop("entity"))
+        self.install_unrelated()
+        self.assertEqual(self.registry()["repositories"][self.other].get("entity"), os.path.realpath(self.decl))
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv14")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv14", self.sid)
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv14 was not merged into", str(e.exception))
+        self.assertIn("no second review of %s" % tip[:12], str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        self.verdict(tip, "passed")
+        _merged, res = ws.merge_and_land("zach-opus-rv14", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_a_repository_whose_governing_entity_is_unknown_is_refused(self):
+        """The same finding's other half: a registry entry whose entity cannot
+        be established (it carries none, and a later install already recorded
+        entities, so the top-level one is not its) leaves the repository's
+        governing declaration unknown, and nothing is merged, even with a
+        passing verdict, until `operator-fences.sh install` records it."""
+        self.install_unrelated()
+        self.registry(lambda reg: reg["repositories"][self.other].pop("entity"))
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv15")
+        self.verdict(tip, "passed")
+        before = self.head()
+        with self.assertRaises(ws.SpecError) as e:
+            ws.merge_and_land("zach-opus-rv15", self.sid)
+        self.assertIn("SECOND REVIEW: cc/zach-opus-rv15 was not merged into", str(e.exception))
+        self.assertIn("the entity its fence was installed from is not recorded", str(e.exception))
+        self.assertIn("operator-fences.sh install --repo %s" % self.other, str(e.exception))
+        self.assertEqual(self.head(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.other, "work0.txt")))
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        _merged, res = ws.merge_and_land("zach-opus-rv15", self.sid)
+        self.assertTrue(res["landed"])
+
+    def test_second_review_only_the_declarations_governing_the_landed_repository_are_read(self):
+        """Review rv-20261009T035450Z-882c7e75-0eab, finding 2 (its fixture,
+        UNRELATED_CONFIG): the lookup read every entity in the machine-wide
+        registry, so an unreadable declaration governing only another
+        repository blocked this land. Only the entities governing the
+        repositories being landed are read: the one governing this repository
+        through the registry still refuses when it cannot be read; the other
+        repository's does not."""
+        unrelated = self.install_unrelated()
+        own = os.path.join(self.decl, "orchestration.config")
+        os.remove(os.path.join(self.other, ".git", "hooks", "reference-transaction"))
+        _cc, (tip,) = self.finished("zach-opus-rv16")
+        self.verdict(tip, "passed")
+        before = self.head()
+        os.chmod(own, 0)
+        try:
+            with self.assertRaises(ws.SpecError) as e:
+                ws.merge_and_land("zach-opus-rv16", self.sid)
+        finally:
+            os.chmod(own, 0o600)
+        self.assertIn("%s cannot be read" % own, str(e.exception))
+        self.assertEqual(self.head(), before)
+        os.chmod(unrelated, 0)
+        try:
+            _merged, res = ws.merge_and_land("zach-opus-rv16", self.sid)
+        finally:
+            os.chmod(unrelated, 0o600)
+        self.assertTrue(res["landed"])
+        self.assertEqual(run("git", "-C", self.other, "rev-parse", "main^2").stdout.strip(), tip)
+
     def test_second_review_status_reports_a_launcher_that_disagrees_with_the_declaration(self):
         r = run("bash", self.fences, "status", "--repo", self.other, "--entity", self.decl, check=False)
         self.assertNotIn("SECOND_REVIEW_REPOS", r.stdout)

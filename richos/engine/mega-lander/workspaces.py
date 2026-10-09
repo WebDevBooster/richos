@@ -4991,13 +4991,14 @@ def _review_check(todo, entities=()):
     if not todo:
         return {}
     F = _fence_program()
-    listed, unknown = _declared_review_listing(entities)
-    if unknown:
-        raise SpecError("nothing was merged.\n" + "\n".join(
-            "=== SECOND REVIEW: %s was not merged into %s ===\n  Whether %s is reviewed cannot be "
-            "established: %s." % (b, main, main, "; ".join(unknown)) for _repo, b, main, _t in todo))
+    registry = _registry_entity_map(F)
     out, refusals = {}, []
     for _repo, b, main, t in todo:
+        listed, unknown = _declared_review_listing(F, entities, main, registry)
+        if unknown:
+            refusals.append("=== SECOND REVIEW: %s was not merged into %s ===\n  Whether %s is reviewed cannot "
+                            "be established: %s." % (b, main, main, "; ".join(unknown)))
+            continue
         ledgers, broken = _review_ledgers(F, main, listed)
         if broken:
             refusals.append("=== SECOND REVIEW: %s was not merged into %s ===\n  %s" % (b, main, broken))
@@ -5031,36 +5032,46 @@ def _governing_entities(chain):
     return out
 
 
-def _fence_registry_entities():
-    """([entity], [why unknown]) from the fence registry `operator-fences.sh
-    install` writes (operator_fences_admin.registry_path(): REGISTRY_NAME in
-    land_locks_dir()): the entity each repository's fence was installed from,
-    and the registry's last one. THE ENTITY THAT GOVERNS A REPOSITORY'S FENCE
-    IS READ FROM HERE, NEVER ONLY FROM THE LAUNCHER (review
-    rv-20261009T033652Z-f3bfe22f-9372, finding 2): it can differ from the
-    spawning entity, and with the launcher removed nothing else names it. An
-    absent registry (nothing ever installed) names nothing; one that exists
-    but cannot be read or parsed leaves the governing entities unknown."""
+def _registry_key(F, main):
+    """The fence registry's key for the main checkout `main`: the path
+    operator_fences_admin.cmd_install records (F.repo_paths()["main"])."""
+    paths = F.repo_paths(main)
+    return (paths or {}).get("main") or os.path.realpath(main)
+
+
+def _registry_entity_map(F):
+    """({main checkout: entity, or "" when unknown}, [why unknown]) from the
+    fence registry `operator-fences.sh install` writes
+    (operator_fences_admin.registry_path(): REGISTRY_NAME in land_locks_dir()),
+    read through F.registry_entities, the installer's own reading of it. THE
+    ENTITY THAT GOVERNS A REPOSITORY'S FENCE IS READ FROM HERE, NEVER ONLY
+    FROM THE LAUNCHER (review rv-20261009T033652Z-f3bfe22f-9372, finding 2):
+    it can differ from the spawning entity, and with the launcher removed
+    nothing else names it. IT IS KEPT PER REPOSITORY (review
+    rv-20261009T035450Z-882c7e75-0eab, findings 1 and 2): an entry's entity
+    governs that repository and no other, and an entry whose entity cannot be
+    established is unknown, never skipped. An absent registry (nothing ever
+    installed) names nothing; one that exists but cannot be read or parsed
+    leaves every repository's governing entity unknown."""
     path = os.path.join(land_locks_dir(), "operator-fences.json")
     try:
         with open(path, encoding="utf-8") as f:
             reg = json.loads(f.read())
     except FileNotFoundError:
-        return [], []
+        return {}, []
     except (OSError, ValueError) as exc:
-        return [], ["the fence registry %s cannot be read (%s)" % (path, getattr(exc, "strerror", None) or exc)]
+        return {}, ["the fence registry %s cannot be read (%s)" % (path, getattr(exc, "strerror", None) or exc)]
     if not isinstance(reg, dict) or not isinstance(reg.get("repositories", {}), dict):
-        return [], ["the fence registry %s cannot be read (not the registry's shape)" % path]
-    found = [reg.get("entity")] + [r.get("entity") for r in reg.get("repositories", {}).values()
-                                   if isinstance(r, dict)]
-    return [e for e in found if isinstance(e, str) and e.strip()], []
+        return {}, ["the fence registry %s cannot be read (not the registry's shape)" % path]
+    return F.registry_entities(reg), []
 
 
-def _declared_review_listing(entities):
-    """([SECOND_REVIEW_REPOS value], [why unknown]) of every governing
-    declaration: those of `entities` (_governing_entities) and of the entities
-    the fence registry records (_fence_registry_entities), the last assignment
-    of each, as review_watch.configured_repos reads it.
+def _declared_review_listing(F, entities, main, registry):
+    """([SECOND_REVIEW_REPOS value], [why unknown]) of every declaration
+    governing the main checkout `main`: those of `entities`
+    (_governing_entities: the work's own and this run's) and the entity the
+    fence registry records for `main` (`registry`, _registry_entity_map), the
+    last assignment of each, as review_watch.configured_repos reads it.
     WHETHER A REPOSITORY IS REVIEWED IS DECIDED FROM THESE (review
     rv-20261009T031207Z-ba444a8a-607a, finding 1): the fence launcher is only
     the copy `operator-fences.sh install` makes of the declaration, and reading
@@ -5068,10 +5079,25 @@ def _declared_review_listing(entities):
     ABSENT IS NOT UNREADABLE (review rv-20261009T033652Z-f3bfe22f-9372, finding
     1): an entity with no orchestration.config lists nothing, but one whose
     orchestration.config exists and cannot be read leaves applicability
-    unknown, and _review_check refuses rather than read it as an empty list."""
-    registered, unknown = _fence_registry_entities()
+    unknown, and _review_check refuses rather than read it as an empty list.
+    ONLY WHAT GOVERNS `main` IS READ (review rv-20261009T035450Z-882c7e75-0eab,
+    finding 2): an entity the registry records for another repository is
+    never read here, so its unreadable declaration cannot block this land; and
+    a registry entry for `main` whose entity is unknown (finding 1) refuses."""
+    mapping, unknown = registry
+    unknown = list(unknown)
+    found = list(entities)
+    key = _registry_key(F, main)
+    if key in mapping:
+        if mapping[key]:
+            found.append(mapping[key])
+        else:
+            unknown.append("the fence registry records a fence for %s, but the entity its fence was installed "
+                           "from is not recorded there and cannot be established; run operator-fences.sh "
+                           "install --repo %s --entity <the entity whose orchestration.config governs it>"
+                           % (key, key))
     seen, values = [], []
-    for e in list(entities) + registered:
+    for e in found:
         e = os.path.realpath(os.path.expanduser(e))
         if e in seen:
             continue

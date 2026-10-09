@@ -591,14 +591,24 @@ mutant sr-unreadable-declaration-skipped "test_second_review_a_governing_declara
     "a governing orchestration.config made unreadable would be read as listing nothing, and with the launcher gone its repository would merge unreviewed work (review rv-20261009T033652Z-f3bfe22f-9372, finding 1)."
 
 mutant sr-fence-entity-not-consulted "test_second_review_the_entity_the_fence_was_installed_from_governs_without_the_launcher" "$W" \
-    '    registered, unknown = _fence_registry_entities()' \
-    '    registered, unknown = [], []' \
+    '        if mapping[key]:{NL}            found.append(mapping[key])' \
+    '        if mapping[key]:{NL}            pass' \
     "a repository listed only by the entity its fence was installed from would merge unreviewed work once the launcher is removed (review rv-20261009T033652Z-f3bfe22f-9372, finding 2)."
 
-mutant sr-fence-entity-only-the-last-install "test_second_review_the_entity_the_fence_was_installed_from_governs_without_the_launcher" "$W" \
-    '    found = [reg.get("entity")] + [r.get("entity") for r in reg.get("repositories", {}).values()' \
-    '    found = [reg.get("entity")] + [r.get("entity") for r in {}.values()' \
-    "a later install from another entity for another repository would erase the entity that governs this repository's fence (review rv-20261009T033652Z-f3bfe22f-9372, finding 2)."
+mutant sr-legacy-entity-not-recorded "test_second_review_a_registry_entry_from_before_entities_were_recorded_still_governs" "scripts/lib/operator_fences_admin.py" \
+    '    record_legacy_entities(reg){NL}    reg["entity"] = entity' \
+    '    reg["entity"] = entity' \
+    "an install from another entity would overwrite the only record of which entity governs a registry entry from before entries carried one, and with the launcher removed that repository would merge unreviewed work (review rv-20261009T035450Z-882c7e75-0eab, finding 1)."
+
+mutant sr-unknown-governing-entity-skipped "test_second_review_a_repository_whose_governing_entity_is_unknown_is_refused" "$W" \
+    '        else:{NL}            unknown.append("the fence registry records a fence for %s' \
+    '        elif False:{NL}            unknown.append("the fence registry records a fence for %s' \
+    "a repository whose governing entity cannot be established would be landed as if nothing governed it (review rv-20261009T035450Z-882c7e75-0eab, finding 1)."
+
+mutant sr-every-registry-entity-read "test_second_review_only_the_declarations_governing_the_landed_repository_are_read" "$W" \
+    '    key = _registry_key(F, main){NL}    if key in mapping:' \
+    '    key = _registry_key(F, main){NL}    found += [e for e in mapping.values() if e]{NL}    if key in mapping:' \
+    "an unreadable declaration governing only another repository would block every land (review rv-20261009T035450Z-882c7e75-0eab, finding 2)."
 
 mutant sr-continuation-judges-by-its-own-registration "test_second_review_a_continuation_gets_a_verdict_on_the_work_it_continues" "scripts/lib/review_delivery.py" \
     '    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= works[r["work"]] - 1' \
