@@ -316,8 +316,10 @@ def environment(pid):
 def owned_processes(reviews):
     """[{pid: (pgid, stat, sid)}], one per (leader pid, mark, session owned) in `reviews`: the live
     processes of this user that carry that review's mark in their environment, from one read of the
-    process table; every one {} when the table cannot be read. Ownership captured at the review's
-    start, never a name, a path or an ancestry: the exact mark and the user id.
+    process table; None when the table cannot be read (a ps timeout or error), which is never an
+    empty session (the real second review of 16c154f5a, finding 1; Watcher.stop_all). Ownership
+    captured at the review's start, never a name, a path or an ancestry: the exact mark and the
+    user id.
     AND THE SESSION ITS LEADER LEADS (spawn starts each review in a session of its own), for what
     hides its environment (MARK_ENV): its members count while the session is owned (the caller's
     word: its leader verified alive, or recorded so and the session not seen empty since; Watcher.
@@ -329,9 +331,9 @@ def owned_processes(reviews):
         r = subprocess.run(["ps", "-A", "-o", "pid=,uid=,pgid=,stat="], capture_output=True, text=True,
                            timeout=1, env=dict(os.environ, LC_ALL="C"))
     except (OSError, subprocess.TimeoutExpired):
-        return out
+        return None
     if r.returncode != 0:
-        return out
+        return None
     uid, me = os.getuid(), os.getpid()
     marks = [("%s=%s" % (MARK_ENV, mark)).encode() if mark else None for _leader, mark, _owned in reviews]
     session = [{} for _ in reviews]
@@ -990,7 +992,12 @@ class Watcher(object):
         the leader led. That session is owned while the leader is verified alive, and, once the
         leader has exited, while the review was recorded as leading it (own_session in its lock,
         start; or this watcher's own child) and no read has found it empty, unless its pid now
-        leads a session again, which only a new process can (owned_processes)."""
+        leads a session again, which only a new process can (owned_processes).
+
+        A READ THAT FAILS IS NOT AN EMPTY SESSION (the real second review of 16c154f5a, finding 1):
+        a process table that cannot be read leaves each review unknown, never gone: it keeps its
+        session and is kept as left, so a stop that never reads the table again returns it and
+        its lock stays unsettled for the next look."""
         live = [i for i in infos if i.get("pid")]
         for i in live:
             i["_verified"] = bool(self.alive(i))
@@ -1001,6 +1008,8 @@ class Watcher(object):
         def scan(infos):
             found = owned_processes([(int(i["pid"]), i.get("mark") or self.marks.get(i["pid"], ""), i["_session"])
                                      for i in infos])
+            if found is None:
+                return [None] * len(infos)          # unknown: none gone, every session still owned
             for i, procs in zip(infos, found):
                 i["_session"] = i["_session"] and any(s == int(i["pid"]) for _g, _st, s in procs.values())
             return found
@@ -1028,7 +1037,7 @@ class Watcher(object):
                 child = self.children.get(i["pid"])
                 if child is not None:
                     child.poll()
-                if procs or (i["_verified"] and not group_gone(i["pid"])):
+                if procs is None or procs or (i["_verified"] and not group_gone(i["pid"])):
                     keep.append((i, procs))
             return [i for i, _p in keep], [p for _i, p in keep]
 
@@ -1037,8 +1046,8 @@ class Watcher(object):
             while True:
                 killpg(infos, signal.SIGSTOP)
                 found = scan(infos)
-                running = [p for procs in found for p, (_g, stat, _s) in procs.items() if stat[:1] != "T"]
-                if not running or time.monotonic() >= end:
+                running = [p for procs in found for p, (_g, stat, _s) in (procs or {}).items() if stat[:1] != "T"]
+                if (not running and None not in found) or time.monotonic() >= end:
                     return found
                 kill(running, signal.SIGSTOP)
                 time.sleep(0.02)
@@ -1047,7 +1056,7 @@ class Watcher(object):
         if not live:
             return []
         found = freeze(live)
-        kill([p for i, procs in zip(live, found) for p, (g, _st, _s) in procs.items()
+        kill([p for i, procs in zip(live, found) for p, (g, _st, _s) in (procs or {}).items()
               if not (i["_verified"] and g == int(i["pid"]))], signal.SIGKILL)
         killpg(live, signal.SIGTERM)
         killpg(live, signal.SIGCONT)
@@ -1058,7 +1067,7 @@ class Watcher(object):
             while True:
                 if last:
                     killpg(live, signal.SIGKILL)
-                    kill([p for procs in found for p in procs], signal.SIGKILL)
+                    kill([p for procs in found for p in procs or ()], signal.SIGKILL)
                 live, found = left(live, scan(live))
                 if not live or time.monotonic() >= end:
                     break
@@ -1237,9 +1246,10 @@ class Watcher(object):
         left = set(id(i) for i in self.stop_all(own, QUIT_TERM_SECONDS, QUIT_KILL_SECONDS))
         for info in own:
             if id(info) in left:
-                # Still running after SIGKILL: never recorded as stopped. Its lock stays, and the
-                # next look settles it by what it finds then.
-                sys.stderr.write("review-watch: the review with pid %s was still running %.0f s after the quit "
+                # Still running after SIGKILL, or not seen gone (the process table could not be
+                # read): never recorded as stopped. Its lock stays, and the next look settles it
+                # by what it finds then.
+                sys.stderr.write("review-watch: the review with pid %s was not seen gone %.0f s after the quit "
                                  "began; it was not recorded as stopped\n"
                                  % (info.get("pid"), 2 * FREEZE_SECONDS + QUIT_TERM_SECONDS + QUIT_KILL_SECONDS))
                 continue

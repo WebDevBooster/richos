@@ -92,6 +92,9 @@
 #   W29  the quit keeps ending the review's own session after its launcher exits:
 #        a platform tool that hides the mark is ended, and the lock is settled only
 #        then (the reviewer's fixture orphan_platform_same_session.py)
+#   W30  a process table that cannot be read is never an empty session: the quit
+#        keeps the review's lock until a read sees its tool gone (the reviewer's
+#        fixture process_table_failure.py)
 #
 # Every case loads scripts/lib/app_review.py too: review_watch.py imports its app_paths.
 # The app mode (--app-state) and app_review.py's mid-job notice are driven over the real
@@ -1918,6 +1921,118 @@ sys.exit(0 if got == {"quit: the tool is in the review's session": True, "quit: 
 PY
 check "W29 a review's own session stays its own after its launcher exits: a tool that hides the mark is ended before the lock is settled" \
     $? "see above"
+
+# --- W30 ---------------------------------------------------------------------
+# The real second review of 16c154f5a, finding 1 (fixtures/process_table_failure.py): a ps timeout
+# made owned_processes answer an empty table, read as an empty session, so the quit recorded the
+# review stopped and settled its lock while its tool ran on. Now an unreadable table is unknown,
+# never empty: one failed read and the next read still finds and ends the tool; a table that
+# cannot be read at all leaves the lock unsettled, and the next look that can read it ends the tool
+# and settles it. The real ps, with its "ps -A" reads failing as injected; every mark hidden.
+python3 - "$LIB" "$SB/w30" <<'PY'
+import json, os, shlex, signal, subprocess, sys, time
+lib, root = sys.argv[1:3]
+os.makedirs(root)
+os.environ["REVIEW_WATCH_STATE_DIR"] = root
+os.environ["SECOND_REVIEW_STATE_DIR"] = os.path.join(root, "reviews")
+sys.path.insert(0, lib)
+import review_watch as rw
+rw.environment = lambda pid: []                 # every mark hidden, as a platform binary's is
+launcher = os.path.join(root, "launcher.py")
+with open(launcher, "w") as f:
+    f.write("import subprocess, sys, time\np = subprocess.Popen(['/bin/sleep', '40'])\n"
+            "open(sys.argv[1], 'w').write(str(p.pid))\ntime.sleep(0.3)\n")
+real_run, tools, got = subprocess.run, [], {}
+
+
+def exists(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def gone(pid):
+    for _ in range(40):                         # an orphan is reaped by launchd, not by us
+        if not exists(pid):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def failing(reads):
+    """subprocess.run whose first `reads` process-table reads time out (None: every one)."""
+    n = [0]
+    def run(argv, **kw):
+        if argv[:3] == ["ps", "-A", "-o"] and (reads is None or n[0] < reads):
+            n[0] += 1
+            raise subprocess.TimeoutExpired(argv, 1)
+        return real_run(argv, **kw)
+    return run
+
+
+def started(case, tip):
+    w = rw.Watcher("/fixture/engine", "", world=object())
+    fake = os.path.join(root, "second-review-%s.sh" % case)
+    with open(fake, "w") as f:
+        f.write("exec %s\n" % " ".join(map(shlex.quote, [sys.executable, "-B", launcher, os.path.join(root, case)])))
+    os.environ["REVIEW_WATCH_SECOND_REVIEW"] = fake
+    info = w.start(rw.Item("teammate:fixture", "fixture", root, tip, "b" * 40, "running"), "long-job", time.time(), 1)
+    end = time.monotonic() + 5
+    while not os.path.exists(os.path.join(root, case)) or not open(os.path.join(root, case)).read():
+        assert time.monotonic() < end
+        time.sleep(0.01)
+    tool = int(open(os.path.join(root, case)).read())
+    tools.append(tool)
+    w.children[info["pid"]].wait(timeout=5)     # the launcher has exited
+    return w, tool
+
+
+def outcomes():
+    return [a["outcome"] for a in rw.read_jsonl(rw._p("attempts.jsonl"))]
+
+
+try:
+    w, tool = started("once", "a" * 40)
+    rw.subprocess.run = failing(1)
+    try:
+        w.stop_own(time.time())
+    finally:
+        rw.subprocess.run = real_run
+    got["one failed read: the tool is ended"] = gone(tool)
+    got["one failed read: lock left"] = os.path.exists(rw.lock_path(root, "a" * 40))
+    got["one failed read: attempts"] = outcomes()
+    w, tool = started("never", "c" * 40)
+    rw.subprocess.run = failing(None)
+    try:
+        w.stop_own(time.time())
+    finally:
+        rw.subprocess.run = real_run
+    got["unreadable: lock left"] = os.path.exists(rw.lock_path(root, "c" * 40))
+    got["unreadable: attempts"] = outcomes()
+    rw.Watcher("/fixture/engine", "", world=object()).reconcile(time.time(), [])   # the next look reads it
+    got["next look: the tool is ended"] = gone(tool)
+    got["next look: lock left"] = os.path.exists(rw.lock_path(root, "c" * 40))
+    got["next look: attempts"] = outcomes()
+finally:
+    for t in tools:
+        try:
+            os.kill(t, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+print("    %s" % json.dumps(got, sort_keys=True))
+sys.exit(0 if got == {"one failed read: the tool is ended": True, "one failed read: lock left": False,
+                      "one failed read: attempts": ["stopped"],
+                      "unreadable: lock left": True, "unreadable: attempts": ["stopped"],
+                      "next look: the tool is ended": True, "next look: lock left": False,
+                      "next look: attempts": ["stopped", "lost"]} else 1)
+PY
+check "W30 a process table that cannot be read is never an empty session: the tool is ended before the lock is settled" \
+    $? "see above"
+
 
 # --- W04 ---------------------------------------------------------------------
 resetstate
