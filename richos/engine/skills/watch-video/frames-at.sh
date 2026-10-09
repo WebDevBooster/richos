@@ -50,12 +50,12 @@ to_secs() {  # 125.5 | MM:SS | HH:MM:SS -> seconds
     esac
     printf '%s\n' "$1" | awk -F: '{ s = 0; for (i = 1; i <= NF; i++) s = s * 60 + $i; printf "%.3f\n", s }'
 }
-fmt_time() {  # seconds (float) -> MMmSS.Ss
-    local tenths m s
-    tenths="$(printf '%.0f' "$(echo "$1 * 10" | bc -l)")"
-    m=$((tenths / 600))
-    s=$((tenths % 600))
-    printf '%02dm%02d.%ds' "$m" "$((s / 10))" "$((s % 10))"
+fmt_time() {  # seconds (float) -> MMmSS.mmms (milliseconds, so distinct times never share a name)
+    local ms m s
+    ms="$(printf '%.0f' "$(echo "$1 * 1000" | bc -l)")"
+    m=$((ms / 60000))
+    s=$((ms % 60000))
+    printf '%02dm%02d.%03ds' "$m" "$((s / 1000))" "$((s % 1000))"
 }
 
 DURATION="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$INPUT")"

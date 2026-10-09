@@ -90,8 +90,8 @@ mean_luma() {  # mean luma (0-255, integer) of an image
 if [ -x "$ATSH" ]; then
     STATUS=0
     PA="$("$ATSH" "$SANDBOX/mute.mov" "$SANDBOX/at1" --at 1,00:05 2>/dev/null)" || STATUS=$?
-    L1="$(mean_luma "$SANDBOX/at1/frame-at-t00m01.0s.png" 2>/dev/null)"
-    L5="$(mean_luma "$SANDBOX/at1/frame-at-t00m05.0s.png" 2>/dev/null)"
+    L1="$(mean_luma "$SANDBOX/at1/frame-at-t00m01.000s.png" 2>/dev/null)"
+    L5="$(mean_luma "$SANDBOX/at1/frame-at-t00m05.000s.png" 2>/dev/null)"
     if [ "$STATUS" -eq 0 ] && [ "$(printf '%s\n' "$PA" | wc -l | tr -d ' ')" = 2 ] \
         && [ -n "$L1" ] && [ -n "$L5" ] && [ "$L1" -lt 20 ] && [ "$L5" -gt 10 ]; then
         ok "frames-at --at cuts the frames at 1 s (black) and 00:05 (white box) and prints their paths"
@@ -101,7 +101,7 @@ if [ -x "$ATSH" ]; then
     STATUS=0
     "$ATSH" "$SANDBOX/mute.mov" "$SANDBOX/win1" --window 2 6 --step 2 >/dev/null 2>&1 || STATUS=$?
     WN="$(ls "$SANDBOX/win1" 2>/dev/null | tr '\n' ' ')"
-    if [ "$STATUS" -eq 0 ] && [ "$WN" = "frame-at-t00m02.0s.png frame-at-t00m04.0s.png frame-at-t00m06.0s.png " ]; then
+    if [ "$STATUS" -eq 0 ] && [ "$WN" = "frame-at-t00m02.000s.png frame-at-t00m04.000s.png frame-at-t00m06.000s.png " ]; then
         ok "frames-at --window 2 6 --step 2 cuts three frames"
     else
         bad "frames-at --window (exit $STATUS, got: $WN)"
@@ -202,6 +202,17 @@ else
 fi
 PATH="$SANDBOX/fakebin:$PATH" "$SCRIPT" "https://example.com/v2" "$SANDBOX/url2" --height 480 >/dev/null 2>&1 || true
 if grep -q 'height<=480' "$SANDBOX/ytdlp.args"; then ok "--height sets the download height"; else bad "--height sets the download height"; fi
+if grep -q -- '-f ' "$SANDBOX/ytdlp.args" && ! grep -Eq -- '-f [^ ]*/b( |$)' "$SANDBOX/ytdlp.args"; then
+    ok "the download format has no fallback without the height cap"
+else
+    bad "the download format has no fallback without the height cap: $(head -1 "$SANDBOX/ytdlp.args")"
+fi
+
+# 8. two chosen times that differ by less than a tenth keep two frames
+STATUS=0
+"$ATSH" "$SANDBOX/rec.mov" "$SANDBOX/at2" --at 4.96,5.04 >/dev/null 2>&1 || STATUS=$?
+N2="$(ls "$SANDBOX/at2" 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$STATUS" -eq 0 ] && [ "$N2" = 2 ]; then ok "--at 4.96,5.04 keeps two frames"; else bad "--at 4.96,5.04 keeps two frames (exit $STATUS, $N2 files)"; fi
 
 if [ "$FAIL" -eq 0 ]; then echo "PASS"; exit 0; fi
 echo "$FAIL failure(s)"

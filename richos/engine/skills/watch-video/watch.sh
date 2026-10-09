@@ -115,8 +115,8 @@ case "$INPUT" in
         DL="$(mktemp -d "${TMPDIR:-/tmp}/watch-dl.XXXXXX")"
         echo "watch: downloading $SOURCE_URL at up to ${HEIGHT}p" >&2
         yt-dlp --no-playlist --no-progress --quiet --no-warnings \
-            -f "bv*[height<=$HEIGHT]+ba/b[height<=$HEIGHT]/b" --merge-output-format mp4 \
-            -o "$DL/video.%(ext)s" "$SOURCE_URL" >&2 || { echo "watch: download failed: $SOURCE_URL" >&2; exit 1; }
+            -f "bv*[height<=$HEIGHT]+ba/b[height<=$HEIGHT]" --merge-output-format mp4 \
+            -o "$DL/video.%(ext)s" "$SOURCE_URL" >&2 || { echo "watch: download failed (or nothing at or below ${HEIGHT}p is offered; try --height): $SOURCE_URL" >&2; exit 1; }
         INPUT="$(ls "$DL"/video.* 2>/dev/null | head -1)"
         [ -n "$INPUT" ] || { echo "watch: yt-dlp wrote no video file" >&2; exit 1; }
         ;;
