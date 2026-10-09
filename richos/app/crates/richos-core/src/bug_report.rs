@@ -182,11 +182,11 @@ impl Segment {
 ///     is written with a capital, so "deeply" in a sentence is left alone. One written in lower case
 ///     ("femcboost", a folder) is matched in any case, because it is not an ordinary word.
 ///   - Every match is a whole word: "Acmes" and "subAcme" are not "Acme".
-///   - **File paths**: any word with a `/` or a `\` in it, except a web address (`https://…`)
-///     and a short common form ("and/or", "24/7", a date like 10/09/2026). From the start of that
-///     word, a bracket or quote before it included, everything to the end of its sentence or line
-///     is left out, so no space, comma, bracket or quote in a file's name leaves a piece behind
-///     ([`find_paths`]).
+///   - **File paths**: any word with a `/` or a `\` in it, except a web address (`https://…`),
+///     "and/or", "w/", "w/o", "n/a", "24/7", and an all-digit fraction or date ("1/2", 10/09/2026).
+///     From the start of that word, a bracket or quote before it included, everything to the end
+///     of its line is left out, so no space, comma, bracket, quote or ". " in a file's name leaves
+///     a piece behind ([`find_paths`]).
 ///   - Where two of these overlap, both are left out as one.
 ///     **Email addresses** are `local@host.tld`.
 #[derive(Debug, Clone, Default)]
@@ -345,27 +345,26 @@ fn find_term(text: &str, term: &str) -> Vec<(usize, usize)> {
     out
 }
 
-/// **The end of the sentence** a path starts at `from`: a sentence end (`.`, `!` or `?` followed
-/// by a space or the end of the text) or a line break, whichever comes first. A file's name can
-/// hold spaces, commas, semicolons, brackets and quotes ("Smith, Jones Budget.xlsx", "Budget
-/// (draft) Client.xlsx"), so none of them says where it ends, and the words between the path and
-/// the sentence's end go with it (review rv-20261009T151254Z-84d1bdce-20df finding 1: a comma ended
-/// it; review rv-20261009T154959Z-96dcc581-085b finding 1: a closing bracket did). The dot of the
-/// file's own extension is followed by a letter, not a space, so it is not a sentence end.
-fn sentence_end(text: &str, from: usize) -> usize {
-    let mut chars = text[from..].char_indices().peekable();
-    while let Some((i, c)) = chars.next() {
-        let full_stop = ".!?".contains(c) && chars.peek().is_none_or(|&(_, next)| next.is_whitespace());
-        if c == '\n' || c == '\r' || full_stop {
-            return from + i;
-        }
-    }
-    text.len()
+/// **The end of the line** a path starts at `from`: the first line break, or the end of the text.
+/// A file's name can hold spaces, commas, semicolons, brackets, quotes and a full stop followed by
+/// a space ("Smith, Jones Budget.xlsx", "Budget (draft) Client.xlsx", "Dr. SecretClient
+/// Budget.xlsx"), so none of them says where it ends, and the words between the path and the end
+/// of its line go with it (review rv-20261009T151254Z-84d1bdce-20df finding 1: a comma ended it;
+/// review rv-20261009T154959Z-96dcc581-085b finding 1: a closing bracket did; cc/echo-opus-bug7
+/// at 1e7b696cf: ". " did, so "Dr. SecretClient Budget.xlsx" left "SecretClient Budget.xlsx"
+/// public).
+fn line_end(text: &str, from: usize) -> usize {
+    text[from..].find(['\n', '\r']).map_or(text.len(), |i| from + i)
 }
 
-/// **A word with a slash that is not a path**: a web address (`http://`, `https://`), or a short
-/// common form with no more than one word on each side of its slash ("and/or", "24/7", "w/o") or a
-/// date ("10/09/2026"). Brackets, quotes and punctuation around the word are not part of the form
+/// The short fixed list of words with a slash that are not paths ("w/" is "with").
+const SLASH_WORDS: [&str; 5] = ["and/or", "w/", "w/o", "n/a", "24/7"];
+
+/// **A word with a slash that is not a path**, and nothing else is: a web address (`http://`,
+/// `https://`), a word on [`SLASH_WORDS`] in any capitals, or all digits on each side of its
+/// slashes, one to four of them: a fraction ("1/2") or a date ("10/09", "10/09/2026"). Two plain
+/// words ("Clients/SecretCo") are a path (cc/echo-opus-bug7 at 1e7b696cf left them public as a
+/// short form). Brackets, quotes and punctuation around the word are not part of the form
 /// ("(and/or)", "24/7,"). A backslash never makes one: there is no common form written with it.
 fn is_not_a_path(word: &str) -> bool {
     let core = word.trim_matches(|c: char| !(c.is_alphanumeric() || c == '/' || c == '\\'));
@@ -377,16 +376,18 @@ fn is_not_a_path(word: &str) -> bool {
     if core.contains('\\') {
         return false;
     }
+    if SLASH_WORDS.iter().any(|w| core.eq_ignore_ascii_case(w)) {
+        return true;
+    }
     let parts: Vec<&str> = core.split('/').collect();
-    let one_word = |p: &&str| !p.is_empty() && p.chars().all(char::is_alphanumeric);
     let number = |p: &&str| (1..=4).contains(&p.len()) && p.chars().all(|c| c.is_ascii_digit());
-    (parts.len() == 2 && parts.iter().all(one_word)) || (parts.len() == 3 && parts.iter().all(number))
+    (2..=3).contains(&parts.len()) && parts.iter().all(number)
 }
 
 /// **File paths**: every word (a run of text between spaces) with a `/` or a `\` in it, except
 /// the ones [`is_not_a_path`] names. Each is left out from the start of its word, so a bracket,
-/// quote or backtick written before it goes with it, to the end of its sentence or line
-/// ([`sentence_end`]); sentence punctuation at its end stays outside.
+/// quote or backtick written before it goes with it, to the end of its line ([`line_end`]); the
+/// line's own final full stop, colon, "!" or "?" stays outside.
 ///
 /// The rule recognizes no shape of path (review rv-20261009T154959Z-96dcc581-085b: three rounds
 /// in a row each found one more shape that leaked, the last nested brackets and relative paths).
@@ -404,7 +405,7 @@ fn find_paths(text: &str) -> Vec<(usize, usize)> {
         if start < skip_to || !word.contains(['/', '\\']) || is_not_a_path(word) {
             continue;
         }
-        let mut end = sentence_end(text, start);
+        let mut end = start + text[start..line_end(text, start)].trim_end().len();
         while end > start && text[..end].ends_with(['.', ':', '!', '?']) {
             end -= 1;
         }
@@ -1369,7 +1370,12 @@ mod tests {
         let text = "see (/Users/a/b.txt): and \"~/x\"";
         let found: Vec<&str> = find_paths(text).into_iter().map(|(s, e)| &text[s..e]).collect();
         assert_eq!(found, ["(/Users/a/b.txt): and \"~/x\""]);
+        // Since cc/echo-opus-bug7 left ". " ending a path inside a file's name, a sentence end
+        // no longer ends one: the line's end does, and its final full stop stays outside.
         let text = "see /a. Then ~/x! And 10/09.";
+        let found: Vec<&str> = find_paths(text).into_iter().map(|(s, e)| &text[s..e]).collect();
+        assert_eq!(found, ["/a. Then ~/x! And 10/09"]);
+        let text = "see /a.\nThen ~/x!\r\nAnd 10/09.";
         let found: Vec<&str> = find_paths(text).into_iter().map(|(s, e)| &text[s..e]).collect();
         assert_eq!(found, ["/a", "~/x"]);
     }
