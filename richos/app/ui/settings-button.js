@@ -42,6 +42,7 @@ window.RichSettings = (function () {
   var memory = null; // { open() } — where his memory is kept (audit-7 row 13)
   var phonePairing = null; // { open() } — "Use Rich from your phone" (plan §4.1)
   var home = null; // { open() } — the home screen's company buttons: their labels and which show
+  var codexReviews = null; // { render(container), onOpen() }, "Let Codex review your team's work" (round 20.2, codex-reviews.js)
 
   var wrap = null;
   var menuEl = null;
@@ -436,6 +437,16 @@ window.RichSettings = (function () {
     if (!T.forcedDark()) menu.appendChild(buildThemeRow());
     menu.appendChild(buildFontRow()); // ...then Text size directly under it (§15)
     if (techy) menu.appendChild(buildTechyRow()); // ...and directly under that, Techy Mode
+    // "LET CODEX REVIEW YOUR TEAM'S WORK" (round 20.2, richos-hq design/mockups/rounds/round-20.2/;
+    // the CEO, ruling §114, 2026-10-09: "we should give the user a toggle/switch to manually enable
+    // that"). One row below Technical view, between two rules, as drawn, whatever Technical view is
+    // set to. A slot its owner fills (`codex-reviews.js`), as the updates row is: the row's states,
+    // its tooltip and its nudge are that file's.
+    if (codexReviews) {
+      var cxSlot = elem("div", "set-codex-slot", { id: "set-codex" });
+      codexReviews.render(cxSlot);
+      menu.appendChild(cxSlot);
+    }
     if (quota) menu.appendChild(buildDisclosureRow("set-quota-open", "Claude Code quota", function () { quota.open(); }, "set-quota-state"));
     if (company) menu.appendChild(buildCompanyRow()); // ...then which company this copy is for
     if (home) menu.appendChild(buildHomeRow()); // ...and directly under it, the home screen's buttons
@@ -602,6 +613,10 @@ window.RichSettings = (function () {
     // the sheet was last looked at. It is one `phone_status` call on this Mac — no network — and
     // it is never on a timer: an open menu does not poll.
     if (phonePairing && phonePairing.onOpen) phonePairing.onOpen();
+    // AND CODEX, for the same reason: it can be installed, signed in or out while this menu is
+    // shut, so whether the switch can be turned on is read when the menu opens (one
+    // `codex_reviews_status`: Codex's own `login status`, a few milliseconds, no network).
+    if (codexReviews && codexReviews.onOpen) codexReviews.onOpen();
   }
   function close(refocus) {
     if (!menuEl || menuEl.hidden) return;
@@ -854,6 +869,11 @@ window.RichSettings = (function () {
      *  writes the row's plain line. `dictation.js` registers it only once the app says
      *  dictation is there, so a build without it carries no row. */
     registerDictation: function (host) { dictation = host || null; rebuild(); },
+    /** "Let Codex review your team's work" (round 20.2): `host.render(container)` fills the row's
+     *  slot below Technical view, `host.onOpen()` reads Codex's state when the menu opens.
+     *  `codex-reviews.js` registers it once the app answers `codex_reviews_status`, so a page with
+     *  no shell behind it carries no switch it cannot save. */
+    registerCodexReviews: function (host) { codexReviews = host || null; rebuild(); },
     /** The first account's sign-in (the setup sheet's account step), opened from its card in
      *  the accounts sheet now that the old row is gone. */
     openAccount: function () { close(); if (account && account.open) account.open(); },

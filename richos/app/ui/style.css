@@ -9747,3 +9747,92 @@ body.panel-full .op-body {
 #set-dictation-state.is-attention { color: var(--gold-text); font-weight: 600; }
 .bugbtn:hover #set-dictation-state.is-attention { color: inherit; }
 @media (prefers-reduced-motion: reduce) { #dictation-sheet, #dictation-sheet * { animation: none !important; transition: none !important; } }
+
+/* ---------------------------------------------------------------------------------------------
+   "LET CODEX REVIEW YOUR TEAM'S WORK" — round 20.2 (richos-hq design/mockups/rounds/round-20.2/),
+   copied from its index.html ("ROUND 20", "ROUND 20.1", "ROUND 20.2" blocks) with the selectors
+   scoped to this row; `codex-reviews.js` builds it. One row in Settings below Technical view,
+   between two rules. The menu widens from 264 to 372px while the row is in it, as drawn, so the
+   tooltip's words read at 16px in a comfortable column. Every color is an existing token; the one
+   derived value, --sw-off (ink at 62% dark, 58% light), carries the off and unavailable switch,
+   as in the round. Contrast is computed in WebKit, both themes, by tests/codex-reviews.js.
+--------------------------------------------------------------------------------------------- */
+:root { --sw-off: rgba(223, 228, 238, 0.62); }
+:root[data-theme="light"] { --sw-off: rgba(12, 19, 34, 0.58); }
+.setmenu:has(#set-codex) { width: 372px; }
+/* THE TECHNICAL VIEW QUESTION IS PAINTED OVER THE MENU THAT ASKED IT. The menu's Technical view
+   switch opens this sheet (main.js openTechyScope) while the menu stays open, and the menu (in
+   `.settings`, z-index 300) floats above every `.overlay` (60). At 372px it covered the sheet's
+   Turn it on and Cancel at the app's minimum window, 1024 by 700 (tests/quota.js). The sheet is
+   aria-modal with its own Cancel, opened from the menu: the same standing `.home-prefs` has above
+   the button, and appearance.js check 7 lists it as the menu's own and proves it in the shell. */
+#techy-scope { z-index: 310; }
+/* TWO DEPARTURES FROM THE ROUND'S SPACING, both forced by a floor the round could not see:
+   the rules' margin is 2px above and below (the round's 6px) and the row's padding 9px over
+   10px (the round's 10px over 12px), 11px in all. At the app's own minimum window, 1024 by 700
+   on the home screen, "Bust a bug!" must be on screen as the menu opens (CEO ruling §15,
+   tests/settings-fit.js); with the round's spacing it ended at 707px. Nothing else moved. */
+#set-codex .set-rule { height: 1px; background: var(--line-soft); margin: 2px 4px; }
+.cx { padding: 9px 10px 10px; border-radius: 9px; transition: background-color 0.35s ease; }
+.cx.is-nudged { background: color-mix(in srgb, var(--gold) 9%, var(--surface)); }
+.cx-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.cx-name { font-weight: 600; font-size: 1rem; line-height: 1.4; color: var(--ink); cursor: pointer; padding-top: 2px; }
+.cx-name.is-unavailable { cursor: default; }
+.cx-who { position: relative; display: block; font-weight: 400; font-size: 1rem; color: var(--ink-soft); margin-top: 2px; }
+.cx-who b { font-weight: 600; color: var(--ink); }
+/* the switch: off is an outlined track (the outline is the indicator, at least 3:1), on is the
+   ruled gold, unavailable is a dashed track with a hollow knob */
+/* The colors fade only during a flip (`is-flipping`, set by codex-reviews.js for the flip's length),
+   never on a theme switch: the frame after a switch must already meet AA (tests/contrast.js 19). */
+.sw { position: relative; flex: none; width: 46px; height: 28px; border-radius: 999px; cursor: pointer; margin-top: 1px; padding: 0;
+  background: transparent; border: 1.5px solid var(--sw-off); }
+.sw.is-flipping { transition: background-color 0.22s ease, border-color 0.22s ease; }
+.sw::after { content: ""; position: absolute; top: 50%; left: 4px; width: 18px; height: 18px; margin-top: -9px; border-radius: 50%;
+  background: var(--sw-off); transition: transform 0.26s cubic-bezier(0.3, 1.4, 0.5, 1); }
+.sw.is-flipping::after { transition: transform 0.26s cubic-bezier(0.3, 1.4, 0.5, 1), background-color 0.22s ease, box-shadow 0.22s ease; }
+.sw:hover { border-color: var(--ink-soft); }
+.sw:hover::after { background: var(--ink-soft); }
+.sw[aria-checked="true"] { background: var(--gold); border-color: var(--gold); }
+.sw[aria-checked="true"]::after { transform: translateX(18px); background: var(--on-gold); }
+.sw:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.sw[aria-disabled="true"] { cursor: not-allowed; border-style: dashed; }
+.sw[aria-disabled="true"]::after { background: transparent; box-shadow: inset 0 0 0 1.5px var(--sw-off); }
+.sw[aria-disabled="true"]:hover { border-color: var(--sw-off); }
+.sw.shake { animation: swshake 0.38s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+@keyframes swshake { 20% { transform: translateX(-3px); } 45% { transform: translateX(3px); } 70% { transform: translateX(-2px); } 90% { transform: translateX(1px); } }
+/* the ⓘ after the reviewer's name, in every state */
+.cx-info { display: inline-grid; place-items: center; vertical-align: -4px; width: 24px; height: 24px; margin: -2px -2px -2px 4px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--ink-soft); cursor: help; }
+.cx-info svg { width: 18px; height: 18px; display: block; }
+.cx-info:hover, .cx-info[aria-expanded="true"] { color: var(--gold-text); background: color-mix(in srgb, var(--gold) 12%, var(--surface)); }
+.cx-info:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; color: var(--gold-text); }
+.cx-info-wrap { position: relative; display: inline-block; }
+.cx-info-wrap::after { content: ""; position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -10px; border-radius: 50%;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--gold) 55%, transparent); pointer-events: none; opacity: 0; }
+.cx-info-wrap.is-new::after { animation: cxring 1.1s cubic-bezier(0.2, 0.7, 0.3, 1) 0.25s 2; }
+@keyframes cxring { 0% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--gold) 55%, transparent); } 100% { opacity: 0; box-shadow: 0 0 0 12px color-mix(in srgb, var(--gold) 0%, transparent); } }
+/* the tooltip: one block of words per state, only the current one shown */
+.cx-tip { position: absolute; z-index: 5; top: calc(100% + 12px); left: -6px; width: 344px; box-sizing: border-box; padding: 14px 16px 15px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 24px 60px -30px var(--shadow-strong);
+  font-weight: 400; cursor: auto; text-align: left; opacity: 0; transform: translateY(-4px); transition: opacity 0.16s ease, transform 0.16s ease; }
+.cx-tip[hidden], .cx-tip > div[hidden] { display: none; }
+.cx-tip.is-shown { opacity: 1; transform: none; }
+.cx-tip::before { content: ""; position: absolute; top: -7px; left: var(--ax, 40px); width: 12px; height: 12px; margin-left: -6px;
+  background: var(--card); border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); border-top-left-radius: 2px; }
+.cx-tip::after { content: ""; position: absolute; left: 0; right: 0; top: -14px; height: 14px; } /* a bridge, so the pointer can cross into it */
+.cx-tip p { margin: 0; }
+.cx-tip .cx-p { font-size: 1rem; line-height: 1.5; color: var(--ink-soft); }
+.cx-tip .cx-p + .cx-p { margin-top: 8px; }
+.cx-tip .cx-unseen { margin-top: 6px; }
+.cx-tip .cx-p.cx-unseen { margin-top: 8px; }
+/* the line he asked for: what will happen, said before the switch is touched */
+.cx-tip .cx-aware { font-size: 1rem; line-height: 1.5; color: var(--ink); margin-top: 10px; padding-left: 12px; border-left: 2px solid var(--gold); }
+/* why it cannot be turned on */
+.cx-tip .cx-why { font-size: 1rem; line-height: 1.5; color: var(--ink); margin-top: 10px; padding-left: 12px; border-left: 2px dashed var(--sw-off); }
+.cx-tip .cx-why strong, .cx-tip .cx-aware strong { font-weight: 600; }
+.cx-tip .cx-warn { border-left: 2px solid var(--gold); }
+.cx-tip .cx-warn strong { color: var(--gold-text); }
+@media (prefers-reduced-motion: reduce) {
+  .sw, .sw::after, .cx-tip, .cx { transition: none; }
+  .sw.shake, .cx-info-wrap.is-new::after { animation: none; }
+}

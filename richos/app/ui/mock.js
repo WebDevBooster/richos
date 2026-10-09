@@ -1438,6 +1438,12 @@
     mic: "unknown", ax: "unknown", owner: "none", keyTap: false, secure: null }, preset.dictationView || {});
   let dictationAxAsked = !!preset.dictationAxAsked;
   const dictationCalls = [];
+  // "LET CODEX REVIEW YOUR TEAM'S WORK" (round 20.2): `codex_reviews_status`, as richos-core
+  // codex_reviews.rs reports it. Off on first run, Codex installed and signed in, as the round
+  // opens; `preset.codexReviews` overrides either fact, `__RICHOS_MOCK__.codexSet` changes what
+  // the Mac reports about Codex later.
+  const codexReviews = Object.assign({ on: false, codex: "ready" }, preset.codexReviews || {});
+  const codexReviewCalls = [];
 
   // The strings are the BACKEND'S, copied verbatim from `Component::why` and
   // `SETUP_ACCOUNT_NOTE`. A mock that paraphrased them would rehearse the surface against
@@ -2922,6 +2928,15 @@
           dictationOfferCalls.push("dictation_offer_shown");
           dictationOffered = true;
           return null;
+        // THE CODEX REVIEW SWITCH (codex_reviews.rs): the same facts and the same refusal: on is
+        // refused while Codex is not ready, off always goes through.
+        case "codex_reviews_status":
+          codexReviewCalls.push({ cmd });
+          return structuredClone(codexReviews);
+        case "codex_reviews_set":
+          codexReviewCalls.push({ cmd, on: !!args.on });
+          if (!(args.on && !codexReviews.on && codexReviews.codex !== "ready")) codexReviews.on = !!args.on;
+          return structuredClone(codexReviews);
         // The answer. It provisions nothing here — the point of the mock is the SURFACE —
         // but it returns the shape the real command returns, including the honest
         // `no-compiler` outcome, which is what a machine with no compiler actually gets.
@@ -4538,6 +4553,11 @@
     dictationSet(patch) { Object.assign(dictationView, patch || {}); emit("rich://dictation", { changed: true }); },
     /// The tool's key tap answered "Press a different key" with F`n`.
     dictationKey(n) { emit("rich://dictation", { key: n }); },
+    /// What the Mac reports about Codex now: "ready", "signedout" or "missing". The row reads it
+    /// when Settings next opens, as the app's does.
+    codexSet(codex) { codexReviews.codex = codex; },
+    /// The Codex switch's calls, in order, each with its arguments.
+    codexReviewCalls() { return codexReviewCalls.slice(); },
     /// Which provisioning commands the surface issued, in order.
     voiceModelCalls() { return mockVoiceModel.calls.slice(); },
     /// Make `provision_speech_model` reject with a sentence, the way the real command does

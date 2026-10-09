@@ -971,7 +971,7 @@ class DesktopWork(unittest.TestCase):
         state=self.root/"engine-state";claude=self.root/"claude";claude.write_text("#!/bin/sh\n");claude.chmod(0o755)
         os.environ.update({"REVIEW_WATCH_SECOND_REVIEW":str(fake)})
         accounts=self.root/"claude-accounts.json"
-        a=type("A",(),{"app_state":str(state),"claude":str(claude),"accounts":str(accounts),"status":False,"tick":True})
+        a=type("A",(),{"app_state":str(state),"claude":str(claude),"accounts":str(accounts),"codex_reviews":"","status":False,"tick":True})
         import time as _t
         def look(minutes):
             os.environ["REVIEW_WATCH_NOW"]=str(_t.time()+minutes*60)

@@ -27,7 +27,10 @@ async function main() {
     return page;
   }
   async function enableTechnical(page) {
-    await page.check("#set-techy");
+    // A click, as a person makes it: inside a conversation the switch asks first (the scope sheet),
+    // so it is not checked yet and `check` would click it again through the sheet, which since
+    // round 20.2 sits over the menu that asked it.
+    await page.click("#set-techy");
     await page.waitForFunction(() => !document.getElementById("set-quota-open").hidden || !document.getElementById("techy-scope").hidden);
     if (await page.locator("#techy-scope").isVisible()) await page.click("#techy-scope-confirm");
     if (await page.locator("#set-menu").isHidden()) await page.click("#set-btn");
