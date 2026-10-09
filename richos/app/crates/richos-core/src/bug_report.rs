@@ -98,6 +98,10 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// Every kind there is.
+    pub const ALL: [Kind; 7] =
+        [Kind::ConversationName, Kind::CompanyName, Kind::PersonName, Kind::FolderName, Kind::FilePath, Kind::EmailAddress, Kind::PrivateWord];
+
     /// The words that go on GitHub in its place.
     pub fn stand_in(self) -> &'static str {
         match self {
@@ -281,7 +285,7 @@ impl Scrubber {
                 _ => out.push(span),
             }
         }
-        out
+        outside_stand_ins(text, out)
     }
 
     /// `text` as segments, with every private span replaced by its stand-in.
@@ -303,8 +307,9 @@ impl Scrubber {
 
     /// **AN ISSUE'S BODY, SCRUBBED AS ONE WHOLE STRING**: `markdown` as this module writes it
     /// ([`issue_body`]), with every private span of the words GitHub shows ([`shown`]) replaced by
-    /// its stand-in, escaped like every other word of it. Nothing transforms the result: it is
-    /// the body that is sent ([`decide`]).
+    /// its stand-in, escaped like every other word of it. The scrub [`as_posted`] makes the card
+    /// with reads the body exactly so, part by part ([`body_parts`]); a body written out from its
+    /// card is left as it is by this, which is how a test can see that nothing was left behind.
     pub fn scrub_markdown(&self, markdown: &str) -> String {
         let (words, at) = shown(markdown);
         // Where the character shown at `offset` starts in `markdown`; the end of the words is the end of it.
@@ -341,6 +346,43 @@ impl Scrubber {
 /// out with no heads-up, in the draft and after a change Rich checked).
 fn is_word_char(c: char) -> bool {
     c.is_alphanumeric()
+}
+
+/// Private words found in some text: where they start and end in it (bytes), and their kind.
+type Span = (usize, usize, Kind);
+
+/// **A STAND-IN IS NEVER PRIVATE**: `spans` (in order, not overlapping) with every stand-in
+/// written in `text` taken out of them, and the spaces at either end of what is left. A stand-in
+/// is the words that go on GitHub in a private word's place, so it is never left out itself: a
+/// person named "Mac" leaves "[a file on this Mac]" as it reads, and a path on a line that starts
+/// with "[a person]" leaves out the rest of the line and keeps the stand-in. This is what makes
+/// the last scrub end: a report scrubbed again has nothing more to leave out ([`as_posted`]).
+fn outside_stand_ins(text: &str, spans: Vec<Span>) -> Vec<Span> {
+    let mut stand_ins: Vec<(usize, usize)> =
+        Kind::ALL.iter().flat_map(|k| text.match_indices(k.stand_in()).map(|(at, s)| (at, at + s.len()))).collect();
+    stand_ins.sort_unstable();
+    let mut out = Vec::with_capacity(spans.len());
+    let mut keep = |start: usize, end: usize, kind: Kind| {
+        let words = &text[start..end];
+        let start = start + (words.len() - words.trim_start().len());
+        let end = start + words.trim().len();
+        if start < end {
+            out.push((start, end, kind));
+        }
+    };
+    for (start, end, kind) in spans {
+        let mut at = start;
+        for &(s, e) in stand_ins.iter().filter(|&&(s, e)| s < end && e > start) {
+            if s > at {
+                keep(at, s, kind);
+            }
+            at = at.max(e);
+        }
+        if at < end {
+            keep(at, end, kind);
+        }
+    }
+    out
 }
 
 fn char_before(text: &str, at: usize) -> Option<char> {
@@ -1141,7 +1183,8 @@ fn paragraphs_of(text: &str, scrubber: &Scrubber) -> Vec<Vec<Segment>> {
         .collect()
 }
 
-/// Rich's write-up as a draft: every section scrubbed, the version line added as it is.
+/// Rich's write-up as a draft: every section scrubbed, the version line added as it is, and the
+/// whole of it as it will be posted ([`as_posted`]), so the first card is already the issue.
 pub fn draft_from(written: &Written, version: &str, scrubber: &Scrubber) -> Draft {
     let scrubber = scrubber.and_rich(written.private.iter().cloned());
     let paragraphs = |text: &str| paragraphs_of(text, &scrubber);
@@ -1160,7 +1203,7 @@ pub fn draft_from(written: &Written, version: &str, scrubber: &Scrubber) -> Draf
         sections.push(DraftSection { heading: "What the user expected".into(), paragraphs: paragraphs(&written.expected), steps: vec![] });
     }
     sections.push(DraftSection { heading: "Version".into(), paragraphs: vec![vec![Segment::plain(version)]], steps: vec![] });
-    Draft { title: scrubber.scrub(&written.title), sections, private: distinct(written.private.iter().cloned()) }
+    as_posted(&Draft { title: scrubber.scrub(&written.title), sections, private: distinct(written.private.iter().cloned()) }, &scrubber)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1243,26 +1286,55 @@ fn shown(markdown: &str) -> (String, Vec<(usize, usize)>) {
     (words, at)
 }
 
-/// The issue's body: each section as a heading and its words, nothing added.
-pub fn issue_body(sheet: &Sheet) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    for section in &sheet.sections {
-        let mut block = format!("### {}\n", escaped(section.heading.trim()));
-        for p in section.paragraphs.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
-            block.push('\n');
-            block.push_str(&escaped(p));
-            block.push('\n');
+/// Where some of the card's words are on it: a section's heading, one of its paragraphs, or one
+/// of its steps (by section, then by paragraph or step).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place {
+    Heading(usize),
+    Paragraph(usize, usize),
+    Step(usize, usize),
+}
+
+/// One part of an issue's body: some of the card's words with where they are on it, or a mark
+/// written around them (`None`).
+type Part = (Option<Place>, String);
+
+/// **AN ISSUE'S BODY, PART BY PART, IN ORDER**: the card's own words with where they are on it,
+/// and the marks this module writes around them (`None`: "### ", a step's number, line breaks).
+/// The body ([`issue_body`]) and the words the last scrub reads in it ([`as_posted`]) are both
+/// written from these, so the two cannot be laid out differently.
+fn body_parts(sheet: &Sheet) -> Vec<Part> {
+    let mut parts: Vec<Part> = Vec::new();
+    let mark = |parts: &mut Vec<Part>, text: &str| parts.push((None, text.to_string()));
+    for (i, section) in sheet.sections.iter().enumerate() {
+        if i > 0 {
+            mark(&mut parts, "\n");
         }
-        let steps: Vec<&str> = section.steps.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        mark(&mut parts, "### ");
+        parts.push((Some(Place::Heading(i)), section.heading.trim().to_string()));
+        mark(&mut parts, "\n");
+        for (j, p) in section.paragraphs.iter().enumerate().map(|(j, p)| (j, p.trim())).filter(|(_, p)| !p.is_empty()) {
+            mark(&mut parts, "\n");
+            parts.push((Some(Place::Paragraph(i, j)), p.to_string()));
+            mark(&mut parts, "\n");
+        }
+        let steps: Vec<(usize, &str)> = section.steps.iter().enumerate().map(|(k, s)| (k, s.trim())).filter(|(_, s)| !s.is_empty()).collect();
         if !steps.is_empty() {
-            block.push('\n');
-            for (i, step) in steps.iter().enumerate() {
-                block.push_str(&format!("{}. {}\n", i + 1, escaped(step)));
+            mark(&mut parts, "\n");
+            for (n, (k, step)) in steps.into_iter().enumerate() {
+                mark(&mut parts, &format!("{}. ", n + 1));
+                parts.push((Some(Place::Step(i, k)), step.to_string()));
+                mark(&mut parts, "\n");
             }
         }
-        parts.push(block);
     }
-    parts.join("\n")
+    parts
+}
+
+/// The issue's body: each section as a heading and its words, nothing added, every word escaped
+/// ([`escaped`]) so GitHub shows the words themselves.
+pub fn issue_body(sheet: &Sheet) -> String {
+    body_parts(sheet).into_iter().map(|(place, text)| if place.is_some() { escaped(&text) } else { text }).collect()
 }
 
 /// The page of issue `number` on [`REPOSITORY`]. Built from a number, so the card's link can only
@@ -1293,20 +1365,158 @@ pub fn issue_request(public: &Public) -> (String, serde_json::Value) {
 //       waits on this Mac until he can ([`Outbox::keep_edited`]);
 //   (b) they are scrubbed LAST, as one whole string each (the title, and the whole body with its
 //       headings, paragraphs and steps), with every private word RichOS holds and every one Rich
-//       named, after every other transformation; nothing transforms them afterwards.
+//       named, after every other transformation; nothing transforms them afterwards;
+//   (c) they are the words the card showed when Send was pressed, every one (review
+//       rv-20261009T190633Z-d9cdd913-9f1c: on d9cdd913f a title's backticks became apostrophes,
+//       and a heading the last scrub left out was filed while the card still showed it). Every
+//       transformation in (b), the title's one substitution and the last scrub included, is ONE
+//       function ([`as_posted`]) that makes the CARD: the words the user is shown are its output,
+//       and the issue is that card written out with nothing changed ([`issue_of`]). At Send it
+//       is run again on the card's words; when its card differs from the one on screen in any
+//       character, nothing is sent and the card is shown again as it would go.
 
-/// **THE WORDS OF ONE ISSUE AS ASSEMBLED FROM THE CARD**, before the last scrub: its title (one
-/// line, with a backtick written as an apostrophe, because GitHub draws a title's `word` as code
-/// and the scrub reads the words as GitHub shows them), and its body ([`issue_body`]).
+/// **THE WORDS OF ONE ISSUE, WRITTEN OUT FROM THE CARD**: its title as the card shows it, and its
+/// body ([`issue_body`]): the card's words, every one as it reads, with only the marks that make
+/// GitHub show them as written ([`escaped`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Issue {
     pub title: String,
     pub body: String,
 }
 
-/// The issue `sheet` assembles to: every transformation there is, before the last scrub.
+/// The issue `sheet` is written out as. It changes no word: what changes words is [`as_posted`],
+/// and its output is the card.
 pub fn issue_of(sheet: &Sheet) -> Issue {
-    Issue { title: sheet.title.trim().replace('`', "'"), body: issue_body(sheet) }
+    Issue { title: sheet.title.trim().to_string(), body: issue_body(sheet) }
+}
+
+/// **THE ISSUE AS IT WILL BE POSTED, AS THE CARD SHOWS IT**: the one function every word of a
+/// report passes through between Rich's check and GitHub (the invariant above, (b) and (c)), and
+/// the only maker of what the card shows ([`draft_from`], [`redraft`]):
+///
+///   - the title's one substitution: a backtick is written as an apostrophe, because GitHub draws a
+///     title's `word` as code, and a title shows the words as they are (the scrub reads them so);
+///   - the last scrub, with `scrubber`: the title as one whole string, and the whole body as one
+///     whole string, its headings, paragraphs and steps with the marks around them, read as GitHub
+///     shows them. What it leaves out is left out where it is on the card: a heading, a paragraph,
+///     a step (its number stays, it is not private), and a name that runs from one into the next
+///     is left out in each;
+///   - again, until nothing more is left out: a stand-in is never private ([`outside_stand_ins`]),
+///     so every pass leaves out words that were there before it, and the passes end.
+///
+/// Stand-ins already on `draft` stay as they are, with what they replaced.
+pub fn as_posted(draft: &Draft, scrubber: &Scrubber) -> Draft {
+    let mut card = tidied(draft);
+    for segment in card.title.iter_mut().filter(|s| s.was.is_none()) {
+        segment.text = segment.text.replace('`', "'");
+    }
+    loop {
+        let sheet = sheet_of(&card);
+        let title = scrubber.spans(&sheet.title);
+        let mut in_body: Vec<(Place, Vec<Span>)> = Vec::new();
+        let parts = body_parts(&sheet);
+        let words: String = parts.iter().map(|(_, text)| text.as_str()).collect();
+        let spans = scrubber.spans(&words);
+        let mut at = 0;
+        for (place, text) in &parts {
+            let (start, end) = (at, at + text.len());
+            at = end;
+            let Some(place) = place else { continue };
+            let here: Vec<Span> =
+                spans.iter().filter(|&&(s, e, _)| s < end && e > start).map(|&(s, e, kind)| (s.max(start) - start, e.min(end) - start, kind)).collect();
+            let here = outside_stand_ins(text, here);
+            if !here.is_empty() {
+                in_body.push((*place, here));
+            }
+        }
+        if title.is_empty() && in_body.is_empty() {
+            return card;
+        }
+        card.title = left_out(&card.title, &title);
+        for (place, here) in in_body {
+            match place {
+                Place::Heading(i) => {
+                    let heading = &mut card.sections[i].heading;
+                    *heading = left_out(&[Segment::plain(heading)], &here).iter().map(|s| s.text.as_str()).collect();
+                }
+                Place::Paragraph(i, j) => card.sections[i].paragraphs[j] = left_out(&card.sections[i].paragraphs[j], &here),
+                Place::Step(i, k) => card.sections[i].steps[k] = left_out(&card.sections[i].steps[k], &here),
+            }
+        }
+        card = tidied(&card);
+        // Every pass leaves out words that were not a stand-in; one that leaves nothing out ends.
+        if sheet_of(&card) == sheet {
+            return card;
+        }
+    }
+}
+
+/// `segments` with each of `spans` (offsets in their words, in order, not overlapping) left out:
+/// a stand-in in its place, with what it replaced. A stand-in already there stays as it is.
+fn left_out(segments: &[Segment], spans: &[Span]) -> Vec<Segment> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for segment in segments {
+        let end = at + segment.text.len();
+        if segment.was.is_some() {
+            out.push(segment.clone());
+            at = end;
+            continue;
+        }
+        let mut done = at;
+        for &(s, e, kind) in spans.iter().filter(|&&(s, e, _)| s < end && e > at) {
+            let (s, e) = (s.max(done), e.min(end));
+            if s >= e {
+                continue;
+            }
+            if s > done {
+                out.push(Segment::plain(&segment.text[done - at..s - at]));
+            }
+            out.push(Segment::stand_in(&segment.text[s - at..e - at], kind));
+            done = e;
+        }
+        if done < end || segment.text.is_empty() {
+            out.push(Segment::plain(&segment.text[done - at..]));
+        }
+        at = end;
+    }
+    out
+}
+
+/// **THE CARD AS THE WINDOW READS IT** ([`sheet_of`]), one segment list per paragraph and step it
+/// reads: plain words next to each other joined, the spaces at either end of each trimmed,
+/// paragraphs and steps with no words dropped, headings trimmed. A "stand-in" whose words are not
+/// a stand-in is plain words: only a stand-in is never scrubbed again ([`outside_stand_ins`]).
+fn tidied(draft: &Draft) -> Draft {
+    let words = |segments: &[Segment]| -> Vec<Segment> {
+        let mut out: Vec<Segment> = Vec::new();
+        for segment in segments {
+            let stand_in = segment.was.is_some() && Kind::ALL.iter().any(|k| k.stand_in() == segment.text);
+            match out.last_mut() {
+                Some(last) if !stand_in && last.was.is_none() => last.text.push_str(&segment.text),
+                _ if stand_in => out.push(segment.clone()),
+                _ => out.push(Segment::plain(&segment.text)),
+            }
+        }
+        if let Some(first) = out.first_mut().filter(|s| s.was.is_none()) {
+            first.text = first.text.trim_start().to_string();
+        }
+        if let Some(last) = out.last_mut().filter(|s| s.was.is_none()) {
+            last.text = last.text.trim_end().to_string();
+        }
+        out.retain(|s| s.was.is_some() || !s.text.is_empty());
+        out
+    };
+    let kept = |list: &[Vec<Segment>]| list.iter().map(|p| words(p)).filter(|p| !p.is_empty()).collect();
+    Draft {
+        title: words(&draft.title),
+        sections: draft
+            .sections
+            .iter()
+            .map(|s| DraftSection { heading: s.heading.trim().to_string(), paragraphs: kept(&s.paragraphs), steps: kept(&s.steps) })
+            .collect(),
+        private: draft.private.clone(),
+    }
 }
 
 /// **WORDS THAT MAY LEAVE THIS MAC**: words Rich checked, scrubbed last. Made only by [`decide`];
@@ -1382,7 +1592,7 @@ pub fn sheet_of(draft: &Draft) -> Sheet {
             .sections
             .iter()
             .map(|s| SheetSection {
-                heading: s.heading.clone(),
+                heading: s.heading.trim().to_string(),
                 paragraphs: s.paragraphs.iter().map(words).filter(|p| !p.is_empty()).collect(),
                 steps: s.steps.iter().map(words).filter(|p| !p.is_empty()).collect(),
             })
@@ -1393,10 +1603,12 @@ pub fn sheet_of(draft: &Draft) -> Sheet {
 /// What may happen when the user presses Send.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
-    /// These words go, exactly.
+    /// These words go, exactly: the words the card showed when Send was pressed, every one.
     Send(Public),
-    /// The last scrub left out more than the card shows: the card is shown again with it left
-    /// out, and Rich's check of it is this draft ([`Check::of`]). Nothing is sent until Send.
+    /// The issue as it would be posted differs from the card in some character (the last scrub
+    /// left out more than the card shows, or a title's backtick is an apostrophe there): the card
+    /// is shown again as it would go, and Rich's check of it is this draft ([`Check::of`]).
+    /// Nothing is sent until Send.
     Show(Draft),
     /// Some word differs from what Rich last checked: nothing is sent until he checks it.
     Unchecked,
@@ -1404,36 +1616,29 @@ pub enum Decision {
 
 /// **THE ONE DECISION ABOUT WHAT LEAVES THIS MAC** (the invariant above). `sheet` is the card's
 /// words at Send, `check` what Rich last checked of this report, `app` the private words RichOS
-/// holds. Sent only when the issue assembled from `sheet` is the one Rich checked, scrubbed last
-/// as one whole string per field with his private words and RichOS's; when that last scrub leaves
-/// out what the card still shows, the card is shown again first, so what goes is what the user
-/// last saw.
+/// holds. The card's words are made into the issue as it will be posted ([`redraft`], through
+/// [`as_posted`]: the title's substitution and the last scrub, with his private words and
+/// RichOS's). Sent only when they are the words Rich checked AND that issue is the card, to the
+/// character; when it is not, nothing is sent and the card is shown again as it would go, so
+/// what goes is always what the user last saw. The card shown again is that function's own
+/// output, so Send on it sends it as shown.
 pub fn decide(sheet: &Sheet, check: Option<&Check>, app: &[PrivateTerm]) -> Decision {
-    let issue = issue_of(sheet);
-    let Some(check) = check.filter(|c| c.issue == issue) else { return Decision::Unchecked };
-    let scrubber = Scrubber::with_rich(app.to_vec(), check.private.clone());
-    let public = Issue {
-        title: scrubber.scrub(&issue.title).iter().map(|s| s.text.as_str()).collect(),
-        body: scrubber.scrub_markdown(&issue.body),
-    };
-    if public != issue {
-        let again = redraft(sheet, check, app);
-        // Only when the card can show it: what it cannot (a heading, a step's number) is sent
-        // left out without showing the card again, so pressing Send always ends.
-        if issue_of(&sheet_of(&again)) != issue {
-            return Decision::Show(again);
-        }
+    let Some(check) = check.filter(|c| c.issue == issue_of(sheet)) else { return Decision::Unchecked };
+    let posted = redraft(sheet, check, app);
+    if sheet_of(&posted) != *sheet {
+        return Decision::Show(posted);
     }
-    Decision::Send(Public(public))
+    Decision::Send(Public(issue_of(&sheet_of(&posted))))
 }
 
-/// **THE CARD'S WORDS AS A DRAFT AGAIN**, scrubbed with the private words of `check` and the ones
-/// RichOS holds: the title, each section's paragraphs as one string ([`paragraphs_of`]) and each
-/// step. A stand-in already on the card is plain words here (what it replaced is not in the
-/// sheet), so it stays as it reads.
+/// **THE CARD'S WORDS AS A DRAFT AGAIN, AS THEY WOULD BE POSTED**, scrubbed with the private words
+/// of `check` and the ones RichOS holds: the title, each section's paragraphs as one string
+/// ([`paragraphs_of`]) and each step, then the whole of it through [`as_posted`]. A stand-in
+/// already on the card is plain words here (what it replaced is not in the sheet), and it stays
+/// as it reads.
 pub fn redraft(sheet: &Sheet, check: &Check, app: &[PrivateTerm]) -> Draft {
     let scrubber = Scrubber::with_rich(app.to_vec(), check.private.clone());
-    Draft {
+    let draft = Draft {
         title: scrubber.scrub(sheet.title.trim()),
         sections: sheet
             .sections
@@ -1445,7 +1650,8 @@ pub fn redraft(sheet: &Sheet, check: &Check, app: &[PrivateTerm]) -> Draft {
             })
             .collect(),
         private: check.private.clone(),
-    }
+    };
+    as_posted(&draft, &scrubber)
 }
 
 /// The line over Rich's answer when he checked words the user changed.

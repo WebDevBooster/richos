@@ -1311,7 +1311,10 @@ fn what_github_is_sent_is_the_issue_rich_checked_scrubbed_last_as_one_string() {
     // The two marks that made GitHub show other words than the ones written are escaped now.
     assert_eq!(body("~~Jane~~ Doe and Jane&#32;Doe"), "### What happened\n\n\\~\\~Jane\\~\\~ Doe and Jane\\&\\#32;Doe\n");
     // A title's backtick is an apostrophe: GitHub draws `Jane` in a title as code, not as "`Jane`".
-    assert_eq!(issue_of(&Sheet { title: "`Jane` froze".into(), sections: vec![] }).title, "'Jane' froze");
+    // The card shows it so ([`as_posted`]); writing the card out changes no word.
+    let backticks = Sheet { title: "`Jane` froze".into(), sections: vec![] };
+    assert_eq!(sheet_of(&as_posted(&draft_of(&backticks, vec![]), &Scrubber::default())).title, "'Jane' froze");
+    assert_eq!(issue_of(&backticks).title, "`Jane` froze");
 }
 
 #[test]
@@ -1449,5 +1452,138 @@ fn a_private_name_with_an_accent_written_the_other_unicode_way_is_left_out_once_
         assert!(matches!(decide(&edited, Some(&recheck), &[]), Decision::Show(_)), "sent without showing what was left out");
         let body = sent_body(&edited, &recheck);
         assert!(!body.contains("NORTH") && body.contains("\\[a company\\] froze."), "{listed:?} in {said:?} sent {body:?}");
+    }
+}
+
+// ---- the review of d9cdd913f (rv-20261009T190633Z-d9cdd913-9f1c), fixture `approval.rs` ----
+
+/// Rich's checked draft of a report titled `title`, with `happened` under What happened and
+/// `private` (a JSON list) as the private words he named.
+fn written_as(title: &str, happened: &str, private: serde_json::Value) -> Checked {
+    let answer = serde_json::json!({"title": title, "what_happened": happened, "private": private}).to_string();
+    checked(Ok(answer), &screen(), false, VERSION, &Scrubber::default()).unwrap()
+}
+
+/// **WHAT GOES, AND THE CARD THE USER LAST SAW WHEN IT WENT**: Send pressed on `card` under
+/// `check`, and pressed once more on the card shown again if it is shown again, as the window
+/// does. A card shown again is the issue exactly as it would go, so the second press sends it:
+/// a third card would be a card that never ends.
+fn sent_from(card: &Sheet, check: &Check, app: &[PrivateTerm]) -> (Sheet, Public) {
+    match decide(card, Some(check), app) {
+        Decision::Send(public) => (card.clone(), public),
+        Decision::Show(again) => match decide(&sheet_of(&again), Some(&Check::of(&again)), app) {
+            Decision::Send(public) => (sheet_of(&again), public),
+            other => panic!("the card shown again was not sent as shown: {other:?}"),
+        },
+        Decision::Unchecked => panic!("unchecked"),
+    }
+}
+
+/// The title and the body GitHub is sent are the card's words, every one: the title as the card
+/// shows it, and the body as the card's sections written out, every mark escaped so that GitHub
+/// shows the words themselves ([`issue_body`]).
+fn assert_sent_as_shown(card: &Sheet, public: &Public) {
+    assert_eq!(public.title(), card.title, "the title sent is not the title the card showed");
+    assert_eq!(public.body(), issue_body(card), "the body sent is not the body the card showed");
+    let (_, request) = issue_request(public);
+    assert_eq!((request["title"].as_str(), request["body"].as_str()), (Some(card.title.as_str()), Some(issue_body(card).as_str())));
+}
+
+#[test]
+fn the_title_sent_is_the_title_the_card_shows() {
+    // Finding 1: on d9cdd913f the card showed "`Enter` does not send", and "'Enter' does not
+    // send" was filed: the title's backticks became apostrophes after the user approved it.
+    let written = written_as("`Enter` does not send", "The window froze.", serde_json::json!([]));
+    let card = sheet_of(&written.draft);
+    match decide(&card, Some(&Check::of(&written.draft)), &[]) {
+        Decision::Send(public) => assert_sent_as_shown(&card, &public),
+        other => panic!("Rich's checked draft was not sendable: {other:?}"),
+    }
+    assert_eq!(card.title, "'Enter' does not send", "the card does not show the title as it goes");
+
+    // A backtick the user types into the title is shown as it would go before anything is sent.
+    let mut typed = card.clone();
+    typed.title = "`Enter` still does not send".into();
+    let check = check_edit(Ok(r#"{"private": []}"#.into()), &typed, &[]).unwrap();
+    match decide(&typed, Some(&check), &[]) {
+        Decision::Show(again) => assert_eq!(sheet_of(&again).title, "'Enter' still does not send"),
+        Decision::Send(public) => panic!("card title {:?}; sent title {:?}; no card shown again", typed.title, public.title()),
+        Decision::Unchecked => panic!("unchecked"),
+    }
+    let (shown, public) = sent_from(&typed, &check, &[]);
+    assert_sent_as_shown(&shown, &public);
+}
+
+#[test]
+fn a_heading_the_last_scrub_changes_is_shown_before_anything_is_sent() {
+    // Finding 2: with a company named "Version" private, on d9cdd913f the card showed the
+    // "Version" heading, the last scrub filed it as "[a company]", and no card was shown again.
+    let version = serde_json::json!([{"text": "Version", "kind": "company"}]);
+    let written = written_as("Window froze", "Version froze.", version.clone());
+    let card = sheet_of(&written.draft);
+    match decide(&card, Some(&Check::of(&written.draft)), &[]) {
+        Decision::Send(public) => assert_sent_as_shown(&card, &public),
+        other => panic!("Rich's checked draft was not sendable: {other:?}"),
+    }
+    assert_eq!(card.sections.last().unwrap().heading, "[a company]", "the card does not show the heading as it goes");
+
+    // A card that shows the heading, checked by Rich after a change by hand that names the
+    // company: the card is shown again with the heading as it would go, before anything is sent.
+    let plain = written_as("Window froze", "The window froze.", serde_json::json!([]));
+    let mut edited = sheet_of(&plain.draft);
+    assert_eq!(edited.sections.last().unwrap().heading, "Version");
+    edited.sections[0].paragraphs[0] = "Version froze.".into();
+    let check = check_edit(Ok(serde_json::json!({"private": version}).to_string()), &edited, &[]).unwrap();
+    match decide(&edited, Some(&check), &[]) {
+        Decision::Show(again) => assert_eq!(again.sections.last().unwrap().heading, "[a company]"),
+        Decision::Send(public) => panic!("card heading Version; sent body {:?}; no card shown again", public.body()),
+        Decision::Unchecked => panic!("unchecked"),
+    }
+    let (shown, public) = sent_from(&edited, &check, &[]);
+    assert_sent_as_shown(&shown, &public);
+    assert!(!public.body().contains("Version"), "{}", public.body());
+}
+
+/// `text` with every stand-in taken out, escaped or not: what is left is words the user wrote.
+fn without_stand_ins(text: &str) -> String {
+    let kinds = [Kind::ConversationName, Kind::CompanyName, Kind::PersonName, Kind::FolderName, Kind::FilePath, Kind::EmailAddress, Kind::PrivateWord];
+    let mut out = text.replace("\\[", "[").replace("\\]", "]");
+    for kind in kinds {
+        out = out.replace(kind.stand_in(), "");
+    }
+    out
+}
+
+#[test]
+fn every_card_is_word_for_word_the_issue_that_is_posted() {
+    // The class, not the two cases: whatever the card holds, what is posted is exactly what the
+    // card showed when Send was pressed, and a card shown again is sent as shown.
+    let person = |t: &str| PrivateTerm::new(t, Kind::PersonName);
+    let section = |heading: &str, paragraphs: &[&str], steps: &[&str]| SheetSection {
+        heading: heading.into(),
+        paragraphs: paragraphs.iter().map(|p| p.to_string()).collect(),
+        steps: steps.iter().map(|s| s.to_string()).collect(),
+    };
+    let cases: Vec<(Sheet, Vec<PrivateTerm>)> = vec![
+        // A title with backticks, marks and an @name in every field.
+        (Sheet { title: "`Esc` *closes* @octocat's [panel]".into(), sections: vec![section("What happened @team", &["`code` and _this_ ~~gone~~ #1 <b>x</b> | a & b"], &["Press `Esc`"])] }, vec![]),
+        // A name split across two paragraphs, and a path in a step: the step keeps its number.
+        (Sheet { title: "It froze".into(), sections: vec![section("What happened", &["It was opened by Jane", "Doe saw it freeze."], &["Open /Users/jane/notes.txt now"])] }, vec![person("Jane Doe")]),
+        // A heading that is a private name, and a name in the title.
+        (Sheet { title: "Jane froze it".into(), sections: vec![section("What happened", &["It froze."], &[]), section("Version", &[VERSION], &[])] }, vec![person("Jane"), PrivateTerm::new("Version", Kind::CompanyName)]),
+        // A private word that is also a word of a stand-in: the stand-in is not private.
+        (Sheet { title: "Mac froze".into(), sections: vec![section("What happened", &["Mac lost it.", "It was in /Users/mac/x.txt then."], &[])] }, vec![person("Mac")]),
+        // A path on a line that starts with a stand-in already on the card.
+        (Sheet { title: "Notes vanished".into(), sections: vec![section("What happened", &["[a person] keeps notes in /Users/x/notes.txt"], &[])] }, vec![]),
+    ];
+    for (card, private) in cases {
+        let check = check_edit(Ok(serde_json::json!({"private": private}).to_string()), &card, &[]).unwrap();
+        let (shown, public) = sent_from(&card, &check, &[]);
+        assert_sent_as_shown(&shown, &public);
+        let words = without_stand_ins(&format!("{}\n{}", public.title(), public.body()));
+        for p in &private {
+            assert!(!words.to_lowercase().contains(&p.text.to_lowercase()), "{:?} was posted: {public:?}", p.text);
+        }
+        assert!(!words.contains("/Users"), "{public:?}");
     }
 }
