@@ -201,7 +201,7 @@ def commit_check(repo, what):
             # The land's coverage rule applies to every code path, not only richos/app (2026-10-01:
             # a Swift file under richos/mobile and step lists under docs/verification passed here
             # and were refused at the merge). Lookup only: no suite runs for a change outside the app.
-            if branch_selection(repo, what, run_quick=False):
+            if branch_selection(repo, what):
                 return 1
         return 0
     with StagedOnly(repo) as aside:
@@ -763,7 +763,8 @@ def fast_candidates(repo, commands, durations):
     """[(seconds, label, cwd, argv)] for the selected commands that proof-run.py would label and
     whose recorded duration is under FAST_SECONDS. Labels follow proof-run.py plan(): an engine
     unit is `engine <unit>`, a run-tests.sh suite is its name without `.test.sh`, a script is its
-    basename without `.test.sh`/`.sh`. Any other shape (cargo, node, unreadable) is not a candidate."""
+    basename without `.test.sh`/`.sh`. A node suite is labeled by its file name (`heavy.js`), `node --test` is `web-app`.
+    Any other shape (cargo, unreadable) is not a candidate."""
     out = []
     for line in commands:
         found = re.match(r"^cd (\S+) && (.+)$", line.strip())
@@ -774,7 +775,7 @@ def fast_candidates(repo, commands, durations):
         except ValueError:
             continue
         cwd = found.group(1)
-        if not argv or argv[0] in ("cargo", "node"):
+        if not argv or argv[0] == "cargo":
             continue
         if argv[:2] == ["bash", "scripts/ci-shard.sh"] and "--only-units" in argv[:-1]:
             units = [u for u in argv[argv.index("--only-units") + 1].split(",") if u]
@@ -787,7 +788,9 @@ def fast_candidates(repo, commands, durations):
                     suite = argv[i + 1]
                     label = suite[:-len(".test.sh")] if suite.endswith(".test.sh") else suite
                     out.append((label, cwd, ["scripts/run-tests.sh", *flags, "--only", suite]))
-        elif argv[0] in ("bash", "python3") and len(argv) >= 2 and not argv[1].startswith("-"):
+        elif argv[:2] == ["node", "--test"]:
+            out.append(("web-app", cwd, argv))     # proof-run.py plan(): the web app's suite
+        elif argv[0] in ("bash", "python3", "node") and len(argv) >= 2 and not argv[1].startswith("-"):
             label = re.sub(r"\.test\.sh$|\.sh$", "", os.path.basename(argv[1]))
             out.append((label, cwd, argv))
     seen, chosen = set(), []
@@ -870,6 +873,7 @@ def branch_selection(repo, what, run_quick=True):
     if run_quick:
         # What the land would run, minus what it leaves to the nightly (mutation passes, devices).
         kept, _moved = for_the_nightly(repo, commands)
+        kept = [c for c in kept if not (c.startswith(UI_SUITE_LINE) and c[len(UI_SUITE_LINE):].strip() in quick)]
         fast, rc = run_fast_checks(repo, what, kept + anchors_command(repo, paths))
         if rc:
             return 1

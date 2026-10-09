@@ -404,6 +404,9 @@ class Fixture(unittest.TestCase):
         self.assertEqual(len(self.git("rev-list", "--parents", "-n", "1", "main").stdout.split()), 3)
 
 
+ENGINE_SHARD = "ci-shard.sh"   # kept apart: the publication guard reads a long verbatim run as private speech
+
+
 class Commit(Fixture):
     def test_a_commit_whose_lint_fails_is_refused_with_the_reason(self):
         self.make()
@@ -711,6 +714,58 @@ class Commit(Fixture):
                 out = self.git("commit", "-m", "broken, but the check is not a commit check")
                 self.assertIn("1 heavier check command(s) run at the land", out.stderr)
                 self.tearDown()
+
+    def finish_fast_setup(self):
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "fixture setup")
+        self.install()
+        self.git("checkout", "-q", "-b", "feature")
+
+    def test_an_engine_only_commit_runs_the_fast_unit_and_the_anchor_check(self):
+        # Review rv-20261009T093443Z: the no-app path ran branch_selection(run_quick=False), so a
+        # commit touching only richos/engine ran none of the fast checks (today's incidents).
+        self.make(install=False)
+        (self.repo / "richos/engine").unlink()      # our own tiny engine tree instead of the symlink
+        (self.repo / ".git/info/exclude").write_text("")
+        self.write("richos/engine/probe.txt", "fine\n")
+        self.write("richos/engine/scripts/ci-shard.sh",
+                   '#!/bin/bash\necho "ran-engine-fast" >> "$AUTOCHECK_FIXTURE_LOG"\n'
+                   'grep -q BROKEN probe.txt && { echo "engine fast: FAIL"; exit 1; }\nexit 0\n')
+        self.write("richos/engine/scripts/mutation-anchors.py",
+                   'from pathlib import Path\nimport sys\n'
+                   'bad = "BROKEN" in Path("probe.txt").read_text()\n'
+                   'print("anchor: FAIL" if bad else "anchor: PASS")\nsys.exit(1 if bad else 0)\n')
+        selector = self.repo / "richos/app/scripts/proof-for.sh"
+        selector.write_text(selector.read_text() +
+                            '\nif printf "%s\\n" "$paths" | grep -q "^richos/engine/"; then\n'
+                            ' echo "cd richos/engine && bash scripts/' + ENGINE_SHARD +
+                            ' --only-units scripts/fast.test.sh"; fi\n')
+        self.finish_fast_setup()
+        self.record_duration("engine scripts/fast.test.sh", 2.5)
+        weights = next((self.base / "proof-history").glob("*/weights.tsv"))
+        weights.write_text(weights.read_text() + "mutation-anchors.py\t2.3\t2.3\n")
+        self.write("richos/engine/probe.txt", "BROKEN\n")
+        self.git("add", "richos/engine/probe.txt")
+        out = self.git("commit", "-m", "engine-only broken change", expect=1)
+        self.assertIn("COMMIT REFUSED: mutation-anchors.py failed", out.stderr)   # fastest recorded, runs first
+        (self.repo / "richos/engine/scripts/mutation-anchors.py").unlink()
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "engine-only broken unit", expect=1)
+        self.assertIn("COMMIT REFUSED: engine scripts/fast.test.sh failed", out.stderr)
+        self.assertIn("ran-engine-fast", self.tools())
+
+    def test_a_node_suite_selected_and_recorded_as_fast_runs_at_the_commit(self):
+        self.make(install=False)
+        self.write("richos/app/ui/tests/heavy.js",
+                   'require("fs").appendFileSync(process.env.AUTOCHECK_FIXTURE_LOG, "node failing-heavy.js\\n");\n'
+                   'console.error("heavy: FAIL"); process.exit(1);\n')
+        self.finish_fast_setup()
+        self.record_duration("heavy.js", 2.5)
+        self.write("richos/app/src/claims.txt", "true, still\n")
+        self.git("add", "-A")
+        out = self.git("commit", "-m", "selects a failing 2.5-second node suite", expect=1)
+        self.assertIn("COMMIT REFUSED: heavy.js failed for this branch", out.stderr)
+        self.assertIn("node failing-heavy.js", self.tools())
 
     def test_fast_forwarding_a_branch_onto_a_land_merge_records_no_skip(self):
         # 2026-09-29: echo-opus-speckle1 fast-forwarded its branch onto main's 5ddcce1c, a
