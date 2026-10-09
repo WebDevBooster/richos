@@ -4904,14 +4904,17 @@ def merge_and_land(ref, me="", message=""):
     repository's main checkout (which must be on that branch), with git's own
     hooks and checks, then lands it exactly as the automatic land does
     (ignored files are kept, never a reason to stay). A merge git refuses
-    stops here with git's words; nothing is landed. Returns (merged, land
-    result)."""
+    stops here with git's words; nothing is landed. In a repository listed in
+    SECOND_REVIEW_REPOS nothing is merged unless the newest handover verdict
+    on exactly each branch tip says passed (_review_check, CEO §113), and the
+    merge message names that review. Returns (merged, land result)."""
     rec = _resolve(ref, me)
     fin, _pz, why = finished_state(rec)
     if not fin:
         raise SpecError("%s is not finished (%s); merge it when its run has ended" % (rec["name"], why))
     chain = _chain(rec)
     merged = []
+    todo = []
     for repo, b in _branch_targets(chain):
         main = main_checkout(repo)
         target, tip, why_not = integration_target(chain, repo)
@@ -4922,11 +4925,33 @@ def merge_and_land(ref, me="", message=""):
             raise SpecError("cannot merge %s of %s: %s" % (b, repo, unread))
         if not t or is_ancestor(main, t, tip):
             continue
+        todo.append((repo, b, main, t))
+    # A branch whose tip another branch of this work already contains comes in
+    # with that one, so it is neither merged nor reviewed on its own.
+    todo = [x for x in todo
+            if not any(y[2] == x[2] and y[3] != x[3] and is_ancestor(x[2], x[3], y[3]) for y in todo)]
+    reviews = _review_check(todo, _governing_entities(chain))
+    for repo, b, main, t in todo:
+        target, tip, why_not = integration_target(chain, repo)
+        if why_not:
+            raise SpecError("cannot merge %s of %s: %s" % (b, repo, why_not))
+        if is_ancestor(main, t, tip):
+            continue
         rc, head, _e = git(main, "symbolic-ref", "--quiet", "--short", "HEAD")
         if rc or head.strip() != target:
             raise SpecError("cannot merge %s: the main checkout %s is on %s, not on %s, the branch this work "
                             "integrates on" % (b, main, head.strip() or "a detached HEAD", target))
-        args = ["merge", "--no-ff", "--no-edit"] + (["-m", message] if message else []) + [b]
+        # Git merges the commit read above, never the branch name: a writer
+        # that advances the branch after that read (even while an earlier
+        # repository's merge gate runs) would otherwise land a newer commit
+        # no review saw (review rv-20261009T025426Z-15dae5ca-3cc1, finding 2).
+        # A commit merged by its ID gets Git's default message for its branch.
+        msg = ["-m", message or "Merge branch '%s'%s" % (b, "" if target in ("main", "master")
+                                                         else " into %s" % target)]
+        if reviews.get(t):
+            # The merge commit names the review that let it in (plan §2.4).
+            msg += ["-m", reviews[t]]
+        args = ["merge", "--no-ff", "--no-edit"] + msg + [t]
         before = git(main, "rev-parse", "HEAD")[1].strip()
         # git's own checks (pre-merge-commit) run here and may take minutes.
         r = subprocess.run(["git", "-C", main] + args, capture_output=True, text=True, env=_git_env())
@@ -4937,6 +4962,296 @@ def merge_and_land(ref, me="", message=""):
         merged.append((repo, b))
         event("merged", key=rec["key"], repo=repo, branch=b, into=target)
     return merged, land(rec["key"], me, keep_ignored=True)
+
+
+def _fence_program():
+    """The engine's operator_fences.py, where the second review's land rule
+    lives (the fence applies the same rule to every other move of main)."""
+    import importlib.util
+    path = os.path.join(engine_root(), "scripts", "lib", "operator_fences.py")
+    spec = importlib.util.spec_from_file_location("workspaces_operator_fences", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _review_check(todo, entities=()):
+    """NO WORK LANDS WITHOUT A PASSING REVIEW OF EXACTLY ITS TIP (CEO §113;
+    richos-hq plan 2026-10-09 §2.5 and §4 row 3). For every branch about to be
+    merged into a reviewed repository (_review_ledgers: one the SECOND_REVIEW_REPOS
+    of a governing declaration lists, or whose fence launcher carries a review
+    ledger), the newest handover verdict on exactly its tip must say passed, in
+    every ledger that applies. Otherwise NOTHING is merged, and the refusal
+    names each tip and its findings; a listed repository whose review setup
+    cannot be established is refused as well. Asked here before git's merge
+    gate spends its minutes, with the fence on, off or not installed; the fence
+    asks the same question of a plain `git merge`. `entities`: the governing
+    entities (_governing_entities). Returns {tip: the merge message's review
+    paragraph}."""
+    if not todo:
+        return {}
+    F = _fence_program()
+    registry = _registry_entity_map(F)
+    out, refusals = {}, []
+    for _repo, b, main, t in todo:
+        listed, unknown, recorded = _declared_review_listing(F, entities, main, registry)
+        if unknown:
+            refusals.append("=== SECOND REVIEW: %s was not merged into %s ===\n  Whether %s is reviewed cannot "
+                            "be established: %s." % (b, main, main, "; ".join(unknown)))
+            continue
+        ledgers, broken = _review_ledgers(F, main, listed, recorded)
+        if broken:
+            refusals.append("=== SECOND REVIEW: %s was not merged into %s ===\n  %s" % (b, main, broken))
+            continue
+        gaps = next((g for g in (F.review_gaps(ledger, [t], main) for ledger in ledgers) if g), None)
+        if gaps:
+            refusals.append(F.review_refusal_text(main, gaps, engine_root()).replace(
+                "=== SECOND REVIEW: refused in %s ===" % main,
+                "=== SECOND REVIEW: %s was not merged into %s ===" % (b, main), 1))
+            continue
+        if not ledgers:
+            # No install recorded a review, every governing declaration was read
+            # and lists nothing, and no launcher carries a ledger: positive
+            # evidence, never a fallback.
+            continue
+        row, _mid = F.review_of(F.read_reviews(ledgers[0]), t, main)
+        para = "Second review: %s, %s by %s (%s), %s finding(s)." % (
+            row.get("verdict"), row.get("id"), row.get("reviewer"), row.get("reviewer_model"), row.get("findings"))
+        notes = ["P%s %s (%s)" % f for f in F.review_findings(row, limit=20)]
+        out[t] = para + ("\n" + "\n".join(notes) if notes else "")
+    if refusals:
+        raise SpecError("nothing was merged.\n" + "\n".join(refusals))
+    return out
+
+
+def _governing_entities(chain):
+    """The entities whose orchestration.config governs this work: each record's
+    own (written when it was registered), and this run's resolved entity."""
+    out = []
+    for e in [r.get("entity") or "" for r in chain] + [os.environ.get("RICHOS_ENTITY_ROOT_RESOLVED", "")]:
+        e = os.path.realpath(e) if e.strip() else ""
+        if e and e not in out:
+            out.append(e)
+    return out
+
+
+def _registry_key(F, main):
+    """(the fence registry's key for the main checkout `main`, why unknown or
+    ""): the key is the path operator_fences_admin.cmd_install records
+    (F.repo_paths()["main"]). A repository Git cannot read has no key that can
+    be trusted, so the registry entry governing it cannot be found: unknown,
+    never "no entry" (review rv-20261009T042243Z-42ecc969-5f85)."""
+    paths = F.repo_paths(main)
+    if not paths:
+        return os.path.realpath(main), ("the repository %s cannot be read, so the fence registry entry that "
+                                        "governs it cannot be found" % os.path.realpath(main))
+    return paths.get("main") or os.path.realpath(main), ""
+
+
+def _registry_entity_map(F):
+    """({main checkout: entity, or "" when unknown}, [why unknown], {main
+    checkout whose install recorded that it requires review}) from the
+    fence registry `operator-fences.sh install` writes
+    (operator_fences_admin.registry_path(): REGISTRY_NAME in land_locks_dir()),
+    read through F.registry_entities (an entry with no recorded entity is
+    unknown, never inferred). THE
+    ENTITY THAT GOVERNS A REPOSITORY'S FENCE IS READ FROM HERE, NEVER ONLY
+    FROM THE LAUNCHER (review rv-20261009T033652Z-f3bfe22f-9372, finding 2):
+    it can differ from the spawning entity, and with the launcher removed
+    nothing else names it. IT IS KEPT PER REPOSITORY (review
+    rv-20261009T035450Z-882c7e75-0eab, findings 1 and 2): an entry's entity
+    governs that repository and no other, and an entry whose entity cannot be
+    established is unknown, never skipped. An absent registry (nothing ever
+    installed) names nothing; one that exists but cannot be read or parsed,
+    or holds no `repositories` table (the shape install always writes; such a
+    file was read as naming nothing, review rv-20261009T042243Z-42ecc969-5f85),
+    leaves every repository's governing entity unknown. So does a registry
+    that is a link to nothing: something was installed there (review
+    rv-20261009T044823Z-fc8c7569-5919, finding 2).
+
+    THE INSTALL IS THE ONE DURABLE RECORD OF WHETHER A REPOSITORY IS REVIEWED
+    (F.registry_reviewed): what its declaration said at `operator-fences.sh
+    install`, so removing or breaking a declaration afterwards never switches
+    the review off; only the next install does."""
+    path = os.path.join(land_locks_dir(), "operator-fences.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            reg = json.loads(f.read())
+    except FileNotFoundError:
+        if os.path.lexists(path):
+            return {}, ["the fence registry %s is a link to nothing" % path], set()
+        return {}, [], set()
+    except (OSError, ValueError) as exc:
+        return {}, ["the fence registry %s cannot be read (%s)" % (path, getattr(exc, "strerror", None) or exc)], set()
+    if not isinstance(reg, dict) or not isinstance(reg.get("repositories"), dict):
+        return {}, ["the fence registry %s cannot be read (not the registry's shape)" % path], set()
+    return F.registry_entities(reg), [], F.registry_reviewed(reg)
+
+
+def _review_declaration(F, entity, recorded, key):
+    """(the SECOND_REVIEW_REPOS names or None, why unknown or "") of the
+    declaration of one governing `entity` of the main checkout `key`.
+    `recorded`: the fence registry records `entity` as the one `key`'s fence
+    was installed from.
+
+    "NOT LISTED" NEEDS POSITIVE EVIDENCE (review
+    rv-20261009T042243Z-42ecc969-5f85, the fourth review in a row to find the
+    answer falling back to "not reviewed" with the launcher gone). There are
+    exactly two kinds: the declaration was read and does not list it, or the
+    entity is a spawning one (a record's, or this run's) whose directory exists
+    with no orchestration.config in it, an entity that never had a declaration
+    (review rv-20261009T033652Z-f3bfe22f-9372). Everything else is unknown:
+      * a recorded entity whose declaration is missing, or whose directory is
+        gone or is not a directory (a retired worktree): install read that
+        declaration, so its absence now says nothing (the review's finding 1);
+      * a spawning entity whose directory is gone or is not a directory;
+      * a declaration that is a link to nothing (something was there);
+      * a declaration that exists and cannot be read;
+      * a declaration F.review_repos, its only reader, cannot read: bash
+        does not source it cleanly, or the value bash sets is not names
+        (reviews rv-20261009T050654Z-e21238ff-7685 and
+        rv-20261009T052655Z-daf09e19-0bc6): install refuses it as well."""
+    config = os.path.join(entity, "orchestration.config")
+    try:
+        with open(config, encoding="utf-8", errors="replace") as f:
+            f.read()
+    except OSError as exc:
+        if exc.errno not in (errno.ENOENT, errno.ENOTDIR):
+            return None, "the governing declaration %s cannot be read (%s)" % (config, exc.strerror or exc)
+        here = os.path.isdir(entity)
+        if recorded:
+            return None, ("the fence registry records that %s's fence was installed from %s, but its declaration "
+                          "%s %s; restore it, or record the entity that governs %s now with operator-fences.sh "
+                          "install --repo %s --entity <that entity>"
+                          % (key, entity, config, "is missing" if here else "is gone with its directory", key, key))
+        if not here:
+            return None, ("the entity %s that governs this work is gone (%s), so whether its declaration lists %s "
+                          "cannot be established; restore it (as an empty directory if it never had an "
+                          "orchestration.config)" % (entity, "not a directory" if os.path.lexists(entity)
+                                                     else "nothing is there", key))
+        if os.path.lexists(config):
+            return None, "the governing declaration %s is a link to nothing" % config
+        # A spawning entity that never had a declaration. One whose declaration
+        # was deleted reads the same, and nothing records which it was: for an
+        # installed repository the install's record (F.registry_reviewed) keeps
+        # the review on; a repository never installed has no fence for a plain
+        # `git merge` either, so the land asks no more of it than that (review
+        # rv-20261009T044823Z-fc8c7569-5919, finding 1).
+        return None, ""
+    names, why = F.review_repos(config)
+    if why:
+        return None, ("SECOND_REVIEW_REPOS in %s cannot be read (%s); it must source cleanly in bash and set "
+                      "SECOND_REVIEW_REPOS=\"<names>\"" % (config, why))
+    return names, ""
+
+
+def _declared_review_listing(F, entities, main, registry):
+    """([SECOND_REVIEW_REPOS names], [why unknown], the install recorded that
+    `main` requires review) for every declaration
+    governing the main checkout `main`: those of `entities`
+    (_governing_entities: the work's own and this run's) and the entity the
+    fence registry records for `main` (`registry`, _registry_entity_map), the
+    value bash sets in each, as F.review_repos (the one reader) reads it.
+    WHETHER A REPOSITORY IS REVIEWED IS DECIDED FROM THESE (review
+    rv-20261009T031207Z-ba444a8a-607a, finding 1): the fence launcher is only
+    the copy `operator-fences.sh install` makes of the declaration, and reading
+    the launcher alone let a missing launcher switch the review off.
+    ABSENT IS NOT UNREADABLE (review rv-20261009T033652Z-f3bfe22f-9372, finding
+    1): an entity with no orchestration.config lists nothing, but one whose
+    orchestration.config exists and cannot be read leaves applicability
+    unknown, and _review_check refuses rather than read it as an empty list.
+    ONLY WHAT GOVERNS `main` IS READ (review rv-20261009T035450Z-882c7e75-0eab,
+    finding 2): an entity the registry records for another repository is
+    never read here, so its unreadable declaration cannot block this land; and
+    a registry entry for `main` whose entity is unknown (finding 1) refuses.
+    "NOT REVIEWED" NEEDS POSITIVE EVIDENCE FOR EVERY GOVERNING ENTITY (review
+    rv-20261009T042243Z-42ecc969-5f85, the fourth in a row to find this answer
+    falling back to "not reviewed" with the launcher gone): each entity's
+    declaration is read by _review_declaration, which accepts only a
+    declaration read that does not list it, or a spawning entity that never
+    had one; an entity the registry records whose declaration is gone, and
+    every other way the answer could not be read, is unknown. So is work that
+    no declaration is known to govern at all: nothing was read.
+    THE INSTALL'S RECORD COMES FIRST (review rv-20261009T044823Z-fc8c7569-5919):
+    a repository whose install recorded that it requires review requires it
+    whatever these declarations say now, so a declaration removed or broken
+    after the install never switches the review off."""
+    mapping, unknown, reviewed = registry
+    unknown = list(unknown)
+    key, unread = _registry_key(F, main)
+    if unread:
+        unknown.append(unread)
+    governing = {}                              # entity -> the registry records it for `main`
+    for e in entities:
+        governing.setdefault(os.path.realpath(os.path.expanduser(e)), False)
+    if key in mapping:
+        if mapping[key]:
+            governing[os.path.realpath(os.path.expanduser(mapping[key]))] = True
+        else:
+            unknown.append("the fence registry records a fence for %s, but the entity its fence was installed "
+                           "from is not recorded there and cannot be established; run operator-fences.sh "
+                           "install --repo %s --entity <the entity whose orchestration.config governs it>"
+                           % (key, key))
+    if not governing and not unknown:
+        unknown.append("no declaration is known to govern this work: its records name no entity, this run "
+                       "resolved none (RICHOS_ENTITY_ROOT_RESOLVED) and the fence registry records none for %s"
+                       % key)
+    values = []
+    for e, recorded in governing.items():
+        value, why = _review_declaration(F, e, recorded, key)
+        if why:
+            unknown.append(why)
+        elif value is not None:
+            values.append(value)
+    return values, unknown, key in reviewed
+
+
+def _review_ledgers(F, main, listed, recorded=False):
+    """([review ledger], why refused) for the main checkout `main`.
+
+    Recorded by its install as requiring review (`recorded`), or listed in a
+    governing declaration (`listed`; both from _declared_review_listing):
+    the ledger the declaration names, which is where second-review writes its
+    verdicts (F.review_ledger_default(), the path `operator-fences.sh install`
+    bakes into the launcher), plus the launcher's own when that differs. With
+    no launcher at all it is still reviewed. A listed repository whose
+    repository or existing launcher cannot be read has no established review
+    setup and is refused with that reason. Not listed: the launcher's ledger
+    when it carries one (the fence would ask it anyway), else ([], ""); a
+    repository or existing launcher that cannot be read is refused here too,
+    because whether that ledger applies is unknown, never "none" (review
+    rv-20261009T042243Z-42ecc969-5f85). An existing launcher that is a link
+    to nothing cannot be read either (review rv-20261009T044823Z-fc8c7569-5919,
+    finding 2)."""
+    declared = recorded or any(F.review_listed(v, main) for v in listed)
+    ledgers = [F.review_ledger_default()] if declared else []
+    rc, common, _e = git(main, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if rc != 0 or not common.strip():
+        if declared:
+            return [], ("%s is listed in SECOND_REVIEW_REPOS but its repository cannot be read, so its "
+                        "review setup cannot be established." % main)
+        return [], ("the repository %s cannot be read, so whether its fence launcher carries a review ledger "
+                    "cannot be established." % main)
+    path = os.path.join(common.strip(), "hooks", "reference-transaction")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read(65536)
+    except FileNotFoundError:
+        text = ""                               # no launcher: the declarations alone decide
+        if os.path.lexists(path):
+            return [], ("%s's fence launcher %s is a link to nothing, so its review setup cannot be "
+                        "established." % (main, path))
+    except OSError as exc:
+        if declared:
+            return [], ("%s is listed in SECOND_REVIEW_REPOS but its fence launcher %s cannot be read (%s), "
+                        "so its review setup cannot be established." % (main, path, exc.strerror or exc))
+        return [], ("%s's fence launcher %s cannot be read (%s), so whether the review ledger it carries "
+                    "applies cannot be established." % (main, path, exc.strerror or exc))
+    m = re.search(r'(?m)^OPERATOR_FENCES_REVIEWS="([^"]*)"\s*$', text) \
+        if "richos-operator-fence-launcher" in text else None
+    if m and m.group(1) and m.group(1) not in ledgers:
+        ledgers.append(m.group(1))
+    return ledgers, ""
 
 
 def _abort_own_merge(main, before, tip):

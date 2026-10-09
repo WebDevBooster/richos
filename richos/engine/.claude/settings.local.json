@@ -328,6 +328,15 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/hooks/deliver-review-verdict.sh",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [

@@ -595,6 +595,11 @@ expect_fraction "1a  baseline: banner reports ${EXPECT_N}/${EXPECT_N}, matching 
 # nothing while the banner read 60/62); this set was the last one owing.
 # Recorded rather than fixed silently: esc-20260910T080736Z-3a5c8f97 names all
 # five duties and stands as the record of how a landing came to owe five.
+# deliver-review-verdict.sh, added 2026-10-09: a matcherless PreToolUse delivery that
+# hands a second-review verdict to the running teammate whose work it is, once, as
+# additionalContext (CEO §113, slice 3 of the automatic second review). It never blocks.
+# Registered in hooks/hooks.json and .claude/settings.local.json; Layer R exempts it
+# as rootless.
 # guard-stop-live-work.sh, added 2026-09-10: the PreToolUse[TaskStop] gate that
 # refuses to destroy a teammate that is provably still running. Its inventories
 # were derived the way this note prescribes rather than guessed --
@@ -933,6 +938,7 @@ notice-disk-alert.sh
 left-off-report.sh
 guard-brief-scope.sh
 guard-pierce.sh
+deliver-review-verdict.sh
 guard-hook-registration-commits.sh
 commit-ceo-inputs.sh
 handoff-facts-annotate.sh

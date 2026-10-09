@@ -509,4 +509,208 @@ mutant p03-reconciliation-invents-an-ending "test_point_03_a_reconciled_binding_
     '        prov = _absorb_provisional(fresh, prov_key){NL}        fresh["end"] = fresh.get("end") or {"at": now(), "signal": "SubagentStop", "detail": ""}' \
     "adopting the binding would also declare the run over, so an agent still working would be landed out from under itself. The platform's per-agent record proves WHICH agent the call became and says nothing about whether it has ended (points 3, 11)."
 
+# THE SECOND REVIEW (CEO §113, 2026-10-09, slice 3 of the automatic second
+# review): work lands only with a passing review of exactly its tip. The rule
+# lives in scripts/lib/operator_fences.py (the fence and the land command both
+# ask it); the land command asks it first, and the delivery hook tells a
+# running teammate once.
+F="scripts/lib/operator_fences.py"
+mutant sr-no-refusal-anywhere "test_second_review_merge_is_refused_with_no_verdict" "$F" \
+    '            why += ["  P%s %s (%s)" % f for f in review_findings(row)]{NL}        gaps[tip] = why' \
+    '            why += ["  P%s %s (%s)" % f for f in review_findings(row)]{NL}        pass' \
+    "work with no passing second review would land by every path: the land command and the fence would both let it in (CEO §113)."
+
+mutant sr-land-command-does-not-ask "test_second_review_merge_is_refused_with_no_verdict" "$W" \
+    '        ledgers, broken = _review_ledgers(F, main, listed, recorded)' \
+    '        ledgers, broken = [], ""' \
+    "workspaces.sh merge would run git's merge gate for minutes before the fence refused the move, and with the fence off it would land unreviewed work (CEO §113, Sage's catch 8)."
+
+mutant sr-fence-does-not-ask "test_second_review_a_plain_merge_is_refused_by_the_fence_the_same_way" "$F" \
+    '            if gaps:{NL}                refused.append(((old, new, ref), REVIEW_WHY' \
+    '            if False:{NL}                refused.append(((old, new, ref), REVIEW_WHY' \
+    "a plain git merge, a fast-forward or a codex/ branch's land would bring unreviewed work into main (Sage's catches 1 and 8)."
+
+mutant sr-any-commit-verdict-counts "test_second_review_merge_is_refused_with_a_verdict_on_an_older_commit" "$F" \
+    '    land = [r for r in mine if r.get("tip") == tip and r.get("trigger") in REVIEW_LAND_KINDS]' \
+    '    land = [r for r in mine if r.get("trigger") in REVIEW_LAND_KINDS]' \
+    "a verdict on an older commit would let newer, unreviewed commits land (plan §4 row 3)."
+
+mutant sr-fast-forward-not-seen "test_second_review_a_fast_forward_and_a_direct_commit_are_refused_an_empty_commit_is_not" "$F" \
+    '    if len(line[-1]) < 2 or line[-1][1] != old:{NL}        return [new]' \
+    '    if len(line[-1]) < 2 or line[-1][1] != old:{NL}        return []' \
+    "a fast-forward to unreviewed work made elsewhere would land it (plan §4 row 3)."
+
+mutant sr-replacement-taken-for-a-rollback "test_second_review_a_divergent_replacement_of_main_needs_a_review_a_rollback_does_not" "$F" \
+    '        return [] if rc == 0 else [new]' \
+    '        return []' \
+    "a reset of main to an unreviewed divergent commit would land its work, taken for a rollback (review rv-20261009T023055Z-b51ebb97-bc65, finding 1)."
+
+mutant sr-merge-own-changes-unseen "test_second_review_a_merge_with_changes_of_its_own_needs_a_review_of_the_merge_itself" "$F" \
+    '        if not clean_merge(cwd, c, parents, keep_git_env):{NL}            return [new]' \
+    '        if False:{NL}            return [new]' \
+    "a merge carrying a file of its own would land on its branch's review alone (review rv-20261009T023055Z-b51ebb97-bc65, finding 2)."
+
+mutant sr-unspecified-old-not-read "test_second_review_an_update_ref_with_no_old_value_is_judged_from_the_real_main" "$F" \
+    '            moved_from = current if is_zero(old) and current is not None else old' \
+    '            moved_from = old' \
+    "a move of main by \`git update-ref\` with no expected old value would be judged without the real main, so a rollback is refused (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1)."
+
+mutant sr-creation-lands-nothing "test_second_review_an_update_ref_with_no_old_value_is_judged_from_the_real_main" "$F" \
+    '    if is_zero(old):{NL}        return [new]' \
+    '    if is_zero(old):{NL}        return []' \
+    "main deleted and created again on an unreviewed commit would land it (review rv-20261009T025426Z-15dae5ca-3cc1, finding 1)."
+
+mutant sr-merges-the-branch-name "test_second_review_merge_lands_the_commit_that_passed_not_a_newer_branch_tip" "$W" \
+    '        args = ["merge", "--no-ff", "--no-edit"] + msg + [t]' \
+    '        args = ["merge", "--no-ff", "--no-edit"] + msg + [b]' \
+    "a commit added to the branch after its tip passed review would land unreviewed with it (review rv-20261009T025426Z-15dae5ca-3cc1, finding 2)."
+
+mutant sr-old-verdict-dropped "test_second_review_a_verdict_waits_for_the_teammates_next_call_however_late" "scripts/lib/review_delivery.py" \
+    '                if done is not None:{NL}                    r["_done"] = done' \
+    '                if done is not None and time.time() - done <= 24 * 3600:{NL}                    r["_done"] = done' \
+    "a verdict a teammate's next call reaches a day later would never be delivered (review rv-20261009T023055Z-b51ebb97-bc65, finding 3)."
+
+mutant sr-delivered-every-call "test_second_review_a_running_teammates_next_tool_call_carries_a_new_verdict_once" "scripts/lib/review_delivery.py" \
+    '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))' \
+    '        os.close(os.open(os.path.join(d, name), os.O_WRONLY | os.O_CREAT, 0o600))' \
+    "a mid-job verdict would be repeated at every tool call of the teammate instead of once (plan §2.5)."
+
+mutant sr-launcher-decides-what-is-reviewed "test_second_review_a_listed_repository_without_its_launcher_is_still_refused" "$W" \
+    '    declared = recorded or any(F.review_listed(v, main) for v in listed)' \
+    '    declared = False' \
+    "a repository the declaration lists would merge unreviewed work whenever its fence launcher is missing (review rv-20261009T031207Z-ba444a8a-607a, finding 1)."
+
+mutant sr-unreadable-launcher-ignored "test_second_review_a_listed_repository_whose_launcher_cannot_be_read_is_refused" "$W" \
+    '    except FileNotFoundError:{NL}        text = ""                               # no launcher: the declarations alone decide' \
+    '    except OSError:{NL}        text = ""' \
+    "a listed repository whose review setup cannot be established would merge as if it were established (review rv-20261009T031207Z-ba444a8a-607a, finding 1)."
+
+mutant sr-unreadable-declaration-skipped "test_second_review_a_governing_declaration_that_cannot_be_read_is_refused" "$W" \
+    '        if exc.errno not in (errno.ENOENT, errno.ENOTDIR):{NL}            return None, "the governing declaration %s cannot be read' \
+    '        if False:{NL}            return None, "the governing declaration %s cannot be read' \
+    "a governing orchestration.config made unreadable would be read as listing nothing, and with the launcher gone its repository would merge unreviewed work (review rv-20261009T033652Z-f3bfe22f-9372, finding 1)."
+
+mutant sr-fence-entity-not-consulted "test_second_review_the_entity_the_fence_was_installed_from_governs_without_the_launcher" "$W" \
+    '        if mapping[key]:{NL}            governing[os.path.realpath(os.path.expanduser(mapping[key]))] = True' \
+    '        if mapping[key]:{NL}            pass' \
+    "a repository listed only by the entity its fence was installed from would merge unreviewed work once the launcher is removed (review rv-20261009T033652Z-f3bfe22f-9372, finding 2)."
+
+mutant sr-legacy-entity-inferred "test_second_review_a_legacy_entry_installed_in_the_same_second_as_another_is_unknown" "scripts/lib/operator_fences.py" \
+    '        out[main] = v if isinstance(v, str) and v.strip() else ""' \
+    '        out[main] = v if isinstance(v, str) and v.strip() else (reg.get("entity") or "")' \
+    "a registry entry from before entries carried an entity would be credited the registry's top-level entity, which the earlier installer overwrote at every install, an upgrade install would record that permanently, and with the launcher removed that repository would merge unreviewed work (review rv-20261009T040812Z-9efed042-d03e, finding 1)."
+
+mutant sr-unknown-governing-entity-skipped "test_second_review_a_repository_whose_governing_entity_is_unknown_is_refused" "$W" \
+    '        else:{NL}            unknown.append("the fence registry records a fence for %s' \
+    '        elif False:{NL}            unknown.append("the fence registry records a fence for %s' \
+    "a repository whose governing entity cannot be established would be landed as if nothing governed it (review rv-20261009T035450Z-882c7e75-0eab, finding 1)."
+
+mutant sr-every-registry-entity-read "test_second_review_only_the_declarations_governing_the_landed_repository_are_read" "$W" \
+    '    if key in mapping:{NL}        if mapping[key]:' \
+    '    for e in mapping.values():{NL}        if e:{NL}            governing.setdefault(os.path.realpath(os.path.expanduser(e)), True){NL}    if key in mapping:{NL}        if mapping[key]:' \
+    "an unreadable declaration governing only another repository would block every land (review rv-20261009T035450Z-882c7e75-0eab, finding 2)."
+
+mutant sr-continuation-judges-by-its-own-registration "test_second_review_a_continuation_gets_a_verdict_on_the_work_it_continues" "scripts/lib/review_delivery.py" \
+    '    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= works[r["work"]] - 1' \
+    '    texts = [render(r) for r in rows if r.get("work") in works and r["_done"] >= works["teammate:%s" % rec["key"]] - 1' \
+    "a verdict on a predecessor's work that finished before its continuation was registered would never reach the continuation (review rv-20261009T031207Z-ba444a8a-607a, finding 2)."
+
+# "NOT REVIEWED" NEEDS POSITIVE EVIDENCE FOR EVERY GOVERNING ENTITY (review
+# rv-20261009T042243Z-42ecc969-5f85, the fourth review in a row to find the
+# answer falling back to "not reviewed" with the launcher gone). Each mutant
+# brings back one of the fallbacks that review's fix closed.
+mutant sr-recorded-entity-without-declaration-lists-nothing "test_second_review_a_recorded_entity_whose_declaration_is_gone_is_refused" "$W" \
+    '        if recorded:{NL}            return None, ("the fence registry records that' \
+    '        if False:{NL}            return None, ("the fence registry records that' \
+    "deleting the orchestration.config of the entity a fence was installed from, or retiring its worktree, would read as listing nothing, and with the launcher gone an unreviewed tip would land (review rv-20261009T042243Z-42ecc969-5f85, finding 1)."
+
+mutant sr-gone-spawning-entity-lists-nothing "test_second_review_a_spawning_entity_that_no_longer_exists_is_refused" "$W" \
+    '        if not here:{NL}            return None, ("the entity %s that governs this work is gone' \
+    '        if False:{NL}            return None, ("the entity %s that governs this work is gone' \
+    "a spawning entity whose directory is gone would be taken for one that never had a declaration, and its work would land unreviewed (review rv-20261009T042243Z-42ecc969-5f85)."
+
+mutant sr-dangling-declaration-lists-nothing "test_second_review_a_declaration_that_is_a_link_to_nothing_is_refused" "$W" \
+    '        if os.path.lexists(config):{NL}            return None, "the governing declaration %s is a link to nothing"' \
+    '        if False:{NL}            return None, "the governing declaration %s is a link to nothing"' \
+    "an orchestration.config that is a link to nothing would be taken for no declaration at all (review rv-20261009T042243Z-42ecc969-5f85)."
+
+mutant sr-ungoverned-work-unreviewed "test_second_review_work_that_no_declaration_governs_is_refused" "$W" \
+    '    if not governing and not unknown:{NL}        unknown.append(' \
+    '    if False:{NL}        unknown.append(' \
+    "work that no declaration is known to govern would land as unreviewed with nothing read at all (review rv-20261009T042243Z-42ecc969-5f85)."
+
+# THE INSTALL IS THE ONE DURABLE RECORD (review rv-20261009T044823Z-fc8c7569-5919,
+# the eighth to find a declaration read at land time disappearing): install
+# records whether a repository requires review, and removing or breaking a
+# declaration afterwards never switches it off. Each mutant brings back one of
+# that review's three fallbacks.
+mutant sr-install-record-not-written "test_second_review_an_installed_repository_stays_reviewed_until_the_next_install" "scripts/lib/operator_fences_admin.py" \
+    '"entity": entity, "reviewed": bool(declared_reviews(decl, r["main"]))}' \
+    '"entity": entity}' \
+    "install would keep no record that a repository requires review, so deleting or editing its declarations afterwards would land unreviewed work with the launcher gone (review rv-20261009T044823Z-fc8c7569-5919, finding 1)."
+
+mutant sr-install-record-not-read "test_second_review_an_installed_repository_stays_reviewed_until_the_next_install" "$W" \
+    '    return values, unknown, key in reviewed' \
+    '    return values, unknown, False' \
+    "the land would ignore the install's record, and a declaration removed or edited after the install would switch the review off (review rv-20261009T044823Z-fc8c7569-5919, finding 1)."
+
+mutant sr-dangling-registry-absent "test_second_review_a_registry_or_launcher_that_is_a_link_to_nothing_is_refused" "$W" \
+    '        if os.path.lexists(path):{NL}            return {}, ["the fence registry %s is a link to nothing"' \
+    '        if False:{NL}            return {}, ["the fence registry %s is a link to nothing"' \
+    "a fence registry whose target is gone would read as nothing installed, hiding the entity whose declaration lists the repository (review rv-20261009T044823Z-fc8c7569-5919, finding 2)."
+
+mutant sr-dangling-launcher-absent "test_second_review_a_registry_or_launcher_that_is_a_link_to_nothing_is_refused" "$W" \
+    '        if os.path.lexists(path):{NL}            return [], ("%s'"'"'s fence launcher %s is a link to nothing' \
+    '        if False:{NL}            return [], ("%s'"'"'s fence launcher %s is a link to nothing' \
+    "a fence launcher whose target is gone would read as no launcher, hiding the review ledger it carries (review rv-20261009T044823Z-fc8c7569-5919, finding 2)."
+
+# ONE READER, AND IT ASKS THE SHELL (reviews rv-20261009T050654Z-e21238ff-7685 and
+# rv-20261009T052655Z-daf09e19-0bc6): F.review_repos is the only reader of
+# SECOND_REVIEW_REPOS, for install, the land and review-watch; it sources the
+# declaration in bash and checks the value bash sets.
+mutant sr-reader-ignores-source-failure "test_second_review_the_reader_returns_the_value_bash_sets" "scripts/lib/operator_fences.py" \
+    '_REVIEW_READ = ('"'"'. "$1" >/dev/null </dev/null || exit\n'"'"'' \
+    '_REVIEW_READ = ('"'"'. "$1" >/dev/null </dev/null\n'"'"'' \
+    "a declaration bash cannot source cleanly (an unterminated quote, a failing last command) would be read for whatever it had set by then, or as unset (review rv-20261009T052655Z-daf09e19-0bc6)."
+
+mutant sr-reader-takes-any-value "test_second_review_the_reader_returns_the_value_bash_sets" "scripts/lib/operator_fences.py" \
+    '    if not _REVIEW_NAMES.fullmatch(m.group(2)):' \
+    '    if False:' \
+    "a value bash sets that is not names (a path from \$HOME, ..) would be taken as the list and match no repository (review rv-20261009T042243Z-42ecc969-5f85)."
+
+mutant sr-reader-takes-trailing-output "test_second_review_the_reader_returns_the_value_bash_sets" "scripts/lib/operator_fences.py" \
+    '    m = _REVIEW_OUTPUT.fullmatch(out.decode' \
+    '    m = _REVIEW_OUTPUT.match(out.decode' \
+    "output a sourced declaration leaves behind (an EXIT trap) would be ignored instead of refused (review rv-20261009T052655Z-daf09e19-0bc6)."
+
+mutant sr-reader-unset-read-as-empty "test_second_review_the_reader_returns_the_value_bash_sets" "scripts/lib/operator_fences.py" \
+    '"${SECOND_REVIEW_REPOS+set}"' \
+    '"set"' \
+    "a declaration that never sets SECOND_REVIEW_REPOS would read as set and empty, so review-watch would never announce that no repository is listed."
+
+mutant sr-install-skips-unreadable-form "test_second_review_install_and_the_land_refuse_what_cannot_be_read" "scripts/lib/operator_fences_admin.py" \
+    '    if unreadable:{NL}        # Before any launcher or registry entry is written' \
+    '    if False:{NL}        # Before any launcher or registry entry is written' \
+    "install would go on past a SECOND_REVIEW_REPOS line it cannot read, moving an existing hook aside before refusing (review rv-20261009T050654Z-e21238ff-7685, finding 1)."
+
+mutant sr-registry-without-repositories-names-nothing "test_second_review_a_fence_registry_without_its_repositories_is_unknown" "$W" \
+    '    if not isinstance(reg, dict) or not isinstance(reg.get("repositories"), dict):' \
+    '    if not isinstance(reg, dict) or not isinstance(reg.get("repositories", {}), dict):' \
+    "a fence registry with no repositories table would be read as naming no entity (review rv-20261009T042243Z-42ecc969-5f85)."
+
+mutant sr-unlisted-unreadable-launcher-ignored "test_second_review_an_unreadable_launcher_is_refused_even_where_no_declaration_lists_it" "$W" \
+    '        return [], ("%s'"'"'s fence launcher %s cannot be read' \
+    '        return [], ""{NL}        return [], ("%s'"'"'s fence launcher %s cannot be read' \
+    "an existing launcher that cannot be read would be taken as carrying no review ledger (review rv-20261009T042243Z-42ecc969-5f85)."
+
+mutant sr-unreadable-repository-has-no-registry-entry "test_second_review_a_repository_that_cannot_be_read_is_refused_even_where_no_declaration_lists_it" "$W" \
+    '    if not paths:{NL}        return os.path.realpath(main), ("the repository' \
+    '    if False:{NL}        return os.path.realpath(main), ("the repository' \
+    "a repository Git cannot read would be looked up in the fence registry under a guessed key (review rv-20261009T042243Z-42ecc969-5f85)."
+
+mutant sr-unlisted-unreadable-repository-unreviewed "test_second_review_a_repository_that_cannot_be_read_is_refused_even_where_no_declaration_lists_it" "$W" \
+    '        return [], ("the repository %s cannot be read, so whether its fence launcher' \
+    '        return [], ""{NL}        return [], ("the repository %s cannot be read, so whether its fence launcher' \
+    "an unlisted repository Git cannot read would be taken as carrying no review ledger (review rv-20261009T042243Z-42ecc969-5f85)."
+
 mutation_end
