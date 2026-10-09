@@ -105,6 +105,9 @@ check 2 P5 "--rcfile f -c" "bash --rcfile /dev/null -c 'printf INLINE'"
 check 2 P5 "-eo pipefail -c" "bash -eo pipefail -c 'printf INLINE'"
 check 2 P6 "zsh -f -c0 (digit in the group)" "zsh -f -c0 'printf INLINE'"
 check 2 P6 "ksh -c- (dash in the group)" "ksh -c- 'printf INLINE'"
+check 2 P7 "line continuation before -c" $'bash \\\n-c \'printf INLINE\''
+check 2 P7 "&> redirection before -c" "bash &>/dev/null -c 'printf INLINE'"
+check 2 P7 "pipe to grep -c after a shell word (accepted false positive)" "bash x.sh | grep -c y"
 check 0 N3 "unreadable payload" "x"
 out="$(printf 'not json' | bash "$HOOK" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && ok "N3 unreadable payload passes" || bad "N3 unreadable payload" "rc=$rc $out"

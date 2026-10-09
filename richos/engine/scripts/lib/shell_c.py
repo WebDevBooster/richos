@@ -9,9 +9,9 @@ check an inline shell script, so it asks the person. A PreToolUse refusal runs f
 gets the rewrite and the person never sees a prompt.
 
 What is refused: ONE plain match over the whole command text, quotes and comments included: a word
-named bash, sh, zsh, dash or ksh (with or without a path or quotes) followed, later in the same segment
-(commands are split at ; | & and newlines), by a short-option group containing c (-c, -lc, ...).
-`bash test.sh && git diff --cached` passes (different segments); `bash test.sh -c x` is refused, an
+named bash, sh, zsh, dash or ksh (with or without a path or quotes) followed, anywhere later in the
+command (across lines and separators), by a short-option group containing c (-c, -lc, ...).
+`bash test.sh && git diff --cached` passes (--cached is a long option); `bash x.sh | grep -c y` is refused, an accepted false positive; `bash test.sh -c x` is refused, an
 accepted false positive. A command that only MENTIONS `bash -c` (a commit message, an echo) is refused too:
 an accepted false positive; the message says to put the text in a file (git commit -F <file>).
 
@@ -25,7 +25,6 @@ import re
 import sys
 
 SHELL_WORD = re.compile(r"(?<![\w.\-])(bash|sh|zsh|dash|ksh)(?=[\s<>'\"]|$)")
-SEGMENT_SPLIT = re.compile(r"[;|&\n]")
 OPTION_WORD = re.compile(r"(?<![\w\-])-[A-Za-z0-9-]*")
 
 MESSAGE = (
@@ -41,16 +40,14 @@ MESSAGE = (
 
 
 def verdict(command):
-    """Return the shell name when some segment of `command` (split at ; | & and newlines) has a shell
-    word followed, later in the same segment, by a short-option group containing c; else None.
-    A group ends at the first character that is not a letter, digit or -, so -c</dev/null and -c'x'
-    count; --long options do not. No list of option operands is needed: whatever sits between the
-    shell and -c (-o pipefail, -O extglob, --rcfile f, a redirection) is simply skipped over."""
-    for segment in SEGMENT_SPLIT.split(command):
-        for m in SHELL_WORD.finditer(segment):
-            for o in OPTION_WORD.finditer(segment, m.end()):
-                if re.fullmatch(r"-(?!-)[A-Za-z0-9-]+", o.group(0)) and "c" in o.group(0):
-                    return m.group(1)
+    """Return the shell name when `command` has a shell word followed, anywhere later (across lines
+    and separators), by a short-option group containing c; else None. A group ends at the first
+    character that is not a letter, digit or -, so -c</dev/null and -c'x' count; --long options do
+    not. Nothing is split into segments: a line continuation or &> cannot hide the pair."""
+    for m in SHELL_WORD.finditer(command):
+        for o in OPTION_WORD.finditer(command, m.end()):
+            if re.fullmatch(r"-(?!-)[A-Za-z0-9-]+", o.group(0)) and "c" in o.group(0):
+                return m.group(1)
     return None
 
 
