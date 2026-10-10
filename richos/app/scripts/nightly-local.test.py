@@ -207,7 +207,7 @@ class LocalTests(unittest.TestCase):
         self.assertIn("RICHOS_TEST_SCOPE", m.GATE_SET_BY_BUILD)
         self.assertNotIn("RICHOS_TEST_SCOPE", m.GATE_PASSTHROUGH)
 
-    def test_the_gates_temporary_folder_never_depends_on_who_started_the_build(self):
+    def test_gates_and_author_checks_share_the_configured_ssd_tmpdir(self):
         # Nightly attempt 2 (2026-10-01): cargo-cache-env.test.sh failed with "path must be
         # shorter than SUN_LEN" under the build's long TMPDIR after passing where TMPDIR was
         # short. One folder for every launcher, the one macOS assigns this account.
@@ -222,7 +222,10 @@ class LocalTests(unittest.TestCase):
                     if caller is None:
                         os.environ.pop("TMPDIR", None)
                     env, _credentials = m.local_environment()
-                self.assertEqual(env["TMPDIR"], expected)
+                chosen = caller if caller and Path(caller).resolve().is_relative_to("/Volumes/E1TB") else expected
+                self.assertEqual(env["TMPDIR"], chosen)
+                conditions, _ = m.gate_conditions(m.UI_SUITE_GATE, planted)
+                self.assertEqual(conditions["TMPDIR"], chosen)
         self.assertNotIn("TMPDIR", m.GATE_PASSTHROUGH)
         self.assertIn("TMPDIR", m.GATE_SET_BY_BUILD)
 
@@ -727,6 +730,7 @@ while True: time.sleep(.02)
                 # The supervisor gives EXIT traps eight seconds to clean up.
                 # Bound this by the caller's complete cleanup allowance rather
                 # than the former, shorter grace period.
+                # load-bound: cleanup hang guard under the private token budget; pid removal is the verdict.
                 self.assertLess(time.monotonic() - start,
                                 1 + m.TERM_GRACE + 2 * m.KILL_GRACE + 2)
             for i in range(3):
@@ -1286,9 +1290,12 @@ while True: time.sleep(.02)
         # The workspace-spec mutation pass runs HERE, before every nightly, and on no land
         # (CEO, 2026-09-23, "Only before nightlies"): the unit through ci-shard.sh, with the
         # opt-in stated at this call site.
-        mut = [argv for argv in seen if "workspace-spec-fourteen.test.sh" in " ".join(argv)]
-        self.assertEqual(mut, [["bash", "richos/engine/scripts/ci-shard.sh", "--only-units",
-                                "mega-lander/tests/workspace-spec-fourteen.test.sh"]])
+        mut = [argv for argv in seen if "fourteen.txt" in " ".join(argv)]
+        self.assertEqual(len(mut), 1)
+        self.assertIn("proof-run.py", " ".join(mut[0]))
+        self.assertEqual(Path(mut[0][mut[0].index("--commands") + 1]).read_text().strip(),
+                         "cd richos/engine && bash scripts/ci-shard.sh --only-units " +
+                         "mega-lander/tests/workspace-spec-fourteen.test.sh")
         lint = [argv for argv in seen if any(a.endswith('/lint.sh') for a in argv)]
         self.assertEqual(lint, [["bash", str(r.source / m.SCRIPTS / "lint.sh"), "--all",
                                  "--suite-results", str(r.state / m.SUITE_RESULTS)]])
@@ -1338,7 +1345,7 @@ while True: time.sleep(.02)
         self.assertEqual(len(seen), 12)
         # The workspace-spec mutation pass is never dropped by this flag: a land does not run it
         # (CEO, 2026-09-23, "Only before nightlies"), so there is nothing a land proved.
-        self.assertTrue([c for c in joined if "workspace-spec-fourteen" in c], joined)
+        self.assertTrue([c for c in joined if "fourteen.txt" in c], joined)
         self.assertTrue([c for c in joined if "run.js" in c], joined)
         self.assertNotIn(m.UI_SUITE_GATE, r.skipped)
 
@@ -1915,16 +1922,17 @@ while True: time.sleep(.02)
         self.assertEqual(env["RICHOS_IOS_POOL_WAIT"], str(m.GATE_BUDGETS["gates/script-suites"]))
         # ...and so does the workspace-spec mutation pass, at its own gate.
         mut = [c for c in r.command.call_args_list
-               if "workspace-spec-fourteen.test.sh" in " ".join(str(a) for a in c.args)]
+               if "fourteen.txt" in " ".join(str(a) for a in c.args)]
         self.assertEqual(len(mut), 1, argvs)
         self.assertEqual(mut[0].kwargs.get("env_extra"), {"RICHOS_FOURTEEN_MUTANTS": "1"})
         self.assertEqual(mut[0].kwargs.get("timeout"), m.GATE_BUDGETS[m.WORKSPACE_MUTANTS_GATE])
         # ...and, at the same gate, the other workspace suites' mutation passes, which no land
         # runs any more (hunt part 4 finding 19).
         others = [c for c in r.command.call_args_list
-                  if "mega-lander/tests/workspaces.test.sh" in " ".join(str(a) for a in c.args)]
+                  if "workspace.txt" in " ".join(str(a) for a in c.args)]
         self.assertEqual(len(others), 1, argvs)
-        units = others[0].args[others[0].args.index("--only-units") + 1].split(",")
+        selection = Path(others[0].args[others[0].args.index("--commands") + 1])
+        units = selection.read_text().strip().split("--only-units ", 1)[1].split(",")
         self.assertEqual(sorted(units), sorted(["mega-lander/tests/workspaces.test.sh",
                                                 "mega-lander/tests/create-teammate-worktree.test.sh",
                                                 "mega-lander/tests/workspace-probes.test.sh",

@@ -387,10 +387,10 @@ def checkout_installs(root):
 def playwright_installs(environment):
     """The Playwright browser installs a check would launch, by install identity.
 
-    A browser is hundreds of megabytes, so it is bound by the identity of its install rather
-    than its bytes: the revision directory's inode (an install or `install --force` creates a
-    new one) and whether Playwright marked it complete. PLAYWRIGHT_BROWSERS_PATH=0 puts the
-    browsers inside node_modules, which checkout_installs already binds."""
+    Bind the recursive install metadata, including ctime, so in-place writes and signing
+    changes invalidate passes even when the revision directory survives. This is input
+    drift detection, not content authentication. It avoids reading gigabytes per check.
+    PLAYWRIGHT_BROWSERS_PATH=0 is already covered by checkout_installs."""
     configured = environment.get("PLAYWRIGHT_BROWSERS_PATH")
     if configured == "0":
         return {"inside": "node_modules"}
@@ -406,7 +406,15 @@ def playwright_installs(environment):
     installs = {}
     for entry in entries:
         if PLAYWRIGHT_INSTALL.fullmatch(entry.name) and entry.is_dir(follow_symlinks=False):
-            installs[entry.name] = {"inode": entry.inode(),
+            rows = []
+            for directory, dirs, files in os.walk(entry.path, followlinks=False):
+                for name in sorted(dirs + files):
+                    path = Path(directory) / name
+                    info = path.lstat()
+                    rows.append([str(path.relative_to(entry.path)), info.st_mode, info.st_ino,
+                                 info.st_size, info.st_mtime_ns, info.st_ctime_ns,
+                                 os.readlink(path) if path.is_symlink() else None])
+            installs[entry.name] = {"inode": entry.inode(), "metadata": digest(sorted(rows)),
                                     "complete": os.path.exists(os.path.join(entry.path, "INSTALLATION_COMPLETE"))}
     return {"base": str(base), "installs": installs}
 

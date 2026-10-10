@@ -14773,7 +14773,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/proof_evidence.py",
-          "sha256": "9c26e57d9e207d4fcc697a6548f3f11155d1eb15dee4856765fab73caad37318",
+          "sha256": "b5e132c63d9e1e5b55c84b98adb333519d39d22d08e713aad4d5a5588759d2e7",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14785,7 +14785,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "a08b16b55e6eaf1df2e16f2b27899b4170250a1e01767fecbcf970cf01bb5f3e",
+          "sha256": "1870258469d7bc96cc25d3a05ff990edcfbe3839481d877da009eef6afff68de",
           "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         },
         {
@@ -15016,7 +15016,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/proof_evidence.py",
-          "sha256": "9c26e57d9e207d4fcc697a6548f3f11155d1eb15dee4856765fab73caad37318",
+          "sha256": "b5e132c63d9e1e5b55c84b98adb333519d39d22d08e713aad4d5a5588759d2e7",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {

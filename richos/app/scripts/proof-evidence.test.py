@@ -1678,6 +1678,21 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         (browsers / "webkit-2311/INSTALLATION_COMPLETE").touch()
         reinstalled = identity()
         self.assertNotEqual(reinstalled, before)
+        # Editing a browser in place preserves its revision/inode, but invalidates evidence.
+        executable = browsers / "webkit-2311/browser"
+        executable.write_bytes(b"original")
+        installed = identity()
+        stamp = executable.stat()
+        executable.write_bytes(b"modified")
+        os.utime(executable, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        self.assertEqual(executable.stat().st_ino, stamp.st_ino)
+        self.assertNotEqual(identity(), installed)
+        signing = browsers / "webkit-2311/_CodeSignature"
+        signing.mkdir()
+        (signing / "CodeResources").write_text("signature")
+        signed = identity()
+        (signing / "CodeResources").write_text("resigned!")
+        self.assertNotEqual(identity(), signed)
         # A toolchain update behind the same `rustc` shim is a different compiler.
         rustc.write_text('#!/bin/sh\necho "rustc 1.91.0 (fixture)"\n')
         self.assertNotEqual(identity()["installed"]["rust"], reinstalled["installed"]["rust"])
