@@ -88,44 +88,10 @@ class CommandCleanupError(RuntimeError):
 
 
 def finish_group(process):
-    """Stop only the session/group we created, including surviving grandchildren.
-
-    Descendants that deliberately call setsid/setpgid escape this boundary. This
-    is process-group ownership, not an OS container or a claim to discover those
-    descendants. No process-name lookup is used.
-    """
-    def exists():
-        process.poll()  # Reap the leader before testing its group.
-        try:
-            os.killpg(process.pid, 0)
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            # macOS can briefly report EPERM while orphaned group members are
-            # being reaped. Treat it as present and keep the bounded wait.
-            return True
-
-    for sig, grace in ((signal.SIGTERM, TERM_GRACE), (signal.SIGKILL, KILL_GRACE)):
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            break
-        except PermissionError:
-            # A group of exiting orphans may briefly reject signals on macOS.
-            # The deadline and final presence check still apply.
-            pass
-        until = time.monotonic() + grace
-        while exists() and time.monotonic() < until:
-            time.sleep(0.02)
-        if not exists():
-            break
-    try:
-        process.wait(timeout=KILL_GRACE)
-    except subprocess.TimeoutExpired:
-        raise CommandCleanupError(f"owned command group {process.pid} did not exit after bounded cleanup") from None
-    if exists():
-        raise CommandCleanupError(f"owned command group {process.pid} did not exit after bounded cleanup")
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    from owned_command import finish_group as finish
+    return finish(process, term_grace=TERM_GRACE, kill_grace=KILL_GRACE,
+                  error_type=CommandCleanupError)
 
 
 class GateStopped(RuntimeError):
@@ -1815,7 +1781,10 @@ class Runner:
         logdir = Path(tempfile.mkdtemp(prefix=label + "-", dir=evidence))
         self.command(sys.executable, self.source / SCRIPTS / "proof-run.py",
                      "--commands", selection, "--log-dir", logdir,
-                     env_extra=environment, timeout=GATE_BUDGETS[WORKSPACE_MUTANTS_GATE])
+                     # The engine never reads this output-only nightly generation id.
+                     # Keep the actual id on the coordinator, normalize only this batch.
+                     env_extra={**environment, "RICHOS_NIGHTLY_RUN_ID": CONDITIONS_RUN_ID},
+                     timeout=GATE_BUDGETS[WORKSPACE_MUTANTS_GATE])
 
     def retry_red_ui_suites_alone(self, error, receipts, tests, tree, first):
         """Give each suite the sharded run left red ONE attempt alone; True when the build goes on.

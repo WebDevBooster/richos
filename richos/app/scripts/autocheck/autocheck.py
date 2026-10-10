@@ -171,21 +171,11 @@ def run_admitted(repo, argv, **kwargs):
     snapshot = Path(__file__).parent
     library = snapshot if (snapshot / "owned_command.py").is_file() else repo.top / "richos/app/scripts/lib"
     sys.path.insert(0, str(library))
-    from owned_command import owned_run
-
-    def finish(proc):
-        # proc_tree owns detached browser descendants as well as the command group.
-        victims = {proc.pid, *(_descendants(proc.pid) or set())}
-        _signal_all(victims, signal.SIGTERM, group=proc.pid)
-        until = time.monotonic() + TERM_GRACE_SECONDS
-        while time.monotonic() < until:
-            if proc.poll() is not None and not any(_alive(pid) for pid in victims - {proc.pid}):
-                break
-            time.sleep(0.1)
-        _signal_all(victims, signal.SIGKILL, group=proc.pid)
-        proc.wait(timeout=2)
-
-    return owned_run(argv, library=repo.top / "richos/engine/scripts/lib", finish=finish,
+    from owned_command import finish_group, owned_run
+    # Signal the owned supervisor group once. proc_tree owns detached browsers and gets
+    # nightly's full cleanup grace (its EXIT traps can take eight seconds). Walking and
+    # signalling those children here as well can turn graceful browser shutdown into abort.
+    return owned_run(argv, library=repo.top / "richos/engine/scripts/lib", finish=finish_group,
                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
 
 

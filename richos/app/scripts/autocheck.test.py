@@ -1948,6 +1948,32 @@ class TimeLimit(unittest.TestCase):
             self.assertTrue(result.admitted)
             self.assertGreaterEqual(result.admission_seconds, 3)
 
+    def test_admitted_timeout_allows_the_owned_supervisor_to_close_a_detached_browser(self):
+        import types
+        spec = importlib.util.spec_from_file_location("autocheck_under_test", AUTOCHECK / "autocheck.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as scratch:
+            workers = Path(scratch) / "workers"
+            subprocess.run([sys.executable, str(ENGINE / "scripts/lib/worker_tokens.py"), "init",
+                            str(workers), str(max(1, int((os.cpu_count() or 4) * 0.8)))], check=True)
+            env = {k: v for k, v in os.environ.items() if not k.startswith("RICHOS_WORKER_")}
+            env["RICHOS_MACHINE_WORKERS"] = str(workers)
+            repo = types.SimpleNamespace(top=HERE.parents[2], env=env)
+            marker = str(Path(scratch) / "browser.pid")
+            suite = self.SUITE.replace("subprocess.Popen(['sleep', '300'])",
+                                      "subprocess.Popen(['sleep', '300'], start_new_session=True)")
+            with self.assertRaises(subprocess.TimeoutExpired):
+                # load-bound: stimulus for a blocked fixture; pid exit and its trap are the verdict.
+                module.run_admitted(repo, [sys.executable, "-c", suite, marker, "polite"], timeout=2,
+                                    env=env, text=True, stdin=subprocess.DEVNULL)
+            pid = int(Path(marker).read_text())
+            self.assertTrue(Path(marker + ".term").exists(), "the suite never got to close its browser")
+            alive = self.alive(pid)
+            if alive:
+                os.kill(pid, 9)
+            self.assertFalse(alive, "the detached browser outlived the admitted check")
+
     def test_a_suite_that_closes_its_browser_on_sigterm_is_given_the_chance(self):
         alive, termed = self.run_late("polite", 3)
         self.assertTrue(termed, "the suite was never sent SIGTERM")

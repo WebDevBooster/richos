@@ -3,10 +3,52 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
+
+def finish_group(process, *, term_grace=15, kill_grace=2, error_type=RuntimeError):
+    """Stop only the session/group we created, including surviving grandchildren.
+
+    Descendants that deliberately call setsid/setpgid escape this boundary. This
+    is process-group ownership, not an OS container or a claim to discover those
+    descendants. No process-name lookup is used.
+    """
+    def exists():
+        process.poll()  # Reap the leader before testing its group.
+        try:
+            os.killpg(process.pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # macOS can briefly report EPERM while orphaned group members are
+            # being reaped. Treat it as present and keep the bounded wait.
+            return True
+
+    for sig, grace in ((signal.SIGTERM, term_grace), (signal.SIGKILL, kill_grace)):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            # A group of exiting orphans may briefly reject signals on macOS.
+            # The deadline and final presence check still apply.
+            pass
+        until = time.monotonic() + grace
+        while exists() and time.monotonic() < until:
+            time.sleep(0.02)
+        if not exists():
+            break
+    try:
+        process.wait(timeout=kill_grace)
+    except subprocess.TimeoutExpired:
+        raise error_type(f"owned command group {process.pid} did not exit after bounded cleanup") from None
+    if exists():
+        raise error_type(f"owned command group {process.pid} did not exit after bounded cleanup")
+
 
 # Written by the command's first instruction AFTER worker_tokens.py admitted it, and before
 # it execs the real command (same pid, so the owned group is unchanged).

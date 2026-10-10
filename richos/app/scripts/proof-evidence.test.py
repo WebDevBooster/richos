@@ -1650,6 +1650,25 @@ printf '%s\\n' '{"event":"finished","agent_id":"fixture"}' > "$RC_LEDGER"
         reused = {row["check"]: row["reused_from"] for row in json.loads((runs[2] / "summary.json").read_text())["checks"]}
         self.assertTrue(all(reused.values()), reused)
 
+    def test_new_supervision_owners_do_not_invalidate_unchanged_execution_inputs(self):
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
+        environment = {"PATH": "/usr/bin:/bin", "HOME": self.tmp.name,
+                       "RICHOS_MUTATION_PASSES": "1", "RICHOS_WORKER_TOKENS_RESERVED": "2",
+                       "RICHOS_MACHINE_WORKERS": str(self.root / "machine")}
+        transport = {"RICHOS_VERIFICATION_OWNER": "123:old-generation",
+                     "RICHOS_WORKER_BORROW_LOCK": "/fixture/token-1.child",
+                     "RICHOS_PROOF_RUN_SLOT_HELD": "/fixture/slot-0.holder",
+                     "RICHOS_PROOF_RUN_SLOT_FDS": "5,6", "RICHOS_UI_TESTS_LEDGER": "/fixture/first.jsonl"}
+        identity = lambda env: evidence.checkout_identity(self.root, ["bash", "suite.sh"], env)
+        before = identity({**environment, **transport})
+        changed = {key: value + "-new" for key, value in transport.items()}
+        self.assertEqual(identity({**environment, **changed}), before)
+        self.assertEqual(identity(environment), before)
+        for key, value in (("RICHOS_MUTATION_PASSES", "0"), ("RICHOS_WORKER_TOKENS_RESERVED", "1"),
+                           ("RICHOS_MACHINE_WORKERS", "/other/namespace"), ("RICHOS_UNKNOWN_INPUT", "new")):
+            with self.subTest(key=key):
+                self.assertNotEqual(identity({**environment, **changed, key: value}), before)
+
     def test_the_whole_checkout_identity_binds_installed_browsers_and_the_rust_toolchain(self):
         # The same finding names the browser suites' external browser installations and the
         # Rust toolchain that `cargo` resolves: neither is in the checkout, and a changed one

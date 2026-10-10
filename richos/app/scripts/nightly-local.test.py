@@ -2006,7 +2006,8 @@ while True: time.sleep(.02)
         mut = [c for c in r.command.call_args_list
                if "fourteen.txt" in " ".join(str(a) for a in c.args)]
         self.assertEqual(len(mut), 1, argvs)
-        self.assertEqual(mut[0].kwargs.get("env_extra"), {"RICHOS_FOURTEEN_MUTANTS": "1"})
+        self.assertEqual(mut[0].kwargs.get("env_extra"), {"RICHOS_FOURTEEN_MUTANTS": "1",
+                                                          "RICHOS_NIGHTLY_RUN_ID": m.CONDITIONS_RUN_ID})
         self.assertEqual(mut[0].kwargs.get("timeout"), m.GATE_BUDGETS[m.WORKSPACE_MUTANTS_GATE])
         # ...and, at the same gate, the other workspace suites' mutation passes, which no land
         # runs any more (hunt part 4 finding 19).
@@ -2019,7 +2020,8 @@ while True: time.sleep(.02)
                                                 "mega-lander/tests/create-teammate-worktree.test.sh",
                                                 "mega-lander/tests/workspace-probes.test.sh",
                                                 "mega-lander/tests/app.test.sh"]))
-        self.assertEqual(others[0].kwargs.get("env_extra"), {"RICHOS_MUTATION_PASSES": "1"})
+        self.assertEqual(others[0].kwargs.get("env_extra"), {"RICHOS_MUTATION_PASSES": "1",
+                                                             "RICHOS_NIGHTLY_RUN_ID": m.CONDITIONS_RUN_ID})
 
     def test_release_never_skips_a_suite_over_unchanged_inputs(self):
         """A proof file on this host may excuse a suite for a CANDIDATE. It may never

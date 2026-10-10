@@ -300,7 +300,13 @@ CHECKOUT_ENVIRONMENT_PREFIXES = ("RICHOS_", "RUN_TESTS_", "NODE_", "NPM_CONFIG_"
                                  "RUST", "SCCACHE_", "PLAYWRIGHT_")
 # Set per run or per process by the runner and the land hook; never part of an identity.
 RUN_SCOPED_ENVIRONMENT = frozenset(("RICHOS_AUTOCHECK_ACTIVE", "RICHOS_TEST_RESULTS_ROOT",
-                                    "RICHOS_TEST_DEVICE_RUN_ID", "RICHOS_VERIFICATION_CONTAMINATION"))
+                                    "RICHOS_TEST_DEVICE_RUN_ID", "RICHOS_VERIFICATION_CONTAMINATION",
+                                    # Ownership identities, descriptors and output addresses change
+                                    # per invocation. Budget sizes, namespaces and semantic settings
+                                    # remain bound below; explicit recipes still bind their own keys.
+                                    "RICHOS_VERIFICATION_OWNER", "RICHOS_WORKER_BORROW_LOCK",
+                                    "RICHOS_PROOF_RUN_SLOT_HELD", "RICHOS_PROOF_RUN_SLOT_FDS",
+                                    "RICHOS_UI_TESTS_LEDGER"))
 _TOOL_DIGESTS = {}
 
 

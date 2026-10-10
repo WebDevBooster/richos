@@ -14773,7 +14773,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/proof_evidence.py",
-          "sha256": "b5e132c63d9e1e5b55c84b98adb333519d39d22d08e713aad4d5a5588759d2e7",
+          "sha256": "097bbedcad9f52e9ef41d6c96a7ffdf87ef3f7a18e595e204c79b18cda1ec392",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
@@ -14785,7 +14785,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "03e02d09032562d6d6b947ee77d9c315c083bbe6c7365667686a2fe9d3fd4a58",
+          "sha256": "b9920d07e7cde9c1c17dc7be063e02dc32a5685b9b4a588823d458779bc60cbf",
           "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         },
         {
@@ -14905,7 +14905,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/nightly-local.py",
-          "sha256": "03e02d09032562d6d6b947ee77d9c315c083bbe6c7365667686a2fe9d3fd4a58",
+          "sha256": "b9920d07e7cde9c1c17dc7be063e02dc32a5685b9b4a588823d458779bc60cbf",
           "evidence": "Launcher inventory hashes fixed source bytes as opaque identity data in cpu_guard policy fixtures. nightly-local.py is never imported or executed by this fixture path; no configuration keys or execution edges are read."
         }
       ]
@@ -15022,7 +15022,7 @@
         {
           "root": "repository",
           "path": "richos/app/scripts/lib/proof_evidence.py",
-          "sha256": "b5e132c63d9e1e5b55c84b98adb333519d39d22d08e713aad4d5a5588759d2e7",
+          "sha256": "097bbedcad9f52e9ef41d6c96a7ffdf87ef3f7a18e595e204c79b18cda1ec392",
           "evidence": "Reviewed fixed fixture import or source-data input; bind against the current repository, never another worktree."
         },
         {
