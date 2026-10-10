@@ -62,6 +62,7 @@ LICENSE_CLASS = {
     "BSD-3-Clause AND MIT": "permissive",
     "BSD-3-Clause OR MIT OR Apache-2.0": "permissive",
     "BSD-3-Clause/MIT": "permissive",
+    "CC0-1.0": "permissive",
     "CC0-1.0 OR MIT-0 OR Apache-2.0": "permissive",
     "CDLA-Permissive-2.0": "data",
     "ISC": "permissive",
