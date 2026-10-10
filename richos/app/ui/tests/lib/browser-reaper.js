@@ -17,6 +17,13 @@
 //
 // WHAT THIS DOES NOT CLAIM: a suite killed in the ~100 ms between spawning the browser and the
 // watcher's next look can still leave one browser.
+//
+// NEVER MODIFY OR RE-SIGN THE INSTALLED Playwright.app (removed 2026-10-10). A postinstall once set
+// LSUIElement and re-signed every WebKit bundle ad hoc. The new code signature no longer matched the
+// keychain item "Playwright WebCrypto Master Key", so WebKit's UI process blocked in
+// SecKeychainItemCopyContent the first time a page stored a non-extractable CryptoKey in IndexedDB,
+// waiting on a keychain prompt. That hung the PWA page in mobile-pwa.test.sh (WebKit half). Any
+// re-sign changes the signature, so no version of that patch works.
 "use strict";
 
 const { spawn, spawnSync } = require("child_process");
