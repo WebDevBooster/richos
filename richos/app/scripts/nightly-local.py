@@ -1746,6 +1746,8 @@ class Runner:
                 # reader to find out which of 55 suites did it is a gate people learn to
                 # re-run rather than read.
                 red = self.red_ui_suites(receipts)
+                if self.retry_red_ui_suites_alone(error, receipts, tests, tree, red):
+                    return
                 raise RuntimeError(
                     f"the UI suite refused this build: {error}"
                     + (f": {', '.join(red)}" if red else " (see the coverage output)")
@@ -1860,6 +1862,11 @@ class Runner:
         build with "home.js (exit 1, 1 failed check(s))" and nothing else, and the log had
         lost the FAIL line, so the only way to learn which check was a rerun.
         """
+        return [text for _, text in Runner.red_ui_receipts(receipts)]
+
+    @staticmethod
+    def red_ui_receipts(receipts):
+        """(suite, the line red_ui_suites prints for it) for each red receipt in `receipts`."""
         red = []
         for path in sorted(Path(receipts).glob("*.receipt.json")):
             try:
@@ -1871,9 +1878,80 @@ class Runner:
             if receipt.get("exit") or failed:
                 named = [f"{f.get('check')}: {str(f.get('message') or '').splitlines()[0] if f.get('message') else ''}"
                          for r in records for f in r.get("failures") or [] if isinstance(f, dict)]
-                red.append(f"{receipt.get('suite')} (exit {receipt.get('exit')}, "
-                           f"{failed} failed check(s))" + (" [" + "; ".join(named) + "]" if named else ""))
+                red.append((receipt.get("suite"),
+                            f"{receipt.get('suite')} (exit {receipt.get('exit')}, "
+                            f"{failed} failed check(s))" + (" [" + "; ".join(named) + "]" if named else "")))
         return red
+
+    def retry_red_ui_suites_alone(self, error, receipts, tests, tree, first):
+        """Give each suite the sharded run left red ONE attempt alone; True when the build goes on.
+
+        THE SAME RULE run-tests.sh HAS FOR A SCRIPT SUITE (`retry_alone`, per
+        docs/development/verification-retries.md). Run 20261010T025551Z-f0359d9b refused a
+        whole build over splash.js check 10b ("the shutter's window moved from 238ms to
+        353ms"), which passed alone on the same tree minutes later; so did setup.js check 24 in
+        run 20261010T002045Z-ded5dc34. The command that failed has returned, so every shard has
+        finished; each red suite then runs alone (`run.js --suite`, which writes its receipt
+        over the red one) and the coverage job reconciles the whole receipt directory again,
+        so a missing receipt or any other refusal still refuses. If a suite fails again alone
+        the build is refused here, quoting both attempts; nothing runs a third time.
+
+        Only a plain red run is retried: a stop (another gate refused the build), a timeout,
+        an admission refusal or a failed cleanup returns False and the caller refuses as before,
+        as does a refusal with no red receipt or only quarantined ones.
+        """
+        if type(error) is not RuntimeError or self.groups.stopping:
+            return False
+        red = [(suite, text) for suite, text in self.red_ui_receipts(receipts)
+               if suite not in UI_QUARANTINE]
+        if not red:
+            return False
+        budget = GATE_BUDGETS[UI_SUITE_GATE]
+        failed_again = None
+        try:
+            for suite, text in red:
+                self.announce(f"  {UI_SUITE_GATE}: {text}; retrying it ONCE, alone "
+                              "(verification-retries.md).")
+                try:
+                    self.command("node", "run.js", f"--suite={suite}", f"--receipts={receipts}",
+                                 cwd=tests, timeout=budget)
+                except RuntimeError as again:
+                    if type(again) is not RuntimeError:
+                        raise  # stopped, timed out, not admitted or not cleaned up: not a verdict
+                    second = dict(self.red_ui_receipts(receipts)).get(suite) or f"{suite} ({again})"
+                    self.announce(f"  {UI_SUITE_GATE}: {suite} FAILED AGAIN on the retry, alone. "
+                                  f"First attempt: {text}. Solo attempt: {second}.")
+                    failed_again = (text, second)
+                    break
+                self.announce(f"  {UI_SUITE_GATE}: {suite} PASSED on the retry, alone. "
+                              f"First attempt: {text}. It is counted as passed; the first failure "
+                              "is recorded above and is load-sensitive until shown otherwise.")
+            if failed_again is None:
+                coverage = ["node", "run.js", f"--coverage={receipts}"]
+                coverage += [f"--quarantine={suite}" for suite in UI_QUARANTINE]
+                self.command(*coverage, cwd=tests, timeout=budget)
+        except CommandCleanupError:
+            raise
+        except RuntimeError as again:
+            self.restore_source_tree("the UI suite's solo attempt", tree)
+            if type(again) is not RuntimeError:
+                # Raised as it is, so the gate's record keeps "stopped" or "timed-out".
+                self.announce(f"  {UI_SUITE_GATE}: the solo attempt did not finish ({again}); "
+                              f"the sharded run had failed on: {', '.join(first)}.")
+                raise
+            raise RuntimeError(
+                f"the UI suite refused this build: the sharded run failed ({error}: "
+                f"{', '.join(first)}), and after the solo attempt the coverage job still refused "
+                f"it ({again}). The run log has both under the {UI_SUITE_GATE} phase; the "
+                f"receipts are in {receipts}.") from None
+        self.restore_source_tree("the UI suite's solo attempt", tree)
+        if failed_again is not None:
+            raise RuntimeError(
+                f"the UI suite refused this build: a suite failed in the sharded run and FAILED "
+                f"AGAIN alone: first attempt: {failed_again[0]}; solo attempt: {failed_again[1]}. "
+                f"Every shard's output, the solo attempt and the coverage verdict are in this "
+                f"run's log under the {UI_SUITE_GATE} phase; the receipts are in {receipts}.")
+        return True
 
     def gates(self, checks_done_at_land=None, no_host_screen=False, skip_unchanged=False):
         # Deliberately without `credentials=True`: a gate that can see the operator's
