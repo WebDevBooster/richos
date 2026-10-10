@@ -964,22 +964,38 @@ class DesktopWork(unittest.TestCase):
         (target/"result.txt").write_text("FICTIONAL")
         self.app.git(target,"add","result.txt")
         self.app.git(target,"-c","user.name=Fixture","-c","user.email=fixture@example.invalid","commit","-qm","Fictional result")
+        # The fake records each call in "review calls being written" and moves it whole into
+        # "review calls" (one rename) only once args and partition are written: the watcher
+        # starts it and returns at once, so a call read before then is half written (nightly
+        # 20261010T014856Z-dcdee3e7: FileNotFoundError on args).
         calls=self.root/"review calls";calls.mkdir()
+        writing=self.root/"review calls being written";writing.mkdir()
         fake=self.root/"fake second-review.sh"
         fake.write_text('#!/bin/bash\nd="$(mktemp -d "%s/call.XXXXXX")"\nprintf "%%s\\n" "$@" > "$d/args"\n'
-                        'printf "%%s" "$RICHOS_WORKSPACES_DIR" > "$d/partition"\nexec sleep 30\n' % calls)
+                        'printf "%%s" "$RICHOS_WORKSPACES_DIR" > "$d/partition"\nmv "$d" "%s/"\nexec sleep 30\n'
+                        % (writing,calls))
         state=self.root/"engine-state";claude=self.root/"claude";claude.write_text("#!/bin/sh\n");claude.chmod(0o755)
         os.environ.update({"REVIEW_WATCH_SECOND_REVIEW":str(fake)})
         accounts=self.root/"claude-accounts.json"
         a=type("A",(),{"app_state":str(state),"claude":str(claude),"accounts":str(accounts),"codex_reviews":"","status":False,"tick":True})
         import time as _t
         def look(minutes):
+            """Every call started so far, written in full or not, by name: the one being
+            written is read first, so a call moved in between is seen once, never missed."""
             os.environ["REVIEW_WATCH_NOW"]=str(_t.time()+minutes*60)
             rw.app_mode(a,str(ENGINE))
-            return sorted(calls.iterdir())
+            names={p.name for p in writing.iterdir()}
+            return sorted(names|{p.name for p in calls.iterdir()})
+        def written(name):
+            """The call `name` once the fake has written it in full (bounded at 30 s)."""
+            deadline=_t.monotonic()+30
+            while not (calls/name).is_dir() and _t.monotonic()<deadline:_t.sleep(0.05)
+            self.assertTrue((calls/name).is_dir(),"the fake never finished writing call %s"%name)
+            return calls/name
         self.assertEqual(look(5),[],"a review started five minutes in")
         started=look(61)
         self.assertEqual(len(started),1)
+        started=[written(started[0])]
         args=(started[0]/"args").read_text().split("\n")
         self.assertEqual(args[args.index("--trigger")+1],"long-job")
         self.assertEqual(args[args.index("--reviewer")+1],"claude")
