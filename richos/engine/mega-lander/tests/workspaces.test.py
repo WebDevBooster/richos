@@ -4560,7 +4560,21 @@ class SecondReview_NoWorkLandsUnreviewed(Base):
         launcher removed, the land command never read self.decl and merged
         unreviewed work. The entity is recovered from the fence registry, which
         records it per repository, so a later install from another entity for
-        another repository does not lose it."""
+        another repository does not lose it.
+
+        ONLY THAT DECLARATION MAY DECIDE HERE (nightly 20261010T014856Z-dcdee3e7:
+        the mutant that stops reading the registry's entity survived). The
+        install's own record ("reviewed", which comes first) refused the land
+        by itself, so it is made to record nothing: the repository is installed
+        while self.decl lists nothing and listed there afterwards, without a new
+        install. Then self.decl, named only by the registry, is the one thing
+        that says this repository is reviewed."""
+        self.declare("")
+        run("bash", self.fences, "install", "--repo", self.other, "--entity", self.decl)
+        self.declare("other")
+        entries = [e for e in self.registry()["repositories"].values()
+                   if os.path.realpath(e.get("entity") or "") == os.path.realpath(self.decl)]
+        self.assertEqual([e.get("reviewed") for e in entries], [False], entries)
         third = self.env.repo("third")
         elsewhere = os.path.join(self.env.root, "elsewhere-entity")
         os.makedirs(elsewhere)
