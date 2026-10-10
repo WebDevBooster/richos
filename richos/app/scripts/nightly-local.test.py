@@ -207,12 +207,13 @@ class LocalTests(unittest.TestCase):
         self.assertIn("RICHOS_TEST_SCOPE", m.GATE_SET_BY_BUILD)
         self.assertNotIn("RICHOS_TEST_SCOPE", m.GATE_PASSTHROUGH)
 
-    def test_gates_and_author_checks_share_the_configured_ssd_tmpdir(self):
+    def test_gates_and_author_checks_share_a_root_independent_of_caller_tmpdir(self):
         # Nightly attempt 2 (2026-10-01): cargo-cache-env.test.sh failed with "path must be
         # shorter than SUN_LEN" under the build's long TMPDIR after passing where TMPDIR was
-        # short. One folder for every launcher, the one macOS assigns this account.
-        expected = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
-                                  text=True, check=True).stdout.strip()
+        # short. One folder for every launcher, regardless of its shell's TMPDIR.
+        platform_root = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
+                                       text=True, check=True).stdout.strip()
+        expected = "/Volumes/E1TB/tmp/richos-gates/" if Path("/Volumes/E1TB").is_mount() else platform_root
         for caller in ("/tmp/", str(self.root) + "/", None):
             with self.subTest(caller=caller):
                 planted = {"HOME": os.environ["HOME"]}
@@ -222,10 +223,11 @@ class LocalTests(unittest.TestCase):
                     if caller is None:
                         os.environ.pop("TMPDIR", None)
                     env, _credentials = m.local_environment()
-                chosen = caller if caller and Path(caller).resolve().is_relative_to("/Volumes/E1TB") else expected
-                self.assertEqual(env["TMPDIR"], chosen)
+                self.assertEqual(env["TMPDIR"], expected)
                 conditions, _ = m.gate_conditions(m.UI_SUITE_GATE, planted)
-                self.assertEqual(conditions["TMPDIR"], chosen)
+                self.assertEqual(conditions["TMPDIR"], expected)
+        with patch.object(Path, "is_mount", return_value=False):
+            self.assertEqual(m.gate_tmpdir({"TMPDIR": str(self.root)}), platform_root)
         self.assertNotIn("TMPDIR", m.GATE_PASSTHROUGH)
         self.assertIn("TMPDIR", m.GATE_SET_BY_BUILD)
 

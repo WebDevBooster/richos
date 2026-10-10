@@ -822,19 +822,15 @@ def gate_tmpdir(environ=None):
     build started from a terminal passes through `/var/folders/<..>/T/` (57 bytes once
     resolved to /private/var/...); an agent's shell can hand down something shorter, and the
     same suite then passes for the engineer and fails in the nightly. So the build names ONE
-    folder, the one `getconf DARWIN_USER_TEMP_DIR` reports for this account, and
-    proof-run.py's checks get the same one from this function (gate_conditions). Only when
-    that cannot be read (not macOS) does the caller's TMPDIR stand in. A configured
-    external-SSD root takes precedence; gate_conditions reproduces it for author checks.
+    folder independent of the caller: the project's short external-SSD gate root when that
+    volume is mounted, otherwise the account's platform root. Each command creates its own
+    disposable subdirectories there. proof-run.py gets the same root via gate_conditions.
     """
     environ = os.environ if environ is None else environ
-    # Respect the configured external-SSD scratch root in this workspace. Both the nightly
-    # and proof-run call this function, so its actual path is part of their common inputs.
-    configured = environ.get("TMPDIR")
-    if configured and Path(configured).resolve().is_relative_to("/Volumes/E1TB"):
-        if not Path("/Volumes/E1TB").is_mount() or not Path(configured).is_dir():
-            raise ValueError("the configured external-SSD TMPDIR is unavailable")
-        return configured
+    if Path("/Volumes/E1TB").is_mount():
+        folder = Path("/Volumes/E1TB/tmp/richos-gates")
+        folder.mkdir(parents=True, exist_ok=True)
+        return str(folder) + "/"
     try:
         out = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
                              text=True, timeout=10, stdin=subprocess.DEVNULL)
