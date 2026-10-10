@@ -681,8 +681,14 @@ and the `coverage` job reconciles them.
 npm test                                   every suite, serially, as it always has
 npm test -- --shard=2/6 --receipts=out      one packed slice, receipts into out/
 node run.js --coverage=out                  reconcile every shard's receipts
+node run.js --suite=splash.js --receipts=out  one suite alone, its receipt rewritten in out/
 node run.js --plan=6                        print the packing and exit
 ```
+
+The nightly's `gates/ui-suite` uses `--suite` for its one solo attempt: a suite the sharded
+run left red runs again alone after every shard has finished, then `--coverage` reconciles
+the same receipts. The build is refused only if the suite fails alone too, and the run log
+quotes both attempts (the rule `run-tests.sh` has for a script suite).
 
 **`coverage` is the job to read, and the one to mark required.** A shard says only what its
 own slice did; the sentence about the directory belongs to the job that has seen every
