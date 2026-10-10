@@ -1,7 +1,7 @@
 [
   {"op": "guest", "command": "mkdir -p \"$HOME/Acme\" /Users/admin/qa/lib && echo ready"},
-  {"op": "push", "src": "/Users/alex/ab/richos-wt/ray-opus-walk48b/richos/app/scripts/qa/frame.py", "dest": "/Users/admin/qa/frame.py"},
-  {"op": "push", "src": "/Users/alex/ab/richos-wt/ray-opus-walk48b/richos/app/scripts/qa/lib/qaimg.py", "dest": "/Users/admin/qa/lib/qaimg.py"},
+  {"op": "push", "src": "richos/app/scripts/qa/frame.py", "dest": "/Users/admin/qa/frame.py"},
+  {"op": "push", "src": "richos/app/scripts/qa/lib/qaimg.py", "dest": "/Users/admin/qa/lib/qaimg.py"},
   {"op": "until", "args": ["find", "--title", "Not now", "--role", "AXButton", "--contains", "--first"], "contains": "Not now", "seconds": 90},
   {"op": "wait", "seconds": 2},
   {"op": "ax", "args": ["click", "--title", "Not now", "--role", "AXButton", "--contains", "--first"]},
