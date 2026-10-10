@@ -497,6 +497,7 @@ class Commit(Fixture):
         out = self.git("commit", "-m", "bad", expect=1)
         self.assertIn("COMMIT REFUSED", out.stderr)
         self.write("richos/app/src/bad.txt", "fine\n")
+        self.write("richos/app/src/claims.txt", "true, an old branch with a quick check\n")
         self.git("add", "-A")
         out = self.git("commit", "-m", "old branch uses the committed admission helper")
         self.assertIn("ran quick.js", out.stderr)
