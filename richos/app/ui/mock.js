@@ -1564,6 +1564,17 @@
 
   const setupSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  /// A suite can freeze the run after each step's "started" event (`setupHold(true)`) and let
+  /// it go on with `setupRelease()`, so a row is read while the mock is provably at that step
+  /// and not while a timer happens to be between two events. Off by default: nothing changes
+  /// for a suite that never asks.
+  let setupHeld = false;
+  let setupReleaseGate = null;
+  function setupWaitIfHeld() {
+    if (!setupHeld) return Promise.resolve();
+    return new Promise((r) => { setupReleaseGate = r; });
+  }
+
   async function runSetupMock() {
     // `setup_view::run`: missing video tools are never a step a press waits for; the press
     // starts their background download instead (`foreground_steps`).
@@ -1593,6 +1604,7 @@
         machine_unchanged: null,
       });
       await setupSleep(30);
+      await setupWaitIfHeld();
     }
     if (setupFails) {
       emit("richos://setup", {
@@ -4865,6 +4877,15 @@
       }
       emit("richos://setup", { ...payload });
       return { ...payload };
+    },
+    /// Freeze the setup run after each step's "started" event, or (false) let it go on.
+    setupHold(on) {
+      setupHeld = !!on;
+      if (!setupHeld && setupReleaseGate) { const g = setupReleaseGate; setupReleaseGate = null; g(); }
+    },
+    /// Let a frozen run past the step it is held at; the next step freezes again while held.
+    setupRelease() {
+      if (setupReleaseGate) { const g = setupReleaseGate; setupReleaseGate = null; g(); }
     },
     /// Rich's offer of dictation: every `dictation_offer` / `dictation_offer_shown` call, in order.
     dictationOfferCalls() { return dictationOfferCalls.slice(); },

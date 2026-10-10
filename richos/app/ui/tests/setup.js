@@ -1778,6 +1778,10 @@ async function main() {
     // changed how WebKit drew the same picture at 18px beside every "Rich" in the conversation:
     // 67 to 253 pixels of it, in about fifty reference pictures across eight suites.
     assertEqual(await page.getAttribute("#setup-rich-avatar", "src"), null, "the avatar is fetched before his line is drawn");
+    // THE MOCK IS HELD at Claude Code's step, so the engine row is read while the engine has
+    // provably not started, however loaded the machine is. Its step events run on their own
+    // 30 ms timers; unheld, a slow run had the engine finished before this was read.
+    await page.evaluate(() => window.__RICHOS_MOCK__.setupHold(true));
     await page.click("#setup-go");
     await page.waitForSelector("#setup-steps:not([hidden])");
     const rows = () => page.evaluate(() =>
@@ -1795,7 +1799,8 @@ async function main() {
     // The mock's first step event: Claude Code is installing, the engine waits.
     await page.waitForFunction(() => /Installing/.test(document.querySelector('#setup-steps [data-component="claude-code"]').innerText));
     r = await rows();
-    assert(/Waiting/.test(r[1].text) || /Installing/.test(r[1].text), "the engine row: " + r[1].text);
+    assert(/Waiting/.test(r[1].text) && !/Installing|Installed/.test(r[1].text), "the engine row while Claude Code installs: " + r[1].text);
+    await page.evaluate(() => window.__RICHOS_MOCK__.setupHold(false));
     // Two counter readings that increase, on a moving bar.
     await page.evaluate((line) => window.__RICHOS_MOCK__.setupEmit(line), toolsLine(489_999_396, 1_061_655_396, true, "490 MB of 1.06 GB"));
     r = await rows();
