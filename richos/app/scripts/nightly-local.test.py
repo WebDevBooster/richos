@@ -651,6 +651,88 @@ Path(sys.argv[1]).write_text(str(p.pid))
         self.assertIn("12  the settle deadline holds: settled after 2731 ms of 1500", red[0])
         self.assertNotIn("expected 1", red[0], "only the message's first line belongs in the verdict")
 
+    def ui_gate_with_a_flaky_suite(self, failures):
+        """Run the real gate over the real run.js and two fake suites: `steady.js` passes and
+        `flaky.js` fails its first `failures` runs. Returns (runner, log text, error or None,
+        how many times each suite ran)."""
+        tree = self.root / "ui-tree"
+        tests = tree / m.UI_TESTS
+        (tests / "lib").mkdir(parents=True)
+        ui = Path(__file__).resolve().parents[1] / "ui/tests"
+        for name in ("run.js", "lib/ui-sources.js", "lib/blocking-stdio.js"):
+            shutil.copyfile(ui / name, tests / name)
+        counts = self.root / "counts"
+        counts.mkdir()
+        suite = """const fs = require('fs');
+const run = {check() {}};
+run.check();
+const counter = COUNTER;
+const n = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) : 0;
+fs.writeFileSync(counter, String(n + 1));
+const failed = n < FAILS ? 1 : 0;
+fs.appendFileSync(process.env.RICHOS_UI_TESTS_LEDGER, JSON.stringify({suite: NAME, label: 'fixture',
+  checks: 1, failed, failures: failed ? [{check: '10b  the shutter window holds',
+  message: 'moved from 238ms to 353ms'}] : []}) + '\\n');
+process.exit(failed);
+"""
+        for name, fails in (("steady.js", 0), ("flaky.js", failures)):
+            (tests / name).write_text(suite.replace("COUNTER", json.dumps(str(counts / name)))
+                                      .replace("FAILS", str(fails)).replace("NAME", json.dumps(name)))
+        scratch = self.root / "tmp"
+        scratch.mkdir()
+        log = io.StringIO()
+        r = m.Runner(self.root, self.root / "state",
+                     {"PATH": os.environ["PATH"], "GITHUB_SHA": "a" * 40, "TMPDIR": str(scratch)}, log)
+        r.ui_checkout = lambda: tree
+        r.restore_source_tree = Mock()
+
+        def direct(args, *, timeout=None, groups=None, cleanup=False, release_build=False, **kwargs):
+            out = kwargs.pop("stdout")
+            kwargs.pop("stderr")
+            done = subprocess.run(args, timeout=timeout, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, **kwargs)
+            if out is subprocess.PIPE:
+                return subprocess.CompletedProcess(args, done.returncode, done.stdout, "")
+            log.write(done.stdout)
+            return subprocess.CompletedProcess(args, done.returncode, None, None)
+
+        error = None
+        with patch.object(m, "owned_run", side_effect=direct), patch.object(m, "UI_SHARDS", 2), \
+                contextlib.redirect_stdout(io.StringIO()):
+            try:
+                r.ui_suite()
+            except RuntimeError as raised:
+                error = raised
+        ran = {name: int((counts / name).read_text()) for name in ("steady.js", "flaky.js")}
+        return r, log.getvalue(), error, ran
+
+    def test_a_ui_suite_that_fails_in_the_sharded_run_and_passes_alone_lets_the_build_go_on(self):
+        # Run 20261010T025551Z-f0359d9b: splash.js 10b failed under the build's own load ("the
+        # shutter's window moved from 238ms to 353ms") and passed alone on the same tree, and the
+        # whole build was thrown away. The gate now gives a red suite ONE attempt alone, after
+        # the shards finish, as run-tests.sh does for a script suite, and quotes both results.
+        r, log, error, ran = self.ui_gate_with_a_flaky_suite(failures=1)
+        self.assertIsNone(error, log)
+        self.assertEqual(ran, {"steady.js": 1, "flaky.js": 2}, "only the red suite runs again, once")
+        retry = log[log.index("retrying it ONCE, alone"):]
+        self.assertIn("flaky.js PASSED on the retry, alone", retry)
+        self.assertIn("First attempt: flaky.js (exit 1, 1 failed check(s)) "
+                      "[10b  the shutter window holds: moved from 238ms to 353ms]", retry)
+        self.assertIn("ui-suite: 2/2 discovered suite(s) ran, all green", retry,
+                      "the coverage job over every receipt is still the verdict")
+        r.restore_source_tree.assert_called()
+
+    def test_a_ui_suite_that_fails_again_alone_refuses_the_build_quoting_both_attempts(self):
+        r, log, error, ran = self.ui_gate_with_a_flaky_suite(failures=2)
+        self.assertIsNotNone(error, log)
+        self.assertEqual(ran, {"steady.js": 1, "flaky.js": 2}, "one solo attempt, never more")
+        message = str(error)
+        self.assertIn("FAILED AGAIN alone", message)
+        quoted = "flaky.js (exit 1, 1 failed check(s)) [10b  the shutter window holds: moved from 238ms to 353ms]"
+        self.assertIn("first attempt: " + quoted, message)
+        self.assertIn("solo attempt: " + quoted, message)
+        self.assertIn("FAILED AGAIN on the retry, alone", log)
+
     def process_fixture(self):
         script = self.root / "tree.py"
         script.write_text("""import os, signal, subprocess, sys, time

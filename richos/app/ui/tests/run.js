@@ -71,6 +71,7 @@ const USAGE =
   "       node run.js --shard=<i>/<N> --receipts=<dir>     one shard, writing a receipt per suite\n" +
   "       node run.js --coverage=<dir>                     reconcile every shard's receipts\n" +
   "       node run.js --shards=<N>                         run N shards in parallel, then reconcile\n" +
+  "       node run.js --suite=<suite.js> --receipts=<dir>  one suite alone, rewriting its receipt\n" +
   "       node run.js --weigh=<dir>                        rewrite suite-weights.tsv from receipts\n" +
   "       node run.js --plan[=<N>]                         print the packing and exit\n" +
   "  with --coverage: [--quarantine=<suite.js> ...]        report these red, do not fail on them\n" +
@@ -85,6 +86,7 @@ let WEIGH = null;
 let SHARDS = null;
 let PROOF_OUT = null;
 let PLAN = null;
+let SUITE_ONLY = null;
 for (const arg of process.argv.slice(2)) {
   if (arg.startsWith("--allow-skip=")) {
     ALLOWED_SKIPS.add(arg.slice("--allow-skip=".length));
@@ -117,6 +119,13 @@ for (const arg of process.argv.slice(2)) {
       console.error("--shards wants a positive shard count: " + arg + "\n" + USAGE);
       process.exit(2);
     }
+    continue;
+  }
+  // ONE SUITE, ALONE: the build gate's solo attempt (`nightly-local.py` ui_suite). It runs the
+  // suite this file's own way and writes its receipt over the one the sharded run left, so the
+  // coverage job that follows reconciles the same directory and stays the only verdict.
+  if (arg.startsWith("--suite=")) {
+    SUITE_ONLY = arg.slice("--suite=".length);
     continue;
   }
   if (arg.startsWith("--weigh=")) {
@@ -171,6 +180,10 @@ if (SHARDS && (SHARD || COVERAGE || WEIGH)) {
   console.error("--shards runs the whole sharded job; it is not combined with one end of it.\n" + USAGE);
   process.exit(2);
 }
+if (SUITE_ONLY !== null && (SHARD || COVERAGE || WEIGH || SHARDS !== null || PLAN !== null || !RECEIPTS)) {
+  console.error("--suite runs one suite alone and needs --receipts=<dir>; it is not combined with a sharded or coverage run.\n" + USAGE);
+  process.exit(2);
+}
 if ((QUARANTINED.size || PROOF_OUT) && !COVERAGE && !SHARDS) {
   console.error(
     "--quarantine and --proof-out are the coverage job's arguments: only the process that " +
@@ -192,6 +205,10 @@ const SUITES = fs
 
 if (SUITES.length === 0) {
   console.error("no browser suites discovered in " + __dirname + " — refusing to report green over an empty inventory");
+  process.exit(2);
+}
+if (SUITE_ONLY !== null && !SUITES.includes(SUITE_ONLY)) {
+  console.error(`--suite=${SUITE_ONLY} names no suite in ${__dirname}.\n` + USAGE);
   process.exit(2);
 }
 
@@ -501,7 +518,7 @@ if (COVERAGE) {
 // exactly as it always has. Sharded, it is one packed subset — and the subset is derived
 // from the same disk discovery, so a suite added to the directory joins a shard without
 // anybody editing a list.
-const MINE = SHARD ? pack(SUITES, WEIGHTS, SHARD.total)[SHARD.index - 1].suites : SUITES;
+const MINE = SUITE_ONLY ? [SUITE_ONLY] : SHARD ? pack(SUITES, WEIGHTS, SHARD.total)[SHARD.index - 1].suites : SUITES;
 
 // A SHARD THAT VERIFIES NOTHING MUST NEVER EXIT 0. With 31 suites and a sane shard count
 // this cannot happen, but "cannot happen" is how the empty-inventory green run happened.
@@ -576,7 +593,9 @@ fs.writeFileSync(path.join(ledgerDir, "owner.pid"), String(process.pid));
   }
 })();
 
-if (SHARD) {
+if (SUITE_ONLY) {
+  console.log(`${SUITES.length} suite(s) discovered; running ${SUITE_ONLY} alone\n`);
+} else if (SHARD) {
   console.log(
     `${SUITES.length} suite(s) discovered; shard ${SHARD.index}/${SHARD.total} runs ` +
       `${MINE.length}: ${MINE.join(", ")}\n`
@@ -1142,7 +1161,7 @@ for (const suite of MINE) {
     exit: exited.get(suite),
     records: bySuite.get(suite) || [],
     seconds: seconds.get(suite),
-    shard: SHARD ? `${SHARD.index}/${SHARD.total}` : null,
+    shard: SHARD ? `${SHARD.index}/${SHARD.total}` : SUITE_ONLY ? "alone" : null,
   });
 }
 
@@ -1175,7 +1194,7 @@ if (RECEIPTS) {
 }
 
 const result = gate(MINE, data, {
-  label: SHARD ? `shard ${SHARD.index}/${SHARD.total}` : "",
+  label: SHARD ? `shard ${SHARD.index}/${SHARD.total}` : SUITE_ONLY ? `${SUITE_ONLY} alone` : "",
 });
 
 if (!result.ok) process.exit(1);
@@ -1184,7 +1203,9 @@ if (!result.ok) process.exit(1);
 // about the whole directory belongs to the coverage job, which is the only thing that has
 // seen every receipt.
 const skipTail = ALLOWED_SKIPS.size ? `, skips allowed for (${[...ALLOWED_SKIPS].join(", ")})` : "";
-if (SHARD) {
+if (SUITE_ONLY) {
+  console.log(`\n${SUITE_ONLY} passed alone — ${result.observedTotal} checks. Whether the DIRECTORY passed is the coverage job's sentence.`);
+} else if (SHARD) {
   console.log(
     `\nshard ${SHARD.index}/${SHARD.total} passed — ${result.observedTotal} checks over ` +
       `${result.ran} of this tree's ${SUITES.length} suites${skipTail}. ` +
