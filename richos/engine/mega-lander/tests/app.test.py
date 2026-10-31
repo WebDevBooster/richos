@@ -279,7 +279,9 @@ class DesktopWork(unittest.TestCase):
         actual = self.app.call_read_only(self.scope_path, "inspect", {})["records"]
         self.assertEqual(actual, expected)
         self.assertEqual(actual[0]["id"], ready["id"])
-        self.assertEqual(actual[0]["request"]["brief"], self.args["brief"])
+        self.assertNotIn("brief", actual[0]["request"])
+        full = self.app.call_read_only(self.scope_path, "inspect", {"id": ready["id"]})["records"]
+        self.assertEqual(full[0]["request"]["brief"], self.args["brief"])
         self.assertEqual({p.name: p.read_bytes() for p in root.glob("*.json")}, before)
         self.assertEqual(self.app.call_read_only(self.scope_path, "repositories", {}), self.call("repositories", {}))
         for name, args in (("prepare", self.args), ("integrate", {}), ("complete", {}),
@@ -501,6 +503,28 @@ class DesktopWork(unittest.TestCase):
             reply=send(brief+"x",f"hire-over-limit-{index}",f"hire-{index}")
             self.assertNotIn("error",reply,repr(unit))
             self.assertIn("65,537 bytes as sent",reply["result"]["content"][0]["text"],repr(unit))
+
+    def test_inspect_page_carries_no_brief_and_one_record_by_id_carries_it_in_full(self):
+        brief = self.args["brief"]
+        said = "Fictional user words that every record would repeat."
+        self.scope["user_instruction"] = {"ledger_ref": "ledger:thread-a:turn-a",
+            "sha256": hashlib.sha256(said.encode()).hexdigest(), "text": said}
+        self.scope_path.write_text(json.dumps(self.scope))
+        ready = self.call("prepare", self.args)
+        page = self.call("inspect")["records"]
+        self.assertEqual(len(page), 1)
+        self.assertNotIn("brief", page[0]["request"])
+        self.assertNotIn(brief, json.dumps(page))
+        words = self.call("inspect", {"id": ready["id"]})["records"][0]["original_user_instruction"].get("text")
+        self.assertTrue(words)
+        self.assertNotIn(words, json.dumps(page))
+        self.assertNotIn("text", page[0]["original_user_instruction"])
+        self.assertEqual(page[0]["status"], "prepared")
+        for key in (ready["id"], ready["request_id"]):
+            one = self.call("inspect", {"id": key})["records"]
+            self.assertEqual([r["request"]["brief"] for r in one], [brief])
+            self.assertEqual(one[0]["original_user_instruction"]["text"], words)
+        self.assertEqual(self.call("inspect", {"id": "no-such"})["records"], [])
 
     def test_inspection_reports_committed_work_separately_from_uncommitted_files_in_each_repository(self):
         second = self.second_repository()
