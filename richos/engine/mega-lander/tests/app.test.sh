@@ -10,6 +10,8 @@
 # app.test.py drives scripts/lib/instruction_files.py through prepare.
 # A closed grant's cause, which work, who closed it and when (P1-A, 2026-10-29): app.test.py
 # drives scripts/lib/scope_closure.py through read_scope and scripts/app-engine-hook.py's turn gate.
+# A worker's assignment notice is said once per context (app token burn finding 2, 2026-10-31):
+# app.test.py drives scripts/lib/notice_once.py through worker_context.
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
