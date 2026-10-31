@@ -379,7 +379,13 @@ def capture(payload, state_root, instruction=None, app_data=None, worktrees=None
         # is valid; a missing or unwritable projection is an explicit failure.
         fd = os.open(transcript, os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         os.close(fd)
-    return {**payload, "transcript_path": str(transcript)}
+    out = {**payload, "transcript_path": str(transcript)}
+    # The provider's own transcript stays readable beside it: only it carries the host's
+    # compaction lines, which tell app.py's worker_context to say a worker's assignment again
+    # (notice_once; the second review of bb08b88e0).
+    if isinstance(payload.get("transcript_path"), str) and "native_transcript_path" not in payload:
+        out["native_transcript_path"] = payload["transcript_path"]
+    return out
 
 
 def main():

@@ -1675,7 +1675,13 @@ class DesktopWork(unittest.TestCase):
     def test_worker_hears_its_assignment_once_per_context_and_is_still_fenced_on_every_call(self):
         """richos-hq docs/research/2026-10-31-app-token-burn finding 2: the assignment notice rode on
         every allowed worker tool call (10,323 copies of 529 characters in two days). It is said once
-        per worker context, again after the host compacts that context, and every call stays fenced."""
+        per worker context, again after the host compacts that context, and every call stays fenced.
+        Every call goes through the app's own evidence capture first, as scripts/app-engine-hook.py
+        does: capture puts its guard projection in transcript_path (second review of bb08b88e0)."""
+        evidence=self.app.load("notice_capture",ENGINE/"scripts/lib/app-evidence.py")
+        state=self.root/"engine-state"
+        seen=lambda e: self.app.worker_context(self.scope,evidence.capture(
+            e,state/"evidence",app_data=self.root,worktrees=state/"target-worktrees"))
         ready=self.call("prepare",self.args)
         self.start_fixture_worker(ready,"once-worker")
         target=self.root/"engine-state/target-worktrees"/self.app.folder(self.scope).name/ready["name"]
@@ -1685,23 +1691,23 @@ class DesktopWork(unittest.TestCase):
         event={"session_id":self.session,"agent_id":"once-worker","cwd":str(self.coord),
                "transcript_path":str(transcripts/(self.session+".jsonl")),
                "tool_name":"Write","tool_input":{"file_path":str(target/"result.txt")}}
-        first=self.app.worker_context(self.scope,event)
+        first=seen(event)
         self.assertIn(str(target),first["hookSpecificOutput"]["additionalContext"])
         for tool in ("Write","Read","Bash"):
             with self.subTest(tool=tool):
-                self.assertIsNone(self.app.worker_context(self.scope,{**event,"tool_name":tool}))
+                self.assertIsNone(seen({**event,"tool_name":tool}))
         # Silence is never permission: a write outside the target is refused as on the first call.
         with self.assertRaisesRegex(ValueError,"outside"):
-            self.app.worker_context(self.scope,{**event,"tool_input":{"file_path":str(self.root/"elsewhere.txt")}})
+            seen({**event,"tool_input":{"file_path":str(self.root/"elsewhere.txt")}})
         # The host compacts this worker's context: the next call says it again, then nothing.
         with own.open("a") as fh: fh.write('{"type":"system","subtype":"compact_boundary"}\n')
-        self.assertIn(str(target),self.app.worker_context(self.scope,event)["hookSpecificOutput"]["additionalContext"])
-        self.assertIsNone(self.app.worker_context(self.scope,event))
+        self.assertIn(str(target),seen(event)["hookSpecificOutput"]["additionalContext"])
+        self.assertIsNone(seen(event))
         # Another worker of the same session hears its own assignment in its own context.
         other=self.call("prepare",{**self.args,"request_id":"once-other","title":"Another fictional result"})
         self.start_fixture_worker(other,"once-other")
         elsewhere=self.root/"engine-state/target-worktrees"/self.app.folder(self.scope).name/other["name"]
-        said=self.app.worker_context(self.scope,{**event,"agent_id":"once-other","tool_name":"Read",
+        said=seen({**event,"agent_id":"once-other","tool_name":"Read",
                                                  "tool_input":{"file_path":str(elsewhere/"x.txt")}})
         self.assertIn(str(elsewhere),said["hookSpecificOutput"]["additionalContext"])
 

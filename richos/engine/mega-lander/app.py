@@ -1830,7 +1830,11 @@ def assignment_notice(payload, text):
     words are not repeated. On 2026-10-28..30 it rode on every allowed worker tool call, 10,323
     copies of 529 characters, about 24.4M cost units (richos-hq docs/research/
     2026-10-31-app-token-burn finding 2)."""
-    said = ONCE.say_once(payload, text, "worker-assignment")
+    # The provider's own transcript, never the guard projection the app's capture puts in
+    # transcript_path: only the provider's carries its compaction lines (app-evidence.py capture).
+    native = payload.get("native_transcript_path")
+    tracked = {**payload, "transcript_path": native} if isinstance(native, str) else payload
+    said = ONCE.say_once(tracked, text, "worker-assignment")
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": said}} if said else None
 
 
