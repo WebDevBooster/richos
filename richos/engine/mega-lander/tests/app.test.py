@@ -1701,7 +1701,7 @@ class DesktopWork(unittest.TestCase):
         every allowed worker tool call (10,323 copies of 529 characters in two days). It is said once
         per worker context, again after the host compacts that context, and every call stays fenced.
         Every call goes through the app's own evidence capture first, as scripts/app-engine-hook.py
-        does: capture puts its guard projection in transcript_path (second review of bb08b88e0)."""
+        does; capture hands Claude Code's own transcript_path on unchanged."""
         evidence=self.app.load("notice_capture",ENGINE/"scripts/lib/app-evidence.py")
         state=self.root/"engine-state"
         seen=lambda e: self.app.worker_context(self.scope,evidence.capture(
