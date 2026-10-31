@@ -552,6 +552,17 @@ class DesktopWork(unittest.TestCase):
         self.assertTrue(words)
         self.assertNotIn(words, json.dumps(page))
         self.assertEqual(self.app.call_read_only(self.scope_path, "inspect", {})["jobs"], expected)
+        # A name read off the overview opens that job's full record, as the terminal lead names it.
+        briefs = {ready["id"]: brief, running["id"]: brief + " Second job.", ended["id"]: brief + " Third job."}
+        for line in page["jobs"]:
+            if line.startswith(" "):
+                continue
+            listed = line.split()[1]
+            for ask in (lambda args: self.call("inspect", args),
+                        lambda args: self.app.call_read_only(self.scope_path, "inspect", args)):
+                one = ask({"id": listed})["records"]
+                self.assertEqual([r["name"] for r in one], [listed])
+                self.assertEqual(one[0]["request"]["brief"], briefs[one[0]["id"]])
         for key in (ready["id"], ready["request_id"]):
             one = self.call("inspect", {"id": key})["records"]
             self.assertEqual([r["request"]["brief"] for r in one], [brief])
