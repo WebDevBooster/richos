@@ -46,14 +46,16 @@ company facts to decide what expertise is useful.
 repository access. Use the selected assignment's existing obligation and original request;
 no separate continuity checkpoint or invented obligation ID is needed to dispatch work.
 
-`richos_work.prepare` records one concrete request and returns an exact `agent_payload`.
+`richos_work.prepare` records one concrete request, brief included and returns a short
+receipt with an exact `agent_call` that names that stored brief by the receipt's id.
 The `worker` duty gets isolated implementation workspaces in the named connected repository
 and any additional `repos`. The `reviewer` duty reviews the exact saved commit named by
 `review_of`, independently of its worker. The `consult` duty gets no workspace and cannot
 edit files; its final message is available as `consult_answer` through `inspect`.
 A consult needs no reviewer or `integrate`. Its answer alone does not close the
 entire assignment.
-Submit the returned payload unchanged to Agent once. A stable request ID supports retries;
+Submit the returned `agent_call` unchanged to Agent once; the teammate receives the stored
+brief in full, so the brief is never written again in the Agent call. A stable request ID supports retries;
 a repeated dispatch is refused. The provider's native coordination worktree is not the
 assigned target.
 

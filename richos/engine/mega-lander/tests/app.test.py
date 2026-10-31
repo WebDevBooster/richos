@@ -119,7 +119,7 @@ class DesktopWork(unittest.TestCase):
         self.scope_path.write_text(json.dumps(self.scope))
         ready=self.call("prepare",self.args)
         self.assertEqual((self.app.folder(self.scope)/(ready["id"]+".words")).read_text(),words)
-        payload={"session_id":self.session,"tool_use_id":"selected-original","tool_input":ready["agent_payload"]}
+        payload={"session_id":self.session,"tool_use_id":"selected-original","tool_input":ready["agent_call"]}
         authority=self.app.dispatch_intent(self.scope,payload,inspect_only=True)
         self.assertEqual(authority["instruction"]["text"],words)
         self.assertEqual(authority["authority"],first_ref)
@@ -150,13 +150,13 @@ class DesktopWork(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"user stopped"):
             self.call("prepare",{**self.args,"request_id":"after-stop"})
         with self.assertRaisesRegex(ValueError,"user stopped"):
-            self.app.dispatch_intent(self.scope,{"session_id":self.session,"tool_use_id":"after-stop","tool_input":second["agent_payload"]})
+            self.app.dispatch_intent(self.scope,{"session_id":self.session,"tool_use_id":"after-stop","tool_input":second["agent_call"]})
         with self.assertRaisesRegex(ValueError,"user stopped"):
             self.app.worker_context(self.scope,{"session_id":self.session,"agent_id":"stopped-worker","tool_name":"Bash","tool_input":{"command":"echo forbidden"}})
         self.app.ecs(self.scope,{"protocol":1,"command":"checkpoint","binding":self.scope["binding"],"request_id":"other-after-stop","checkpoint":{"statements":[{"verb":"commitment","fields":{"id":"unrelated","title":"Other work"}}]}})
         other=self.call("prepare",{**self.args,"request_id":"unrelated","obligation_id":"unrelated"})
         self.assertEqual(other["status"],"prepared")
-        self.assertEqual(other["request"]["obligation_id"],"unrelated")
+        self.assertEqual(self.record_of(other)["request"]["obligation_id"],"unrelated")
 
     def test_independent_stu_prepares_two_obligations_without_rebinding_to_a_worker(self):
         seat="stu-thread:thread-a"
@@ -187,7 +187,7 @@ class DesktopWork(unittest.TestCase):
     def test_pierce_findings_leave_dispatch_retryable_and_allow_revised_preparation(self):
         ready = self.call("prepare", self.args)
         envelope = {"session_id": self.session, "tool_use_id": "pierce-call",
-                    "tool_input": ready["agent_payload"]}
+                    "tool_input": ready["agent_call"]}
         self.app.dispatch_intent(self.scope, envelope, inspect_only=True)
         self.assertEqual(self.call("inspect", {})["records"][0]["status"], "prepared")
         self.app.dispatch_intent(self.scope, envelope, review_refused=True)
@@ -198,14 +198,14 @@ class DesktopWork(unittest.TestCase):
                                             "brief": "Implement the corrected fictional requirement."})
         self.assertEqual(replacement["status"], "prepared")
         self.app.dispatch_intent(self.scope, {"session_id": self.session, "tool_use_id": "revised-call",
-                                             "tool_input": replacement["agent_payload"]})
+                                             "tool_input": replacement["agent_call"]})
         records = self.call("inspect", {})["records"]
         self.assertEqual(next(row for row in records if row["id"] == replacement["id"])["status"], "dispatching")
 
     def test_pierce_dismissal_can_retry_the_exact_prepared_payload(self):
         ready = self.call("prepare", self.args)
         envelope = {"session_id": self.session, "tool_use_id": "pierce-call",
-                    "tool_input": ready["agent_payload"]}
+                    "tool_input": ready["agent_call"]}
         self.app.dispatch_intent(self.scope, envelope, review_refused=True)
         self.app.dispatch_intent(self.scope, {**envelope, "tool_use_id": "dismissed-call"})
         self.assertEqual(self.call("inspect", {})["records"][0]["status"], "dispatching")
@@ -262,6 +262,12 @@ class DesktopWork(unittest.TestCase):
         self.args={"request_id":"prepare-one","obligation_id":"fixture-task","repo":str(self.repo),"title":"Create fictional result","brief":"Create result.txt with FICTIONAL in the assigned target worktree. Commit only that file. Do not publish.","role":"worker","teammate":"mark","integration":"main"}
 
     def call(self,name,args=None):return self.app.call(self.scope_path,name,args or {})
+    def record_of(self,ready):
+        """The receipt prepare stored; its answer names it by id (app token burn finding 4)."""
+        return json.loads((self.app.folder(self.scope)/(ready["id"]+".json")).read_text())
+    def stored_call(self,ready):
+        """The Agent call prepare stored, brief included, as dispatch_intent hands it to Agent."""
+        return {k:v for k,v in self.record_of(ready)["payload"].items() if k!="name"}
     def test_rich_reads_the_same_work_evidence_without_changing_stus_records(self):
         tools = {tool["name"]: tool for tool in self.app.available_tools(read_only=True)}
         self.assertEqual(set(tools), {"inspect", "repositories", "team"})
@@ -306,8 +312,8 @@ class DesktopWork(unittest.TestCase):
 
     def test_preparation_is_idempotent_and_is_not_dispatch(self):
         first=self.call("prepare",self.args);again=self.call("prepare",self.args)
-        self.assertEqual(first["id"],again["id"]);self.assertEqual(first["agent_payload"],again["agent_payload"])
-        self.assertEqual(first["status"],"prepared");self.assertFalse(first["assignment_completed"])
+        self.assertEqual(first["id"],again["id"]);self.assertEqual(first["agent_call"],again["agent_call"])
+        self.assertEqual(first["status"],"prepared");self.assertFalse(first.get("assignment_completed"))
         self.assertFalse((self.repo/"result.txt").exists())
         self.assertEqual(len(self.call("inspect")["records"]),1)
         with self.assertRaisesRegex(ValueError,"different work"):self.call("prepare",{**self.args,"brief":"Different task"})
@@ -334,11 +340,11 @@ class DesktopWork(unittest.TestCase):
 
         ready=self.call("prepare",{**self.args,"teammate":"frank"})
         self.assertRegex(ready["name"],r"^frank-opus-[0-9a-f]{12}$")
-        payload=ready["agent_payload"]
+        payload=self.stored_call(ready)
         self.assertNotIn("name",payload)
         self.assertNotIn("isolation",payload)
         self.assertEqual((payload["subagent_type"],payload["model"]),("richos-app-engine:frank","opus"))
-        self.assertEqual((ready["request"]["role"],ready["request"]["teammate"]),("worker","frank"))
+        self.assertEqual((self.record_of(ready)["request"]["role"],self.record_of(ready)["request"]["teammate"]),("worker","frank"))
         duty=(ENGINE/"mega-lander/duties/worker.md").read_text().strip()
         self.assertTrue(duty.startswith(DUTY_TOP["worker"]))
         workspace_line,rest=payload["prompt"].split("\n\n",1)
@@ -365,8 +371,8 @@ class DesktopWork(unittest.TestCase):
         ready=self.call("prepare",{**self.args,"request_id":"stronger","model":"opus"})
         self.assertEqual(ready["status"],"prepared")
         self.assertRegex(ready["name"],r"^mark-opus-[0-9a-f]{12}$")
-        self.assertEqual(ready["agent_payload"]["model"],"opus")
-        self.assertEqual(ready["request"]["model"],"opus")
+        self.assertEqual(ready["agent_call"]["model"],"opus")
+        self.assertEqual(self.record_of(ready)["request"]["model"],"opus")
         # The same request on the teammate's own model is different work.
         with self.assertRaisesRegex(ValueError,"different work"):
             self.call("prepare",{**self.args,"request_id":"stronger"})
@@ -374,13 +380,13 @@ class DesktopWork(unittest.TestCase):
         with self.assertRaisesRegex(Exception,"more expensive model"):
             self.call("prepare",{**self.args,"request_id":"above","model":"fable","title":"Above the ceiling"})
         above=next(r for r in self.call("inspect")["records"] if r["request"].get("model")=="fable")
-        self.assertNotIn("agent_payload",above)
+        self.assertNotIn("agent_call",above)
         self.assertIn("more expensive model",above["problem"])
         # Below the definition's default: with its reason stated, it starts.
         cheaper=self.call("prepare",{**self.args,"request_id":"cheaper","model":"haiku","title":"Cheaper",
             "brief":"model-downgrade-ack: a one-line rename that needs no reasoning at all\n"+self.args["brief"]})
         self.assertRegex(cheaper["name"],r"^mark-haiku-[0-9a-f]{12}$")
-        self.assertEqual(cheaper["agent_payload"]["model"],"haiku")
+        self.assertEqual(cheaper["agent_call"]["model"],"haiku")
         # A user whose allowed list and ceiling sit below a teammate's own default can still run
         # that teammate on a model they allow (mid-job review rv-20261021T164124Z-0fe64c41-a94a,
         # finding 1): only the model the job runs on is checked, never the default it replaces.
@@ -391,7 +397,7 @@ class DesktopWork(unittest.TestCase):
             "brief":"model-downgrade-ack: the user's own ceiling is sonnet, below this teammate's default\n"+self.args["brief"]})
         self.assertEqual(on_sonnet["status"],"prepared")
         self.assertRegex(on_sonnet["name"],r"^frank-sonnet-[0-9a-f]{12}$")
-        self.assertEqual(on_sonnet["agent_payload"]["model"],"sonnet")
+        self.assertEqual(on_sonnet["agent_call"]["model"],"sonnet")
         with self.assertRaisesRegex(Exception,"more expensive model"):
             self.call("prepare",{**frank,"request_id":"frank-fable","model":"fable","title":"Frank on Fable"})
         # With no model named, the teammate's own default still has to be one the user allows.
@@ -438,9 +444,9 @@ class DesktopWork(unittest.TestCase):
              "title":"Write teammate definitions for Will and Beth","brief":brief}
         ready=self.call("prepare",ask)
         self.assertEqual(ready["status"],"prepared")
-        self.assertIn(brief,ready["agent_payload"]["prompt"])
+        self.assertIn(brief,self.stored_call(ready)["prompt"])
         self.app.dispatch_intent(self.scope,{"session_id":self.session,"tool_use_id":"hire-dean-call",
-                                             "tool_input":ready["agent_payload"]})
+                                             "tool_input":ready["agent_call"]})
         # Over the bound, the refusal says by how much, so one shorter send is enough.
         with self.assertRaisesRegex(ValueError,"brief must be a nonempty bounded string: it is 65,537 bytes as sent "
                                     r"\(65,537 characters\) and the most is 65,536 bytes"):
@@ -553,8 +559,8 @@ class DesktopWork(unittest.TestCase):
         ready=self.call("prepare",ask)
         self.assertEqual(ready["status"],"prepared")
         self.assertRegex(ready["name"],r"^clark-sonnet-[0-9a-f]{12}$")
-        self.assertEqual((ready["request"]["repo"],ready["request"]["repos"],ready["request"]["role"]),(None,[],"consult"))
-        payload=ready["agent_payload"]
+        self.assertEqual((self.record_of(ready)["request"]["repo"],self.record_of(ready)["request"]["repos"],self.record_of(ready)["request"]["role"]),(None,[],"consult"))
+        payload=self.stored_call(ready)
         self.assertEqual((payload["subagent_type"],payload["model"]),("richos-app-engine:clark","sonnet"))
         duty=(ENGINE/"mega-lander/duties/consult.md").read_text().strip()
         self.assertTrue(duty.startswith("# Your duty in this assignment: consult"))
@@ -687,11 +693,11 @@ class DesktopWork(unittest.TestCase):
         refused = self.call("inspect")["records"][0]
         self.assertEqual(refused["status"], "blocked")
         self.assertTrue(refused["preparation_refused"])
-        self.assertNotIn("agent_payload", refused)
+        self.assertNotIn("agent_call", refused)
         self.assertIsNone(self.app.W.load_agent(self.app.W.named_key(self.session, refused["name"])))
         ready = self.call("prepare", {**self.args, "request_id":"corrected", "integration":"integration"})
         self.assertEqual(ready["status"], "prepared")
-        self.assertIn("agent_payload", ready)
+        self.assertIn("agent_call", ready)
 
     def test_unstructured_spawn_failure_is_retained_then_settled_for_a_replacement(self):
         """Part 4, finding 1: this test used to END at the refusal below, which
@@ -703,10 +709,10 @@ class DesktopWork(unittest.TestCase):
         record = self.call("inspect")["records"][0]
         self.assertEqual(record["status"], "unknown")
         # The same request is still only its receipt: nothing is replayed.
-        self.assertNotIn("agent_payload", self.call("prepare", self.args))
+        self.assertNotIn("agent_call", self.call("prepare", self.args))
         replacement = self.call("prepare", {**self.args, "request_id":"replacement"})
         self.assertEqual(replacement["status"], "prepared")
-        self.assertIn("agent_payload", replacement)
+        self.assertIn("agent_call", replacement)
         settled = [r for r in self.call("inspect")["records"] if r["id"] == record["id"]][0]
         self.assertEqual(settled["status"], "blocked")
         self.assertEqual(settled["settled"]["withdrawn"], [])
@@ -834,7 +840,7 @@ class DesktopWork(unittest.TestCase):
         # control refused it, so the app never admitted it and no worker ran.
         refused=self.call("prepare",{**review,"request_id":"review-1","brief":"Review result.txt; change nothing."})
         branches[refused["id"]]=self.registered_branch(refused)
-        call={"session_id":self.session,"tool_use_id":"call-review-1","tool_input":refused["agent_payload"]}
+        call={"session_id":self.session,"tool_use_id":"call-review-1","tool_input":refused["agent_call"]}
         self.app.dispatch_intent(self.scope,call,inspect_only=True)
         self.app.W.register_spawn(call,str(self.coord))
         # A never-run reviewer whose worktree somebody committed in: never touched.
@@ -849,7 +855,7 @@ class DesktopWork(unittest.TestCase):
         pierced=self.call("prepare",{**review,"request_id":"review-2","brief":"Review once more; change nothing."})
         branches[pierced["id"]]=self.registered_branch(pierced)
         self.app.dispatch_intent(self.scope,{"session_id":self.session,"tool_use_id":"call-review-2",
-                                             "tool_input":pierced["agent_payload"]},review_refused=True)
+                                             "tool_input":pierced["agent_call"]},review_refused=True)
         # A never-run reviewer with an uncommitted file in its worktree: never touched.
         dirty=self.call("prepare",{**review,"request_id":"review-dirty","brief":"Review one more way; change nothing."})
         branches[dirty["id"]]=self.registered_branch(dirty)
@@ -894,8 +900,8 @@ class DesktopWork(unittest.TestCase):
         self.next_turn(2)
         again=self.call("prepare",self.args)
         self.assertEqual(again["id"],ready["id"])
-        self.assertEqual(again["binding"],self.scope["binding"])
-        self.assertEqual(again["agent_payload"],ready["agent_payload"])
+        self.assertEqual(self.record_of(again)["binding"],self.scope["binding"])
+        self.assertEqual(again["agent_call"],ready["agent_call"])
         self.start_fixture_worker(again,"rebound-worker")
         self.assertEqual(self.receipt_of(ready)["status"],"running")
 
@@ -931,7 +937,7 @@ class DesktopWork(unittest.TestCase):
         f0a399b8 "this dispatch is stale or already attempted")."""
         ready=self.call("prepare",self.args)
         self.next_turn(2)
-        call={"session_id":self.session,"tool_use_id":"call-in-notification-turn","tool_input":dict(ready["agent_payload"])}
+        call={"session_id":self.session,"tool_use_id":"call-in-notification-turn","tool_input":dict(ready["agent_call"])}
         authority=self.app.dispatch_intent(self.scope,{**call,"tool_input":dict(call["tool_input"])},inspect_only=True)
         self.assertEqual(authority["kind"],"implementation")
         self.app.dispatch_intent(self.scope,call)
@@ -945,7 +951,7 @@ class DesktopWork(unittest.TestCase):
         self.scope["binding"]=self.bind_seat(None,"turn-3",audience="ceo",session="the-next-session",revision=2)
         self.scope_path.write_text(json.dumps(self.scope))
         with self.assertRaisesRegex(ValueError,"earlier provider session"):
-            self.app.dispatch_intent(self.scope,{"session_id":"the-next-session","tool_use_id":"x","tool_input":dict(other["agent_payload"])})
+            self.app.dispatch_intent(self.scope,{"session_id":"the-next-session","tool_use_id":"x","tool_input":dict(other["agent_call"])})
 
     def test_p1a_a_stopped_assignment_is_never_dispatched_from_a_later_turn(self):
         ready=self.call("prepare",self.args)
@@ -954,7 +960,7 @@ class DesktopWork(unittest.TestCase):
         root=self.root/"engine-state/assignments"/hashlib.sha256(identity.encode()).hexdigest();root.mkdir(parents=True)
         (root/"stopped.json").write_text(json.dumps({"schema":1,"entity_id":"depot","thread_id":"thread-a","obligation_id":"fixture-task","user_stop_requested_at_ms":1}))
         with self.assertRaisesRegex(ValueError,"user stopped"):
-            self.app.dispatch_intent(self.scope,{"session_id":self.session,"tool_use_id":"y","tool_input":dict(ready["agent_payload"])})
+            self.app.dispatch_intent(self.scope,{"session_id":self.session,"tool_use_id":"y","tool_input":dict(ready["agent_call"])})
         self.assertEqual(self.receipt_file(ready)["status"],"prepared")
 
     def test_p1a_an_assignment_closed_in_the_turn_that_prepared_its_work_never_dispatches_it(self):
@@ -969,7 +975,7 @@ class DesktopWork(unittest.TestCase):
                 {"verb":"supersede","fields":{"id":"fixture-task","replacement":"replacement",
                     "evidence":"The user replaced the original request with this revised job."}}]}})
         self.assertTrue(accepted["accepted"],accepted)
-        call={"session_id":self.session,"tool_use_id":"superseded-job-call","tool_input":dict(ready["agent_payload"])}
+        call={"session_id":self.session,"tool_use_id":"superseded-job-call","tool_input":dict(ready["agent_call"])}
         with self.assertRaisesRegex(ValueError,"its assignment fixture-task is superseded, not open"):
             self.app.dispatch_intent(self.scope,{**call,"tool_input":dict(call["tool_input"])})
         with self.assertRaisesRegex(ValueError,"is superseded, not open"):
@@ -994,7 +1000,7 @@ class DesktopWork(unittest.TestCase):
         self.scope_path.write_text(json.dumps(self.scope))
         with self.assertRaisesRegex(ValueError,"prepared for assignment fixture-task, and this work carries assignment second-job"):
             self.app.dispatch_intent(self.scope,{"session_id":self.session,"tool_use_id":"other-job-call",
-                                                 "tool_input":dict(ready["agent_payload"])})
+                                                 "tool_input":dict(ready["agent_call"])})
         self.assertEqual(self.receipt_file(ready)["status"],"prepared")
 
     def test_p1a_a_notice_bound_while_prepare_runs_never_fails_that_prepare(self):
@@ -1022,7 +1028,7 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual(record["rebound"]["from_turn"],"peer:1")
         self.assertEqual(record["rebound"]["by"],"prepare")
         self.app.dispatch_intent(self.scope,{"session_id":self.session,"tool_use_id":"after-notice",
-                                             "tool_input":dict(ready["agent_payload"])})
+                                             "tool_input":dict(ready["agent_call"])})
         self.assertEqual(self.receipt_file(ready)["status"],"dispatching")
         # Another provider session is never adopted: that prepare still fails, as before.
         other={**self.args,"request_id":"second","brief":"A second, separate part."}
@@ -1045,7 +1051,7 @@ class DesktopWork(unittest.TestCase):
         ready=self.call("prepare",self.args)
         self.next_turn(2)
         self.close_grant("not-started")
-        call={"session_id":self.session,"tool_use_id":"call-refused","tool_input":dict(ready["agent_payload"])}
+        call={"session_id":self.session,"tool_use_id":"call-refused","tool_input":dict(ready["agent_call"])}
         self.app.dispatch_intent(self.scope,{**call,"tool_input":dict(call["tool_input"])},review_refused=True)
         record=self.receipt_file(ready)
         self.assertEqual(record["status"],"prepared","a refused dispatch marked the payload attempted")
@@ -1150,7 +1156,7 @@ class DesktopWork(unittest.TestCase):
         self.scope["binding"]=self.bind_seat(None,"turn-2",audience="ceo",session="the-next-session",revision=1)
         self.scope_path.write_text(json.dumps(self.scope))
         again=self.call("prepare",self.args)
-        self.assertNotIn("agent_payload",again)
+        self.assertNotIn("agent_call",again)
         self.assertEqual(again["status"],"blocked")
         self.assertIn("earlier provider session",again["settled"]["reason"])
         self.assertFalse(self.target_of(ready).exists())
@@ -1281,7 +1287,7 @@ class DesktopWork(unittest.TestCase):
 
     def test_resumed_session_retires_disposed_execution_before_completing_replacement(self):
         worker=self.call("prepare",self.args)
-        event={"session_id":self.session,"tool_use_id":"pre-update-call","tool_input":worker["agent_payload"]}
+        event={"session_id":self.session,"tool_use_id":"pre-update-call","tool_input":worker["agent_call"]}
         self.app.dispatch_intent(self.scope,event)
         self.app.W.register_spawn(event,str(self.coord))
         self.app.W.bind_agent(self.session,event["tool_use_id"],"pre-update-agent",str(self.coord))
@@ -1307,7 +1313,7 @@ class DesktopWork(unittest.TestCase):
 
     def test_cleanup_intent_does_not_retire_an_unresolved_execution(self):
         worker=self.call("prepare",self.args)
-        event={"session_id":self.session,"tool_use_id":"still-unresolved","tool_input":worker["agent_payload"]}
+        event={"session_id":self.session,"tool_use_id":"still-unresolved","tool_input":worker["agent_call"]}
         self.app.dispatch_intent(self.scope,event)
         self.app.W.register_spawn(event,str(self.coord))
         key=self.app.W.named_key(self.session,worker["name"])
@@ -1392,7 +1398,7 @@ class DesktopWork(unittest.TestCase):
         the app's own admission of the Agent call, then the guard's registration; a
         registration alone is what a REFUSED call leaves (2026-10-28), so it is not used here."""
         prepared = self.call("prepare", self.args)
-        call = {"session_id": self.session, "tool_use_id": "observed-spawn", "tool_input": prepared["agent_payload"]}
+        call = {"session_id": self.session, "tool_use_id": "observed-spawn", "tool_input": prepared["agent_call"]}
         self.app.dispatch_intent(self.scope, call)
         self.app.W.register_spawn(call, str(self.coord))
         self.app.W.record_session_end(self.session, "fixture provider session ended")
@@ -1443,7 +1449,7 @@ class DesktopWork(unittest.TestCase):
             "connected_repositories":[str(self.repo),str(second)]}]}))
         ready=self.call("prepare",{**self.args,"request_id":"prepare-multi","repos":[str(second)]})
         self.assertEqual(ready["status"],"prepared")
-        lines=[l for l in ready["agent_payload"]["prompt"].splitlines() if l.startswith("cross-repo-worktree:")]
+        lines=[l for l in self.stored_call(ready)["prompt"].splitlines() if l.startswith("cross-repo-worktree:")]
         # Neither self.repo nor second is this session's own repository
         # (RICHOS_ENTITY_ROOT is self.coord), so EACH gets its own registered
         # cc/ workspace and its own line in the one payload (point 10).
@@ -1522,7 +1528,7 @@ class DesktopWork(unittest.TestCase):
             self.call("prepare",{**self.args,"request_id":"partial-review","role":"reviewer","review_of":worker["id"]})
         reviewer=self.call("prepare",{**spec,"request_id":"multi-review","role":"reviewer","review_of":worker["id"],
             "title":"Review both","brief":"Review the change in both repositories; do not modify any files."})
-        self.assertEqual(reviewer["review_target"]["commits"],commits)
+        self.assertEqual(self.record_of(reviewer)["review_target"]["commits"],commits)
         self.start_fixture_worker(reviewer,"multi-reviewer")
         review_paths=self.workspaces_of(reviewer)
         for repo,path in review_paths.items():
@@ -1562,7 +1568,7 @@ class DesktopWork(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"exactly the repositories"):
             self.call("prepare",{**self.args,"request_id":"narrow-continue","continue_of":worker["id"]})
         continued=self.call("prepare",{**spec,"request_id":"multi-continue","continue_of":worker["id"]})
-        self.assertEqual(continued["continuation"]["commits"],commits)
+        self.assertEqual(self.record_of(continued)["continuation"]["commits"],commits)
         self.start_fixture_worker(continued,"multi-continue")
         for repo,path in self.workspaces_of(continued).items():
             self.assertEqual(self.app.git(path,"rev-parse","HEAD"),commits[repo])
@@ -1575,13 +1581,52 @@ class DesktopWork(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"connect this exact repository"):
             self.call("prepare",{**self.args,"request_id":"prepare-unconnected","repos":[str(unconnected)]})
 
+    def test_prepare_answers_with_a_receipt_and_agent_dispatches_the_stored_brief_by_its_id(self):
+        """richos-hq docs/research/2026-10-31-app-token-burn finding 4: prepare sent Stu the whole
+        stored request back, brief included (240 results averaging 12,325 characters), and Stu then
+        wrote the brief again as the Agent prompt. prepare answers with a short receipt whose
+        agent_call names the stored brief by the receipt id; the hook hands Agent the stored call."""
+        brief=("Create result.txt with FICTIONAL in the assigned target worktree. Commit only that file. "
+               "Do not publish."+" Fictional detail the lead wrote once."*200)
+        ready=self.call("prepare",{**self.args,"brief":brief})
+        stored=self.record_of(ready)["payload"]
+        self.assertTrue(brief in stored["prompt"],"the stored call lost the brief")
+        answer=json.dumps(ready)
+        self.assertNotIn("Fictional detail the lead wrote once.",answer)
+        self.assertNotIn(self.args["obligation_id"],answer)
+        self.assertLess(len(answer),1000,answer)
+        self.assertEqual(set(ready),{"id","request_id","name","status","agent_call"})
+        self.assertEqual(ready["agent_call"]["prompt"],self.app.PREPARED_BRIEF+ready["id"])
+        self.assertEqual({k:v for k,v in ready["agent_call"].items() if k!="prompt"},
+                         {k:v for k,v in stored.items() if k not in ("name","prompt")})
+        call=lambda tool_input,tid: {"session_id":self.session,"tool_use_id":tid,"tool_input":tool_input}
+        # Anything but the receipt's own call, or a reference to a receipt that does not exist, is refused.
+        for changed in ({"description":"another job"},{"model":"haiku"},{"run_in_background":False}):
+            with self.subTest(changed=changed),self.assertRaisesRegex(ValueError,"differs"):
+                self.app.dispatch_intent(self.scope,call({**ready["agent_call"],**changed},"changed"))
+        with self.assertRaisesRegex(ValueError,"absent from or differs"):
+            self.app.dispatch_intent(self.scope,call({**ready["agent_call"],"prompt":self.app.PREPARED_BRIEF+"0"*64},"unknown"))
+        # The guards judge the stored call, brief included, before the dispatch is admitted.
+        judged=call(dict(ready["agent_call"]),"native-call")
+        self.app.dispatch_intent(self.scope,judged,inspect_only=True)
+        self.assertEqual(judged["tool_input"],stored)
+        # The admitted dispatch hands Agent exactly what prepare stored (the hook's updatedInput).
+        sent=call(dict(ready["agent_call"]),"native-call")
+        self.app.dispatch_intent(self.scope,sent)
+        self.assertEqual(sent["tool_input"],stored)
+        self.assertEqual(sent["tool_input"]["name"],ready["name"])
+        self.assertEqual(self.record_of(ready)["status"],"dispatching")
+        # The same call, sent again, is a second attempt and is refused, as before.
+        with self.assertRaisesRegex(ValueError,"already attempted"):
+            self.app.dispatch_intent(self.scope,call(dict(ready["agent_call"]),"again"))
+
     def test_dispatch_requires_exact_payload_and_blocks_duplicate_attempt(self):
         ready=self.call("prepare",self.args)
-        envelope={"session_id":self.session,"tool_use_id":"actual-native-id","tool_input":ready["agent_payload"]}
-        with self.assertRaisesRegex(ValueError,"differs"):self.app.dispatch_intent(self.scope,{**envelope,"tool_input":{**ready["agent_payload"],"prompt":"forged"}})
+        envelope={"session_id":self.session,"tool_use_id":"actual-native-id","tool_input":ready["agent_call"]}
+        with self.assertRaisesRegex(ValueError,"differs"):self.app.dispatch_intent(self.scope,{**envelope,"tool_input":{**ready["agent_call"],"prompt":"forged"}})
         self.app.dispatch_intent(self.scope,envelope)
         with self.assertRaisesRegex(ValueError,"already attempted"):self.app.dispatch_intent(self.scope,envelope)
-        self.assertNotIn("agent_payload",self.call("prepare",self.args))
+        self.assertNotIn("agent_call",self.call("prepare",self.args))
         with self.assertRaisesRegex(ValueError,"unresolved"):self.call("prepare",{**self.args,"request_id":"duplicate"})
     def test_unregistered_scope_stopped_turn_and_unknown_obligation_refuse_before_workspace_creation(self):
         other=self.root/"unrelated";other.mkdir()
@@ -1614,7 +1659,7 @@ class DesktopWork(unittest.TestCase):
 
     def test_worker_file_boundary_uses_provider_identity_and_registered_target(self):
         ready=self.call("prepare",self.args)
-        envelope={"session_id":self.session,"tool_use_id":"observed-call","tool_input":ready["agent_payload"]}
+        envelope={"session_id":self.session,"tool_use_id":"observed-call","tool_input":ready["agent_call"]}
         self.app.dispatch_intent(self.scope,envelope)
         self.app.W.register_spawn(envelope,str(self.coord))
         self.app.W.bind_agent(self.session,"observed-call","observed-agent",str(self.coord))
@@ -1626,6 +1671,45 @@ class DesktopWork(unittest.TestCase):
         (target/"redirect").symlink_to(self.coord,target_is_directory=True)
         event["tool_input"]["file_path"]=str(target/"redirect/wrong.txt")
         with self.assertRaisesRegex(ValueError,"outside"):self.app.worker_context(self.scope,event)
+
+    def test_worker_hears_its_assignment_once_per_context_and_is_still_fenced_on_every_call(self):
+        """richos-hq docs/research/2026-10-31-app-token-burn finding 2: the assignment notice rode on
+        every allowed worker tool call (10,323 copies of 529 characters in two days). It is said once
+        per worker context, again after the host compacts that context, and every call stays fenced.
+        Every call goes through the app's own evidence capture first, as scripts/app-engine-hook.py
+        does: capture puts its guard projection in transcript_path (second review of bb08b88e0)."""
+        evidence=self.app.load("notice_capture",ENGINE/"scripts/lib/app-evidence.py")
+        state=self.root/"engine-state"
+        seen=lambda e: self.app.worker_context(self.scope,evidence.capture(
+            e,state/"evidence",app_data=self.root,worktrees=state/"target-worktrees"))
+        ready=self.call("prepare",self.args)
+        self.start_fixture_worker(ready,"once-worker")
+        target=self.root/"engine-state/target-worktrees"/self.app.folder(self.scope).name/ready["name"]
+        transcripts=self.root/"transcripts";transcripts.mkdir()
+        own=transcripts/self.session/"subagents"/"agent-once-worker.jsonl"
+        own.parent.mkdir(parents=True);own.write_text('{"type":"user"}\n')
+        event={"session_id":self.session,"agent_id":"once-worker","cwd":str(self.coord),
+               "transcript_path":str(transcripts/(self.session+".jsonl")),
+               "tool_name":"Write","tool_input":{"file_path":str(target/"result.txt")}}
+        first=seen(event)
+        self.assertIn(str(target),first["hookSpecificOutput"]["additionalContext"])
+        for tool in ("Write","Read","Bash"):
+            with self.subTest(tool=tool):
+                self.assertIsNone(seen({**event,"tool_name":tool}))
+        # Silence is never permission: a write outside the target is refused as on the first call.
+        with self.assertRaisesRegex(ValueError,"outside"):
+            seen({**event,"tool_input":{"file_path":str(self.root/"elsewhere.txt")}})
+        # The host compacts this worker's context: the next call says it again, then nothing.
+        with own.open("a") as fh: fh.write('{"type":"system","subtype":"compact_boundary"}\n')
+        self.assertIn(str(target),seen(event)["hookSpecificOutput"]["additionalContext"])
+        self.assertIsNone(seen(event))
+        # Another worker of the same session hears its own assignment in its own context.
+        other=self.call("prepare",{**self.args,"request_id":"once-other","title":"Another fictional result"})
+        self.start_fixture_worker(other,"once-other")
+        elsewhere=self.root/"engine-state/target-worktrees"/self.app.folder(self.scope).name/other["name"]
+        said=seen({**event,"agent_id":"once-other","tool_name":"Read",
+                                                 "tool_input":{"file_path":str(elsewhere/"x.txt")}})
+        self.assertIn(str(elsewhere),said["hookSpecificOutput"]["additionalContext"])
 
     def test_dispatched_worker_survives_later_stu_inputs_but_cannot_cross_session_or_conversation(self):
         ready=self.call("prepare",self.args)
@@ -1640,14 +1724,14 @@ class DesktopWork(unittest.TestCase):
                 self.app.worker_context({**later,"binding":{**later["binding"],key:"another"}},event)
 
     def start_fixture_worker(self, ready, aid):
-        payload={"session_id":self.session,"tool_use_id":"call-"+aid,"tool_input":ready["agent_payload"]}
+        payload={"session_id":self.session,"tool_use_id":"call-"+aid,"tool_input":ready["agent_call"]}
         self.app.dispatch_intent(self.scope,payload)
         # What the teammate receives, as the hook hands it to Agent.
         self.__dict__.setdefault("delivered_prompts",{})[aid]=payload["tool_input"]["prompt"]
         self.app.W.register_spawn(payload,str(self.coord))
         native=self.coord/".claude/worktrees"/("agent-"+aid)
         self.app.git(self.coord,"worktree","add","-b","worktree-agent-"+aid,str(native),"HEAD")
-        self.app.W.record_start(self.session,aid,str(native),"richos-app-engine:"+ready["request"]["teammate"])
+        self.app.W.record_start(self.session,aid,str(native),"richos-app-engine:"+self.record_of(ready)["request"]["teammate"])
         self.app.W.bind_agent(self.session,payload["tool_use_id"],aid,str(self.coord))
         return self.root/"engine-state/target-worktrees"/self.app.folder(self.scope).name/ready["name"]
 
@@ -1718,7 +1802,7 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual(ready["status"], "prepared")
         self.assertNotIn("preparing_by", self.call("inspect")["records"][0])
         # the workspace the command created was not withdrawn by the second request
-        self.assertTrue(Path(self.app.target_workspace(ready)["path"]).is_dir())
+        self.assertTrue(Path(self.app.target_workspace(self.record_of(ready))["path"]).is_dir())
 
     def test_independent_work_in_one_assignment_can_overlap_without_repeating_dispatch(self):
         for role, teammate in (("worker", "mark"), ("consult", "clark")):
@@ -1736,7 +1820,7 @@ class DesktopWork(unittest.TestCase):
                 self.assertEqual([records[r["id"]]["status"] for r in (first, second)], ["running", "running"])
                 retry = self.call("prepare", args)
                 self.assertEqual(retry["id"], first["id"])
-                self.assertNotIn("agent_payload", retry)
+                self.assertNotIn("agent_call", retry)
                 with self.assertRaisesRegex(ValueError, "request_id was already used for different work"):
                     self.call("prepare", {**args, "brief": "Different work under the same request id."})
                 for which in ("first", "second"):
@@ -1847,7 +1931,7 @@ class DesktopWork(unittest.TestCase):
         saved=self.app.git(target,"rev-parse","HEAD")
         self.finish_fixture_worker("handoff-worker")
         continued=self.call("prepare",{**self.args,"request_id":"continue-handoff","continue_of":worker["id"]})
-        self.assertIn("Handoff from the previous teammate:\n"+handoff,continued["agent_payload"]["prompt"])
+        self.assertIn("Handoff from the previous teammate:\n"+handoff,self.stored_call(continued)["prompt"])
         next_target=self.start_fixture_worker(continued,"successor-worker")
         self.assertEqual(self.app.git(next_target,"rev-parse","HEAD"),saved)
 
@@ -1872,7 +1956,7 @@ class DesktopWork(unittest.TestCase):
         next_target=self.start_fixture_worker(continued,"successor-worker")
         self.assertEqual((next_target/"unfinished.txt").read_text(),"KEEP UNFINISHED BYTES")
         self.assertEqual(self.app.git(next_target,"log","-1","--format=%s"),"RichOS: work in progress saved at the account switch")
-        self.assertNotIn("Handoff from the previous teammate",continued["agent_payload"]["prompt"])
+        self.assertNotIn("Handoff from the previous teammate",self.stored_call(continued)["prompt"])
 
     # The user's own turn, as the host writes it into the scope since the second review's slice 4
     # (richos-core ecs::UserInstruction::text): marker-like lines and a trailing space included, so
@@ -1914,7 +1998,7 @@ class DesktopWork(unittest.TestCase):
         self.assertEqual(brief[opening:opening+len(self.USER_TURN)],self.USER_TURN)
         # Then the duty and the coordinator's brief, as before, and only after the words.
         self.assertLess(opening+len(self.USER_TURN),brief.index(DUTY_TOP["reviewer"]))
-        self.assertIn(self.USER_TURN,reviewer["agent_payload"]["prompt"])
+        self.assertIn(self.USER_TURN,self.stored_call(reviewer)["prompt"])
         # The worker's words are kept beside its receipt for the app's mid-job reviews.
         self.assertEqual(kept,self.USER_TURN)
 
@@ -1930,7 +2014,7 @@ class DesktopWork(unittest.TestCase):
         # No words at all is the stated fallback, not a refusal: the brief says so plainly.
         del self.scope["user_instruction"]["text"];self.scope_path.write_text(json.dumps(self.scope))
         reviewer=self.call("prepare",{**self.args,"request_id":"no-words","role":"reviewer","review_of":worker["id"]})
-        self.assertTrue(reviewer["agent_payload"]["prompt"].count("could not be carried to this review"))
+        self.assertTrue(self.stored_call(reviewer)["prompt"].count("could not be carried to this review"))
 
     # A connected folder's own CLAUDE.md or AGENTS.md (richos-hq
     # docs/plans/2026-10-21-folder-instruction-files.md §5.3 items 1, 2 and 5). Before, the app
@@ -1952,7 +2036,7 @@ class DesktopWork(unittest.TestCase):
     def delivered(self,ready):
         """The prompt the teammate receives: Stu's prepared call, admitted (dispatch_intent), as
         the hook then hands it to Agent."""
-        payload={"session_id":self.session,"tool_use_id":"deliver-"+ready["id"][:8],"tool_input":ready["agent_payload"]}
+        payload={"session_id":self.session,"tool_use_id":"deliver-"+ready["id"][:8],"tool_input":ready["agent_call"]}
         self.app.dispatch_intent(self.scope,payload)
         return payload["tool_input"]["prompt"]
 
@@ -1986,7 +2070,7 @@ class DesktopWork(unittest.TestCase):
 
     def test_stu_never_reads_the_repositorys_instruction_file(self):
         """The mid-job review of 4fec9eb23 (rv-20261021T175714Z-4fec9eb2-df32, finding 1): the
-        file went into the brief and so into the prepare response, the agent_payload Stu reads
+        file went into the brief and so into the prepare response, the agent_call Stu reads
         and resubmits word for word. It is Rich's and Stu's never to read: the response carries one
         line in its place, and the file joins the prompt only when the dispatch is admitted."""
         self.commit_files({"CLAUDE.md":"STU-NEVER-READS-THIS house rule.\n"})
@@ -2028,7 +2112,7 @@ class DesktopWork(unittest.TestCase):
         brief=self.worker_brief(ready)
         self.assertNotIn(REPOSITORY_INSTRUCTIONS,brief)
         self.assertEqual(brief,(ENGINE/"mega-lander/duties/worker.md").read_text().strip()+"\n\n"+self.args["brief"])
-        prepared=ready["agent_payload"]["prompt"]
+        prepared=self.stored_call(ready)["prompt"]
         self.assertEqual(self.delivered(ready),prepared,"a dispatch with no instruction file changed the prompt")
 
     def test_the_reviewer_gets_the_same_file_and_a_land_changes_no_instruction_file(self):
@@ -2192,8 +2276,8 @@ class DesktopWork(unittest.TestCase):
         reviewer=self.call("prepare",{**self.args,"request_id":"review-one","role":"reviewer","teammate":"frank","review_of":worker["id"],"title":"Review fictional result","brief":"Review the exact result.txt change; do not modify any files."})
         # Slice 2: Frank reviews as himself, on his own model, carrying the reviewer duty.
         self.assertTrue(reviewer["name"].startswith("frank-opus-"))
-        self.assertEqual(reviewer["agent_payload"]["subagent_type"],"richos-app-engine:frank")
-        self.assertIn(DUTY_TOP["reviewer"],reviewer["agent_payload"]["prompt"])
+        self.assertEqual(reviewer["agent_call"]["subagent_type"],"richos-app-engine:frank")
+        self.assertIn(DUTY_TOP["reviewer"],self.stored_call(reviewer)["prompt"])
         review_target=self.start_fixture_worker(reviewer,"fixture-reviewer")
         self.assertEqual(self.app.git(review_target,"rev-parse","HEAD"),commit)
         self.finish_fixture_worker("fixture-reviewer","RICHOS_REVIEW "+json.dumps({"commit":commit,"verdict":"passed","checks":["synthetic reviewer observation"]}))
@@ -2336,13 +2420,13 @@ class DesktopWork(unittest.TestCase):
         and this assertion exists so the next reader changes the host rather than this line.
         """
         ready=self.call("prepare",self.args)
-        self.assertEqual(ready["agent_payload"]["run_in_background"],True)
+        self.assertEqual(ready["agent_call"]["run_in_background"],True)
 
     def test_uncertain_preparation_is_retained_and_not_repeated(self):
         with patch.object(self.app,"run",side_effect=TimeoutError("synthetic uncertain command")):
             with self.assertRaises(TimeoutError):self.call("prepare",self.args)
         result=self.call("prepare",self.args)
-        self.assertEqual(result["status"],"unknown");self.assertNotIn("agent_payload",result)
+        self.assertEqual(result["status"],"unknown");self.assertNotIn("agent_call",result)
     def test_ecs_outbox_reconciles_after_commit_before_local_receipt_and_new_turn(self):
         original=self.app.ECS.execute
         def interrupted(root,request):
@@ -2408,7 +2492,7 @@ class DesktopWork(unittest.TestCase):
         """
         ready=self.call("prepare",self.args)
         self.app.dispatch_intent(self.scope,{"session_id":self.session,
-            "tool_use_id":"actual-native-id","tool_input":ready["agent_payload"]})
+            "tool_use_id":"actual-native-id","tool_input":ready["agent_call"]})
         work,seat = self.work_lease()
         self.three_ceo_turns()
         store=self.store()
@@ -2493,7 +2577,7 @@ class DesktopWork(unittest.TestCase):
         #    scope wins and the invented id is nowhere in the receipt.
         again = self.app.call(work, "prepare", {**self.args, "obligation_id": "obl-add-notes-line"})
         self.assertEqual(again["id"], first["id"])
-        self.assertEqual(again["request"]["obligation_id"], "fixture-task")
+        self.assertEqual(self.record_of(again)["request"]["obligation_id"], "fixture-task")
         self.assertNotIn("obl-add-notes-line", json.dumps(self.call("inspect")["records"]))
 
         # C. CONTROL -- a conversation scope carries no obligation in its binding
@@ -2771,7 +2855,7 @@ class DesktopWork(unittest.TestCase):
 
     def automatic_verdict(self, worker, commit, reviewer="codex", **overrides):
         fences=self.app.load("automatic_review_fences",ENGINE/"scripts/lib/operator_fences.py")
-        work=self.app.W.recovery_work_key(self.app.W.load_agent(worker["workspace_ref"]))
+        work=self.app.W.recovery_work_key(self.app.W.load_agent(self.record_of(worker)["workspace_ref"]))
         home=self.root/"engine-state/second-review";home.mkdir(exist_ok=True)
         record=home/("review-"+reviewer);record.mkdir(exist_ok=True)
         row={"id":record.name,"repo":str(self.repo),"repo_id":fences.review_repo_identity(str(self.repo)),
