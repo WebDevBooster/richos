@@ -279,7 +279,9 @@ class DesktopWork(unittest.TestCase):
         actual = self.app.call_read_only(self.scope_path, "inspect", {})["records"]
         self.assertEqual(actual, expected)
         self.assertEqual(actual[0]["id"], ready["id"])
-        self.assertEqual(actual[0]["request"]["brief"], self.args["brief"])
+        self.assertNotIn("brief", actual[0]["request"])
+        full = self.app.call_read_only(self.scope_path, "inspect", {"id": ready["id"]})["records"]
+        self.assertEqual(full[0]["request"]["brief"], self.args["brief"])
         self.assertEqual({p.name: p.read_bytes() for p in root.glob("*.json")}, before)
         self.assertEqual(self.app.call_read_only(self.scope_path, "repositories", {}), self.call("repositories", {}))
         for name, args in (("prepare", self.args), ("integrate", {}), ("complete", {}),
