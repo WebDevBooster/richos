@@ -502,6 +502,19 @@ class DesktopWork(unittest.TestCase):
             self.assertNotIn("error",reply,repr(unit))
             self.assertIn("65,537 bytes as sent",reply["result"]["content"][0]["text"],repr(unit))
 
+    def test_inspect_page_carries_no_brief_and_one_record_by_id_carries_it_in_full(self):
+        brief = self.args["brief"]
+        ready = self.call("prepare", self.args)
+        page = self.call("inspect")["records"]
+        self.assertEqual(len(page), 1)
+        self.assertNotIn("brief", page[0]["request"])
+        self.assertNotIn(brief, json.dumps(page))
+        self.assertEqual(page[0]["status"], "prepared")
+        for key in (ready["id"], ready["request_id"]):
+            one = self.call("inspect", {"id": key})["records"]
+            self.assertEqual([r["request"]["brief"] for r in one], [brief])
+        self.assertEqual(self.call("inspect", {"id": "no-such"})["records"], [])
+
     def test_inspection_reports_committed_work_separately_from_uncommitted_files_in_each_repository(self):
         second = self.second_repository()
         ready = self.call("prepare", {**self.args, "request_id": "commit-facts", "repos": [str(second)]})
