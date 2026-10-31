@@ -3158,6 +3158,9 @@ def inspect_receipts(scope, args, read_only=False):
                 # A page is for acting on records, not for re-reading each brief: the full brief is
                 # one request by id away (2026-10-31, token burn).
                 shown["request"] = {k: v for k, v in shown["request"].items() if k != "brief"}
+                # The user's own words are stored beside it (prepare) and repeat on every record.
+                if isinstance(shown.get("original_user_instruction"), dict):
+                    shown["original_user_instruction"] = {k: v for k, v in shown["original_user_instruction"].items() if k != "text"}
             result.append(shown)
         page = {"records": result, "next_offset": offset + limit if offset + limit < len(rows) else None}
         if not read_only and offset == 0 and scope.get("seat") is None:
